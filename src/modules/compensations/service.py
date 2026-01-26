@@ -1,0 +1,259 @@
+"""Service for expense claims."""
+
+from datetime import date
+from decimal import Decimal
+
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from src.core.documents.number_generator import get_document_number
+from src.core.exceptions import NotFoundError, ValidationError
+from src.modules.compensations.models import (
+    CompensationPayout,
+    EmployeeBalance,
+    ExpenseClaim,
+    ExpenseClaimStatus,
+    PayoutAllocation,
+)
+from src.modules.compensations.schemas import CompensationPayoutCreate
+from src.modules.procurement.models import ProcurementPayment
+
+
+class ExpenseClaimService:
+    """Expense claim service."""
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def create_from_payment(self, payment: ProcurementPayment) -> ExpenseClaim:
+        """Create expense claim from procurement payment."""
+        claim_number = await get_document_number(self.db, "CLM")
+        claim = ExpenseClaim(
+            claim_number=claim_number,
+            payment_id=payment.id,
+            employee_id=payment.employee_paid_id,
+            purpose_id=payment.purpose_id,
+            amount=payment.amount,
+            description=payment.reference_number or f"Payment {payment.payment_number}",
+            expense_date=payment.payment_date,
+            status=ExpenseClaimStatus.PENDING_APPROVAL.value,
+            paid_amount=Decimal("0.00"),
+            remaining_amount=payment.amount,
+            auto_created_from_payment=True,
+            related_procurement_payment_id=payment.id,
+        )
+        self.db.add(claim)
+        await self.db.flush()
+        return claim
+
+    async def approve_claim(
+        self, claim_id: int, approve: bool, reason: str | None = None
+    ) -> ExpenseClaim:
+        """Approve or reject an expense claim."""
+        claim = await self.get_claim_by_id(claim_id)
+        if claim.status not in (
+            ExpenseClaimStatus.PENDING_APPROVAL.value,
+            ExpenseClaimStatus.DRAFT.value,
+        ):
+            raise ValidationError("Claim is not pending approval")
+
+        if approve:
+            claim.status = ExpenseClaimStatus.APPROVED.value
+        else:
+            claim.status = ExpenseClaimStatus.REJECTED.value
+            if reason:
+                claim.description = f"{claim.description}\nRejection reason: {reason}"
+        await self.db.commit()
+        return await self.get_claim_by_id(claim_id)
+
+    async def get_claim_by_id(self, claim_id: int) -> ExpenseClaim:
+        result = await self.db.execute(
+            select(ExpenseClaim).where(ExpenseClaim.id == claim_id)
+        )
+        claim = result.scalar_one_or_none()
+        if not claim:
+            raise NotFoundError(f"Expense claim {claim_id} not found")
+        return claim
+
+    async def list_claims(
+        self,
+        employee_id: int | None = None,
+        status: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        page: int = 1,
+        limit: int = 50,
+    ) -> tuple[list[ExpenseClaim], int]:
+        query = select(ExpenseClaim)
+        if employee_id:
+            query = query.where(ExpenseClaim.employee_id == employee_id)
+        if status:
+            query = query.where(ExpenseClaim.status == status)
+        if date_from:
+            query = query.where(ExpenseClaim.expense_date >= date_from)
+        if date_to:
+            query = query.where(ExpenseClaim.expense_date <= date_to)
+        total = await self.db.scalar(select(func.count()).select_from(query.subquery()))
+        query = query.order_by(ExpenseClaim.created_at.desc())
+        query = query.offset((page - 1) * limit).limit(limit)
+        result = await self.db.execute(query)
+        return list(result.scalars().all()), total or 0
+
+
+class PayoutService:
+    """Service for payouts and allocations."""
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def create_payout(self, data: CompensationPayoutCreate) -> CompensationPayout:
+        payout_number = await get_document_number(self.db, "PAY")
+        payout = CompensationPayout(
+            payout_number=payout_number,
+            employee_id=data.employee_id,
+            payout_date=data.payout_date,
+            amount=data.amount,
+            payment_method=data.payment_method,
+            reference_number=data.reference_number,
+            proof_text=data.proof_text,
+            proof_attachment_id=data.proof_attachment_id,
+        )
+        self.db.add(payout)
+        await self.db.flush()
+
+        await self._allocate_payout(payout)
+
+        await self._recalculate_employee_balance(data.employee_id)
+        await self.db.commit()
+        return await self.get_payout_by_id(payout.id)
+
+    async def _allocate_payout(
+        self, payout: CompensationPayout
+    ) -> list[PayoutAllocation]:
+        remaining = payout.amount
+        allocations: list[PayoutAllocation] = []
+
+        result = await self.db.execute(
+            select(ExpenseClaim)
+            .where(
+                ExpenseClaim.employee_id == payout.employee_id,
+                ExpenseClaim.status.in_(
+                    [
+                        ExpenseClaimStatus.APPROVED.value,
+                        ExpenseClaimStatus.PARTIALLY_PAID.value,
+                    ]
+                ),
+                ExpenseClaim.remaining_amount > 0,
+            )
+            .order_by(ExpenseClaim.expense_date.asc(), ExpenseClaim.id.asc())
+        )
+        claims = list(result.scalars().all())
+
+        for claim in claims:
+            if remaining <= 0:
+                break
+            to_allocate = min(remaining, claim.remaining_amount)
+            allocation = PayoutAllocation(
+                payout_id=payout.id,
+                claim_id=claim.id,
+                allocated_amount=to_allocate,
+            )
+            self.db.add(allocation)
+            allocations.append(allocation)
+
+            claim.paid_amount += to_allocate
+            claim.remaining_amount -= to_allocate
+            if claim.remaining_amount <= 0:
+                claim.status = ExpenseClaimStatus.PAID.value
+            else:
+                claim.status = ExpenseClaimStatus.PARTIALLY_PAID.value
+
+            remaining -= to_allocate
+
+        return allocations
+
+    async def _recalculate_employee_balance(self, employee_id: int) -> EmployeeBalance:
+        approved_total = await self.db.scalar(
+            select(func.coalesce(func.sum(ExpenseClaim.amount), 0)).where(
+                ExpenseClaim.employee_id == employee_id,
+                ExpenseClaim.status.in_(
+                    [
+                        ExpenseClaimStatus.APPROVED.value,
+                        ExpenseClaimStatus.PARTIALLY_PAID.value,
+                        ExpenseClaimStatus.PAID.value,
+                    ]
+                ),
+            )
+        )
+        paid_total = await self.db.scalar(
+            select(func.coalesce(func.sum(CompensationPayout.amount), 0)).where(
+                CompensationPayout.employee_id == employee_id
+            )
+        )
+
+        balance = Decimal(approved_total) - Decimal(paid_total)
+
+        result = await self.db.execute(
+            select(EmployeeBalance).where(EmployeeBalance.employee_id == employee_id)
+        )
+        employee_balance = result.scalar_one_or_none()
+        if not employee_balance:
+            employee_balance = EmployeeBalance(
+                employee_id=employee_id,
+                total_approved=Decimal(approved_total),
+                total_paid=Decimal(paid_total),
+                balance=Decimal(balance),
+            )
+            self.db.add(employee_balance)
+            await self.db.flush()
+            return employee_balance
+
+        employee_balance.total_approved = Decimal(approved_total)
+        employee_balance.total_paid = Decimal(paid_total)
+        employee_balance.balance = Decimal(balance)
+        return employee_balance
+
+    async def get_payout_by_id(self, payout_id: int) -> CompensationPayout:
+        result = await self.db.execute(
+            select(CompensationPayout)
+            .where(CompensationPayout.id == payout_id)
+            .options(selectinload(CompensationPayout.allocations))
+        )
+        payout = result.scalar_one_or_none()
+        if not payout:
+            raise NotFoundError(f"Payout {payout_id} not found")
+        return payout
+
+    async def list_payouts(
+        self,
+        employee_id: int | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        page: int = 1,
+        limit: int = 50,
+    ) -> tuple[list[CompensationPayout], int]:
+        query = select(CompensationPayout).options(
+            selectinload(CompensationPayout.allocations)
+        )
+        if employee_id:
+            query = query.where(CompensationPayout.employee_id == employee_id)
+        if date_from:
+            query = query.where(CompensationPayout.payout_date >= date_from)
+        if date_to:
+            query = query.where(CompensationPayout.payout_date <= date_to)
+
+        total = await self.db.scalar(select(func.count()).select_from(query.subquery()))
+        query = query.order_by(CompensationPayout.payout_date.desc())
+        query = query.offset((page - 1) * limit).limit(limit)
+        result = await self.db.execute(query)
+        return list(result.scalars().all()), total or 0
+
+    async def get_employee_balance(self, employee_id: int) -> EmployeeBalance:
+        result = await self.db.execute(
+            select(EmployeeBalance).where(EmployeeBalance.employee_id == employee_id)
+        )
+        employee_balance = result.scalar_one_or_none()
+        if not employee_balance:
+            return await self._recalculate_employee_balance(employee_id)
+        return employee_balance

@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest:*)",
+      "Bash(python3 -m pytest:*)",
+      "Bash(ls:*)",
+      "Bash(pip3:*)",
+      "Bash(brew list:*)",
+      "Bash(/opt/homebrew/opt/python@3.11/bin/python3.11:*)",
+      "Bash(/opt/homebrew/opt/python@3.12/bin/python3.12:*)",
+      "Bash(curl:*)",
+      "Bash(sh:*)",
+      "Bash(export PATH=\"$HOME/.local/bin:$PATH\")",
+      "Bash(uv venv:*)",
+      "Bash(source:*)",
+      "Bash(uv pip install:*)",
+      "Bash(.venv/bin/python:*)",
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(uv run pytest:*)",
+      "Bash(uv sync:*)",
+      "Bash(.venv/bin/pytest tests/modules/payments/test_payments.py -v)",
+      "Bash(.venv/bin/pytest:*)",
+      "Bash(wc:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run type-check:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

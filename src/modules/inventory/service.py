@@ -1,0 +1,895 @@
+"""Service for Inventory module."""
+
+from decimal import Decimal
+
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from src.core.audit.service import AuditService
+from src.core.documents.number_generator import DocumentNumberGenerator
+from src.core.exceptions import NotFoundError, ValidationError
+from src.modules.inventory.models import (
+    Issuance,
+    IssuanceItem,
+    IssuanceStatus,
+    IssuanceType,
+    MovementType,
+    RecipientType,
+    Stock,
+    StockMovement,
+)
+from src.modules.inventory.schemas import (
+    AdjustStockRequest,
+    InternalIssuanceCreate,
+    IssueStockRequest,
+    ReceiveStockRequest,
+    WriteOffItem,
+    InventoryCountItem,
+)
+from src.modules.items.models import Item, ItemType
+from src.shared.utils.money import round_money
+
+
+class InventoryService:
+    """Service for managing inventory stock and movements."""
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+        self.audit = AuditService(db)
+
+    async def _get_item(self, item_id: int) -> Item:
+        """Get item by ID and verify it's a product."""
+        result = await self.db.execute(select(Item).where(Item.id == item_id))
+        item = result.scalar_one_or_none()
+        if not item:
+            raise NotFoundError(f"Item with id {item_id} not found")
+        if item.item_type != ItemType.PRODUCT.value:
+            raise ValidationError(f"Item '{item.name}' is not a product and cannot have stock")
+        return item
+
+    async def _get_or_create_stock(self, item_id: int) -> Stock:
+        """Get existing stock record or create new one."""
+        result = await self.db.execute(
+            select(Stock).where(Stock.item_id == item_id)
+        )
+        stock = result.scalar_one_or_none()
+
+        if not stock:
+            # Verify item exists and is a product
+            await self._get_item(item_id)
+
+            stock = Stock(
+                item_id=item_id,
+                quantity_on_hand=0,
+                quantity_reserved=0,
+                average_cost=Decimal("0.00"),
+            )
+            self.db.add(stock)
+            await self.db.flush()
+
+        return stock
+
+    async def get_stock_by_item_id(self, item_id: int) -> Stock | None:
+        """Get stock record for an item."""
+        result = await self.db.execute(
+            select(Stock)
+            .options(selectinload(Stock.item))
+            .where(Stock.item_id == item_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_stock(
+        self,
+        include_zero: bool = False,
+        category_id: int | None = None,
+        page: int = 1,
+        limit: int = 100,
+    ) -> tuple[list[Stock], int]:
+        """List all stock records with optional filters."""
+        query = (
+            select(Stock)
+            .options(selectinload(Stock.item))
+            .join(Item)
+            .order_by(Item.name)
+        )
+
+        if not include_zero:
+            query = query.where(Stock.quantity_on_hand > 0)
+
+        if category_id is not None:
+            query = query.where(Item.category_id == category_id)
+
+        # Count total
+        count_query = select(func.count()).select_from(query.subquery())
+        total_result = await self.db.execute(count_query)
+        total = total_result.scalar() or 0
+
+        offset = (page - 1) * limit
+        query = query.offset(offset).limit(limit)
+
+        result = await self.db.execute(query)
+        stocks = list(result.scalars().all())
+
+        return stocks, total
+
+    async def receive_stock(
+        self,
+        data: ReceiveStockRequest,
+        received_by_id: int,
+        commit: bool = True,
+    ) -> StockMovement:
+        """Receive stock (incoming goods).
+
+        Updates quantity_on_hand and recalculates average_cost using weighted average.
+        """
+        stock = await self._get_or_create_stock(data.item_id)
+
+        # Store before values
+        quantity_before = stock.quantity_on_hand
+        average_cost_before = stock.average_cost
+
+        # Calculate new weighted average cost
+        # new_avg = (old_qty * old_avg + new_qty * new_cost) / (old_qty + new_qty)
+        total_value_before = Decimal(quantity_before) * average_cost_before
+        total_value_new = Decimal(data.quantity) * data.unit_cost
+        new_total_quantity = quantity_before + data.quantity
+
+        if new_total_quantity > 0:
+            new_average_cost = round_money(
+                (total_value_before + total_value_new) / Decimal(new_total_quantity)
+            )
+        else:
+            new_average_cost = data.unit_cost
+
+        # Update stock
+        stock.quantity_on_hand = new_total_quantity
+        stock.average_cost = new_average_cost
+
+        # Create movement record
+        movement = StockMovement(
+            stock_id=stock.id,
+            item_id=data.item_id,
+            movement_type=MovementType.RECEIPT.value,
+            quantity=data.quantity,
+            unit_cost=data.unit_cost,
+            quantity_before=quantity_before,
+            quantity_after=stock.quantity_on_hand,
+            average_cost_before=average_cost_before,
+            average_cost_after=new_average_cost,
+            reference_type=data.reference_type,
+            reference_id=data.reference_id,
+            notes=data.notes,
+            created_by_id=received_by_id,
+        )
+        self.db.add(movement)
+
+        await self.audit.log(
+            action="inventory.receive",
+            entity_type="Stock",
+            entity_id=stock.id,
+            user_id=received_by_id,
+            old_values={
+                "quantity_on_hand": quantity_before,
+                "average_cost": str(average_cost_before),
+            },
+            new_values={
+                "quantity_on_hand": stock.quantity_on_hand,
+                "average_cost": str(new_average_cost),
+                "received_quantity": data.quantity,
+                "unit_cost": str(data.unit_cost),
+            },
+        )
+
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(movement)
+        return movement
+
+    async def adjust_stock(
+        self,
+        data: AdjustStockRequest,
+        adjusted_by_id: int,
+        commit: bool = True,
+    ) -> StockMovement:
+        """Adjust stock (correction, write-off).
+
+        Can increase or decrease quantity. Does not change average_cost.
+        """
+        movement = await self._apply_adjustment(
+            item_id=data.item_id,
+            quantity_delta=data.quantity,
+            reason=data.reason,
+            reference_type=data.reference_type,
+            reference_id=data.reference_id,
+            adjusted_by_id=adjusted_by_id,
+            audit_action="inventory.adjust",
+        )
+
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(movement)
+        return movement
+
+    async def write_off_items(
+        self, items: list[WriteOffItem], written_off_by_id: int
+    ) -> list[StockMovement]:
+        """Write off items with reasons (damage/expired/lost/other)."""
+        movements: list[StockMovement] = []
+        for item in items:
+            reason_detail = f"{item.reason_category.value}"
+            if item.reason_detail:
+                reason_detail = f"{reason_detail}: {item.reason_detail}"
+            movement = await self._apply_adjustment(
+                item_id=item.item_id,
+                quantity_delta=-item.quantity,
+                reason=reason_detail,
+                reference_type="writeoff",
+                reference_id=None,
+                adjusted_by_id=written_off_by_id,
+                audit_action="inventory.writeoff",
+            )
+            movements.append(movement)
+
+        await self.db.commit()
+        return movements
+
+    async def bulk_inventory_adjustment(
+        self, items: list[InventoryCountItem], adjusted_by_id: int
+    ) -> list[StockMovement]:
+        """Adjust stock based on actual counted quantities."""
+        movements: list[StockMovement] = []
+        for item in items:
+            stock = await self._get_or_create_stock(item.item_id)
+            delta = item.actual_quantity - stock.quantity_on_hand
+            if delta == 0:
+                continue
+            movement = await self._apply_adjustment(
+                item_id=item.item_id,
+                quantity_delta=delta,
+                reason=f"Inventory count: actual {item.actual_quantity}",
+                reference_type="inventory_count",
+                reference_id=None,
+                adjusted_by_id=adjusted_by_id,
+                audit_action="inventory.adjust",
+            )
+            movements.append(movement)
+
+        await self.db.commit()
+        return movements
+
+    async def _apply_adjustment(
+        self,
+        item_id: int,
+        quantity_delta: int,
+        reason: str,
+        reference_type: str | None,
+        reference_id: int | None,
+        adjusted_by_id: int,
+        audit_action: str,
+    ) -> StockMovement:
+        stock = await self._get_or_create_stock(item_id)
+
+        quantity_before = stock.quantity_on_hand
+        new_quantity = quantity_before + quantity_delta
+
+        if new_quantity < 0:
+            raise ValidationError(
+                f"Adjustment would result in negative stock ({new_quantity}). "
+                f"Current quantity: {quantity_before}, adjustment: {quantity_delta}"
+            )
+
+        if new_quantity < stock.quantity_reserved:
+            raise ValidationError(
+                f"Adjustment would result in quantity ({new_quantity}) less than reserved ({stock.quantity_reserved})"
+            )
+
+        stock.quantity_on_hand = new_quantity
+
+        movement = StockMovement(
+            stock_id=stock.id,
+            item_id=item_id,
+            movement_type=MovementType.ADJUSTMENT.value,
+            quantity=quantity_delta,
+            unit_cost=None,
+            quantity_before=quantity_before,
+            quantity_after=new_quantity,
+            average_cost_before=stock.average_cost,
+            average_cost_after=stock.average_cost,
+            reference_type=reference_type,
+            reference_id=reference_id,
+            notes=reason,
+            created_by_id=adjusted_by_id,
+        )
+        self.db.add(movement)
+
+        await self.audit.log(
+            action=audit_action,
+            entity_type="Stock",
+            entity_id=stock.id,
+            user_id=adjusted_by_id,
+            old_values={"quantity_on_hand": quantity_before},
+            new_values={
+                "quantity_on_hand": new_quantity,
+                "adjustment": quantity_delta,
+                "reason": reason,
+            },
+        )
+
+        return movement
+
+    async def issue_stock(
+        self, data: IssueStockRequest, issued_by_id: int
+    ) -> StockMovement:
+        """Issue stock (manual issue without reservation).
+
+        Decreases quantity_on_hand. For reserved stock, use reserve/unreserve methods.
+        """
+        stock = await self._get_or_create_stock(data.item_id)
+
+        # Store before values
+        quantity_before = stock.quantity_on_hand
+
+        # Check available quantity (on_hand minus reserved)
+        available = stock.quantity_on_hand - stock.quantity_reserved
+        if data.quantity > available:
+            raise ValidationError(
+                f"Insufficient stock. Available: {available}, requested: {data.quantity}. "
+                f"(On hand: {stock.quantity_on_hand}, reserved: {stock.quantity_reserved})"
+            )
+
+        # Update stock
+        stock.quantity_on_hand -= data.quantity
+
+        # Create movement record
+        movement = StockMovement(
+            stock_id=stock.id,
+            item_id=data.item_id,
+            movement_type=MovementType.ISSUE.value,
+            quantity=-data.quantity,  # Negative for outgoing
+            unit_cost=stock.average_cost,  # Use current average cost
+            quantity_before=quantity_before,
+            quantity_after=stock.quantity_on_hand,
+            average_cost_before=stock.average_cost,
+            average_cost_after=stock.average_cost,  # No change
+            reference_type=data.reference_type,
+            reference_id=data.reference_id,
+            notes=data.notes,
+            created_by_id=issued_by_id,
+        )
+        self.db.add(movement)
+
+        await self.audit.log(
+            action="inventory.issue",
+            entity_type="Stock",
+            entity_id=stock.id,
+            user_id=issued_by_id,
+            old_values={"quantity_on_hand": quantity_before},
+            new_values={
+                "quantity_on_hand": stock.quantity_on_hand,
+                "issued_quantity": data.quantity,
+            },
+        )
+
+        await self.db.commit()
+        await self.db.refresh(movement)
+        return movement
+
+    async def reserve_stock(
+        self,
+        item_id: int,
+        quantity: int,
+        reference_type: str,
+        reference_id: int,
+        reserved_by_id: int,
+        commit: bool = True,
+    ) -> StockMovement:
+        """Reserve stock for pending issuance.
+
+        Increases quantity_reserved without changing quantity_on_hand.
+        Will be called from Reservation module when Invoice is paid.
+        """
+        if quantity <= 0:
+            raise ValidationError("Reserve quantity must be positive")
+
+        stock = await self._get_or_create_stock(item_id)
+
+        # Check available quantity
+        available = stock.quantity_on_hand - stock.quantity_reserved
+        if quantity > available:
+            raise ValidationError(
+                f"Insufficient stock to reserve. Available: {available}, requested: {quantity}"
+            )
+
+        # Store before values
+        reserved_before = stock.quantity_reserved
+
+        # Update stock
+        stock.quantity_reserved += quantity
+
+        # Create movement record
+        movement = StockMovement(
+            stock_id=stock.id,
+            item_id=item_id,
+            movement_type=MovementType.RESERVE.value,
+            quantity=quantity,
+            unit_cost=None,
+            quantity_before=stock.quantity_on_hand,  # On hand doesn't change
+            quantity_after=stock.quantity_on_hand,
+            average_cost_before=stock.average_cost,
+            average_cost_after=stock.average_cost,
+            reference_type=reference_type,
+            reference_id=reference_id,
+            notes=f"Reserved {quantity} units",
+            created_by_id=reserved_by_id,
+        )
+        self.db.add(movement)
+
+        await self.audit.log(
+            action="inventory.reserve",
+            entity_type="Stock",
+            entity_id=stock.id,
+            user_id=reserved_by_id,
+            old_values={"quantity_reserved": reserved_before},
+            new_values={
+                "quantity_reserved": stock.quantity_reserved,
+                "reserved_quantity": quantity,
+            },
+        )
+
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(movement)
+        return movement
+
+    async def unreserve_stock(
+        self,
+        item_id: int,
+        quantity: int,
+        reference_type: str,
+        reference_id: int,
+        unreserved_by_id: int,
+        commit: bool = True,
+    ) -> StockMovement:
+        """Unreserve stock (cancel reservation).
+
+        Decreases quantity_reserved without changing quantity_on_hand.
+        Will be called when Invoice is cancelled or reservation is fulfilled.
+        """
+        if quantity <= 0:
+            raise ValidationError("Unreserve quantity must be positive")
+
+        result = await self.db.execute(
+            select(Stock).where(Stock.item_id == item_id)
+        )
+        stock = result.scalar_one_or_none()
+        if not stock:
+            raise NotFoundError(f"No stock record for item {item_id}")
+
+        if quantity > stock.quantity_reserved:
+            raise ValidationError(
+                f"Cannot unreserve {quantity} units. Only {stock.quantity_reserved} reserved."
+            )
+
+        # Store before values
+        reserved_before = stock.quantity_reserved
+
+        # Update stock
+        stock.quantity_reserved -= quantity
+
+        # Create movement record
+        movement = StockMovement(
+            stock_id=stock.id,
+            item_id=item_id,
+            movement_type=MovementType.UNRESERVE.value,
+            quantity=-quantity,
+            unit_cost=None,
+            quantity_before=stock.quantity_on_hand,
+            quantity_after=stock.quantity_on_hand,
+            average_cost_before=stock.average_cost,
+            average_cost_after=stock.average_cost,
+            reference_type=reference_type,
+            reference_id=reference_id,
+            notes=f"Unreserved {quantity} units",
+            created_by_id=unreserved_by_id,
+        )
+        self.db.add(movement)
+
+        await self.audit.log(
+            action="inventory.unreserve",
+            entity_type="Stock",
+            entity_id=stock.id,
+            user_id=unreserved_by_id,
+            old_values={"quantity_reserved": reserved_before},
+            new_values={
+                "quantity_reserved": stock.quantity_reserved,
+                "unreserved_quantity": quantity,
+            },
+        )
+
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(movement)
+        return movement
+
+    async def issue_reserved_stock(
+        self,
+        item_id: int,
+        quantity: int,
+        reference_type: str,
+        reference_id: int,
+        issued_by_id: int,
+        commit: bool = True,
+    ) -> StockMovement:
+        """Issue previously reserved stock.
+
+        Decreases both quantity_on_hand and quantity_reserved.
+        Used when fulfilling a reservation (actual issuance to student).
+        """
+        if quantity <= 0:
+            raise ValidationError("Issue quantity must be positive")
+
+        result = await self.db.execute(
+            select(Stock).where(Stock.item_id == item_id)
+        )
+        stock = result.scalar_one_or_none()
+        if not stock:
+            raise NotFoundError(f"No stock record for item {item_id}")
+
+        if quantity > stock.quantity_reserved:
+            raise ValidationError(
+                f"Cannot issue {quantity} reserved units. Only {stock.quantity_reserved} reserved."
+            )
+
+        # Store before values
+        quantity_before = stock.quantity_on_hand
+        reserved_before = stock.quantity_reserved
+
+        # Update stock
+        stock.quantity_on_hand -= quantity
+        stock.quantity_reserved -= quantity
+
+        # Create movement record
+        movement = StockMovement(
+            stock_id=stock.id,
+            item_id=item_id,
+            movement_type=MovementType.ISSUE.value,
+            quantity=-quantity,
+            unit_cost=stock.average_cost,
+            quantity_before=quantity_before,
+            quantity_after=stock.quantity_on_hand,
+            average_cost_before=stock.average_cost,
+            average_cost_after=stock.average_cost,
+            reference_type=reference_type,
+            reference_id=reference_id,
+            notes=f"Issued {quantity} reserved units",
+            created_by_id=issued_by_id,
+        )
+        self.db.add(movement)
+
+        await self.audit.log(
+            action="inventory.issue_reserved",
+            entity_type="Stock",
+            entity_id=stock.id,
+            user_id=issued_by_id,
+            old_values={
+                "quantity_on_hand": quantity_before,
+                "quantity_reserved": reserved_before,
+            },
+            new_values={
+                "quantity_on_hand": stock.quantity_on_hand,
+                "quantity_reserved": stock.quantity_reserved,
+                "issued_quantity": quantity,
+            },
+        )
+
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(movement)
+        return movement
+
+    async def get_movements(
+        self,
+        item_id: int | None = None,
+        movement_type: MovementType | None = None,
+        page: int = 1,
+        limit: int = 100,
+    ) -> tuple[list[StockMovement], int]:
+        """Get stock movements with optional filters."""
+        query = (
+            select(StockMovement)
+            .options(
+                selectinload(StockMovement.item),
+                selectinload(StockMovement.created_by),
+            )
+            .order_by(StockMovement.created_at.desc(), StockMovement.id.desc())
+        )
+
+        if item_id is not None:
+            query = query.where(StockMovement.item_id == item_id)
+        if movement_type is not None:
+            query = query.where(StockMovement.movement_type == movement_type.value)
+
+        # Count total
+        count_query = select(func.count()).select_from(query.subquery())
+        total_result = await self.db.execute(count_query)
+        total = total_result.scalar() or 0
+
+        # Apply pagination
+        offset = (page - 1) * limit
+        query = query.offset(offset).limit(limit)
+
+        result = await self.db.execute(query)
+        movements = list(result.scalars().all())
+
+        return movements, total
+
+    async def get_movements_by_ids(
+        self, movement_ids: list[int]
+    ) -> list[StockMovement]:
+        """Get stock movements by IDs with relationships loaded."""
+        if not movement_ids:
+            return []
+        result = await self.db.execute(
+            select(StockMovement)
+            .where(StockMovement.id.in_(movement_ids))
+            .options(
+                selectinload(StockMovement.item),
+                selectinload(StockMovement.created_by),
+            )
+            .order_by(StockMovement.created_at.desc(), StockMovement.id.desc())
+        )
+        return list(result.scalars().all())
+
+    # --- Issuance Methods ---
+
+    async def create_internal_issuance(
+        self, data: InternalIssuanceCreate, issued_by_id: int
+    ) -> Issuance:
+        """Create an internal issuance (to employee, department, etc.).
+
+        This creates an issuance record and issues stock for each item.
+        """
+        # Validate recipient type
+        if data.recipient_type == RecipientType.STUDENT:
+            raise ValidationError(
+                "Use create_reservation_issuance for student issuances"
+            )
+
+        # Validate all items have sufficient stock
+        for item_data in data.items:
+            stock = await self.get_stock_by_item_id(item_data.item_id)
+            if not stock:
+                item = await self._get_item(item_data.item_id)
+                raise ValidationError(
+                    f"No stock for item '{item.name}'. Receive stock first."
+                )
+            available = stock.quantity_on_hand - stock.quantity_reserved
+            if item_data.quantity > available:
+                raise ValidationError(
+                    f"Insufficient stock for item {item_data.item_id}. "
+                    f"Available: {available}, requested: {item_data.quantity}"
+                )
+
+        # Generate issuance number
+        number_gen = DocumentNumberGenerator(self.db)
+        issuance_number = await number_gen.generate("ISS")
+
+        # Create issuance
+        issuance = Issuance(
+            issuance_number=issuance_number,
+            issuance_type=IssuanceType.INTERNAL.value,
+            recipient_type=data.recipient_type.value,
+            recipient_id=data.recipient_id,
+            recipient_name=data.recipient_name,
+            reservation_id=None,
+            issued_by_id=issued_by_id,
+            notes=data.notes,
+            status=IssuanceStatus.COMPLETED.value,
+        )
+        self.db.add(issuance)
+        await self.db.flush()
+
+        # Create issuance items and issue stock
+        for item_data in data.items:
+            stock = await self.get_stock_by_item_id(item_data.item_id)
+
+            # Create issuance item
+            issuance_item = IssuanceItem(
+                issuance_id=issuance.id,
+                item_id=item_data.item_id,
+                quantity=item_data.quantity,
+                unit_cost=stock.average_cost,
+                reservation_item_id=None,
+            )
+            self.db.add(issuance_item)
+
+            # Issue stock (without commit, we'll commit at the end)
+            await self._issue_stock_internal(
+                stock=stock,
+                quantity=item_data.quantity,
+                reference_type="issuance",
+                reference_id=issuance.id,
+                issued_by_id=issued_by_id,
+            )
+
+        await self.audit.log(
+            action="inventory.issuance.create",
+            entity_type="Issuance",
+            entity_id=issuance.id,
+            user_id=issued_by_id,
+            new_values={
+                "issuance_number": issuance_number,
+                "recipient_type": data.recipient_type.value,
+                "recipient_name": data.recipient_name,
+                "items": [
+                    {"item_id": i.item_id, "quantity": i.quantity}
+                    for i in data.items
+                ],
+            },
+        )
+
+        await self.db.commit()
+        await self.db.refresh(issuance)
+        return issuance
+
+    async def _issue_stock_internal(
+        self,
+        stock: Stock,
+        quantity: int,
+        reference_type: str,
+        reference_id: int,
+        issued_by_id: int,
+    ) -> StockMovement:
+        """Internal method to issue stock without commit.
+
+        Used by issuance methods to batch multiple stock operations.
+        """
+        quantity_before = stock.quantity_on_hand
+
+        # Update stock
+        stock.quantity_on_hand -= quantity
+
+        # Create movement record
+        movement = StockMovement(
+            stock_id=stock.id,
+            item_id=stock.item_id,
+            movement_type=MovementType.ISSUE.value,
+            quantity=-quantity,
+            unit_cost=stock.average_cost,
+            quantity_before=quantity_before,
+            quantity_after=stock.quantity_on_hand,
+            average_cost_before=stock.average_cost,
+            average_cost_after=stock.average_cost,
+            reference_type=reference_type,
+            reference_id=reference_id,
+            notes=None,
+            created_by_id=issued_by_id,
+        )
+        self.db.add(movement)
+
+        return movement
+
+    async def get_issuance_by_id(self, issuance_id: int) -> Issuance:
+        """Get issuance by ID with items loaded."""
+        result = await self.db.execute(
+            select(Issuance)
+            .options(
+                selectinload(Issuance.items).selectinload(IssuanceItem.item),
+                selectinload(Issuance.issued_by),
+            )
+            .where(Issuance.id == issuance_id)
+        )
+        issuance = result.scalar_one_or_none()
+        if not issuance:
+            raise NotFoundError(f"Issuance with id {issuance_id} not found")
+        return issuance
+
+    async def get_issuance_by_number(self, issuance_number: str) -> Issuance:
+        """Get issuance by number with items loaded."""
+        result = await self.db.execute(
+            select(Issuance)
+            .options(
+                selectinload(Issuance.items).selectinload(IssuanceItem.item),
+                selectinload(Issuance.issued_by),
+            )
+            .where(Issuance.issuance_number == issuance_number)
+        )
+        issuance = result.scalar_one_or_none()
+        if not issuance:
+            raise NotFoundError(f"Issuance with number '{issuance_number}' not found")
+        return issuance
+
+    async def list_issuances(
+        self,
+        issuance_type: IssuanceType | None = None,
+        recipient_type: RecipientType | None = None,
+        recipient_id: int | None = None,
+        page: int = 1,
+        limit: int = 100,
+    ) -> tuple[list[Issuance], int]:
+        """List issuances with optional filters."""
+        query = (
+            select(Issuance)
+            .options(
+                selectinload(Issuance.items).selectinload(IssuanceItem.item),
+                selectinload(Issuance.issued_by),
+            )
+            .order_by(Issuance.issued_at.desc())
+        )
+
+        if issuance_type is not None:
+            query = query.where(Issuance.issuance_type == issuance_type.value)
+        if recipient_type is not None:
+            query = query.where(Issuance.recipient_type == recipient_type.value)
+        if recipient_id is not None:
+            query = query.where(Issuance.recipient_id == recipient_id)
+
+        # Count total
+        count_query = select(func.count()).select_from(query.subquery())
+        total_result = await self.db.execute(count_query)
+        total = total_result.scalar() or 0
+
+        # Apply pagination
+        offset = (page - 1) * limit
+        query = query.offset(offset).limit(limit)
+
+        result = await self.db.execute(query)
+        issuances = list(result.scalars().all())
+
+        return issuances, total
+
+    async def cancel_issuance(
+        self, issuance_id: int, cancelled_by_id: int, commit: bool = True
+    ) -> Issuance:
+        """Cancel an issuance and return stock.
+
+        This reverses all stock movements from the issuance.
+        """
+        issuance = await self.get_issuance_by_id(issuance_id)
+
+        if issuance.status == IssuanceStatus.CANCELLED.value:
+            raise ValidationError("Issuance is already cancelled")
+
+        # Return stock for each item
+        for issuance_item in issuance.items:
+            stock = await self._get_or_create_stock(issuance_item.item_id)
+
+            # Increase stock (return)
+            quantity_before = stock.quantity_on_hand
+            stock.quantity_on_hand += issuance_item.quantity
+
+            # Create movement record for return
+            movement = StockMovement(
+                stock_id=stock.id,
+                item_id=issuance_item.item_id,
+                movement_type=MovementType.ADJUSTMENT.value,
+                quantity=issuance_item.quantity,
+                unit_cost=None,
+                quantity_before=quantity_before,
+                quantity_after=stock.quantity_on_hand,
+                average_cost_before=stock.average_cost,
+                average_cost_after=stock.average_cost,
+                reference_type="issuance_cancellation",
+                reference_id=issuance.id,
+                notes=f"Return from cancelled issuance {issuance.issuance_number}",
+                created_by_id=cancelled_by_id,
+            )
+            self.db.add(movement)
+
+        # Update issuance status
+        issuance.status = IssuanceStatus.CANCELLED.value
+
+        await self.audit.log(
+            action="inventory.issuance.cancel",
+            entity_type="Issuance",
+            entity_id=issuance.id,
+            user_id=cancelled_by_id,
+            old_values={"status": IssuanceStatus.COMPLETED.value},
+            new_values={"status": IssuanceStatus.CANCELLED.value},
+        )
+
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(issuance)
+        return issuance

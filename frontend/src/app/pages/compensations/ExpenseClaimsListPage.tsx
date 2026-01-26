@@ -1,0 +1,328 @@
+import {
+  Alert,
+  Box,
+  Button,
+  Chip,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TablePagination,
+  TableRow,
+  TextField,
+  Typography,
+} from '@mui/material'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../../auth/AuthContext'
+import { api } from '../../services/api'
+import { formatDate, formatMoney } from '../../utils/format'
+
+interface ApiResponse<T> {
+  success: boolean
+  data: T
+}
+
+interface PaginatedResponse<T> {
+  items: T[]
+  total: number
+  page: number
+  limit: number
+}
+
+interface ClaimRow {
+  id: number
+  claim_number: string
+  employee_id: number
+  amount: number
+  description: string
+  expense_date: string
+  status: string
+  paid_amount: number
+  remaining_amount: number
+}
+
+interface UserRow {
+  id: number
+  full_name: string
+}
+
+interface BalanceResponse {
+  employee_id: number
+  total_approved: number
+  total_paid: number
+  balance: number
+}
+
+const statusOptions = [
+  { value: 'all', label: 'All' },
+  { value: 'draft', label: 'Draft' },
+  { value: 'pending_approval', label: 'Pending Approval' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'partially_paid', label: 'Partially Paid' },
+  { value: 'paid', label: 'Paid' },
+]
+
+const statusColor = (status: string) => {
+  if (status === 'approved' || status === 'paid') return 'success'
+  if (status === 'rejected') return 'error'
+  if (status === 'pending_approval' || status === 'partially_paid') return 'warning'
+  return 'info'
+}
+
+export const ExpenseClaimsListPage = () => {
+  const navigate = useNavigate()
+  const { user } = useAuth()
+  const isSuperAdmin = user?.role === 'SuperAdmin'
+
+  const [claims, setClaims] = useState<ClaimRow[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(0)
+  const [limit, setLimit] = useState(50)
+  const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [employeeFilter, setEmployeeFilter] = useState<number | ''>('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const [employees, setEmployees] = useState<UserRow[]>([])
+  const [myBalance, setMyBalance] = useState<BalanceResponse | null>(null)
+
+  const requestParams = useMemo(() => {
+    const params: Record<string, string | number> = {
+      page: page + 1,
+      limit,
+    }
+    if (statusFilter !== 'all') {
+      params.status = statusFilter
+    }
+    // Для обычного сотрудника всегда фильтруем по его ID
+    if (!isSuperAdmin && user?.id) {
+      params.employee_id = user.id
+    } else if (isSuperAdmin && employeeFilter) {
+      params.employee_id = Number(employeeFilter)
+    }
+    if (dateFrom) {
+      params.date_from = dateFrom
+    }
+    if (dateTo) {
+      params.date_to = dateTo
+    }
+    return params
+  }, [page, limit, statusFilter, employeeFilter, dateFrom, dateTo, isSuperAdmin, user?.id])
+
+  const loadClaims = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await api.get<ApiResponse<PaginatedResponse<ClaimRow>>>(
+        '/compensations/claims',
+        { params: requestParams }
+      )
+      setClaims(response.data.data.items)
+      setTotal(response.data.data.total)
+    } catch {
+      setError('Failed to load expense claims.')
+    } finally {
+      setLoading(false)
+    }
+  }, [requestParams])
+
+  const loadEmployees = useCallback(async () => {
+    if (!isSuperAdmin) return
+    try {
+      const response = await api.get<ApiResponse<{ items: UserRow[] }>>('/users', {
+        params: { limit: 100 },
+      })
+      setEmployees(response.data.data.items)
+    } catch {
+      // Ignore
+    }
+  }, [isSuperAdmin])
+
+  const loadMyBalance = useCallback(async () => {
+    if (!user?.id || isSuperAdmin) return
+    try {
+      // Пробуем получить баланс, но endpoint может требовать SuperAdmin
+      // В таком случае просто не показываем баланс
+      const response = await api.get<ApiResponse<BalanceResponse>>(
+        `/compensations/payouts/employees/${user.id}/balance`
+      )
+      setMyBalance(response.data.data)
+    } catch {
+      // Endpoint может быть недоступен для обычных пользователей
+      // В таком случае просто не показываем баланс
+    }
+  }, [user?.id, isSuperAdmin])
+
+  useEffect(() => {
+    loadClaims()
+  }, [loadClaims])
+
+  useEffect(() => {
+    loadEmployees()
+    loadMyBalance()
+  }, [loadEmployees, loadMyBalance])
+
+  return (
+    <Box>
+      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+        Expense Claims
+      </Typography>
+
+      {!isSuperAdmin && myBalance ? (
+        <Box sx={{ mb: 3, p: 2, bgcolor: 'background.paper', borderRadius: 1, boxShadow: 1 }}>
+          <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+            My Balance
+          </Typography>
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2 }}>
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary">
+                Total Approved
+              </Typography>
+              <Typography variant="h6">{formatMoney(myBalance.total_approved)}</Typography>
+            </Box>
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary">
+                Total Paid
+              </Typography>
+              <Typography variant="h6">{formatMoney(myBalance.total_paid)}</Typography>
+            </Box>
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary">
+                Balance
+              </Typography>
+              <Typography variant="h6" color={myBalance.balance > 0 ? 'error' : 'inherit'}>
+                {formatMoney(myBalance.balance)}
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
+      ) : null}
+
+      <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+        {isSuperAdmin ? (
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel>Employee</InputLabel>
+            <Select
+              value={employeeFilter}
+              label="Employee"
+              onChange={(event) => {
+                const val = String(event.target.value)
+                setEmployeeFilter(val === '' ? '' : Number(val))
+              }}
+            >
+              <MenuItem value="">All employees</MenuItem>
+              {employees.map((emp) => (
+                <MenuItem key={emp.id} value={emp.id}>
+                  {emp.full_name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        ) : null}
+        <FormControl size="small" sx={{ minWidth: 180 }}>
+          <InputLabel>Status</InputLabel>
+          <Select
+            value={statusFilter}
+            label="Status"
+            onChange={(event) => setStatusFilter(event.target.value)}
+          >
+            {statusOptions.map((option) => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        <TextField
+          label="Date from"
+          type="date"
+          value={dateFrom}
+          onChange={(event) => setDateFrom(event.target.value)}
+          size="small"
+          InputLabelProps={{ shrink: true }}
+        />
+        <TextField
+          label="Date to"
+          type="date"
+          value={dateTo}
+          onChange={(event) => setDateTo(event.target.value)}
+          size="small"
+          InputLabelProps={{ shrink: true }}
+        />
+      </Box>
+
+      {error ? (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      ) : null}
+
+      <Table>
+        <TableHead>
+          <TableRow>
+            <TableCell>Claim Number</TableCell>
+            {isSuperAdmin ? <TableCell>Employee</TableCell> : null}
+            <TableCell>Description</TableCell>
+            <TableCell>Date</TableCell>
+            <TableCell align="right">Amount</TableCell>
+            <TableCell align="right">Paid</TableCell>
+            <TableCell align="right">Remaining</TableCell>
+            <TableCell>Status</TableCell>
+            <TableCell align="right">Actions</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {claims.map((claim) => (
+            <TableRow key={claim.id}>
+              <TableCell>{claim.claim_number}</TableCell>
+              {isSuperAdmin ? (
+                <TableCell>
+                  {employees.find((e) => e.id === claim.employee_id)?.full_name ?? '—'}
+                </TableCell>
+              ) : null}
+              <TableCell>{claim.description}</TableCell>
+              <TableCell>{formatDate(claim.expense_date)}</TableCell>
+              <TableCell align="right">{formatMoney(claim.amount)}</TableCell>
+              <TableCell align="right">{formatMoney(claim.paid_amount)}</TableCell>
+              <TableCell align="right">{formatMoney(claim.remaining_amount)}</TableCell>
+              <TableCell>
+                <Chip size="small" label={claim.status} color={statusColor(claim.status)} />
+              </TableCell>
+              <TableCell align="right">
+                <Button size="small" onClick={() => navigate(`/compensations/claims/${claim.id}`)}>
+                  View
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+          {!claims.length && !loading ? (
+            <TableRow>
+              <TableCell colSpan={isSuperAdmin ? 9 : 8} align="center">
+                No expense claims found
+              </TableCell>
+            </TableRow>
+          ) : null}
+        </TableBody>
+      </Table>
+      <TablePagination
+        component="div"
+        count={total}
+        page={page}
+        onPageChange={(_, nextPage) => setPage(nextPage)}
+        rowsPerPage={limit}
+        onRowsPerPageChange={(event) => {
+          setLimit(Number(event.target.value))
+          setPage(0)
+        }}
+      />
+    </Box>
+  )
+}

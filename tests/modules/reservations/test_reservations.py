@@ -1,0 +1,194 @@
+"""Tests for Reservations module."""
+
+from datetime import date, timedelta
+from decimal import Decimal
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.core.auth.models import UserRole
+from src.core.auth.service import AuthService
+from src.modules.inventory.schemas import ReceiveStockRequest
+from src.modules.inventory.service import InventoryService
+from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
+from src.modules.items.models import Category, Item, ItemType, Kit, KitItem, PriceType
+from src.modules.reservations.models import ReservationStatus
+from src.modules.reservations.service import ReservationService
+from src.modules.students.models import Gender, Grade, Student, StudentStatus
+
+
+class TestReservationService:
+    """Tests for ReservationService."""
+
+    async def _setup_test_data(self, db_session: AsyncSession) -> dict:
+        auth_service = AuthService(db_session)
+        user = await auth_service.create_user(
+            email="reservation_test@school.com",
+            password="Test123!",
+            full_name="Reservation Tester",
+            role=UserRole.SUPER_ADMIN,
+        )
+        await db_session.flush()
+
+        category = Category(name="Reservation Category", is_active=True)
+        db_session.add(category)
+        await db_session.flush()
+
+        item = Item(
+            category_id=category.id,
+            sku_code="RES-ITEM-001",
+            name="Reservation Item",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("500.00"),
+            is_active=True,
+        )
+        db_session.add(item)
+        await db_session.flush()
+
+        kit = Kit(
+            category_id=category.id,
+            sku_code="RES-KIT-001",
+            name="Reservation Kit",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("500.00"),
+            requires_full_payment=True,
+            is_active=True,
+        )
+        db_session.add(kit)
+        await db_session.flush()
+
+        kit_item = KitItem(
+            kit_id=kit.id,
+            item_id=item.id,
+            quantity=1,
+        )
+        db_session.add(kit_item)
+
+        grade = Grade(code="RES1", name="Reservation Grade", display_order=1, is_active=True)
+        db_session.add(grade)
+        await db_session.flush()
+
+        student = Student(
+            student_number="STU-RES-000001",
+            first_name="Res",
+            last_name="Student",
+            gender=Gender.MALE.value,
+            grade_id=grade.id,
+            guardian_name="Res Guardian",
+            guardian_phone="+254712345678",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add(student)
+        await db_session.flush()
+
+        invoice = Invoice(
+            invoice_number="INV-RES-000001",
+            student_id=student.id,
+            invoice_type=InvoiceType.ADHOC.value,
+            status=InvoiceStatus.ISSUED.value,
+            issue_date=date.today(),
+            due_date=date.today() + timedelta(days=30),
+            subtotal=Decimal("1000.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("1000.00"),
+            paid_total=Decimal("1000.00"),
+            amount_due=Decimal("0.00"),
+            created_by_id=user.id,
+        )
+        invoice.lines = []
+        db_session.add(invoice)
+        await db_session.flush()
+
+        line = InvoiceLine(
+            invoice_id=invoice.id,
+            kit_id=kit.id,
+            description="Reservation Item",
+            quantity=2,
+            unit_price=Decimal("500.00"),
+            line_total=Decimal("1000.00"),
+            discount_amount=Decimal("0.00"),
+            net_amount=Decimal("1000.00"),
+            paid_amount=Decimal("1000.00"),
+            remaining_amount=Decimal("0.00"),
+        )
+        db_session.add(line)
+        invoice.lines.append(line)
+        await db_session.flush()
+
+        inventory = InventoryService(db_session)
+        await inventory.receive_stock(
+            ReceiveStockRequest(
+                item_id=item.id,
+                quantity=10,
+                unit_cost=Decimal("200.00"),
+                reference_type="test",
+                reference_id=1,
+                notes="Initial stock",
+            ),
+            received_by_id=user.id,
+        )
+
+        return {
+            "user": user,
+            "student": student,
+            "invoice": invoice,
+            "line": line,
+            "item": item,
+            "kit": kit,
+        }
+
+    async def test_create_reservation_from_paid_line(self, db_session: AsyncSession):
+        data = await self._setup_test_data(db_session)
+        service = ReservationService(db_session)
+
+        reservation = await service.create_from_line(
+            invoice_line_id=data["line"].id,
+            created_by_id=data["user"].id,
+        )
+
+        assert reservation is not None
+        assert reservation.invoice_line_id == data["line"].id
+        assert reservation.status == ReservationStatus.PENDING.value
+        assert len(reservation.items) == 1
+        assert reservation.items[0].quantity_required == 2
+        assert reservation.items[0].quantity_reserved == 2
+
+    async def test_issue_and_cancel_reservation(self, db_session: AsyncSession):
+        data = await self._setup_test_data(db_session)
+        service = ReservationService(db_session)
+
+        reservation = await service.create_from_line(
+            invoice_line_id=data["line"].id,
+            created_by_id=data["user"].id,
+        )
+
+        await service.issue_items(
+            reservation_id=reservation.id,
+            items=[(reservation.items[0].id, 1)],
+            issued_by_id=data["user"].id,
+        )
+
+        reservation = await service.get_by_id(reservation.id)
+        assert reservation.status == ReservationStatus.PARTIAL.value
+        assert reservation.items[0].quantity_issued == 1
+        assert reservation.items[0].quantity_reserved == 1
+
+        inventory = InventoryService(db_session)
+        stock_before = await inventory.get_stock_by_item_id(data["item"].id)
+        on_hand_before = stock_before.quantity_on_hand
+        reserved_before = stock_before.quantity_reserved
+
+        await service.cancel_reservation(
+            reservation_id=reservation.id,
+            cancelled_by_id=data["user"].id,
+            reason="Test cancel",
+        )
+
+        reservation = await service.get_by_id(reservation.id)
+        assert reservation.status == ReservationStatus.CANCELLED.value
+
+        stock_after = await inventory.get_stock_by_item_id(data["item"].id)
+        assert stock_after.quantity_on_hand == on_hand_before + 1
+        assert stock_after.quantity_reserved == reserved_before - 1

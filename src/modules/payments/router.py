@@ -1,0 +1,270 @@
+"""API endpoints for Payments module."""
+
+from datetime import date
+
+from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.core.auth.dependencies import require_roles
+from src.core.auth.models import User, UserRole
+from src.core.database.session import get_db
+from src.modules.payments.models import PaymentMethod, PaymentStatus
+from src.modules.payments.schemas import (
+    AllocationCreate,
+    AllocationResponse,
+    AutoAllocateRequest,
+    AutoAllocateResult,
+    PaymentCreate,
+    PaymentFilters,
+    PaymentResponse,
+    PaymentUpdate,
+    StatementResponse,
+    StudentBalance,
+)
+from src.modules.payments.service import PaymentService
+from src.shared.schemas.base import ApiResponse, PaginatedResponse
+
+router = APIRouter(prefix="/payments", tags=["Payments"])
+
+
+# --- Payment Endpoints ---
+
+
+@router.post(
+    "",
+    response_model=ApiResponse[PaymentResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_payment(
+    data: PaymentCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
+):
+    """Create a new payment (credit top-up)."""
+    service = PaymentService(db)
+    payment = await service.create_payment(data, current_user.id)
+    return ApiResponse(
+        data=PaymentResponse.model_validate(payment),
+        message="Payment created successfully",
+    )
+
+
+@router.get(
+    "",
+    response_model=ApiResponse[PaginatedResponse[PaymentResponse]],
+)
+async def list_payments(
+    student_id: int | None = Query(None),
+    status: PaymentStatus | None = Query(None),
+    payment_method: PaymentMethod | None = Query(None),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.USER)
+    ),
+):
+    """List payments with optional filters."""
+    service = PaymentService(db)
+    filters = PaymentFilters(
+        student_id=student_id,
+        status=status,
+        payment_method=payment_method,
+        date_from=date_from,
+        date_to=date_to,
+        page=page,
+        limit=limit,
+    )
+    payments, total = await service.list_payments(filters)
+    return ApiResponse(
+        data=PaginatedResponse.create(
+            items=[PaymentResponse.model_validate(p) for p in payments],
+            total=total,
+            page=page,
+            limit=limit,
+        ),
+    )
+
+
+@router.get(
+    "/{payment_id}",
+    response_model=ApiResponse[PaymentResponse],
+)
+async def get_payment(
+    payment_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.USER)
+    ),
+):
+    """Get payment by ID."""
+    service = PaymentService(db)
+    payment = await service.get_payment_by_id(payment_id)
+    return ApiResponse(data=PaymentResponse.model_validate(payment))
+
+
+@router.patch(
+    "/{payment_id}",
+    response_model=ApiResponse[PaymentResponse],
+)
+async def update_payment(
+    payment_id: int,
+    data: PaymentUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
+):
+    """Update a pending payment."""
+    service = PaymentService(db)
+    payment = await service.update_payment(payment_id, data, current_user.id)
+    return ApiResponse(
+        data=PaymentResponse.model_validate(payment),
+        message="Payment updated successfully",
+    )
+
+
+@router.post(
+    "/{payment_id}/complete",
+    response_model=ApiResponse[PaymentResponse],
+)
+async def complete_payment(
+    payment_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
+):
+    """Complete a pending payment (generates receipt number)."""
+    service = PaymentService(db)
+    payment = await service.complete_payment(payment_id, current_user.id)
+    return ApiResponse(
+        data=PaymentResponse.model_validate(payment),
+        message=f"Payment completed. Receipt: {payment.receipt_number}",
+    )
+
+
+@router.post(
+    "/{payment_id}/cancel",
+    response_model=ApiResponse[PaymentResponse],
+)
+async def cancel_payment(
+    payment_id: int,
+    reason: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+    ),
+):
+    """Cancel a pending payment."""
+    service = PaymentService(db)
+    payment = await service.cancel_payment(payment_id, current_user.id, reason)
+    return ApiResponse(
+        data=PaymentResponse.model_validate(payment),
+        message="Payment cancelled",
+    )
+
+
+# --- Balance & Statement Endpoints ---
+
+
+@router.get(
+    "/students/{student_id}/balance",
+    response_model=ApiResponse[StudentBalance],
+)
+async def get_student_balance(
+    student_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.USER)
+    ),
+):
+    """Get student's credit balance."""
+    service = PaymentService(db)
+    balance = await service.get_student_balance(student_id)
+    return ApiResponse(data=balance)
+
+
+@router.get(
+    "/students/{student_id}/statement",
+    response_model=ApiResponse[StatementResponse],
+)
+async def get_student_statement(
+    student_id: int,
+    date_from: date = Query(..., description="Statement start date"),
+    date_to: date = Query(..., description="Statement end date"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.USER)
+    ),
+):
+    """Get student account statement."""
+    service = PaymentService(db)
+    statement = await service.get_statement(student_id, date_from, date_to)
+    return ApiResponse(data=statement)
+
+
+# --- Allocation Endpoints ---
+
+
+@router.post(
+    "/allocations/auto",
+    response_model=ApiResponse[AutoAllocateResult],
+)
+async def auto_allocate(
+    data: AutoAllocateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
+):
+    """Auto-allocate credit to invoices."""
+    service = PaymentService(db)
+    result = await service.allocate_auto(data, current_user.id)
+    return ApiResponse(
+        data=result,
+        message=f"Allocated {result.total_allocated} to {result.invoices_fully_paid + result.invoices_partially_paid} invoices",
+    )
+
+
+@router.post(
+    "/allocations/manual",
+    response_model=ApiResponse[AllocationResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def manual_allocate(
+    data: AllocationCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
+):
+    """Manually allocate credit to an invoice."""
+    service = PaymentService(db)
+    allocation = await service.allocate_manual(data, current_user.id)
+    return ApiResponse(
+        data=AllocationResponse.model_validate(allocation),
+        message="Credit allocated successfully",
+    )
+
+
+@router.delete(
+    "/allocations/{allocation_id}",
+    response_model=ApiResponse[None],
+)
+async def delete_allocation(
+    allocation_id: int,
+    reason: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+    ),
+):
+    """Delete an allocation (return credit to balance)."""
+    service = PaymentService(db)
+    await service.delete_allocation(allocation_id, current_user.id, reason)
+    return ApiResponse(data=None, message="Allocation deleted, credit returned to balance")
