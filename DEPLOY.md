@@ -18,6 +18,7 @@
 
 1. Click "New" → "Database" → "Add PostgreSQL"
 2. Railway automatically creates `DATABASE_URL` variable
+3. The app will automatically convert `postgres://` to `postgresql+asyncpg://`
 
 ### Step 3: Configure Environment Variables
 
@@ -123,9 +124,10 @@ To run migrations manually:
 - Check Railway build logs
 
 ### Database connection error
-- Verify `DATABASE_URL` is set correctly
+- Verify `DATABASE_URL` is set correctly in Railway Variables
 - Check PostgreSQL service is running in Railway
-- Ensure connection string format: `postgresql+asyncpg://...`
+- Railway provides `postgres://` format, app converts to `postgresql+asyncpg://` automatically
+- Check logs for actual DATABASE_URL being used (without password)
 
 ### Frontend not loading
 - Verify frontend build succeeded (check `frontend/dist` exists)
