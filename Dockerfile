@@ -22,6 +22,9 @@ RUN useradd -m -u 1000 appuser
 
 WORKDIR /app
 
+# Change ownership of /app to appuser BEFORE switching users
+RUN chown -R appuser:appuser /app
+
 # Copy Python dependencies
 COPY --chown=appuser:appuser pyproject.toml uv.lock ./
 
