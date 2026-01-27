@@ -1,4 +1,5 @@
-import os
+from typing import Union
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,25 +18,27 @@ class Settings(BaseSettings):
     # App
     app_env: str = "development"
     debug: bool = True
-    cors_allowed_origins: list[str] = [
-        "http://localhost:3000",
-        "http://localhost:5173",
-    ]
+    # Can be a comma-separated string or list
+    cors_allowed_origins: Union[str, list[str]] = "http://localhost:3000,http://localhost:5173"
 
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        # Railway/Heroku provide DATABASE_URL as postgres://, convert to postgresql+asyncpg://
+    @field_validator("cors_allowed_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """Parse CORS origins from comma-separated string or list."""
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
+
+    @model_validator(mode="after")
+    def convert_database_url(self):
+        """Convert postgres:// to postgresql+asyncpg:// for Railway/Heroku."""
         if self.database_url.startswith("postgres://"):
             self.database_url = self.database_url.replace("postgres://", "postgresql+asyncpg://", 1)
-
-        # Parse CORS_ALLOWED_ORIGINS from comma-separated string if it's an env var
-        cors_env = os.getenv("CORS_ALLOWED_ORIGINS")
-        if cors_env:
-            self.cors_allowed_origins = [origin.strip() for origin in cors_env.split(",")]
+        return self
 
 
 settings = Settings()
