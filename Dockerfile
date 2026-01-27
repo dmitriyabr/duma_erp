@@ -14,31 +14,34 @@ RUN apt-get update && apt-get install -y \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv
+# Install uv globally
 RUN pip install uv
+
+# Create non-root user early
+RUN useradd -m -u 1000 appuser
 
 WORKDIR /app
 
 # Copy Python dependencies
-COPY pyproject.toml uv.lock ./
+COPY --chown=appuser:appuser pyproject.toml uv.lock ./
+
+# Switch to non-root user before installing deps
+USER appuser
+
+# Install Python dependencies as appuser
 RUN uv sync --frozen --no-dev
 
 # Copy application code
-COPY src/ ./src/
-COPY alembic/ ./alembic/
-COPY alembic.ini ./
+COPY --chown=appuser:appuser src/ ./src/
+COPY --chown=appuser:appuser alembic/ ./alembic/
+COPY --chown=appuser:appuser alembic.ini ./
 
 # Copy frontend build
-COPY --from=frontend-build /app/frontend/dist ./frontend/dist
-
-# Create non-root user
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
-USER appuser
+COPY --from=frontend-build --chown=appuser:appuser /app/frontend/dist ./frontend/dist
 
 # Expose port
 EXPOSE 8000
 
 # Run migrations and start server
 # Note: PORT env var is provided by Railway
-CMD uv run alembic upgrade head && \
-    uv run uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD sh -c "uv run alembic upgrade head && uv run uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000}"
