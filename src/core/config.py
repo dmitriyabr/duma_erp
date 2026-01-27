@@ -28,11 +28,15 @@ class Settings(BaseSettings):
     @field_validator("database_url", mode="before")
     @classmethod
     def convert_database_url(cls, v):
-        """Convert postgres:// to postgresql+asyncpg:// for Railway/Heroku."""
+        """Convert postgres:// or postgresql:// to postgresql+asyncpg:// for Railway/Heroku."""
         if not v:
             raise ValueError("DATABASE_URL is required")
-        if isinstance(v, str) and v.startswith("postgres://"):
-            return v.replace("postgres://", "postgresql+asyncpg://", 1)
+        if isinstance(v, str):
+            # Railway can provide either postgres:// or postgresql://
+            if v.startswith("postgres://"):
+                return v.replace("postgres://", "postgresql+asyncpg://", 1)
+            elif v.startswith("postgresql://"):
+                return v.replace("postgresql://", "postgresql+asyncpg://", 1)
         return v
 
     @field_validator("cors_allowed_origins", mode="before")
