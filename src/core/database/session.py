@@ -10,6 +10,7 @@ try:
     if settings.database_url:
         # Hide password in logs
         url_for_log = settings.database_url.split('@')[1] if '@' in settings.database_url else settings.database_url[:30]
+        print(f"[Database] Full URL scheme: {settings.database_url.split('://')[0] if '://' in settings.database_url else 'unknown'}", file=sys.stderr)
         print(f"[Database] Connecting to: ...@{url_for_log}", file=sys.stderr)
     else:
         print("[Database] ERROR: DATABASE_URL is empty!", file=sys.stderr)

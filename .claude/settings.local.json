@@ -28,7 +28,8 @@
       "Bash(git commit:*)",
       "Bash(python3:*)",
       "Bash(CORS_ALLOWED_ORIGINS=\"https://example.com,https://app.railway.app\" python3:*)",
-      "Bash(DATABASE_URL=\"postgres://user:pass@host:5432/db\" python3:*)"
+      "Bash(DATABASE_URL=\"postgres://user:pass@host:5432/db\" python3:*)",
+      "Bash(DATABASE_URL=\"postgres://postgres:pass@containers-us-west-100.railway.app:7654/railway\" python3:*)"
     ]
   }
 }
