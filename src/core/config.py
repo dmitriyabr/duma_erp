@@ -1,5 +1,5 @@
 from typing import Union
-from pydantic import field_validator, model_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,6 +25,16 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.app_env == "production"
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def convert_database_url(cls, v):
+        """Convert postgres:// to postgresql+asyncpg:// for Railway/Heroku."""
+        if not v:
+            raise ValueError("DATABASE_URL is required")
+        if isinstance(v, str) and v.startswith("postgres://"):
+            return v.replace("postgres://", "postgresql+asyncpg://", 1)
+        return v
+
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, v):
@@ -32,13 +42,6 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v
-
-    @model_validator(mode="after")
-    def convert_database_url(self):
-        """Convert postgres:// to postgresql+asyncpg:// for Railway/Heroku."""
-        if self.database_url.startswith("postgres://"):
-            self.database_url = self.database_url.replace("postgres://", "postgresql+asyncpg://", 1)
-        return self
 
 
 settings = Settings()
