@@ -24,7 +24,8 @@
       "Bash(wc:*)",
       "Bash(npm run build:*)",
       "Bash(npm run type-check:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

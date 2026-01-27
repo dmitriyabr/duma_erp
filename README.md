@@ -269,6 +269,17 @@ DEBUG=true
 
 Полная документация API: `BACKEND_API.md` или http://localhost:8000/docs
 
+## Деплой
+
+См. [DEPLOY.md](DEPLOY.md) для инструкций по деплою на Railway.
+
+**Быстрый старт Railway:**
+1. Push код на GitHub
+2. Создать проект на Railway из GitHub repo
+3. Добавить PostgreSQL database
+4. Установить переменные окружения (`JWT_SECRET_KEY`, `APP_ENV=production`)
+5. Deploy автоматически запустится
+
 ## Лицензия
 
 Проприетарный код. Все права защищены.
