@@ -64,6 +64,11 @@ def create_app() -> FastAPI:
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(HTTPException, http_exception_handler)
 
+    # Health check endpoint (must be first for Railway/Heroku health checks)
+    @app.get("/health")
+    async def health_check():
+        return {"status": "healthy"}
+
     # Routers
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(users_router, prefix="/api/v1")
@@ -79,10 +84,6 @@ def create_app() -> FastAPI:
     app.include_router(compensations_router, prefix="/api/v1")
     app.include_router(compensations_payouts_router, prefix="/api/v1")
 
-    @app.get("/health")
-    async def health_check():
-        return {"status": "healthy"}
-
     # Serve frontend static files (production)
     frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
     if frontend_dist.exists():
@@ -91,7 +92,8 @@ def create_app() -> FastAPI:
         @app.get("/{full_path:path}")
         async def serve_spa(full_path: str):
             # Serve index.html for all non-API routes (SPA routing)
-            if full_path.startswith("api/"):
+            # Exclude health check and API routes
+            if full_path.startswith("api/") or full_path == "health":
                 return {"detail": "Not found"}
             file_path = frontend_dist / full_path
             if file_path.is_file():

@@ -39,5 +39,6 @@ USER appuser
 EXPOSE 8000
 
 # Run migrations and start server
+# Note: PORT env var is provided by Railway
 CMD uv run alembic upgrade head && \
-    uv run uvicorn src.main:app --host 0.0.0.0 --port 8000
+    uv run uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000}
