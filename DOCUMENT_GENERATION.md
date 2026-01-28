@@ -1,0 +1,1147 @@
+# Генерация PDF документов (Invoices & Receipts)
+
+## Обзор
+
+Система автоматически генерирует PDF документы:
+- **Invoice (Счет)**: Выставляется студенту в начале триместра
+- **Receipt (Чек)**: Генерируется автоматически при создании Payment
+
+## 1. Invoice PDF
+
+### 1.1 Layout структура
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  [LOGO]                                    INVOICE           │
+│  School Name                               #INV-2026-000123  │
+│  School Address                            Date: 15 Jan 2026 │
+│  Phone: +254 XXX XXX XXX                   Due: 31 Jan 2026  │
+│  Email: info@school.co.ke                                    │
+├─────────────────────────────────────────────────────────────┤
+│  BILL TO:                          TERM: Term 1 2025/2026   │
+│  Student: John Doe                                           │
+│  Admission #: 2024-0123                                      │
+│  Class: Grade 7                                              │
+│  Parent: Mary Doe                                            │
+│  Phone: +254 712 345 678                                     │
+├─────────────────────────────────────────────────────────────┤
+│  DESCRIPTION                    QTY    UNIT PRICE    AMOUNT  │
+│  ───────────────────────────────────────────────────────────│
+│  School Fee                      1     100,000    100,000   │
+│  Transport Fee                   1      30,000     30,000   │
+│  Uniform Bundle                  1      15,000     15,000   │
+│  Books & Stationery              1       5,000      5,000   │
+│                                                              │
+│                                          SUBTOTAL: 150,000   │
+│                              Discount (10% Sibling): -15,000 │
+│                                                              │
+│                                      TOTAL DUE: 135,000 KES  │
+├─────────────────────────────────────────────────────────────┤
+│  PAYMENT STATUS:                                             │
+│  Paid to Date: 0 KES                                         │
+│  Balance Due: 135,000 KES                                    │
+├─────────────────────────────────────────────────────────────┤
+│  PAYMENT INSTRUCTIONS:                                       │
+│                                                              │
+│  M-Pesa Paybill:                                             │
+│  Business Number: 123456                                     │
+│  Account Number: [Student Admission Number]                  │
+│  Amount: 135,000 KES                                         │
+│                                                              │
+│  Bank Transfer:                                              │
+│  Bank Name: ABC Bank Kenya                                   │
+│  Account Name: School Name Ltd                               │
+│  Account Number: 1234567890                                  │
+│  Branch: Nairobi                                             │
+│  Swift Code: ABCBKENAXXX                                     │
+│                                                              │
+│  Please use Invoice Number as reference: INV-2026-000123     │
+├─────────────────────────────────────────────────────────────┤
+│  NOTES:                                                      │
+│  - Payment is due by 31 Jan 2026                             │
+│  - Late payment may result in student suspension             │
+│  - Contact office for payment plans                          │
+│                                                              │
+│  Thank you for your business!                                │
+│                                                              │
+│  ─────────────────────────────────────────────────────      │
+│  Page 1 of 1                        Generated: 15 Jan 2026  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 1.2 Детали элементов
+
+**Header (верхняя часть):**
+- **Logo**: Левый верхний угол, размер 150x80px (или пропорционально)
+- **School Info**: Под логотипом
+  - Название школы (жирным, 14pt)
+  - Адрес (10pt)
+  - Телефон и email (10pt)
+- **Invoice Info**: Правый верхний угол
+  - "INVOICE" большими буквами (18pt, bold)
+  - Invoice Number (14pt, bold)
+  - Date Issued
+  - Due Date
+
+**Bill To Section:**
+- Student details в левой колонке
+- Term info в правой колонке
+- Border вокруг этой секции
+
+**Items Table:**
+- 4 колонки: Description, Qty, Unit Price, Amount
+- Zebra striping (чередующиеся серые строки для читаемости)
+- Totals section:
+  - Subtotal
+  - Discount (если есть) - красным цветом
+  - **TOTAL DUE** - жирным, крупным шрифтом (14pt)
+
+**Payment Instructions:**
+- M-Pesa details в рамке (box with light blue background)
+  - Business Number
+  - Account Number (обычно admission number студента)
+- Bank details
+- Reference instruction
+
+**Footer:**
+- Notes/Terms
+- Page number
+- Generation date/time
+- Возможно: small text "Generated by School ERP System"
+
+### 1.3 Цветовая схема
+
+- **Primary color**: School brand color (например, синий #1E40AF)
+- **Headers**: Темно-серый #374151
+- **Text**: Черный #000000
+- **Subtotals**: Серый #6B7280
+- **Total**: Зеленый #059669 (или primary color)
+- **Discount**: Красный #DC2626
+- **Background (M-Pesa box)**: Светло-голубой #DBEAFE
+
+### 1.4 Технические детали
+
+**Размер страницы:** A4 (210mm x 297mm)
+
+**Margins:**
+- Top: 20mm
+- Bottom: 20mm
+- Left: 15mm
+- Right: 15mm
+
+**Fonts:**
+- Headers: Arial Bold или Helvetica Bold
+- Body: Arial или Helvetica
+- Monospace (для номеров): Courier New
+
+**Logo:**
+- Путь: `/static/images/logo.png`
+- Рекомендуемый размер: 300x160px (высокое разрешение для печати)
+- Формат: PNG с прозрачностью
+
+## 2. Receipt PDF
+
+### 2.1 Layout структура
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  [LOGO]                              OFFICIAL RECEIPT        │
+│  School Name                         #RCP-2026-000456        │
+│  School Address                      Date: 28 Jan 2026       │
+│  Phone: +254 XXX XXX XXX             Time: 10:30 AM          │
+│  Email: info@school.co.ke                                    │
+├─────────────────────────────────────────────────────────────┤
+│  RECEIVED FROM:                                              │
+│  Student: John Doe                                           │
+│  Admission #: 2024-0123                                      │
+│  Class: Grade 7                                              │
+│  Parent: Mary Doe                                            │
+│  Phone: +254 712 345 678                                     │
+├─────────────────────────────────────────────────────────────┤
+│  PAYMENT DETAILS:                                            │
+│  Payment Method: M-Pesa                                      │
+│  M-Pesa Transaction ID: ABC123456789                         │
+│  Amount Received: 50,000 KES                                 │
+│                                                              │
+│  IN WORDS: Fifty Thousand Shillings Only                     │
+├─────────────────────────────────────────────────────────────┤
+│  PAYMENT ALLOCATION:                                         │
+│  ───────────────────────────────────────────────────────────│
+│  Invoice #INV-2026-000123                                    │
+│    - School Fee: 30,000 KES                                  │
+│    - Transport Fee: 20,000 KES                               │
+│                                                              │
+│  TOTAL ALLOCATED: 50,000 KES                                 │
+├─────────────────────────────────────────────────────────────┤
+│  ACCOUNT SUMMARY:                                            │
+│  Previous Balance: 135,000 KES                               │
+│  This Payment: -50,000 KES                                   │
+│  Current Balance: 85,000 KES                                 │
+├─────────────────────────────────────────────────────────────┤
+│  RECEIVED BY:                                                │
+│  Name: Admin User                                            │
+│  Signature: _______________                                  │
+│  Date: 28 Jan 2026                                           │
+│                                                              │
+│                                              [STAMP/SEAL]    │
+│                                                              │
+│  ─────────────────────────────────────────────────────      │
+│  This is a computer-generated receipt and is valid without   │
+│  signature if stamped.                                       │
+│                                                              │
+│  For queries, contact: accounts@school.co.ke                 │
+│                                                              │
+│  ─────────────────────────────────────────────────────────  │
+│  Page 1 of 1                        Generated: 28 Jan 2026  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 2.2 Детали элементов
+
+**Header:**
+- Logo (левый верхний)
+- School info (под логотипом)
+- **"OFFICIAL RECEIPT"** крупными буквами (18pt, bold)
+- Receipt Number (14pt, bold)
+- Date & Time
+
+**Received From Section:**
+- Student details
+- Border вокруг
+
+**Payment Details:**
+- Payment method (M-Pesa / Bank / Cash / Cheque)
+- Transaction ID/Reference (если есть)
+- **Amount Received** - крупным шрифтом, жирным (16pt)
+- Amount in words - для юридической валидности
+
+**Payment Allocation:**
+- Список инвойсов, на которые распределен платеж
+- Breakdown по позициям в каждом инвойсе
+- Total allocated (должен равняться Amount Received)
+
+**Account Summary:**
+- Previous Balance
+- This Payment (со знаком минус)
+- **Current Balance** - жирным
+
+**Received By:**
+- Имя администратора (кто принял платеж)
+- Подпись (пустое место или скан)
+- **Stamp/Seal** - изображение печати школы (правый нижний угол)
+
+**Footer:**
+- Disclaimer text
+- Contact email для вопросов
+- Page number и generation timestamp
+
+### 2.3 Stamp/Seal
+
+**Изображение печати:**
+- Путь: `/static/images/stamp.png`
+- Рекомендуемый размер: 150x150px (круглая или квадратная печать)
+- Формат: PNG с прозрачностью
+- Позиция: Правый нижний угол "Received By" секции
+- Слегка прозрачная (opacity 0.8) для "отсканированного" вида
+
+### 2.4 Цветовая схема
+
+- **Header**: Зеленый #059669 (или primary color) - показывает что платеж получен
+- **Text**: Черный #000000
+- **Amount Received**: Зеленый жирный #059669
+- **Current Balance**:
+  - Если > 0 (debt): Красный #DC2626
+  - Если = 0: Зеленый #059669
+  - Если < 0 (credit): Синий #2563EB
+
+### 2.5 Технические детали
+
+**Размер:** A4 или A5 (148mm x 210mm) - меньше, т.к. receipt
+
+Рекомендую **A5** для receipt - экономия бумаги, удобный размер для хранения.
+
+**Margins:**
+- A5: Top/Bottom 15mm, Left/Right 10mm
+
+**Watermark (опционально):**
+- Если нужен watermark "PAID" по диагонали - очень светло-серый, большими буквами
+
+## 3. Технические требования (Backend)
+
+### 3.1 Библиотеки для генерации PDF (Python/FastAPI)
+
+**Рекомендация: WeasyPrint**
+
+Почему WeasyPrint:
+- Генерирует PDF из HTML/CSS (легко менять дизайн)
+- Хорошая поддержка шрифтов и изображений
+- Отличное качество для печати
+- Open source
+
+**Альтернативы:**
+- **ReportLab** - более низкоуровневый, сложнее, но больше контроля
+- **xhtml2pdf (pisa)** - проще WeasyPrint, но хуже качество
+- **Puppeteer (Node.js)** - если хочешь рендерить через headless Chrome
+
+**Установка:**
+```bash
+# WeasyPrint
+uv add weasyprint
+
+# Dependencies для WeasyPrint (Linux/Railway)
+# В Dockerfile уже есть python:3.11-slim, добавь:
+RUN apt-get update && apt-get install -y \
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
+    libharfbuzz0b \
+    libffi-dev \
+    libjpeg-dev \
+    libopenjp2-7 \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+### 3.2 Структура файлов
+
+```
+src/
+├── templates/
+│   ├── pdf/
+│   │   ├── invoice.html        # Jinja2 template для invoice
+│   │   ├── receipt.html        # Jinja2 template для receipt
+│   │   └── base.html           # Базовый layout с общими стилями
+│   └── email/                  # Для будущих email templates
+│       ├── invoice_email.html
+│       └── receipt_email.html
+├── static/
+│   ├── images/
+│   │   ├── logo.png            # Логотип школы
+│   │   └── stamp.png           # Печать школы
+│   └── css/
+│       └── pdf_styles.css      # CSS для PDF (если отдельно)
+└── services/
+    └── pdf_service.py          # Сервис для генерации PDF
+```
+
+### 3.3 PDF Service (pdf_service.py)
+
+```python
+from pathlib import Path
+from typing import Optional
+from weasyprint import HTML, CSS
+from jinja2 import Environment, FileSystemLoader
+from datetime import datetime
+
+from src.modules.invoices.schemas import InvoiceDetail
+from src.modules.payments.schemas import PaymentDetail
+
+class PDFService:
+    """Service for generating PDF documents."""
+
+    def __init__(self):
+        # Setup Jinja2 environment
+        template_dir = Path(__file__).parent.parent / "templates" / "pdf"
+        self.jinja_env = Environment(
+            loader=FileSystemLoader(str(template_dir)),
+            autoescape=True
+        )
+
+        # Paths to static assets
+        self.static_dir = Path(__file__).parent.parent / "static"
+        self.logo_path = self.static_dir / "images" / "logo.png"
+        self.stamp_path = self.static_dir / "images" / "stamp.png"
+
+    def generate_invoice_pdf(self, invoice: InvoiceDetail) -> bytes:
+        """Generate invoice PDF from invoice data.
+
+        Args:
+            invoice: Invoice detail object with all data
+
+        Returns:
+            bytes: PDF file content
+        """
+        template = self.jinja_env.get_template("invoice.html")
+
+        # Prepare context data
+        context = {
+            "invoice": invoice,
+            "logo_path": self.logo_path.as_uri(),  # file:///path/to/logo.png
+            "generated_at": datetime.now(),
+            "school_info": {
+                "name": "Your School Name",
+                "address": "123 School Road, Nairobi",
+                "phone": "+254 XXX XXX XXX",
+                "email": "info@school.co.ke",
+            },
+            "mpesa_info": {
+                "business_number": "123456",
+                "account_number": invoice.student.admission_number,
+            },
+            "bank_info": {
+                "bank_name": "ABC Bank Kenya",
+                "account_name": "School Name Ltd",
+                "account_number": "1234567890",
+                "branch": "Nairobi",
+                "swift_code": "ABCBKENAXXX",
+            }
+        }
+
+        # Render HTML
+        html_content = template.render(**context)
+
+        # Generate PDF
+        pdf_bytes = HTML(string=html_content).write_pdf()
+
+        return pdf_bytes
+
+    def generate_receipt_pdf(self, payment: PaymentDetail) -> bytes:
+        """Generate receipt PDF from payment data.
+
+        Args:
+            payment: Payment detail object with all data
+
+        Returns:
+            bytes: PDF file content
+        """
+        template = self.jinja_env.get_template("receipt.html")
+
+        # Convert amount to words (for legal validity)
+        amount_in_words = self._amount_to_words(payment.amount)
+
+        context = {
+            "payment": payment,
+            "receipt_number": payment.receipt_number,
+            "logo_path": self.logo_path.as_uri(),
+            "stamp_path": self.stamp_path.as_uri(),
+            "generated_at": datetime.now(),
+            "amount_in_words": amount_in_words,
+            "school_info": {
+                "name": "Your School Name",
+                "address": "123 School Road, Nairobi",
+                "phone": "+254 XXX XXX XXX",
+                "email": "info@school.co.ke",
+            },
+        }
+
+        html_content = template.render(**context)
+        pdf_bytes = HTML(string=html_content).write_pdf()
+
+        return pdf_bytes
+
+    def _amount_to_words(self, amount: float) -> str:
+        """Convert amount to words (e.g., 50000 -> 'Fifty Thousand').
+
+        You can use a library like num2words:
+        pip install num2words
+        """
+        from num2words import num2words
+
+        # Convert to integer (KES doesn't use decimals usually)
+        amount_int = int(amount)
+        words = num2words(amount_int, lang='en').title()
+        return f"{words} Shillings Only"
+
+
+# Initialize service
+pdf_service = PDFService()
+```
+
+### 3.4 API Endpoints
+
+```python
+# In src/modules/invoices/router.py
+
+from fastapi import APIRouter, Depends
+from fastapi.responses import Response
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.core.database.session import get_db
+from src.services.pdf_service import pdf_service
+from src.modules.invoices.service import invoice_service
+
+router = APIRouter(prefix="/invoices", tags=["invoices"])
+
+@router.get("/{invoice_id}/pdf")
+async def download_invoice_pdf(
+    invoice_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Download invoice as PDF."""
+    # Get invoice with all related data
+    invoice = await invoice_service.get_by_id(db, invoice_id)
+
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    # Generate PDF
+    pdf_bytes = pdf_service.generate_invoice_pdf(invoice)
+
+    # Return as downloadable file
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="invoice_{invoice.invoice_number}.pdf"'
+        }
+    )
+
+
+# In src/modules/payments/router.py
+
+@router.get("/{payment_id}/receipt/pdf")
+async def download_receipt_pdf(
+    payment_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Download payment receipt as PDF."""
+    payment = await payment_service.get_by_id(db, payment_id)
+
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    # Generate PDF
+    pdf_bytes = pdf_service.generate_receipt_pdf(payment)
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="receipt_{payment.receipt_number}.pdf"'
+        }
+    )
+```
+
+### 3.5 Автоматическая генерация Receipt при Payment
+
+```python
+# In src/modules/payments/service.py
+
+class PaymentService:
+    async def create_payment(
+        self,
+        db: AsyncSession,
+        payment_data: PaymentCreate,
+        user_id: int,
+    ) -> Payment:
+        """Create new payment and auto-generate receipt."""
+
+        # 1. Create payment record
+        payment = await self._create_payment_record(db, payment_data, user_id)
+
+        # 2. Allocate payment to invoices
+        await self._allocate_payment(db, payment, payment_data.invoice_allocations)
+
+        # 3. Update invoice statuses
+        await self._update_invoice_statuses(db, payment)
+
+        # 4. Create credit balance if overpayment
+        await self._create_credit_balance_if_needed(db, payment)
+
+        # 5. Generate receipt number
+        payment.receipt_number = await self._generate_receipt_number(db)
+
+        # 6. Auto-generate receipt PDF (store or just generate on-demand?)
+        # Option A: Generate and store in database/storage
+        # receipt_pdf = pdf_service.generate_receipt_pdf(payment)
+        # await self._store_receipt_pdf(db, payment, receipt_pdf)
+
+        # Option B: Generate on-demand (lighter, recommended)
+        # Receipt PDF will be generated when user clicks "Download Receipt"
+
+        await db.commit()
+        await db.refresh(payment)
+
+        return payment
+
+    async def _generate_receipt_number(self, db: AsyncSession) -> str:
+        """Generate receipt number: RCP-YYYY-NNNNNN."""
+        from datetime import datetime
+
+        year = datetime.now().year
+        prefix = f"RCP-{year}-"
+
+        # Get last receipt number for this year
+        result = await db.execute(
+            select(Payment.receipt_number)
+            .where(Payment.receipt_number.like(f"{prefix}%"))
+            .order_by(Payment.receipt_number.desc())
+            .limit(1)
+        )
+        last_receipt = result.scalar_one_or_none()
+
+        if last_receipt:
+            # Extract number and increment
+            last_num = int(last_receipt.split("-")[-1])
+            next_num = last_num + 1
+        else:
+            next_num = 1
+
+        return f"{prefix}{next_num:06d}"
+```
+
+### 3.6 Хранение PDF (опции)
+
+**Option A: Generate on-demand (рекомендую)**
+- PDF генерируется каждый раз при запросе `/invoices/{id}/pdf`
+- Плюсы: Не нужно хранить файлы, всегда актуальный PDF
+- Минусы: Немного медленнее (но WeasyPrint быстрый)
+
+**Option B: Generate once and store**
+- PDF генерируется один раз и сохраняется в S3/MinIO/filesystem
+- Плюсы: Быстрая отдача файла
+- Минусы: Нужно storage, может быть не актуальным если данные изменились
+
+Для MVP рекомендую **Option A** (on-demand).
+
+### 3.7 Кэширование PDF
+
+Если генерация on-demand, можно кэшировать на 1 час:
+
+```python
+from functools import lru_cache
+import hashlib
+
+def get_pdf_cache_key(invoice_id: int, updated_at: datetime) -> str:
+    """Generate cache key based on invoice ID and last update time."""
+    return f"invoice_pdf_{invoice_id}_{updated_at.isoformat()}"
+
+# Use Redis for caching
+# If invoice hasn't changed (updated_at same), return cached PDF
+```
+
+## 4. HTML Templates (Jinja2)
+
+### 4.1 Invoice Template (invoice.html)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Invoice {{ invoice.invoice_number }}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 20mm 15mm;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 11pt;
+            line-height: 1.4;
+            color: #000;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #1E40AF;
+            padding-bottom: 10px;
+        }
+        .logo {
+            width: 150px;
+        }
+        .school-info {
+            font-size: 10pt;
+            margin-top: 10px;
+        }
+        .invoice-info {
+            text-align: right;
+        }
+        .invoice-title {
+            font-size: 24pt;
+            font-weight: bold;
+            color: #1E40AF;
+        }
+        .invoice-number {
+            font-size: 14pt;
+            font-weight: bold;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 10px;
+            border: 1px solid #E5E7EB;
+        }
+        .bill-to {
+            display: flex;
+            justify-content: space-between;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th {
+            background-color: #F3F4F6;
+            padding: 10px;
+            text-align: left;
+            border-bottom: 2px solid #D1D5DB;
+        }
+        td {
+            padding: 8px;
+            border-bottom: 1px solid #E5E7EB;
+        }
+        .amount {
+            text-align: right;
+        }
+        .totals {
+            margin-left: auto;
+            width: 300px;
+            margin-top: 10px;
+        }
+        .totals-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+        }
+        .total-due {
+            font-size: 16pt;
+            font-weight: bold;
+            color: #059669;
+            border-top: 2px solid #000;
+            padding-top: 10px;
+            margin-top: 10px;
+        }
+        .discount {
+            color: #DC2626;
+        }
+        .payment-box {
+            background-color: #DBEAFE;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .footer {
+            margin-top: 40px;
+            font-size: 9pt;
+            color: #6B7280;
+            border-top: 1px solid #E5E7EB;
+            padding-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <img src="{{ logo_path }}" alt="School Logo" class="logo">
+            <div class="school-info">
+                <strong>{{ school_info.name }}</strong><br>
+                {{ school_info.address }}<br>
+                Tel: {{ school_info.phone }}<br>
+                Email: {{ school_info.email }}
+            </div>
+        </div>
+        <div class="invoice-info">
+            <div class="invoice-title">INVOICE</div>
+            <div class="invoice-number">#{{ invoice.invoice_number }}</div>
+            <div>Date: {{ invoice.created_at.strftime('%d %b %Y') }}</div>
+            <div>Due: {{ invoice.due_date.strftime('%d %b %Y') }}</div>
+        </div>
+    </div>
+
+    <div class="section bill-to">
+        <div>
+            <strong>BILL TO:</strong><br>
+            Student: {{ invoice.student.full_name }}<br>
+            Admission #: {{ invoice.student.admission_number }}<br>
+            Class: {{ invoice.student.grade }}<br>
+            Parent: {{ invoice.student.parent_name }}<br>
+            Phone: {{ invoice.student.parent_phone }}
+        </div>
+        <div>
+            <strong>TERM:</strong> {{ invoice.term.name }}<br>
+            Academic Year: {{ invoice.term.academic_year }}
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>DESCRIPTION</th>
+                <th style="width: 80px;">QTY</th>
+                <th style="width: 120px;" class="amount">UNIT PRICE</th>
+                <th style="width: 120px;" class="amount">AMOUNT</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for line in invoice.lines %}
+            <tr>
+                <td>{{ line.item_name }}</td>
+                <td>{{ line.quantity }}</td>
+                <td class="amount">{{ "{:,.0f}".format(line.unit_price) }}</td>
+                <td class="amount">{{ "{:,.0f}".format(line.amount) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="totals">
+        <div class="totals-row">
+            <span>SUBTOTAL:</span>
+            <span>{{ "{:,.0f}".format(invoice.subtotal) }} KES</span>
+        </div>
+        {% if invoice.discount_amount > 0 %}
+        <div class="totals-row discount">
+            <span>Discount ({{ invoice.discount.name }}):</span>
+            <span>-{{ "{:,.0f}".format(invoice.discount_amount) }} KES</span>
+        </div>
+        {% endif %}
+        <div class="totals-row total-due">
+            <span>TOTAL DUE:</span>
+            <span>{{ "{:,.0f}".format(invoice.total_amount) }} KES</span>
+        </div>
+    </div>
+
+    <div class="section">
+        <strong>PAYMENT STATUS:</strong><br>
+        Paid to Date: {{ "{:,.0f}".format(invoice.paid_amount) }} KES<br>
+        Balance Due: {{ "{:,.0f}".format(invoice.balance) }} KES
+    </div>
+
+    <div class="payment-box">
+        <strong>PAYMENT INSTRUCTIONS:</strong><br><br>
+        <strong>M-Pesa Paybill:</strong><br>
+        Business Number: {{ mpesa_info.business_number }}<br>
+        Account Number: {{ mpesa_info.account_number }}<br>
+        Amount: {{ "{:,.0f}".format(invoice.total_amount) }} KES<br><br>
+
+        <strong>Bank Transfer:</strong><br>
+        Bank: {{ bank_info.bank_name }}<br>
+        Account Name: {{ bank_info.account_name }}<br>
+        Account Number: {{ bank_info.account_number }}<br>
+        Branch: {{ bank_info.branch }}<br>
+        Swift Code: {{ bank_info.swift_code }}<br><br>
+
+        <em>Please use Invoice Number as reference: {{ invoice.invoice_number }}</em>
+    </div>
+
+    <div class="section">
+        <strong>NOTES:</strong><br>
+        - Payment is due by {{ invoice.due_date.strftime('%d %b %Y') }}<br>
+        - Late payment may result in student suspension<br>
+        - Contact office for payment plans<br><br>
+        Thank you for your business!
+    </div>
+
+    <div class="footer">
+        Page 1 of 1 | Generated: {{ generated_at.strftime('%d %b %Y %H:%M') }} |
+        Generated by School ERP System
+    </div>
+</body>
+</html>
+```
+
+### 4.2 Receipt Template (receipt.html)
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Receipt {{ receipt_number }}</title>
+    <style>
+        @page {
+            size: A5;
+            margin: 15mm 10mm;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 10pt;
+            line-height: 1.4;
+            color: #000;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #059669;
+            padding-bottom: 10px;
+        }
+        .logo {
+            width: 120px;
+        }
+        .receipt-info {
+            text-align: right;
+        }
+        .receipt-title {
+            font-size: 18pt;
+            font-weight: bold;
+            color: #059669;
+        }
+        .section {
+            margin: 15px 0;
+            padding: 10px;
+            border: 1px solid #E5E7EB;
+        }
+        .amount-received {
+            font-size: 20pt;
+            font-weight: bold;
+            color: #059669;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .amount-words {
+            text-align: center;
+            font-style: italic;
+            margin-bottom: 15px;
+        }
+        .allocation-item {
+            padding: 5px 0;
+            border-bottom: 1px dotted #D1D5DB;
+        }
+        .balance {
+            font-size: 14pt;
+            font-weight: bold;
+        }
+        .balance.positive {
+            color: #DC2626; /* Red for debt */
+        }
+        .balance.zero {
+            color: #059669; /* Green for paid */
+        }
+        .signature-section {
+            margin-top: 30px;
+            position: relative;
+        }
+        .stamp {
+            position: absolute;
+            right: 20px;
+            bottom: 10px;
+            width: 120px;
+            opacity: 0.8;
+        }
+        .footer {
+            margin-top: 20px;
+            font-size: 8pt;
+            color: #6B7280;
+            border-top: 1px solid #E5E7EB;
+            padding-top: 10px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <img src="{{ logo_path }}" alt="School Logo" class="logo">
+            <div style="margin-top: 10px;">
+                <strong>{{ school_info.name }}</strong><br>
+                {{ school_info.address }}<br>
+                Tel: {{ school_info.phone }}
+            </div>
+        </div>
+        <div class="receipt-info">
+            <div class="receipt-title">OFFICIAL RECEIPT</div>
+            <div style="font-size: 12pt; font-weight: bold;">#{{ receipt_number }}</div>
+            <div>Date: {{ payment.created_at.strftime('%d %b %Y') }}</div>
+            <div>Time: {{ payment.created_at.strftime('%H:%M') }}</div>
+        </div>
+    </div>
+
+    <div class="section">
+        <strong>RECEIVED FROM:</strong><br>
+        Student: {{ payment.student.full_name }}<br>
+        Admission #: {{ payment.student.admission_number }}<br>
+        Class: {{ payment.student.grade }}<br>
+        Parent: {{ payment.student.parent_name }}<br>
+        Phone: {{ payment.student.parent_phone }}
+    </div>
+
+    <div class="section">
+        <strong>PAYMENT DETAILS:</strong><br>
+        Payment Method: {{ payment.payment_method }}<br>
+        {% if payment.transaction_reference %}
+        Transaction ID: {{ payment.transaction_reference }}<br>
+        {% endif %}
+    </div>
+
+    <div class="amount-received">
+        {{ "{:,.0f}".format(payment.amount) }} KES
+    </div>
+    <div class="amount-words">
+        {{ amount_in_words }}
+    </div>
+
+    <div class="section">
+        <strong>PAYMENT ALLOCATION:</strong><br>
+        {% for allocation in payment.allocations %}
+        <div class="allocation-item">
+            Invoice #{{ allocation.invoice.invoice_number }}<br>
+            {% for detail in allocation.allocation_details %}
+            &nbsp;&nbsp;- {{ detail.item_name }}: {{ "{:,.0f}".format(detail.amount) }} KES<br>
+            {% endfor %}
+        </div>
+        {% endfor %}
+        <div style="margin-top: 10px; font-weight: bold;">
+            TOTAL ALLOCATED: {{ "{:,.0f}".format(payment.amount) }} KES
+        </div>
+    </div>
+
+    <div class="section">
+        <strong>ACCOUNT SUMMARY:</strong><br>
+        Previous Balance: {{ "{:,.0f}".format(payment.previous_balance) }} KES<br>
+        This Payment: -{{ "{:,.0f}".format(payment.amount) }} KES<br>
+        <div class="balance {% if payment.current_balance > 0 %}positive{% else %}zero{% endif %}">
+            Current Balance: {{ "{:,.0f}".format(payment.current_balance) }} KES
+        </div>
+    </div>
+
+    <div class="signature-section">
+        <strong>RECEIVED BY:</strong><br>
+        Name: {{ payment.created_by.full_name }}<br>
+        Signature: _______________<br>
+        Date: {{ payment.created_at.strftime('%d %b %Y') }}<br><br>
+
+        <img src="{{ stamp_path }}" alt="School Stamp" class="stamp">
+    </div>
+
+    <div class="footer">
+        This is a computer-generated receipt and is valid without signature if stamped.<br>
+        For queries, contact: {{ school_info.email }}<br><br>
+        Page 1 of 1 | Generated: {{ generated_at.strftime('%d %b %Y %H:%M') }}
+    </div>
+</body>
+</html>
+```
+
+## 5. Deployment Considerations
+
+### 5.1 Dockerfile updates
+
+```dockerfile
+# In Dockerfile, add WeasyPrint dependencies
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    postgresql-client \
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
+    libharfbuzz0b \
+    libffi-dev \
+    libjpeg-dev \
+    libopenjp2-7 \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+### 5.2 Static files в Docker
+
+Убедись что `static/` directory копируется в контейнер:
+
+```dockerfile
+# Copy static files (logo, stamp)
+COPY --chown=appuser:appuser static/ ./static/
+```
+
+### 5.3 Environment variables
+
+Добавь в `.env`:
+
+```bash
+# School Information
+SCHOOL_NAME="Your School Name"
+SCHOOL_ADDRESS="123 School Road, Nairobi, Kenya"
+SCHOOL_PHONE="+254 XXX XXX XXX"
+SCHOOL_EMAIL="info@school.co.ke"
+
+# M-Pesa Payment Info
+MPESA_BUSINESS_NUMBER="123456"
+
+# Bank Info
+BANK_NAME="ABC Bank Kenya"
+BANK_ACCOUNT_NAME="School Name Ltd"
+BANK_ACCOUNT_NUMBER="1234567890"
+BANK_BRANCH="Nairobi"
+BANK_SWIFT_CODE="ABCBKENAXXX"
+```
+
+Использование в `pdf_service.py`:
+
+```python
+from src.core.config import settings
+
+context = {
+    "school_info": {
+        "name": settings.school_name,
+        "address": settings.school_address,
+        ...
+    }
+}
+```
+
+## 6. Testing
+
+### 6.1 Manual Testing
+
+1. Create test invoice via API
+2. Call `/invoices/{id}/pdf` endpoint
+3. Download PDF and verify:
+   - Logo displays correctly
+   - All data is accurate
+   - Formatting is clean
+   - M-Pesa details are correct
+
+### 6.2 Automated Tests (optional for MVP)
+
+```python
+# tests/test_pdf_service.py
+
+def test_generate_invoice_pdf():
+    """Test invoice PDF generation."""
+    invoice = create_test_invoice()
+    pdf_bytes = pdf_service.generate_invoice_pdf(invoice)
+
+    assert pdf_bytes is not None
+    assert len(pdf_bytes) > 0
+    assert pdf_bytes[:4] == b'%PDF'  # PDF signature
+
+def test_generate_receipt_pdf():
+    """Test receipt PDF generation."""
+    payment = create_test_payment()
+    pdf_bytes = pdf_service.generate_receipt_pdf(payment)
+
+    assert pdf_bytes is not None
+    assert len(pdf_bytes) > 0
+```
+
+## 7. Next Steps (Future)
+
+После базовой генерации PDF:
+
+1. **Email delivery**: Автоматическая отправка invoice/receipt на email родителям
+2. **SMS notifications**: SMS с ссылкой на download PDF
+3. **QR codes**: Добавить QR код на invoice для быстрой оплаты через M-Pesa
+4. **Batch generation**: Генерация invoice для всех студентов разом (bulk)
+5. **Print preview**: Preview PDF в браузере перед download
+6. **Multilingual**: Поддержка Swahili language (опционально)
+7. **Custom branding**: Настройки цветов и logo через admin panel
+
+## 8. Checklist для Implementation
+
+```
+Backend:
+☐ Install WeasyPrint and dependencies
+☐ Create pdf_service.py with PDFService class
+☐ Create invoice.html Jinja2 template
+☐ Create receipt.html Jinja2 template
+☐ Add PDF endpoints to invoices router
+☐ Add PDF endpoint to payments router
+☐ Auto-generate receipt_number on payment creation
+☐ Update Dockerfile with WeasyPrint dependencies
+☐ Add school info to environment variables
+
+Static Assets:
+☐ Add logo.png to static/images/
+☐ Add stamp.png to static/images/
+☐ Ensure static/ folder copied to Docker container
+
+Testing:
+☐ Test invoice PDF generation locally
+☐ Test receipt PDF generation locally
+☐ Verify logo displays correctly
+☐ Verify stamp displays correctly
+☐ Test on Railway deployment
+☐ Check PDF quality when printed
+
+Documentation:
+☐ Document API endpoints in README
+☐ Add examples of PDF usage
+☐ Update DEPLOY.md if needed
+```
