@@ -595,10 +595,11 @@
 
 ### 10.1 Загрузка файлов
 - [ ] **[ОБСУДИТЬ]** Где хранить файлы (локально/S3)? Лимиты размера? Типы файлов?
-- [ ] Модель Attachment
-- [ ] Сервис upload/download
-- [ ] API endpoints
-- [ ] Тесты
+- [x] Модель Attachment (для подтверждений платежей: image/PDF, до 10 MB)
+- [x] Сервис upload/download (локально `STORAGE_PATH`; прод — см. CLOUDFLARE_R2.md)
+- [x] API endpoints: POST/GET /attachments, GET /attachments/{id}/download
+- [x] Тесты (tests/core/test_attachments.py)
+- [x] Подтверждения к платежам: студенческие платежи (reference или confirmation_attachment_id), procurement (proof_text или proof_attachment_id), payouts — то же. Просмотр: «View confirmation file».
 
 ### 10.2 Генерация PDF
 - [ ] **[ОБСУДИТЬ]** Шаблоны документов, логотип, реквизиты школы

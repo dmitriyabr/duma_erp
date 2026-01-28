@@ -250,10 +250,8 @@ class PayoutService:
         return list(result.scalars().all()), total or 0
 
     async def get_employee_balance(self, employee_id: int) -> EmployeeBalance:
-        result = await self.db.execute(
-            select(EmployeeBalance).where(EmployeeBalance.employee_id == employee_id)
-        )
-        employee_balance = result.scalar_one_or_none()
-        if not employee_balance:
-            return await self._recalculate_employee_balance(employee_id)
+        """Return employee balance. Always recalculates from claims and payouts so approved claims are reflected."""
+        employee_balance = await self._recalculate_employee_balance(employee_id)
+        await self.db.commit()
+        await self.db.refresh(employee_balance)
         return employee_balance

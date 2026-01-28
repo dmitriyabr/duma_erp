@@ -57,6 +57,8 @@
 - **Payments:** `pending → completed | cancelled`
 - **Allocation priority:** Kit с `requires_full_payment` оплачиваются полностью раньше услуг
 - **Credit balance:** вычисляется как `SUM(completed payments) - SUM(allocations)`
+- **Invoice issue:** при выставлении счёта (POST `.../issue`) автоматически вызывается авто-аллокация баланса ученика — существующий положительный баланс списывается на новый и другие неоплаченные счета.
+- **Employee balance:** при запросе баланса сотрудника (`GET .../payouts/employees/{id}/balance`) баланс всегда пересчитывается по одобренным claims и выплатам (approved claims − payouts).
 - **Reservation:** создаётся при полной оплате line с Kit (product), выдача частями
 - **Catalog:** продажи идут через `Kit` (invoice lines используют только `kit_id`)
 - **Stock:** остатки не могут уходить в минус
@@ -176,8 +178,13 @@
 - `GET /discounts/student/{discount_id}`
 - `PATCH /discounts/student/{discount_id}`
 
-### 5.8. Payments & Allocations
-- `POST /payments`
+### 5.8. Attachments (подтверждения платежей)
+- `POST /attachments` — загрузка файла подтверждения (image/PDF). Тело: `multipart/form-data`, поле `file`. Допустимые типы: image/jpeg, image/png, image/gif, image/webp, application/pdf. Макс. 10 MB. Ответ: `{ id, file_name, content_type, file_size, created_at }`. Роль: Admin, User.
+- `GET /attachments/{attachment_id}` — метаданные вложения.
+- `GET /attachments/{attachment_id}/download` — скачать файл (для просмотра подтверждения). Роль: любой авторизованный.
+
+### 5.9. Payments & Allocations
+- `POST /payments` — обязателен **либо** `reference`, **либо** `confirmation_attachment_id` (подтверждение файлом).
 - `GET /payments` — filters: `student_id`, `status`, `payment_method`, `date_from`, `date_to`, `page`, `limit`
 - `GET /payments/{payment_id}`
 - `PATCH /payments/{payment_id}`
@@ -189,7 +196,7 @@
 - `POST /payments/allocations/manual`
 - `DELETE /payments/allocations/{allocation_id}`
 
-### 5.9. Inventory
+### 5.10. Inventory
 - `GET /inventory/stock` — filters: `include_zero`, `category_id`, `page`, `limit`
 - `GET /inventory/stock/{item_id}`
 - `POST /inventory/receive`
@@ -206,13 +213,13 @@
 - `GET /inventory/bulk-upload/export` — выгрузка текущего склада в CSV (attachment `stock_export.csv`). Колонки: category, item_name, sku, quantity, unit_cost. UTF-8 BOM. Роль: Admin.
 - `POST /inventory/bulk-upload` — массовая загрузка остатков из CSV. Тело: `multipart/form-data`: `file` (CSV), `mode` (обязательно: `overwrite` | `update`). Режим overwrite: обнуляет quantity_on_hand по всем продуктам (только если нигде нет reserved), затем выставляет значения из CSV. Режим update: только для строк из CSV выставляет quantity_on_hand (adjustment до целевого значения). CSV: обязательные колонки category, item_name, quantity; опционально sku, unit_cost. Reserved в CSV не участвует. Ответ: `{ rows_processed, items_created, errors: [{ row, message }] }`. Роль: Admin.
 
-### 5.10. Reservations
+### 5.11. Reservations
 - `GET /reservations` — filters: `student_id`, `invoice_id`, `status`, `page`, `limit`
 - `GET /reservations/{reservation_id}`
 - `POST /reservations/{reservation_id}/issue`
 - `POST /reservations/{reservation_id}/cancel`
 
-### 5.11. Procurement
+### 5.12. Procurement
 - `POST /procurement/purchase-orders`
 - `GET /procurement/purchase-orders` — filters: `status`, `supplier_name`, `date_from`, `date_to`, `page`, `limit`
 - `GET /procurement/purchase-orders/{po_id}`
@@ -233,7 +240,7 @@
 - `GET /procurement/payments/{payment_id}`
 - `POST /procurement/payments/{payment_id}/cancel`
 
-### 5.12. Compensations
+### 5.13. Compensations
 - `GET /compensations/claims` — filters: `employee_id`, `status`, `date_from`, `date_to`, `page`, `limit`
 - `GET /compensations/claims/{claim_id}`
 - `POST /compensations/claims/{claim_id}/approve`
@@ -331,9 +338,10 @@
 - `StudentDiscountResponse`: `id`, `student_id`, `student_name?`, `applies_to`, `value_type`, `value`, `reason_id?`, `reason_name?`, `reason_text?`, `is_active`, `created_by_id`
 
 ### 6.8. Payments & Allocations
-- `PaymentCreate`: `student_id`, `amount`, `payment_method`, `payment_date`, `reference?`, `notes?`
+- `PaymentCreate`: `student_id`, `amount`, `payment_method`, `payment_date`, `reference?`, `confirmation_attachment_id?`, `notes?` — обязательно **либо** reference, **либо** confirmation_attachment_id.
 - `PaymentUpdate`: `amount?`, `payment_method?`, `payment_date?`, `reference?`, `notes?`
-- `PaymentResponse`: `id`, `payment_number`, `receipt_number?`, `student_id`, `amount`, `payment_method`, `payment_date`, `reference?`, `status`, `notes?`, `received_by_id`, `created_at`, `updated_at`
+- `PaymentResponse`: `id`, `payment_number`, `receipt_number?`, `student_id`, `amount`, `payment_method`, `payment_date`, `reference?`, `confirmation_attachment_id?`, `status`, `notes?`, `received_by_id`, `created_at`, `updated_at`
+- `AttachmentResponse`: `id`, `file_name`, `content_type`, `file_size`, `created_at` (ответ POST /attachments и GET /attachments/{id})
 - `AllocationCreate`: `student_id`, `invoice_id`, `invoice_line_id?`, `amount`
 - `AllocationResponse`: `id`, `student_id`, `invoice_id`, `invoice_line_id?`, `amount`, `allocated_by_id`, `created_at`
 - `AutoAllocateRequest`: `student_id`, `max_amount?`

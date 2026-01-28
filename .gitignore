@@ -37,6 +37,9 @@ htmlcov/
 *.log
 logs/
 
+# Uploads (attachments)
+uploads/
+
 # OS
 .DS_Store
 Thumbs.db

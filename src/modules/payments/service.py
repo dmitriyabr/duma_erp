@@ -61,6 +61,7 @@ class PaymentService:
             payment_method=data.payment_method.value,
             payment_date=data.payment_date,
             reference=data.reference,
+            confirmation_attachment_id=data.confirmation_attachment_id,
             status=PaymentStatus.PENDING.value,
             notes=data.notes,
             received_by_id=received_by_id,

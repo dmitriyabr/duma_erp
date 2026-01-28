@@ -19,7 +19,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../services/api'
 import { formatDate, formatMoney } from '../../utils/format'
@@ -79,6 +79,10 @@ export const PayoutsPage = () => {
   const [paymentMethod, setPaymentMethod] = useState('mpesa')
   const [referenceNumber, setReferenceNumber] = useState('')
   const [proofText, setProofText] = useState('')
+  const [proofAttachmentId, setProofAttachmentId] = useState<number | null>(null)
+  const [proofFileName, setProofFileName] = useState<string | null>(null)
+  const [uploadingProof, setUploadingProof] = useState(false)
+  const proofFileInputRef = React.useRef<HTMLInputElement>(null)
 
   const [employees, setEmployees] = useState<UserRow[]>([])
 
@@ -170,6 +174,9 @@ export const PayoutsPage = () => {
     setPaymentMethod('mpesa')
     setReferenceNumber('')
     setProofText('')
+    setProofAttachmentId(null)
+    setProofFileName(null)
+    if (proofFileInputRef.current) proofFileInputRef.current.value = ''
     setPayoutDialogOpen(true)
   }
 
@@ -183,8 +190,10 @@ export const PayoutsPage = () => {
       setError('Amount must be greater than 0.')
       return
     }
-    if (!proofText.trim()) {
-      setError('Proof is required (proof text).')
+    const hasProofText = Boolean(proofText.trim())
+    const hasProofFile = proofAttachmentId != null
+    if (!hasProofText && !hasProofFile) {
+      setError('Reference / proof (text) or confirmation file is required.')
       return
     }
 
@@ -197,7 +206,8 @@ export const PayoutsPage = () => {
         amount: amountValue,
         payment_method: paymentMethod,
         reference_number: referenceNumber.trim() || null,
-        proof_text: proofText.trim(),
+        proof_text: proofText.trim() || null,
+        proof_attachment_id: proofAttachmentId ?? null,
       })
       setPayoutDialogOpen(false)
       await loadBalances()
@@ -379,18 +389,63 @@ export const PayoutsPage = () => {
             onChange={(event) => setReferenceNumber(event.target.value)}
           />
           <TextField
-            label="Proof text"
+            label="Reference / proof (text, optional if file uploaded)"
             value={proofText}
             onChange={(event) => setProofText(event.target.value)}
             multiline
-            minRows={3}
-            required
-            helperText="Required: describe or paste proof of payment"
+            minRows={2}
+            helperText="Reference or confirmation file below is required"
           />
+          <Box>
+            <Button
+              variant="outlined"
+              component="label"
+              disabled={uploadingProof}
+              sx={{ mr: 1 }}
+            >
+              {uploadingProof ? 'Uploading…' : 'Upload confirmation (image/PDF)'}
+              <input
+                ref={proofFileInputRef}
+                type="file"
+                hidden
+                accept="image/*,.pdf,application/pdf"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0]
+                  if (!file) return
+                  setUploadingProof(true)
+                  try {
+                    const formData = new FormData()
+                    formData.append('file', file)
+                    const res = await api.post<ApiResponse<{ id: number }>>('/attachments', formData, {
+                      headers: { 'Content-Type': 'multipart/form-data' },
+                    })
+                    setProofAttachmentId(res.data.data.id)
+                    setProofFileName(file.name)
+                  } catch {
+                    setError('Failed to upload confirmation file.')
+                  } finally {
+                    setUploadingProof(false)
+                  }
+                }}
+              />
+            </Button>
+            {proofFileName && (
+              <Typography variant="body2" color="text.secondary" component="span">
+                {proofFileName}
+              </Typography>
+            )}
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setPayoutDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleCreatePayout} disabled={loading}>
+          <Button
+            variant="contained"
+            onClick={handleCreatePayout}
+            disabled={
+              loading ||
+              (!proofText.trim() && proofAttachmentId == null)
+            }
+          >
             Create payout
           </Button>
         </DialogActions>

@@ -66,6 +66,7 @@ export interface PaymentResponse {
   payment_method: string
   payment_date: string
   reference?: string | null
+  confirmation_attachment_id?: number | null
   status: string
   notes?: string | null
   created_at: string

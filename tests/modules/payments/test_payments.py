@@ -241,6 +241,7 @@ class TestPaymentService:
                 amount=Decimal("5000.00"),
                 payment_method=PaymentMethod.MPESA,
                 payment_date=date.today(),
+                reference="test-ref",
             ),
             received_by_id=data["user"].id,
         )
@@ -265,6 +266,7 @@ class TestPaymentService:
                 amount=Decimal("10000.00"),
                 payment_method=PaymentMethod.MPESA,
                 payment_date=date.today(),
+                reference="test-ref",
             ),
             received_by_id=data["user"].id,
         )
@@ -288,6 +290,7 @@ class TestPaymentService:
                 amount=Decimal("10000.00"),
                 payment_method=PaymentMethod.MPESA,
                 payment_date=date.today(),
+                reference="test-ref",
             ),
             received_by_id=data["user"].id,
         )
@@ -321,6 +324,7 @@ class TestPaymentService:
                 amount=Decimal("6000.00"),
                 payment_method=PaymentMethod.MPESA,
                 payment_date=date.today(),
+                reference="test-ref",
             ),
             received_by_id=data["user"].id,
         )
@@ -350,6 +354,7 @@ class TestPaymentService:
                 amount=Decimal("10000.00"),
                 payment_method=PaymentMethod.MPESA,
                 payment_date=date.today(),
+                reference="test-ref",
             ),
             received_by_id=data["user"].id,
         )
@@ -549,6 +554,7 @@ class TestPaymentService:
                 amount=Decimal("2000.00"),
                 payment_method=PaymentMethod.MPESA,
                 payment_date=date.today(),
+                reference="test-ref",
             ),
             received_by_id=user.id,
         )
@@ -578,6 +584,7 @@ class TestPaymentService:
                 amount=Decimal("5000.00"),
                 payment_method=PaymentMethod.MPESA,
                 payment_date=date.today(),
+                reference="test-ref",
             ),
             received_by_id=data["user"].id,
         )
@@ -615,6 +622,7 @@ class TestPaymentService:
                 amount=Decimal("10000.00"),
                 payment_method=PaymentMethod.MPESA,
                 payment_date=date.today(),
+                reference="test-ref",
             ),
             received_by_id=data["user"].id,
         )
@@ -742,6 +750,7 @@ class TestPaymentEndpoints:
                 "amount": "5000.00",
                 "payment_method": "bank_transfer",
                 "payment_date": str(date.today()),
+                "reference": "test-ref",
             },
         )
         payment_id = create_response.json()["data"]["id"]
@@ -784,6 +793,7 @@ class TestPaymentEndpoints:
                 "amount": "10000.00",
                 "payment_method": "mpesa",
                 "payment_date": str(date.today()),
+                "reference": "test-ref",
             },
         )
         payment_id = create_response.json()["data"]["id"]

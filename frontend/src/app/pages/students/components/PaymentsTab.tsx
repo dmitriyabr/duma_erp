@@ -17,10 +17,11 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useAuth } from '../../../auth/AuthContext'
 import { api } from '../../../services/api'
 import { formatDate, formatMoney } from '../../../utils/format'
+import { openAttachmentInNewTab } from '../../../utils/attachments'
 import type {
   ApiResponse,
   InvoiceDetail,
@@ -56,6 +57,10 @@ export const PaymentsTab = ({
     notes: '',
   })
   const [selectedPayment, setSelectedPayment] = useState<PaymentResponse | null>(null)
+  const [confirmationAttachmentId, setConfirmationAttachmentId] = useState<number | null>(null)
+  const [confirmationFileName, setConfirmationFileName] = useState<string | null>(null)
+  const [uploadingFile, setUploadingFile] = useState(false)
+  const confirmationFileInputRef = React.useRef<HTMLInputElement>(null)
   const [allocationDialogOpen, setAllocationDialogOpen] = useState(false)
   const [allocationForm, setAllocationForm] = useState({
     invoice_id: '',
@@ -99,10 +104,40 @@ export const PaymentsTab = ({
       reference: '',
       notes: '',
     })
+    setConfirmationAttachmentId(null)
+    setConfirmationFileName(null)
+    if (confirmationFileInputRef.current) confirmationFileInputRef.current.value = ''
     setPaymentDialogOpen(true)
   }
 
+  const handleConfirmationFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    setUploadingFile(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const response = await api.post<ApiResponse<{ id: number; file_name: string }>>(
+        '/attachments',
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      )
+      setConfirmationAttachmentId(response.data.data.id)
+      setConfirmationFileName(file.name)
+    } catch {
+      onError('Failed to upload confirmation file.')
+    } finally {
+      setUploadingFile(false)
+    }
+  }
+
   const submitPayment = async () => {
+    const hasReference = Boolean(paymentForm.reference?.trim())
+    const hasFile = confirmationAttachmentId != null
+    if (!hasReference && !hasFile) {
+      onError('Reference or confirmation file is required.')
+      return
+    }
     setLoading(true)
     try {
       const createResponse = await api.post<ApiResponse<PaymentResponse>>('/payments', {
@@ -111,6 +146,7 @@ export const PaymentsTab = ({
         payment_method: paymentForm.payment_method,
         payment_date: paymentForm.payment_date,
         reference: paymentForm.reference.trim() || null,
+        confirmation_attachment_id: confirmationAttachmentId ?? undefined,
         notes: paymentForm.notes.trim() || null,
       })
       await api.post(`/payments/${createResponse.data.data.id}/complete`)
@@ -281,10 +317,33 @@ export const PaymentsTab = ({
             InputLabelProps={{ shrink: true }}
           />
           <TextField
-            label="Reference"
+            label="Reference (optional if file uploaded)"
             value={paymentForm.reference}
             onChange={(event) => setPaymentForm({ ...paymentForm, reference: event.target.value })}
+            helperText="Reference or confirmation file below is required"
           />
+          <Box>
+            <Button
+              variant="outlined"
+              component="label"
+              disabled={uploadingFile}
+              sx={{ mr: 1 }}
+            >
+              {uploadingFile ? 'Uploading…' : 'Upload confirmation (image/PDF)'}
+              <input
+                ref={confirmationFileInputRef}
+                type="file"
+                hidden
+                accept="image/*,.pdf,application/pdf"
+                onChange={handleConfirmationFileChange}
+              />
+            </Button>
+            {confirmationFileName && (
+              <Typography variant="body2" color="text.secondary" component="span">
+                {confirmationFileName}
+              </Typography>
+            )}
+          </Box>
           <TextField
             label="Notes"
             value={paymentForm.notes}
@@ -295,7 +354,14 @@ export const PaymentsTab = ({
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={submitPayment} disabled={loading}>
+          <Button
+            variant="contained"
+            onClick={submitPayment}
+            disabled={
+              loading ||
+              (!paymentForm.reference?.trim() && confirmationAttachmentId == null)
+            }
+          >
             Save
           </Button>
         </DialogActions>
@@ -320,6 +386,15 @@ export const PaymentsTab = ({
             Date: {selectedPayment?.payment_date ? formatDate(selectedPayment.payment_date) : '—'}
           </Typography>
           <Typography variant="body2">Reference: {selectedPayment?.reference ?? '—'}</Typography>
+          {selectedPayment?.confirmation_attachment_id ? (
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => openAttachmentInNewTab(selectedPayment!.confirmation_attachment_id!)}
+            >
+              View confirmation file
+            </Button>
+          ) : null}
           <Typography variant="body2">Notes: {selectedPayment?.notes ?? '—'}</Typography>
           <Typography variant="body2">Status: {selectedPayment?.status ?? '—'}</Typography>
         </DialogContent>

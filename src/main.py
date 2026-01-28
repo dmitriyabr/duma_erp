@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from src.core.auth.router import router as auth_router
+from src.core.attachments.router import router as attachments_router
 from src.modules.users.router import router as users_router
 from src.modules.terms.router import router as terms_router
 from src.modules.items.router import router as items_router
@@ -71,6 +72,7 @@ def create_app() -> FastAPI:
 
     # Routers
     app.include_router(auth_router, prefix="/api/v1")
+    app.include_router(attachments_router, prefix="/api/v1")
     app.include_router(users_router, prefix="/api/v1")
     app.include_router(terms_router, prefix="/api/v1")
     app.include_router(items_router, prefix="/api/v1")

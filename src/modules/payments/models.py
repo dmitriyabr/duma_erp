@@ -65,6 +65,10 @@ class Payment(Base):
         String(100), nullable=True
     )  # M-Pesa transaction ID, bank reference
 
+    confirmation_attachment_id: Mapped[int | None] = mapped_column(
+        BigIntPK, ForeignKey("attachments.id"), nullable=True, index=True
+    )
+
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default=PaymentStatus.PENDING.value, index=True
     )

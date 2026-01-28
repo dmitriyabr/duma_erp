@@ -1,6 +1,7 @@
 import {
   Alert,
   Box,
+  Button,
   Table,
   TableBody,
   TableCell,
@@ -11,6 +12,7 @@ import {
 import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../../services/api'
+import { openAttachmentInNewTab } from '../../utils/attachments'
 import { formatDate, formatMoney } from '../../utils/format'
 
 interface ApiResponse<T> {
@@ -33,6 +35,7 @@ interface PayoutResponse {
   payment_method: string
   reference_number: string | null
   proof_text: string | null
+  proof_attachment_id: number | null
   allocations: PayoutAllocation[]
 }
 
@@ -142,6 +145,17 @@ export const PayoutDetailPage = () => {
             Proof
           </Typography>
           <Typography sx={{ whiteSpace: 'pre-wrap' }}>{payout.proof_text}</Typography>
+        </Box>
+      ) : null}
+      {payout.proof_attachment_id ? (
+        <Box sx={{ mb: 3 }}>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={() => openAttachmentInNewTab(payout.proof_attachment_id!)}
+          >
+            View confirmation file
+          </Button>
         </Box>
       ) : null}
 

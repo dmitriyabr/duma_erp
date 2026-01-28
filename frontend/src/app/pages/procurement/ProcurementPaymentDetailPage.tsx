@@ -13,6 +13,7 @@ import {
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../../services/api'
+import { openAttachmentInNewTab } from '../../utils/attachments'
 import { formatDate, formatMoney } from '../../utils/format'
 
 interface ApiResponse<T> {
@@ -31,6 +32,7 @@ interface PaymentResponse {
   payment_method: string
   reference_number: string | null
   proof_text: string | null
+  proof_attachment_id: number | null
   company_paid: boolean
   employee_paid_id: number | null
   status: string
@@ -182,6 +184,17 @@ export const ProcurementPaymentDetailPage = () => {
             Proof
           </Typography>
           <Typography sx={{ whiteSpace: 'pre-wrap' }}>{payment.proof_text}</Typography>
+        </Box>
+      ) : null}
+      {payment.proof_attachment_id ? (
+        <Box sx={{ mb: 3 }}>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={() => openAttachmentInNewTab(payment.proof_attachment_id!)}
+          >
+            View confirmation file
+          </Button>
         </Box>
       ) : null}
 

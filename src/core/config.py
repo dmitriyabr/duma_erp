@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     # Can be a comma-separated string or list
     cors_allowed_origins: Union[str, list[str]] = "http://localhost:3000,http://localhost:5173"
 
+    # File storage (attachments: payment confirmations, proofs). Dev: local folder; prod: S3/R2.
+    storage_path: str = "uploads"
+
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"

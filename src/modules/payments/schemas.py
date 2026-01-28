@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from src.shared.schemas.base import BaseSchema
 from src.modules.payments.models import PaymentMethod, PaymentStatus
@@ -13,14 +13,21 @@ from src.modules.payments.models import PaymentMethod, PaymentStatus
 
 
 class PaymentCreate(BaseSchema):
-    """Schema for creating a payment."""
+    """Schema for creating a payment. Reference or confirmation_attachment_id required."""
 
     student_id: int
     amount: Decimal = Field(gt=0, description="Payment amount (must be positive)")
     payment_method: PaymentMethod
     payment_date: date
     reference: str | None = Field(None, max_length=100)
+    confirmation_attachment_id: int | None = None
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def require_reference_or_attachment(self):
+        if not self.reference and not self.confirmation_attachment_id:
+            raise ValueError("Either reference or confirmation file (attachment) is required")
+        return self
 
 
 class PaymentUpdate(BaseSchema):
@@ -44,6 +51,7 @@ class PaymentResponse(BaseSchema):
     payment_method: str
     payment_date: date
     reference: str | None
+    confirmation_attachment_id: int | None = None
     status: str
     notes: str | None
     received_by_id: int
