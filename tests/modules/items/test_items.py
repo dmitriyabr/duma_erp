@@ -104,6 +104,25 @@ class TestCategoryService:
         assert updated.name == "New Name"
         assert updated.is_active is False
 
+    async def test_get_or_create_category_by_name_creates(self, db_session: AsyncSession):
+        """Test get_or_create_category_by_name creates new category."""
+        admin_id = await self._create_super_admin(db_session)
+        service = ItemService(db_session)
+
+        category = await service.get_or_create_category_by_name("New Category")
+        assert category.id is not None
+        assert category.name == "New Category"
+
+    async def test_get_or_create_category_by_name_returns_existing(self, db_session: AsyncSession):
+        """Test get_or_create_category_by_name returns same category on second call."""
+        admin_id = await self._create_super_admin(db_session)
+        service = ItemService(db_session)
+
+        cat1 = await service.get_or_create_category_by_name("Same Name")
+        cat2 = await service.get_or_create_category_by_name("Same Name")
+        assert cat1.id == cat2.id
+        assert cat1.name == cat2.name == "Same Name"
+
 
 class TestItemService:
     """Tests for Item operations in ItemService."""
@@ -205,6 +224,72 @@ class TestItemService:
                 ),
                 created_by_id=admin_id,
             )
+
+    async def test_get_or_create_product_item_creates(self, db_session: AsyncSession):
+        """Test get_or_create_product_item creates new category and product."""
+        admin_id = await self._create_super_admin(db_session)
+        service = ItemService(db_session)
+
+        item, created = await service.get_or_create_product_item(
+            category_name="Bulk Cat",
+            item_name="Bulk Item",
+            sku=None,
+            created_by_id=admin_id,
+        )
+        assert created is True
+        assert item.id is not None
+        assert item.name == "Bulk Item"
+        assert item.item_type == ItemType.PRODUCT.value
+        assert item.sku_code  # auto-generated
+
+    async def test_get_or_create_product_item_returns_existing_by_name(self, db_session: AsyncSession):
+        """Test get_or_create_product_item returns same item on second call (by category+name)."""
+        admin_id = await self._create_super_admin(db_session)
+        service = ItemService(db_session)
+
+        item1, created1 = await service.get_or_create_product_item(
+            category_name="Same Cat",
+            item_name="Same Item",
+            sku=None,
+            created_by_id=admin_id,
+        )
+        item2, created2 = await service.get_or_create_product_item(
+            category_name="Same Cat",
+            item_name="Same Item",
+            sku=None,
+            created_by_id=admin_id,
+        )
+        assert created1 is True
+        assert created2 is False
+        assert item1.id == item2.id
+
+    async def test_get_or_create_product_item_returns_existing_by_sku(self, db_session: AsyncSession):
+        """Test get_or_create_product_item finds existing item by SKU."""
+        admin_id = await self._create_super_admin(db_session)
+        category_id = await self._create_category(db_session, admin_id)
+        service = ItemService(db_session)
+
+        created_item = await service.create_item(
+            ItemCreate(
+                category_id=category_id,
+                sku_code="BULK-SKU-001",
+                name="Existing Product",
+                item_type=ItemType.PRODUCT,
+                price_type=PriceType.STANDARD,
+                price=Decimal("0.00"),
+            ),
+            created_by_id=admin_id,
+        )
+
+        item, created = await service.get_or_create_product_item(
+            category_name="Other Cat",
+            item_name="Other Name",
+            sku="BULK-SKU-001",
+            created_by_id=admin_id,
+        )
+        assert created is False
+        assert item.id == created_item.id
+        assert item.sku_code == "BULK-SKU-001"
 
     async def test_update_item_price_creates_history(self, db_session: AsyncSession):
         """Test that updating item price creates price history."""

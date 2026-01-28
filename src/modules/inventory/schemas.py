@@ -208,3 +208,17 @@ class IssuanceResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class BulkUploadError(BaseModel):
+    """Single row error in bulk upload."""
+
+    row: int
+    message: str
+
+
+class BulkUploadResponse(BaseModel):
+    """Response after bulk stock CSV upload."""
+
+    rows_processed: int
+    items_created: int
+    errors: list[BulkUploadError] = []
+

@@ -3,8 +3,11 @@ import {
   Box,
   Button,
   FormControl,
+  FormControlLabel,
   InputLabel,
   MenuItem,
+  Radio,
+  RadioGroup,
   Select,
   Table,
   TableBody,
@@ -14,7 +17,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../../services/api'
 
 interface ItemOption {
@@ -40,12 +43,25 @@ const emptyLine = (): CountLine => ({
   actual_quantity: 0,
 })
 
+type BulkMode = 'overwrite' | 'update'
+
+interface BulkUploadResult {
+  rows_processed: number
+  items_created: number
+  errors: Array<{ row: number; message: string }>
+}
+
 export const InventoryCountPage = () => {
   const [items, setItems] = useState<ItemOption[]>([])
   const [lines, setLines] = useState<CountLine[]>([emptyLine()])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [bulkMode, setBulkMode] = useState<BulkMode>('update')
+  const [bulkLoading, setBulkLoading] = useState(false)
+  const [bulkResult, setBulkResult] = useState<BulkUploadResult | null>(null)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const fetchItems = async () => {
     try {
@@ -93,6 +109,58 @@ export const InventoryCountPage = () => {
       setError('Failed to submit inventory count.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const downloadCurrentStock = async () => {
+    setError(null)
+    try {
+      const response = await api.get('/inventory/bulk-upload/export', {
+        responseType: 'blob',
+      })
+      const url = window.URL.createObjectURL(response.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'stock_export.csv'
+      a.click()
+      window.URL.revokeObjectURL(url)
+    } catch {
+      setError('Failed to download stock export.')
+    }
+  }
+
+  const submitBulkUpload = async () => {
+    const file = fileInputRef.current?.files?.[0]
+    if (!file) {
+      setError('Select a CSV file.')
+      return
+    }
+    setBulkLoading(true)
+    setError(null)
+    setBulkResult(null)
+    setSuccess(null)
+    try {
+      const formData = new FormData()
+      formData.append('file', selectedFile)
+      formData.append('mode', bulkMode)
+      const response = await api.post<ApiResponse<BulkUploadResult>>(
+        '/inventory/bulk-upload',
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      )
+      setBulkResult(response.data.data)
+      setSuccess(
+        `Processed ${response.data.data.rows_processed} rows, created ${response.data.data.items_created} new items.`
+      )
+      setSelectedFile(null)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    } catch (e: unknown) {
+      const msg = e && typeof e === 'object' && 'response' in e
+        ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail
+        : null
+      setError(msg ?? 'Failed to upload CSV.')
+    } finally {
+      setBulkLoading(false)
     }
   }
 
@@ -172,6 +240,56 @@ export const InventoryCountPage = () => {
           Apply count
         </Button>
       </Box>
+
+      <Typography variant="h5" sx={{ fontWeight: 600, mt: 4, mb: 2 }}>
+        Bulk upload from CSV
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        Download current stock, edit quantities (and add rows for new items), then upload. Overwrite
+        zeros all stock first; Update only changes rows that appear in the file.
+      </Typography>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', mb: 2 }}>
+        <Button variant="outlined" onClick={downloadCurrentStock}>
+          Download current stock
+        </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".csv"
+          style={{ display: 'none' }}
+          onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
+        />
+        <Button
+          variant="outlined"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={bulkLoading}
+        >
+          {selectedFile ? selectedFile.name : 'Select CSV'}
+        </Button>
+        <FormControl component="fieldset">
+          <RadioGroup
+            row
+            value={bulkMode}
+            onChange={(e) => setBulkMode(e.target.value as BulkMode)}
+          >
+            <FormControlLabel value="update" control={<Radio />} label="Update only" />
+            <FormControlLabel value="overwrite" control={<Radio />} label="Overwrite warehouse" />
+          </RadioGroup>
+        </FormControl>
+        <Button
+          variant="contained"
+          onClick={submitBulkUpload}
+          disabled={bulkLoading || !selectedFile}
+        >
+          {bulkLoading ? 'Uploading…' : 'Upload'}
+        </Button>
+      </Box>
+      {bulkResult && bulkResult.errors.length > 0 ? (
+        <Alert severity="warning" sx={{ mt: 1 }}>
+          {bulkResult.errors.length} row(s) had errors: {bulkResult.errors.slice(0, 3).map((e) => `Row ${e.row}: ${e.message}`).join('; ')}
+          {bulkResult.errors.length > 3 ? ` … and ${bulkResult.errors.length - 3} more` : ''}
+        </Alert>
+      ) : null}
     </Box>
   )
 }

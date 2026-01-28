@@ -203,6 +203,8 @@
 - `GET /inventory/issuances` — filters: `issuance_type`, `recipient_type`, `recipient_id`, `page`, `limit`
 - `GET /inventory/issuances/{issuance_id}`
 - `POST /inventory/issuances/{issuance_id}/cancel`
+- `GET /inventory/bulk-upload/export` — выгрузка текущего склада в CSV (attachment `stock_export.csv`). Колонки: category, item_name, sku, quantity, unit_cost. UTF-8 BOM. Роль: Admin.
+- `POST /inventory/bulk-upload` — массовая загрузка остатков из CSV. Тело: `multipart/form-data`: `file` (CSV), `mode` (обязательно: `overwrite` | `update`). Режим overwrite: обнуляет quantity_on_hand по всем продуктам (только если нигде нет reserved), затем выставляет значения из CSV. Режим update: только для строк из CSV выставляет quantity_on_hand (adjustment до целевого значения). CSV: обязательные колонки category, item_name, quantity; опционально sku, unit_cost. Reserved в CSV не участвует. Ответ: `{ rows_processed, items_created, errors: [{ row, message }] }`. Роль: Admin.
 
 ### 5.10. Reservations
 - `GET /reservations` — filters: `student_id`, `invoice_id`, `status`, `page`, `limit`

@@ -435,15 +435,15 @@
 - [x] В списке issuances отображается «Кому» (recipient_name уже в IssuanceResponse).
 
 **Массовая загрузка стока (CSV) — ветка `feature/bulk-stock-csv`, план в `docs/BULK_STOCK_CSV.md`:**
-- [ ] **Backend:** POST `/inventory/bulk-upload` (file CSV + mode: overwrite | update).
-  - Парсинг CSV: category, item_name, quantity, unit_cost? (и опционально sku).
+- [x] **Backend:** POST `/inventory/bulk-upload` (file CSV + mode: overwrite | update).
+  - Парсинг CSV: category, item_name, quantity, unit_cost? (и опционально sku). Reserved в CSV не участвует.
   - Get-or-create категории по имени; get-or-create Item (product) по (category, item_name) или sku, автоСКУ при создании.
-  - Режим overwrite: обнулить остатки всех product, затем установить остатки по строкам CSV.
-  - Режим update: только для позиций из CSV установить остаток (adjustment до target quantity).
+  - Режим overwrite: обнулить **только quantity_on_hand** по всем product (quantity_reserved не трогаем).
+  - Режим update: только для позиций из CSV установить quantity_on_hand (adjustment до target quantity).
   - Аудит и движения StockMovement.
-- [ ] **Backend:** GET `/inventory/bulk-upload/template` — отдать CSV-шаблон (заголовки).
-- [ ] **Frontend (страница Inventory count):** секция «Bulk upload from CSV»: кнопка «Download template», выбор файла, выбор режима (Overwrite warehouse / Update only), кнопка Upload; отображение результата (обработано строк, создано позиций, ошибки).
-- [ ] **CDN / хранилище:** прод = Cloudflare S3; дев = поднять MinIO в docker-compose (S3-совместимый) или локальная папка для загрузок. Для самой bulk CSV CDN не нужен (файл парсится в память).
+- [x] **Backend:** GET `/inventory/bulk-upload/export` — выгрузка **текущего склада** в CSV (не пустой шаблон), чтобы редактировать и заливать обратно.
+- [x] **Frontend (страница Inventory count):** секция «Bulk upload from CSV»: кнопка «Download current stock», выбор файла, режим (Overwrite warehouse / Update only), Upload; результат (обработано строк, создано позиций, ошибки).
+- [ ] **CDN / хранилище:** прод = Cloudflare S3; дев = MinIO в docker-compose. Для bulk CSV CDN не нужен.
 
 **После рефакторинга 1.9:**
 - [x] Управление складскими позициями (Items type=product)

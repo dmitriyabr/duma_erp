@@ -3,30 +3,31 @@
 ## Обзор
 
 - **Ветка:** `feature/bulk-stock-csv`
-- **Место в UI:** страница Inventory count (рядом с ручной инвентаризацией): секция «Bulk upload from CSV» + кнопка «Download template».
+- **Место в UI:** страница Inventory count: секция «Bulk upload from CSV» + кнопка **«Download current stock»** (выгрузка текущего склада в CSV — по ней удобно редактировать и заливать обратно).
 
 ## Режимы загрузки
 
 1. **Затереть старый склад (Overwrite)**  
-   Сначала обнулить остатки по всем товарам (product), затем применить CSV. В результате ненулевой остаток только у позиций из файла.
+   Обнулить только **quantity_on_hand** по всем product (reserved не трогаем — это производная от резерваций/выдач). Затем применить CSV. В результате ненулевой остаток только у позиций из файла.
 
 2. **Только обновить (Update)**  
-   Менять остатки только у позиций, которые есть в CSV. Позиции, которых нет в файле, не трогать. Для каждой строки CSV: установить остаток = значение из CSV (через adjustment).
+   Менять остатки только у позиций, которые есть в CSV. Позиции, которых нет в файле, не трогать. Для каждой строки CSV: установить quantity_on_hand = значение из CSV (через adjustment).
 
 ## CSV
 
-### Формат (предлагаемый)
+- **Reserved в CSV не участвует:** не выводим, не обновляем. Только сток (quantity_on_hand).
+
+### Формат (загрузка)
 
 | Колонка      | Обязательность | Описание |
 |-------------|----------------|----------|
-| category    | да             | Название категории (если нет — создать, например «Uncategorized» или ошибка) |
-| item_name   | да             | Название позиции (если нет в системе — создать в этой категории с автоСКУ) |
-| quantity    | да             | Целое ≥ 0, остаток на складе |
-| unit_cost   | нет            | Цена за единицу (для новых поступлений; при создании позиции и при receive) |
+| category    | да             | Название категории (если нет — создать) |
+| item_name   | да             | Название позиции (если нет — создать в этой категории с автоСКУ) |
+| quantity    | да             | Целое ≥ 0, остаток на складе (quantity_on_hand) |
+| unit_cost   | нет            | Цена за единицу (для новых поступлений) |
+| sku         | нет            | Если указан и есть в системе — ищем по SKU; иначе по (category, item_name) |
 
-- Кодировка: UTF-8.
-- Разделитель: запятая. Первая строка — заголовки.
-- Вариант: опциональная колонка `sku` — если указана и позиция с таким SKU есть, ищем по SKU; иначе ищем/создаём по (category, item_name).
+- Кодировка: UTF-8, разделитель: запятая, первая строка — заголовки.
 
 ### Создание позиций, которых ещё нет
 
@@ -40,14 +41,13 @@
   - Тело: `multipart/form-data`: файл `file` (CSV), поле `mode`: `overwrite` | `update`.
   - Права: ADMIN (как inventory count).
   - Логика:
-    1. Парсинг CSV, валидация заголовков и строк (category, item_name, quantity; unit_cost опционально).
-    2. Если `mode == overwrite`: обнулить quantity_on_hand (и quantity_reserved?) по всем product items (через adjustment или прямой update + движения в аудит).
-    3. Для каждой строки: get_or_create_item(category, item_name, sku?) → item; затем установить остаток: при overwrite — просто set quantity (т.к. уже обнулили); при update — adjustment до target quantity. Если указан unit_cost и это новая позиция или «первое поступление», можно записать через receive; иначе — adjustment.
-  - Ответ: количество обработанных строк, созданных позиций, ошибки по строкам (если делать пошаговый отчёт).
+    1. Парсинг CSV, валидация заголовков и строк (category, item_name, quantity; unit_cost, sku опционально).
+    2. Если `mode == overwrite`: обнулить **только quantity_on_hand** по всем product (quantity_reserved не трогаем).
+    3. Для каждой строки: get_or_create_item(category, item_name, sku?) → item; установить quantity_on_hand через receive или adjustment. Если unit_cost указан и новая позиция — receive; иначе adjustment до target quantity.
+  - Ответ: обработано строк, создано позиций, ошибки по строкам (при необходимости).
 
-- **GET /inventory/bulk-upload/template**  
-  - Ответ: CSV-файл с одной строкой заголовков: `category,item_name,quantity,unit_cost` (и опционально `sku`).
-  - Либо отдача статического файла, либо генерация на лету.
+- **GET /inventory/bulk-upload/export** (вместо «шаблона»)  
+  - Ответ: CSV с **текущим складом** — строки по всем product с остатком (category, item_name, sku, quantity, unit_cost/average_cost). Так пользователь скачивает актуальное состояние, правит и заливает обратно, не теряя данные.
 
 ### Сервисы
 
@@ -59,18 +59,16 @@
 
 ### Важно
 
-- Stock создаётся при первом receive/adjust (уже есть _get_or_create_stock). Для новой позиции: создать Item → вызвать receive или adjustment.
-- При overwrite: обнуление только quantity_on_hand; quantity_reserved трогать только если бизнес разрешает (иначе оставить как есть и запретить overwrite при reserved > 0 или обнулить и reserved).
+- Stock создаётся при первом receive/adjust (_get_or_create_stock). Новая позиция: создать Item → receive или adjustment.
+- При overwrite: обнуляем **только quantity_on_hand**. quantity_reserved не трогаем (производная от резерваций/выдач).
 
 ## Frontend
 
 - Страница **Inventory count**:
   - Секция «Bulk upload from CSV»:
-    - Кнопка **«Download template»** → GET template, сохранить файл (или открыть в новой вкладке).
-    - Поле выбора файла (CSV).
-    - Радио: **«Overwrite warehouse»** / **«Update only»**.
-    - Кнопка **«Upload»** → POST bulk-upload с file и mode.
-  - Показать результат: «Processed N rows, created M items» и при необходимости список ошибок по строкам.
+    - Кнопка **«Download current stock»** → GET export, скачать CSV текущего склада (редактируешь и заливаешь — так проще не ошибиться).
+    - Поле выбора файла (CSV), радио: **«Overwrite warehouse»** / **«Update only»**, кнопка **«Upload»**.
+  - Результат: обработано строк, создано позиций, ошибки по строкам (если есть).
 
 ## CDN / хранилище файлов
 

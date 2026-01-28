@@ -82,6 +82,100 @@ class ItemService:
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
+    async def get_or_create_category_by_name(self, name: str) -> Category:
+        """Get category by name, or create if not exists. Does not commit."""
+        name_clean = name.strip()
+        if not name_clean:
+            name_clean = "Uncategorized"
+        result = await self.db.execute(
+            select(Category).where(Category.name == name_clean)
+        )
+        category = result.scalar_one_or_none()
+        if category:
+            return category
+        category = Category(name=name_clean)
+        self.db.add(category)
+        await self.db.flush()
+        return category
+
+    async def _generate_item_sku(self, category: Category) -> str:
+        """Generate unique SKU for an item in the given category. Does not commit."""
+        prefix = self._build_sku_prefix(category.name)
+        while True:
+            sequence = await self._next_sku_sequence(prefix)
+            sku_code = f"{prefix}-{sequence:06d}"
+            existing = await self.db.execute(
+                select(Item.id).where(Item.sku_code == sku_code)
+            )
+            if not existing.scalar_one_or_none():
+                return sku_code
+
+    async def get_or_create_product_item(
+        self,
+        category_name: str,
+        item_name: str,
+        sku: str | None = None,
+        created_by_id: int = 0,
+    ) -> tuple[Item, bool]:
+        """Get or create a product item by category name and item name (or sku).
+
+        Returns (item, created). Does not commit; caller must commit.
+        """
+        category = await self.get_or_create_category_by_name(category_name)
+        item_name_clean = item_name.strip()
+        if not item_name_clean:
+            raise ValidationError("item_name cannot be empty")
+
+        if sku and sku.strip():
+            result = await self.db.execute(
+                select(Item).where(
+                    Item.sku_code == sku.strip(),
+                    Item.item_type == ItemType.PRODUCT.value,
+                )
+            )
+            item = result.scalar_one_or_none()
+            if item:
+                return item, False
+
+        result = await self.db.execute(
+            select(Item).where(
+                Item.category_id == category.id,
+                Item.name == item_name_clean,
+                Item.item_type == ItemType.PRODUCT.value,
+            )
+        )
+        item = result.scalar_one_or_none()
+        if item:
+            return item, False
+
+        sku_code = await self._generate_item_sku(category)
+        item = Item(
+            category_id=category.id,
+            sku_code=sku_code,
+            name=item_name_clean,
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("0.00"),
+            requires_full_payment=True,
+        )
+        self.db.add(item)
+        await self.db.flush()
+
+        await self.audit.log(
+            action="item.create",
+            entity_type="Item",
+            entity_id=item.id,
+            user_id=created_by_id,
+            new_values={
+                "sku_code": sku_code,
+                "name": item_name_clean,
+                "item_type": ItemType.PRODUCT.value,
+                "source": "bulk_upload",
+            },
+        )
+
+        return item, True
+
     async def update_category(
         self, category_id: int, data: CategoryUpdate, updated_by_id: int
     ) -> Category:
