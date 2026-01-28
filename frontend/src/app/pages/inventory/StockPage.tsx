@@ -135,7 +135,7 @@ export const StockPage = () => {
   const [reasonCategory, setReasonCategory] = useState<WriteOffReason>('damage')
   const [reasonDetail, setReasonDetail] = useState('')
   const [recipientType, setRecipientType] = useState<RecipientTypeOption>('employee')
-  const [recipientId, setRecipientId] = useState<number | ''>('')
+  const [recipientId, setRecipientId] = useState<string>('') // store as string for Select, convert to number on submit
   const [recipientNameOther, setRecipientNameOther] = useState('')
   const [studentsForIssue, setStudentsForIssue] = useState<StudentOption[]>([])
   const [usersForIssue, setUsersForIssue] = useState<UserOption[]>([])
@@ -329,13 +329,15 @@ export const StockPage = () => {
     if (recipientType === 'other') {
       recipientName = recipientNameOther.trim()
     } else if (recipientType === 'student') {
-      const student = studentsForIssue.find((s) => s.id === recipientId)
+      const idNum = Number(recipientId)
+      const student = studentsForIssue.find((s) => s.id === idNum)
       recipientName = student ? `${student.first_name} ${student.last_name}`.trim() : ''
-      payloadRecipientId = Number(recipientId)
+      payloadRecipientId = idNum
     } else {
-      const emp = usersForIssue.find((u) => u.id === recipientId)
+      const idNum = Number(recipientId)
+      const emp = usersForIssue.find((u) => u.id === idNum)
       recipientName = emp?.full_name ?? ''
-      payloadRecipientId = Number(recipientId)
+      payloadRecipientId = idNum
     }
     setLoading(true)
     setError(null)
@@ -723,12 +725,12 @@ export const StockPage = () => {
               <Select
                 value={recipientId}
                 label="Student *"
-                onChange={(event) => setRecipientId(event.target.value === '' ? '' : Number(event.target.value))}
+                onChange={(event) => setRecipientId(event.target.value as string)}
                 displayEmpty
               >
                 <MenuItem value="">Select student</MenuItem>
                 {studentsForIssue.map((s) => (
-                  <MenuItem key={s.id} value={s.id}>
+                  <MenuItem key={s.id} value={String(s.id)}>
                     {s.first_name} {s.last_name} ({s.student_number})
                   </MenuItem>
                 ))}
@@ -741,12 +743,12 @@ export const StockPage = () => {
               <Select
                 value={recipientId}
                 label="Employee *"
-                onChange={(event) => setRecipientId(event.target.value === '' ? '' : Number(event.target.value))}
+                onChange={(event) => setRecipientId(event.target.value as string)}
                 displayEmpty
               >
                 <MenuItem value="">Select employee</MenuItem>
                 {usersForIssue.map((u) => (
-                  <MenuItem key={u.id} value={u.id}>
+                  <MenuItem key={u.id} value={String(u.id)}>
                     {u.full_name}
                   </MenuItem>
                 ))}
