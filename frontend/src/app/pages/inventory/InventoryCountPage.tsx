@@ -141,7 +141,7 @@ export const InventoryCountPage = () => {
     setSuccess(null)
     try {
       const formData = new FormData()
-      formData.append('file', selectedFile)
+      formData.append('file', file)
       formData.append('mode', bulkMode)
       const response = await api.post<ApiResponse<BulkUploadResult>>(
         '/inventory/bulk-upload',
