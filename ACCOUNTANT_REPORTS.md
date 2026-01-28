@@ -1,413 +1,598 @@
-# Отчеты для бухгалтера
+# Доступ для внешнего бухгалтера (Accountant Role)
 
 ## Назначение
-Внешний бухгалтер использует систему для:
-- Подготовки финансовой отчетности
-- Расчета налогов (VAT, Corporation Tax, Withholding Tax)
-- Reconciliation банковских выписок
-- Анализа cash flow школы
-- Подготовки audit trail для проверок
 
-## 1. Финансовые отчеты (Financial Reports)
+Внешний бухгалтер ведет бухгалтерский учет в своей системе (QuickBooks, Xero, Excel, или другой учетной системе). Ему нужен доступ к **первичным документам** и **сырым данным** для:
+- Ввода транзакций в свою бухгалтерскую систему
+- Reconciliation (сверка) банковских выписок
+- Подготовки налоговых деклараций (VAT, WHT, Corporation Tax)
+- Проверки правильности документов (audit)
+- Подготовки финансовой отчетности для налоговой
 
-### 1.1 Profit & Loss Statement (Отчет о прибылях и убытках)
+**Важно:** Бухгалтер НЕ делает отчеты в нашей системе. Он берет данные и делает отчеты у себя.
+
+## Роль в системе: Read-Only
+
+- **Нет прав редактирования** (не может создавать/изменять инвойсы, платежи, закупки)
+- **Полный доступ на чтение** ко всем финансовым документам
+- **Экспорт данных** в CSV/Excel для импорта в свою систему
+- **Просмотр audit trail** для проверки кто и что менял
+- **Скачивание PDF** первичных документов (receipts, invoices, etc.)
+
+## 1. Первичные документы для бухгалтера
+
+### 1.1 Payment Receipts (Чеки об оплате)
+
+**Что это:** Документы, подтверждающие получение денег от студентов/родителей.
+
+**Доступ:**
+- Список всех чеков с фильтрами (по дате, методу оплаты, студенту)
+- Просмотр деталей каждого чека
+- Скачивание PDF чека
+- Массовый экспорт в Excel/CSV
+
+**Поля в чеке:**
+```
+Receipt Number: RCP-2026-000456
+Date: 28 Jan 2026
+Student: John Doe (Admission #2024-0123)
+Parent: Mary Doe
+Payment Method: M-Pesa
+Amount: 50,000 KES
+
+Allocation:
+- Invoice #INV-2026-000123: 30,000 KES (School Fee)
+- Invoice #INV-2026-000124: 20,000 KES (Transport)
+
+Received by: Admin User
+Notes: Payment via M-Pesa transaction #ABC123456
+```
+
+**PDF формат:**
+- Логотип школы
+- Детали чека
+- QR-код с номером чека (опционально)
+- Подпись администратора (цифровая или скан)
+
+### 1.2 Student Invoices (Счета студентам)
+
+**Что это:** Счета, выставленные студентам за обучение, транспорт, форму и т.д.
+
+**Доступ:**
+- Список всех инвойсов с фильтрами (по триместру, студенту, статусу)
+- Просмотр деталей каждого инвойса
+- Скачивание PDF инвойса
+- Экспорт в Excel/CSV
+
+**Поля в инвойсе:**
+```
+Invoice Number: INV-2026-000123
+Date: 15 Jan 2026
+Due Date: 31 Jan 2026
+Term: Term 1 2025/2026
+
+Student: John Doe (Grade 7)
+Parent: Mary Doe
+Phone: +254 712 345 678
+
+Line Items:
+- School Fee: 100,000 KES
+- Transport Fee: 30,000 KES
+- Uniform Bundle: 15,000 KES
+- Books: 5,000 KES
+
+Subtotal: 150,000 KES
+Discount (10% Sibling): -15,000 KES
+Total: 135,000 KES
+
+Status: Partially Paid
+Paid to date: 50,000 KES
+Balance: 85,000 KES
+```
+
+### 1.3 Purchase Orders (Заказы поставщикам)
+
+**Что это:** Документы на закупку товаров/услуг у поставщиков.
+
+**Доступ:**
+- Список всех PO с фильтрами
+- Просмотр деталей PO
+- Скачивание PDF
+- Экспорт в Excel/CSV
+
+**Поля в PO:**
+```
+PO Number: PO-2026-000123
+Date: 15 Jan 2026
+Expected Delivery: 25 Jan 2026
+
+Supplier: ABC Uniforms Ltd
+Contact: Jane Smith
+Email: jane@abcuniforms.co.ke
+
+Items:
+- School Shirt (Size M): 50 pcs × 800 KES = 40,000 KES
+- School Trousers (Size L): 30 pcs × 1,200 KES = 36,000 KES
+
+Subtotal: 76,000 KES
+VAT (16%): 12,160 KES
+Total: 88,160 KES
+
+Status: Received
+GRN: GRN-2026-000045
+```
+
+### 1.4 Goods Received Notes (Накладные на получение товара)
+
+**Что это:** Подтверждение получения товара от поставщика.
+
+**Поля в GRN:**
+```
+GRN Number: GRN-2026-000045
+Date: 22 Jan 2026
+PO Number: PO-2026-000123
+Supplier: ABC Uniforms Ltd
+
+Items Received:
+- School Shirt (Size M): 50 pcs (ordered: 50)
+- School Trousers (Size L): 28 pcs (ordered: 30) - 2 short
+
+Notes: 2 trousers damaged during shipping, credited by supplier
+
+Received by: Admin User
+Approved by: SuperAdmin
+```
+
+### 1.5 Supplier Invoices (Счета от поставщиков)
+
+**Что это:** Счета, которые поставщики выставляют школе.
+
+**Примечание:** Это могут быть отсканированные PDF или данные, введенные вручную в систему.
+
+**Поля:**
+```
+Supplier: ABC Uniforms Ltd
+Invoice Number: ABC-INV-2026-0789
+Date: 22 Jan 2026
+PO Reference: PO-2026-000123
+
+Amount: 88,160 KES (including VAT)
+VAT Amount: 12,160 KES
+Due Date: 21 Feb 2026
+
+Payment Status: Unpaid
+```
+
+### 1.6 Procurement Payments (Платежи поставщикам)
+
+**Что это:** Документы об оплате поставщикам.
+
+**Поля:**
+```
+Payment Number: PP-2026-000089
+Date: 25 Jan 2026
+Supplier: ABC Uniforms Ltd
+PO: PO-2026-000123
+Amount: 88,160 KES
+Method: Bank Transfer
+
+WHT Deducted: 0 KES (or amount if applicable)
+Net Paid: 88,160 KES
+
+Paid by: Admin User (or via Employee Expense Claim)
+Bank Reference: TXN-123456
+```
+
+### 1.7 Employee Expense Claims (Компенсации сотрудникам)
+
+**Что это:** Заявки на возмещение расходов сотрудникам (проезд, питание, закупки за свой счет).
+
+**Поля:**
+```
+Claim Number: CLM-2026-000045
+Date: 20 Jan 2026
+Employee: James Teacher
+Description: Travel to conference in Nairobi
+
+Expenses:
+- Transport: 2,500 KES (Receipt attached)
+- Meals: 1,500 KES (Receipt attached)
+- Hotel: 8,000 KES (Invoice attached)
+
+Total: 12,000 KES
+
+Status: Approved
+Approved by: SuperAdmin
+Approval Date: 22 Jan 2026
+Payment Status: Paid
+Payment Date: 25 Jan 2026
+```
+
+### 1.8 Compensation Payouts (Выплаты компенсаций)
+
+**Что это:** Группировка нескольких expense claims в один платеж.
+
+**Поля:**
+```
+Payout Number: PAYOUT-2026-000012
+Date: 25 Jan 2026
+Employee: James Teacher
+
+Claims included:
+- CLM-2026-000045: 12,000 KES
+- CLM-2026-000048: 3,500 KES
+
+Total: 15,500 KES
+Method: Bank Transfer
+Reference: TXN-789012
+```
+
+## 2. Экспорт данных для бухгалтерской системы
+
+### 2.1 Transactions Export (Главный экспорт)
+
+**Формат:** CSV или Excel
+
+**Назначение:** Импорт в QuickBooks, Xero, или другую систему учета.
+
 **Параметры:**
-- Период: дата начала - дата конца
-- Группировка: по месяцам / кварталам / году
-- Формат экспорта: PDF, Excel
+- Date Range: от - до
+- Transaction Types: All / Receipts / Invoices / Payments / etc.
+- Include cancelled: Yes/No
 
-**Структура:**
+**Колонки в CSV:**
 ```
-ДОХОДЫ (Revenue)
-├─ Student Fees (плата за обучение)
-│  ├─ School Fee
-│  ├─ Transport Fee
-│  ├─ Uniform Bundle
-│  ├─ Admission Fee
-│  └─ Other Fees
-├─ Less: Discounts Applied
-└─ Net Student Revenue
-
-РАСХОДЫ (Expenses)
-├─ Procurement (закупки)
-│  ├─ Uniforms
-│  ├─ Stationery
-│  ├─ Food supplies
-│  └─ Other inventory
-├─ Employee Compensations
-│  ├─ Travel expenses
-│  ├─ Meals & Entertainment
-│  └─ Other reimbursements
-└─ Total Expenses
-
-NET PROFIT/LOSS
+Date | Type | Document# | Student/Supplier | Description | Debit | Credit | Category | Payment Method | Reference
 ```
 
-### 1.2 Cash Flow Statement (Отчет о движении денежных средств)
-**Параметры:**
-- Период: дата начала - дата конца
-- Группировка: по дням / неделям / месяцам
-
-**Структура:**
-```
-OPENING BALANCE (начальный остаток)
-
-RECEIPTS (Поступления)
-├─ Student Payments (платежи студентов)
-│  ├─ Cash
-│  ├─ M-Pesa
-│  ├─ Bank Transfer
-│  └─ Cheque
-└─ Other Income
-
-PAYMENTS (Выплаты)
-├─ Supplier Payments (оплата поставщикам)
-├─ Employee Compensations (компенсации сотрудникам)
-└─ Other Expenses
-
-NET CASH FLOW
-
-CLOSING BALANCE (конечный остаток)
+**Пример данных:**
+```csv
+Date,Type,Document#,Party,Description,Debit,Credit,Category,Payment Method,Reference
+2026-01-28,Receipt,RCP-2026-000456,John Doe,School Fee payment,50000,,Student Fees,M-Pesa,INV-2026-000123
+2026-01-25,Payment,PP-2026-000089,ABC Uniforms Ltd,Uniform purchase payment,,88160,Procurement,Bank Transfer,PO-2026-000123
+2026-01-22,GRN,GRN-2026-000045,ABC Uniforms Ltd,Uniforms received,,88160,Inventory Purchase,,PO-2026-000123
 ```
 
-### 1.3 Balance Sheet (Баланс)
-**Параметры:**
-- На дату (snapshot на конкретную дату)
+### 2.2 Student Payments Export
 
-**Структура:**
+**Формат:** Excel/CSV
+
+**Колонки:**
 ```
-ASSETS (Активы)
-├─ Current Assets
-│  ├─ Cash on Hand
-│  ├─ Accounts Receivable (Student Debts)
-│  └─ Inventory (Stock Value at cost)
-└─ Total Assets
-
-LIABILITIES (Обязательства)
-├─ Current Liabilities
-│  ├─ Accounts Payable (Supplier Debts)
-│  ├─ Student Credit Balances (prepayments)
-│  └─ Employee Payable (pending compensations)
-└─ Total Liabilities
-
-EQUITY (Капитал)
-└─ Retained Earnings
-
-TOTAL LIABILITIES + EQUITY
+Receipt Date | Receipt# | Student Name | Admission# | Grade | Parent Name | Payment Method | Amount | Invoice# | Allocation Details | Received By
 ```
 
-## 2. Налоговые отчеты (Tax Reports)
-
-### 2.1 VAT Report (16% in Kenya)
-**Параметры:**
-- Tax period (обычно месяц или квартал)
-- Формат: Excel, PDF
-
-**Структура:**
-```
-OUTPUT VAT (VAT Collected)
-├─ Student Fees subject to VAT
-│  ├─ Gross Amount
-│  └─ VAT Amount (16%)
-└─ Total Output VAT
-
-INPUT VAT (VAT Paid)
-├─ Procurement with VAT
-│  ├─ Gross Amount
-│  └─ VAT Amount (16%)
-└─ Total Input VAT
-
-VAT PAYABLE / REFUNDABLE
+**Пример:**
+```csv
+2026-01-28,RCP-2026-000456,John Doe,2024-0123,Grade 7,Mary Doe,M-Pesa,50000,INV-2026-000123,"School Fee: 30000, Transport: 20000",Admin User
 ```
 
-**Примечание:** Некоторые образовательные услуги могут быть VAT-exempt в Кении. Нужна гибкость для настройки.
+### 2.3 Procurement Payments Export
 
-### 2.2 Withholding Tax Report
-**Параметры:**
-- Tax period
-- Тип WHT: on services, rent, professional fees, etc.
-
-**Структура:**
+**Колонки:**
 ```
-Поставщик | PIN | Сумма платежа | Ставка WHT | Сумма WHT | Дата платежа
+Payment Date | Payment# | Supplier | PO# | Invoice# | Gross Amount | VAT Amount | WHT Amount | Net Paid | Payment Method | Reference
 ```
 
-Типичные ставки в Кении:
+### 2.4 VAT Transactions Export
+
+**Для подготовки VAT Return.**
+
+**Колонки:**
+```
+Date | Document Type | Document# | Party | Description | Gross Amount | VAT Amount | VAT Type (Input/Output)
+```
+
+**Пример:**
+```csv
+2026-01-28,Invoice,INV-2026-000123,John Doe,School fees,135000,0,Output (Exempt)
+2026-01-22,GRN,GRN-2026-000045,ABC Uniforms Ltd,Uniform purchase,88160,12160,Input
+```
+
+**Примечание:** Некоторые образовательные услуги могут быть VAT-exempt в Кении.
+
+### 2.5 Withholding Tax Export
+
+**Для подготовки WHT Return.**
+
+**Колонки:**
+```
+Payment Date | Payment# | Supplier | Supplier PIN | Service Type | Gross Amount | WHT Rate | WHT Amount
+```
+
+**Типичные WHT ставки в Кении:**
 - Professional fees: 5%
 - Consultancy: 5%
 - Rent: 10%
 - Management fees: 5%
 
-### 2.3 Corporation Tax Computation
-**Параметры:**
-- Financial year (обычно календарный год)
+## 3. Интерфейс для бухгалтера
 
-**Структура:**
+### 3.1 Навигация (минимальная)
+
 ```
-Net Profit (from P&L)
-Add back: Non-deductible expenses
-Less: Capital allowances
-Less: Other allowable deductions
-Taxable Income
-Corporation Tax @ 30%
-Less: Advance tax paid
-Tax Payable / (Refundable)
-```
+📄 Documents
+   ├─ Payment Receipts
+   ├─ Student Invoices
+   ├─ Purchase Orders
+   ├─ Goods Received Notes
+   ├─ Supplier Invoices
+   ├─ Procurement Payments
+   └─ Employee Expenses
 
-## 3. Операционные отчеты (Operational Reports)
+📊 Data Export
+   ├─ All Transactions
+   ├─ Student Payments
+   ├─ Procurement Payments
+   ├─ VAT Transactions
+   └─ Withholding Tax
 
-### 3.1 Student Fees Summary
-**Параметры:**
-- Term (триместр)
-- Grade/Class
-- Status: All / Paid / Partially Paid / Unpaid
+🔍 Audit Trail
 
-**Столбцы:**
-- Student Name
-- Class
-- Total Invoiced
-- Total Paid
-- Balance Outstanding
-- Credit Balance
-- Last Payment Date
-
-**Итоги:**
-- Total Invoiced for Term
-- Total Collected
-- Total Outstanding
-- Collection Rate %
-
-### 3.2 Aged Receivables (Дебиторская задолженность по срокам)
-**Параметры:**
-- As at date (на дату)
-
-**Структура:**
-```
-Student | Total Debt | Current | 1-30 days | 31-60 days | 61-90 days | 90+ days
+⚙️ Settings
+   └─ My Profile
 ```
 
-### 3.3 Procurement Report
-**Параметры:**
-- Период: дата начала - дата конца
-- Supplier (опционально)
-- Status: All / Draft / Ordered / Received / Cancelled
+### 3.2 Documents View (пример: Payment Receipts)
 
-**Столбцы:**
-- PO Number
-- Date
-- Supplier
-- Total Amount (с VAT)
-- VAT Amount
-- Status
-- Payment Status (Unpaid / Partially Paid / Paid)
-- Outstanding Amount
-
-### 3.4 Supplier Aging (Кредиторская задолженность по срокам)
-**Параметры:**
-- As at date
-
-**Структура:**
 ```
-Supplier | Total Debt | Current | 1-30 days | 31-60 days | 61-90 days | 90+ days
-```
-
-### 3.5 Employee Compensation Report
-**Параметры:**
-- Период: дата начала - дата конца
-- Employee (опционально)
-- Status: All / Pending / Approved / Paid
-
-**Столбцы:**
-- Claim Number
-- Date
-- Employee
-- Description
-- Amount
-- Status
-- Approval Date
-- Payment Date
-
-### 3.6 Inventory Valuation Report
-**Параметры:**
-- As at date
-- Category (опционально)
-
-**Столбцы:**
-- Item Code
-- Item Name
-- Category
-- Quantity on Hand
-- Unit Cost (latest purchase price)
-- Total Value
-
-**Итог:** Total Inventory Value
-
-### 3.7 Stock Movement Report
-**Параметры:**
-- Период: дата начала - дата конца
-- Item (опционально)
-- Movement Type: All / Receive / Issue / Adjust / WriteOff
-
-**Столбцы:**
-- Date
-- Reference (PO#, Request#, etc.)
-- Item
-- Movement Type
-- Quantity
-- Balance After
-- User
-- Notes
-
-## 4. Аналитические отчеты (Analytics)
-
-### 4.1 Revenue by Fee Type
-**Параметры:**
-- Период
-- Группировка: Term / Month / Quarter
-
-**Визуализация:** Pie chart или bar chart
-```
-School Fee: X KES (Y%)
-Transport: X KES (Y%)
-Uniform: X KES (Y%)
-Other: X KES (Y%)
+┌─────────────────────────────────────────────────────────┐
+│ Payment Receipts                                         │
+│ ┌─────────────────────────────────────────────────┐    │
+│ │ Filters:                                         │    │
+│ │ Date: [01/01/26] to [31/01/26]                  │    │
+│ │ Method: [All ▼] Student: [Search...]            │    │
+│ │ Status: [All ▼]                                  │    │
+│ └─────────────────────────────────────────────────┘    │
+│                                                          │
+│ Showing 245 receipts | Total: 8,450,000 KES             │
+│ [📄 Export CSV] [📊 Export Excel] [📥 Bulk Download PDFs]│
+│                                                          │
+│ Date      | Receipt# | Student    | Method | Amount     │
+│ ─────────────────────────────────────────────────────── │
+│ 28 Jan 26 | RCP-0456 | John Doe   | M-Pesa | 50,000    │
+│           | [View] [PDF] [Email]                         │
+│ 28 Jan 26 | RCP-0457 | Jane Smith | Cash   | 75,000    │
+│           | [View] [PDF] [Email]                         │
+│ 27 Jan 26 | RCP-0455 | Bob J.     | Bank   | 100,000   │
+│           | [View] [PDF] [Email]                         │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### 4.2 Collection Rate Trend
-**Параметры:**
-- Период (обычно 12 месяцев)
+### 3.3 Document Details View
 
-**График:** Line chart показывающий % сбора платежей по месяцам
+При клике на "View" открывается детальная информация:
 
-### 4.3 Discount Analysis
-**Параметры:**
-- Период
-- Discount Type (опционально)
-
-**Столбцы:**
-- Discount Name
-- Number of Students
-- Total Discount Amount
-- Average Discount per Student
-
-## 5. Аудит и Reconciliation
-
-### 5.1 Audit Trail (Журнал аудита)
-**Параметры:**
-- Период
-- Entity Type: All / Invoice / Payment / PurchaseOrder / etc.
-- User (опционально)
-- Action: All / CREATE / UPDATE / DELETE / APPROVE / CANCEL
-
-**Столбцы:**
-- Timestamp
-- User
-- Entity Type
-- Entity ID
-- Action
-- Old Values (JSON)
-- New Values (JSON)
-- Comment
-
-### 5.2 Payment Reconciliation Report
-**Параметры:**
-- Период
-- Payment Method: All / Cash / M-Pesa / Bank Transfer / Cheque
-
-**Структура:**
 ```
-Payment Method: M-Pesa
-├─ Opening Balance
-├─ Total Receipts
-│  └─ List of all payments with receipt numbers
-├─ Total Expected
-└─ Variance (if any)
+┌─────────────────────────────────────────────────────────┐
+│ Receipt #RCP-2026-000456               [Download PDF]   │
+├─────────────────────────────────────────────────────────┤
+│ Date: 28 Jan 2026 10:30 AM                              │
+│ Student: John Doe (Admission #2024-0123)                │
+│ Parent: Mary Doe                                         │
+│ Payment Method: M-Pesa                                   │
+│ Amount: 50,000 KES                                       │
+│                                                          │
+│ Allocation:                                              │
+│ - Invoice #INV-2026-000123: 30,000 KES                  │
+│ - Invoice #INV-2026-000124: 20,000 KES                  │
+│                                                          │
+│ Received by: Admin User                                  │
+│ Notes: M-Pesa transaction #ABC123456                     │
+│                                                          │
+│ Attachments: mpesa_confirmation.pdf                      │
+│                                                [Close]   │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### 5.3 Bank Reconciliation Helper
-**Параметры:**
-- Period
-- Bank account
+### 3.4 Data Export Interface
 
-**Две колонки:**
-- System Records (из Payment)
-- Bank Statement (manual entry или import)
-
-Показывает:
-- Matched transactions ✓
-- Unmatched in system
-- Unmatched in bank
-
-## 6. Формат экспорта
-
-Все отчеты должны поддерживать:
-- **PDF** - для архивирования и печати
-- **Excel (.xlsx)** - для дальнейшей обработки бухгалтером
-- **CSV** - для импорта в бухгалтерские системы (QuickBooks, Xero, etc.)
-
-### Требования к Excel экспорту:
-- Форматирование: заголовки жирным, итоги жирным + border
-- Числовые форматы: валюта с 2 знаками после запятой
-- Даты: DD/MM/YYYY или YYYY-MM-DD
-- Фильтры на заголовках (Excel AutoFilter)
-- Freeze panes на заголовках
-
-## 7. Периодичность отчетов
-
-| Отчет | Периодичность | Дедлайн |
-|-------|---------------|---------|
-| VAT Report | Ежемесячно | 20-е число следующего месяца |
-| Withholding Tax | Ежемесячно | 20-е число следующего месяца |
-| P&L Statement | Ежемесячно | 5-е число следующего месяца |
-| Cash Flow | Еженедельно | Monday morning |
-| Student Fees Summary | По окончании Term | 1 неделя после Term end |
-| Aged Receivables | Ежемесячно | 1-е число месяца |
-| Corporation Tax | Ежегодно | 6 месяцев после fiscal year end |
-
-## 8. Технические требования
-
-### API endpoints для отчетов:
 ```
-GET /api/v1/reports/profit-loss?start_date=2026-01-01&end_date=2026-01-31&format=pdf
-GET /api/v1/reports/cash-flow?start_date=2026-01-01&end_date=2026-01-31&format=excel
-GET /api/v1/reports/balance-sheet?as_at_date=2026-01-31&format=pdf
-GET /api/v1/reports/vat?period=2026-01&format=excel
-GET /api/v1/reports/student-fees?term_id=1&format=excel
-GET /api/v1/reports/aged-receivables?as_at_date=2026-01-31&format=excel
-GET /api/v1/reports/procurement?start_date=2026-01-01&end_date=2026-01-31&format=excel
-GET /api/v1/reports/audit-trail?start_date=2026-01-01&end_date=2026-01-31&format=excel
+┌─────────────────────────────────────────────────────────┐
+│ Export Data for Accounting                               │
+│                                                          │
+│ 📊 All Transactions Export                              │
+│ ┌─────────────────────────────────────────────────┐    │
+│ │ Date Range: [01/01/2026] to [31/01/2026]        │    │
+│ │ Include:                                         │    │
+│ │ ☑ Student Payments                               │    │
+│ │ ☑ Invoices                                       │    │
+│ │ ☑ Procurement Payments                           │    │
+│ │ ☑ Employee Expenses                              │    │
+│ │ ☐ Include Cancelled                              │    │
+│ │                                                   │    │
+│ │ Format: ◉ CSV  ○ Excel                           │    │
+│ │                                                   │    │
+│ │ [Generate Export]                                 │    │
+│ └─────────────────────────────────────────────────┘    │
+│                                                          │
+│ 💰 VAT Transactions Export                              │
+│ ┌─────────────────────────────────────────────────┐    │
+│ │ Period: [January 2026 ▼]                        │    │
+│ │                                                   │    │
+│ │ [Generate VAT Export]                             │    │
+│ └─────────────────────────────────────────────────┘    │
+│                                                          │
+│ 📑 Withholding Tax Export                               │
+│ ┌─────────────────────────────────────────────────┐    │
+│ │ Period: [January 2026 ▼]                        │    │
+│ │                                                   │    │
+│ │ [Generate WHT Export]                             │    │
+│ └─────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### Кэширование:
-- Отчеты могут быть тяжелыми - использовать background jobs
-- Кэшировать результаты на 1 час для одинаковых параметров
-- Показывать progress bar при генерации больших отчетов
+## 4. Audit Trail (для проверки)
 
-### Производительность:
-- Отчеты за большие периоды (год) делать через background jobs (Celery/Redis)
-- Email notification когда отчет готов
-- Хранить generated reports в S3/storage на 7 дней
+**Назначение:** Бухгалтер может проверить кто и когда создал/изменил документы.
 
-## 9. Дополнительные фичи
+```
+┌─────────────────────────────────────────────────────────┐
+│ 🔍 Audit Trail                                          │
+│ ┌─────────────────────────────────────────────────┐    │
+│ │ Filters:                                         │    │
+│ │ Date: [Last 30 days ▼] Custom: [...][...]       │    │
+│ │ User: [All ▼]                                    │    │
+│ │ Document Type: [All ▼]                           │    │
+│ │ Action: [All ▼] CREATE | UPDATE | CANCEL        │    │
+│ │                                                   │    │
+│ │ [Apply] [Reset] [Export CSV]                     │    │
+│ └─────────────────────────────────────────────────┘    │
+│                                                          │
+│ Showing 1,245 audit records                             │
+│                                                          │
+│ Date/Time     | User  | Action | Document    | Details  │
+│ ─────────────────────────────────────────────────────── │
+│ 28 Jan 10:30  | admin | CREATE | RCP-456     | 50,000  │
+│   [View Details]                                        │
+│ 27 Jan 16:45  | admin | CANCEL | PAY-123     | Duplicate│
+│   [View Details]                                        │
+└─────────────────────────────────────────────────────────┘
+```
 
-### 9.1 Scheduled Reports
-Бухгалтер может настроить автоматическую отправку отчетов по email:
-- VAT report - каждое 15-е число месяца
-- P&L - каждое 1-е число месяца
-- Cash Flow - каждый понедельник
+## 5. Технические требования
 
-### 9.2 Report Templates
-Возможность сохранять параметры отчетов как шаблоны:
-- "Monthly VAT for submission"
-- "End of Term Fees Summary"
-- "Quarterly P&L for Board"
+### 5.1 API Endpoints
 
-### 9.3 Comparative Reports
-Отчеты с сравнением периодов:
-- P&L: Current month vs Previous month vs Same month last year
-- Collection rate: Term 1 vs Term 2 vs Term 3
+```
+# Documents
+GET /api/v1/accountant/receipts
+GET /api/v1/accountant/receipts/{id}
+GET /api/v1/accountant/receipts/{id}/pdf
 
-### 9.4 Notes and Annotations
-Бухгалтер может добавлять notes к отчетам:
-- Например, пояснение почему VAT refundable в этом месяце
-- Notes сохраняются с отчетом и видны при следующем просмотре
+GET /api/v1/accountant/invoices
+GET /api/v1/accountant/invoices/{id}
+GET /api/v1/accountant/invoices/{id}/pdf
+
+GET /api/v1/accountant/purchase-orders
+GET /api/v1/accountant/purchase-orders/{id}
+GET /api/v1/accountant/purchase-orders/{id}/pdf
+
+GET /api/v1/accountant/grn
+GET /api/v1/accountant/grn/{id}
+
+GET /api/v1/accountant/procurement-payments
+GET /api/v1/accountant/expense-claims
+
+# Data Exports
+GET /api/v1/accountant/export/transactions?start_date=2026-01-01&end_date=2026-01-31&format=csv
+GET /api/v1/accountant/export/student-payments?start_date=2026-01-01&end_date=2026-01-31&format=excel
+GET /api/v1/accountant/export/procurement-payments?start_date=2026-01-01&end_date=2026-01-31&format=csv
+GET /api/v1/accountant/export/vat?period=2026-01&format=csv
+GET /api/v1/accountant/export/wht?period=2026-01&format=csv
+
+# Audit
+GET /api/v1/accountant/audit-trail
+```
+
+### 5.2 PDF Generation
+
+**Библиотеки:**
+- Python: WeasyPrint, ReportLab
+- Node.js: PDFKit, Puppeteer
+
+**Требования к PDF:**
+- Логотип школы вверху
+- Четкая структура (таблицы с borders)
+- Подпись/печать (цифровая или скан)
+- Футер с номером страницы
+- Watermark для cancelled documents
+
+### 5.3 Bulk Download
+
+Для массового скачивания PDF (например, все receipts за месяц):
+- Генерировать ZIP архив
+- Background job (если много документов)
+- Email notification когда готово
+- Link expires after 24 hours
+
+### 5.4 Performance
+
+- Кэшировать PDF на 1 час (если документ не изменился)
+- Pagination для больших списков (100 records per page)
+- Lazy loading для attachments
+- Index на date fields для быстрых фильтров
+
+### 5.5 Security
+
+- Read-only role enforcement (на уровне DB и API)
+- Audit log для всех exports и PDF downloads
+- Rate limiting на export endpoints (max 10 exports per hour)
+- No access to cancelled payment methods (если отменен - все равно виден, но с watermark)
+
+## 6. Интеграция с внешними системами
+
+### 6.1 QuickBooks/Xero Integration (Optional)
+
+**API для автоматического импорта:**
+- OAuth2 authentication
+- Webhook для уведомления о новых транзакциях
+- Mapping таблица (наши categories → QuickBooks accounts)
+
+**Пример workflow:**
+1. Бухгалтер настраивает OAuth подключение
+2. Каждый день система отправляет новые транзакции в QuickBooks
+3. Бухгалтер проверяет и categorizes в QuickBooks
+4. Reconciliation делается автоматически
+
+### 6.2 Email Delivery
+
+**Scheduled exports:**
+- Ежедневный export новых receipts/invoices
+- Еженедельный summary
+- Email с attached CSV/Excel файлами
+
+**Email template:**
+```
+Subject: Daily Transactions Export - 28 Jan 2026
+
+Dear Accountant,
+
+Please find attached the daily transactions export for 28 Jan 2026:
+- Receipts: 12 receipts, Total: 850,000 KES
+- Payments: 3 payments, Total: 250,000 KES
+
+Attachments:
+- receipts_2026-01-28.csv
+- payments_2026-01-28.csv
+
+Best regards,
+School ERP System
+```
+
+## 7. Checklist для бухгалтера (End of Month)
+
+```
+☐ Export all receipts for the month (CSV)
+☐ Export all invoices issued (CSV)
+☐ Export all procurement payments (CSV)
+☐ Export VAT transactions (CSV)
+☐ Export WHT transactions (if applicable) (CSV)
+☐ Download PDFs of cancelled documents (for audit)
+☐ Check audit trail for unusual activities
+☐ Reconcile cash/M-Pesa/bank totals with system
+☐ Prepare VAT return
+☐ Prepare WHT return
+☐ File returns with KRA (Kenya Revenue Authority)
+```
+
+## 8. Support for Accountant
+
+### 8.1 Help Documentation
+
+- "How to export data for QuickBooks"
+- "Understanding VAT in Kenya education sector"
+- "How to reconcile payments"
+- "Reading the audit trail"
+
+### 8.2 Contact Support
+
+- Email: support@school.co.ke
+- Phone: +254 XXX XXX XXX
+- WhatsApp support group (optional)
+
+### 8.3 Training
+
+- Initial onboarding session (1 hour)
+- Quarterly updates when new features added
+- Video tutorials for common tasks
