@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.auth.dependencies import SuperAdminUser, CurrentUser
+from src.core.auth.dependencies import AdminUser, SuperAdminUser, CurrentUser
 from src.core.auth.models import User, UserRole
 from src.core.database import get_db
 from src.core.exceptions import AuthorizationError
@@ -22,18 +22,18 @@ router = APIRouter(prefix="/users", tags=["Users"])
 
 @router.get("", response_model=ApiResponse[PaginatedResponse[UserResponse]])
 async def list_users(
-    current_user: SuperAdminUser,
+    current_user: AdminUser,
     role: UserRole | None = Query(None),
     is_active: bool | None = Query(None),
     search: str | None = Query(None),
     page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ):
     """
     List all users (employees).
 
-    Only SuperAdmin can access this endpoint.
+    SuperAdmin and Admin can access (Admin needs it for issuance recipient dropdown).
     """
     service = UserService(db)
 

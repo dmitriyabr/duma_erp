@@ -152,8 +152,8 @@ export const StockPage = () => {
   useEffect(() => {
     if (!issueDialog) return
     const loadRecipients = async () => {
-      try {
-        const [studentsRes, usersRes] = await Promise.all([
+      const load = async () => {
+        const [studentsRes, usersRes] = await Promise.allSettled([
           api.get<ApiResponse<PaginatedResponse<StudentOption>>>('/students', {
             params: { limit: 500 },
           }),
@@ -161,12 +161,18 @@ export const StockPage = () => {
             params: { limit: 500 },
           }),
         ])
-        setStudentsForIssue(studentsRes.data.data.items)
-        setUsersForIssue(usersRes.data.data.items)
-      } catch {
-        setStudentsForIssue([])
-        setUsersForIssue([])
+        if (studentsRes.status === 'fulfilled') {
+          setStudentsForIssue(studentsRes.value.data.data?.items ?? [])
+        } else {
+          setStudentsForIssue([])
+        }
+        if (usersRes.status === 'fulfilled') {
+          setUsersForIssue(usersRes.value.data.data?.items ?? [])
+        } else {
+          setUsersForIssue([])
+        }
       }
+      load()
     }
     loadRecipients()
   }, [issueDialog])
@@ -294,6 +300,13 @@ export const StockPage = () => {
     }
   }
 
+  const recipientValid =
+    recipientType === 'student'
+      ? recipientId !== ''
+      : recipientType === 'employee'
+        ? recipientId !== ''
+        : recipientNameOther.trim() !== ''
+
   const handleIssue = async () => {
     if (!issueDialog) return
     const qty = Number(quantity)
@@ -301,27 +314,25 @@ export const StockPage = () => {
       setError('Enter a valid quantity.')
       return
     }
+    if (!recipientValid) {
+      setError(
+        recipientType === 'other'
+          ? 'Enter recipient name for "Other".'
+          : recipientType === 'student'
+            ? 'Select a student.'
+            : 'Select an employee.'
+      )
+      return
+    }
     let recipientName = ''
     let payloadRecipientId: number | undefined
     if (recipientType === 'other') {
       recipientName = recipientNameOther.trim()
-      if (!recipientName) {
-        setError('Enter recipient name for "Other".')
-        return
-      }
     } else if (recipientType === 'student') {
-      if (recipientId === '') {
-        setError('Select a student.')
-        return
-      }
       const student = studentsForIssue.find((s) => s.id === recipientId)
       recipientName = student ? `${student.first_name} ${student.last_name}`.trim() : ''
       payloadRecipientId = Number(recipientId)
     } else {
-      if (recipientId === '') {
-        setError('Select an employee.')
-        return
-      }
       const emp = usersForIssue.find((u) => u.id === recipientId)
       recipientName = emp?.full_name ?? ''
       payloadRecipientId = Number(recipientId)
@@ -689,7 +700,7 @@ export const StockPage = () => {
             onChange={(event) => setQuantity(event.target.value)}
           />
           <Typography variant="subtitle2" sx={{ mt: 1 }}>
-            To whom
+            To whom <Box component="span" sx={{ color: 'error.main' }}>*</Box>
           </Typography>
           <FormControl component="fieldset">
             <RadioGroup
@@ -707,11 +718,11 @@ export const StockPage = () => {
             </RadioGroup>
           </FormControl>
           {recipientType === 'student' && (
-            <FormControl fullWidth size="small">
-              <InputLabel>Student</InputLabel>
+            <FormControl fullWidth size="small" required>
+              <InputLabel>Student *</InputLabel>
               <Select
                 value={recipientId}
-                label="Student"
+                label="Student *"
                 onChange={(event) => setRecipientId(event.target.value === '' ? '' : Number(event.target.value))}
                 displayEmpty
               >
@@ -725,11 +736,11 @@ export const StockPage = () => {
             </FormControl>
           )}
           {recipientType === 'employee' && (
-            <FormControl fullWidth size="small">
-              <InputLabel>Employee</InputLabel>
+            <FormControl fullWidth size="small" required>
+              <InputLabel>Employee *</InputLabel>
               <Select
                 value={recipientId}
-                label="Employee"
+                label="Employee *"
                 onChange={(event) => setRecipientId(event.target.value === '' ? '' : Number(event.target.value))}
                 displayEmpty
               >
@@ -744,7 +755,7 @@ export const StockPage = () => {
           )}
           {recipientType === 'other' && (
             <TextField
-              label="Recipient name"
+              label="Recipient name *"
               value={recipientNameOther}
               onChange={(event) => setRecipientNameOther(event.target.value)}
               placeholder="e.g. Kitchen, Maintenance"
@@ -761,7 +772,11 @@ export const StockPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setIssueDialog(null)}>Cancel</Button>
-          <Button variant="contained" onClick={handleIssue} disabled={loading}>
+          <Button
+            variant="contained"
+            onClick={handleIssue}
+            disabled={loading || !recipientValid || !quantity || Number(quantity) < 1}
+          >
             Issue
           </Button>
         </DialogActions>
