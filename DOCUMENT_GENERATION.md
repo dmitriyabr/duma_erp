@@ -143,6 +143,9 @@
 
 ### 2.1 Layout структура
 
+**Концепция:** Receipt = чек о пополнении баланса студента (как пополнение телефона).
+БЕЗ allocation к инвойсам - это внутренняя операция системы.
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  [LOGO]                              OFFICIAL RECEIPT        │
@@ -161,22 +164,21 @@
 │  PAYMENT DETAILS:                                            │
 │  Payment Method: M-Pesa                                      │
 │  M-Pesa Transaction ID: ABC123456789                         │
-│  Amount Received: 50,000 KES                                 │
+│                                                              │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │         AMOUNT RECEIVED: 50,000 KES                   │  │
+│  └───────────────────────────────────────────────────────┘  │
 │                                                              │
 │  IN WORDS: Fifty Thousand Shillings Only                     │
 ├─────────────────────────────────────────────────────────────┤
-│  PAYMENT ALLOCATION:                                         │
-│  ───────────────────────────────────────────────────────────│
-│  Invoice #INV-2026-000123                                    │
-│    - School Fee: 30,000 KES                                  │
-│    - Transport Fee: 20,000 KES                               │
+│  STUDENT BALANCE:                                            │
 │                                                              │
-│  TOTAL ALLOCATED: 50,000 KES                                 │
-├─────────────────────────────────────────────────────────────┤
-│  ACCOUNT SUMMARY:                                            │
-│  Previous Balance: 135,000 KES                               │
-│  This Payment: -50,000 KES                                   │
-│  Current Balance: 85,000 KES                                 │
+│  Balance Before Payment:     0 KES                           │
+│  Amount Received:       +50,000 KES                          │
+│  ─────────────────────────────────                          │
+│  Balance After Payment:  50,000 KES                          │
+│                                                              │
+│  Note: Balance can be used to pay invoices                   │
 ├─────────────────────────────────────────────────────────────┤
 │  RECEIVED BY:                                                │
 │  Name: Admin User                                            │
@@ -212,18 +214,14 @@
 **Payment Details:**
 - Payment method (M-Pesa / Bank / Cash / Cheque)
 - Transaction ID/Reference (если есть)
-- **Amount Received** - крупным шрифтом, жирным (16pt)
+- **Amount Received** - в рамке, крупным шрифтом, жирным (20pt)
 - Amount in words - для юридической валидности
 
-**Payment Allocation:**
-- Список инвойсов, на которые распределен платеж
-- Breakdown по позициям в каждом инвойсе
-- Total allocated (должен равняться Amount Received)
-
-**Account Summary:**
-- Previous Balance
-- This Payment (со знаком минус)
-- **Current Balance** - жирным
+**Student Balance:**
+- Balance Before Payment (текущий баланс студента до пополнения)
+- Amount Received (со знаком +)
+- **Balance After Payment** - жирным (баланс после пополнения)
+- Note: "Balance can be used to pay invoices" - объяснение что баланс можно использовать
 
 **Received By:**
 - Имя администратора (кто принял платеж)
@@ -248,11 +246,9 @@
 
 - **Header**: Зеленый #059669 (или primary color) - показывает что платеж получен
 - **Text**: Черный #000000
+- **Amount Received box**: Светло-зеленый фон #F0FDF4 с зеленым border #059669
 - **Amount Received**: Зеленый жирный #059669
-- **Current Balance**:
-  - Если > 0 (debt): Красный #DC2626
-  - Если = 0: Зеленый #059669
-  - Если < 0 (credit): Синий #2563EB
+- **Balance After**: Черный жирный (нейтральный - это просто баланс студента)
 
 ### 2.5 Технические детали
 
@@ -395,6 +391,14 @@ class PDFService:
 
     def generate_receipt_pdf(self, payment: PaymentDetail) -> bytes:
         """Generate receipt PDF from payment data.
+
+        Receipt shows payment as balance top-up (like phone credit).
+        Payment object should have:
+        - amount: amount received
+        - balance_before: student balance before this payment
+        - balance_after: student balance after this payment
+        - student: student details
+        - payment_method, transaction_reference, etc.
 
         Args:
             payment: Payment detail object with all data
@@ -883,19 +887,9 @@ def get_pdf_cache_key(invoice_id: int, updated_at: datetime) -> str:
             font-style: italic;
             margin-bottom: 15px;
         }
-        .allocation-item {
-            padding: 5px 0;
-            border-bottom: 1px dotted #D1D5DB;
-        }
-        .balance {
-            font-size: 14pt;
-            font-weight: bold;
-        }
-        .balance.positive {
-            color: #DC2626; /* Red for debt */
-        }
-        .balance.zero {
-            color: #059669; /* Green for paid */
+        .amount {
+            text-align: right;
+            font-family: 'Courier New', monospace;
         }
         .signature-section {
             margin-top: 30px;
@@ -953,35 +947,36 @@ def get_pdf_cache_key(invoice_id: int, updated_at: datetime) -> str:
         {% endif %}
     </div>
 
-    <div class="amount-received">
-        {{ "{:,.0f}".format(payment.amount) }} KES
-    </div>
-    <div class="amount-words">
-        {{ amount_in_words }}
-    </div>
-
-    <div class="section">
-        <strong>PAYMENT ALLOCATION:</strong><br>
-        {% for allocation in payment.allocations %}
-        <div class="allocation-item">
-            Invoice #{{ allocation.invoice.invoice_number }}<br>
-            {% for detail in allocation.allocation_details %}
-            &nbsp;&nbsp;- {{ detail.item_name }}: {{ "{:,.0f}".format(detail.amount) }} KES<br>
-            {% endfor %}
+    <div class="section" style="background-color: #F0FDF4; border: 2px solid #059669;">
+        <div style="text-align: center;">
+            <strong style="font-size: 12pt;">AMOUNT RECEIVED</strong>
         </div>
-        {% endfor %}
-        <div style="margin-top: 10px; font-weight: bold;">
-            TOTAL ALLOCATED: {{ "{:,.0f}".format(payment.amount) }} KES
+        <div class="amount-received">
+            {{ "{:,.0f}".format(payment.amount) }} KES
+        </div>
+        <div class="amount-words">
+            {{ amount_in_words }}
         </div>
     </div>
 
     <div class="section">
-        <strong>ACCOUNT SUMMARY:</strong><br>
-        Previous Balance: {{ "{:,.0f}".format(payment.previous_balance) }} KES<br>
-        This Payment: -{{ "{:,.0f}".format(payment.amount) }} KES<br>
-        <div class="balance {% if payment.current_balance > 0 %}positive{% else %}zero{% endif %}">
-            Current Balance: {{ "{:,.0f}".format(payment.current_balance) }} KES
-        </div>
+        <strong>STUDENT BALANCE:</strong><br><br>
+        <table style="width: 100%; border: none;">
+            <tr>
+                <td>Balance Before Payment:</td>
+                <td class="amount">{{ "{:,.0f}".format(payment.balance_before) }} KES</td>
+            </tr>
+            <tr>
+                <td>Amount Received:</td>
+                <td class="amount" style="color: #059669;">+{{ "{:,.0f}".format(payment.amount) }} KES</td>
+            </tr>
+            <tr style="border-top: 2px solid #000;">
+                <td><strong>Balance After Payment:</strong></td>
+                <td class="amount"><strong>{{ "{:,.0f}".format(payment.balance_after) }} KES</strong></td>
+            </tr>
+        </table>
+        <br>
+        <em style="font-size: 9pt; color: #6B7280;">Note: Balance can be used to pay invoices</em>
     </div>
 
     <div class="signature-section">
