@@ -23,6 +23,17 @@ class Settings(BaseSettings):
 
     # File storage (attachments: payment confirmations, proofs). Dev: local folder; prod: S3/R2.
     storage_path: str = "uploads"
+    # S3/R2 (Cloudflare R2). If set, attachments are stored in bucket instead of local folder.
+    s3_endpoint_url: str | None = None
+    s3_access_key: str | None = None
+    s3_secret_key: str | None = None
+    s3_bucket: str | None = None
+    s3_region: str = "auto"
+
+    @property
+    def use_s3(self) -> bool:
+        """True when S3/R2 is configured (prod)."""
+        return bool(self.s3_bucket and self.s3_endpoint_url and self.s3_access_key and self.s3_secret_key)
 
     @property
     def is_production(self) -> bool:

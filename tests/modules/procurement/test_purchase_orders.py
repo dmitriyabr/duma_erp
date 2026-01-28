@@ -147,3 +147,95 @@ class TestPurchaseOrderEndpoints:
         assert data["status"] == "closed"
         assert data["expected_total"] == "0.00"
         assert data["lines"][0]["quantity_cancelled"] == 3
+
+    async def test_parse_po_lines_from_csv(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await self._get_admin_token(client, db_session)
+        await self._create_product_item(client, token)
+
+        csv_content = (
+            "sku,item_name,quantity_expected,unit_price\n"
+            "PROC-001,Proc Item,10,25.50\n"
+            ",Widget B (custom),5,10.00\n"
+        )
+        response = await client.post(
+            "/api/v1/procurement/purchase-orders/bulk-upload/parse-lines",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": ("lines.csv", csv_content.encode("utf-8"), "text/csv")},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        lines = data["data"]["lines"]
+        assert len(lines) == 2
+        assert lines[0]["item_id"] is not None
+        assert lines[0]["description"] == "Proc Item"
+        assert lines[0]["quantity_expected"] == 10
+        assert str(lines[0]["unit_price"]) == "25.50"
+        assert lines[1]["item_id"] is None
+        assert lines[1]["description"] == "Widget B (custom)"
+        assert lines[1]["quantity_expected"] == 5
+
+    async def test_parse_po_lines_with_sku_links_item(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await self._get_admin_token(client, db_session)
+        item_id = await self._create_product_item(client, token)
+
+        csv_content = (
+            "sku,item_name,quantity_expected,unit_price\n"
+            "PROC-001,,2,50.00\n"
+        )
+        response = await client.post(
+            "/api/v1/procurement/purchase-orders/bulk-upload/parse-lines",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": ("lines.csv", csv_content.encode("utf-8"), "text/csv")},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["data"]["lines"]) == 1
+        assert data["data"]["lines"][0]["item_id"] == item_id
+        assert data["data"]["lines"][0]["description"] == "Proc Item"
+
+    async def test_parse_po_lines_validation_errors(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await self._get_admin_token(client, db_session)
+
+        csv_content = (
+            "sku,item_name,quantity_expected,unit_price\n"
+            ",Some item,,10.00\n"
+        )
+        response = await client.post(
+            "/api/v1/procurement/purchase-orders/bulk-upload/parse-lines",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": ("lines.csv", csv_content.encode("utf-8"), "text/csv")},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["data"]["errors"]) >= 1
+        messages = [e["message"] for e in data["data"]["errors"]]
+        assert any("quantity" in m.lower() for m in messages)
+
+    async def test_po_template_includes_example_and_items(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await self._get_admin_token(client, db_session)
+        await self._create_product_item(client, token)
+
+        response = await client.get(
+            "/api/v1/procurement/purchase-orders/bulk-upload/template",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        text = response.text
+        assert "sku,item_name,quantity_expected,unit_price" in text or "sku," in text
+        assert "EXAMPLE-001" in text
+        assert "Example product" in text
+        assert "PROC-001" in text
+        assert "Proc Item" in text

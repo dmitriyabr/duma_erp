@@ -20,7 +20,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../../services/api'
 import { formatMoney } from '../../utils/format'
@@ -123,6 +123,10 @@ export const PurchaseOrderFormPage = () => {
 
   const [newPurposeDialogOpen, setNewPurposeDialogOpen] = useState(false)
   const [newPurposeName, setNewPurposeName] = useState('')
+
+  const [bulkCsvLoading, setBulkCsvLoading] = useState(false)
+  const [bulkCsvErrors, setBulkCsvErrors] = useState<Array<{ row: number; message: string }>>([])
+  const bulkCsvInputRef = useRef<HTMLInputElement>(null)
 
   const loadReferenceData = useCallback(async () => {
     try {
@@ -356,6 +360,65 @@ export const PurchaseOrderFormPage = () => {
     return lines.reduce((sum, line) => sum + line.quantity_expected * line.unit_price, 0)
   }, [lines])
 
+  const downloadLinesTemplate = async () => {
+    setError(null)
+    try {
+      const response = await api.get('/procurement/purchase-orders/bulk-upload/template', {
+        responseType: 'blob',
+      })
+      const url = window.URL.createObjectURL(response.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'po_lines_template.csv'
+      a.click()
+      window.URL.revokeObjectURL(url)
+    } catch {
+      setError('Failed to download template.')
+    }
+  }
+
+  const uploadLinesCsv = async () => {
+    const file = bulkCsvInputRef.current?.files?.[0]
+    if (!file) {
+      setError('Select a CSV file.')
+      return
+    }
+    setBulkCsvLoading(true)
+    setError(null)
+    setBulkCsvErrors([])
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const response = await api.post<ApiResponse<{ lines: Array<{ item_id: number | null; description: string; quantity_expected: number; unit_price: number }>; errors: Array<{ row: number; message: string }> }>>(
+        '/procurement/purchase-orders/bulk-upload/parse-lines',
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      )
+      const { lines: parsedLines, errors: parseErrors } = response.data.data
+      setBulkCsvErrors(parseErrors)
+      if (parsedLines.length > 0) {
+        const newLines: POLineDraft[] = parsedLines.map((line) => ({
+          id: `${Date.now()}-${Math.random()}`,
+          item_id: line.item_id,
+          description: line.description,
+          quantity_expected: line.quantity_expected,
+          unit_price: line.unit_price,
+          line_type: line.item_id ? 'inventory' : 'custom',
+        }))
+        setLines(newLines)
+      }
+      if (bulkCsvInputRef.current) bulkCsvInputRef.current.value = ''
+    } catch (e: unknown) {
+      const msg =
+        e && typeof e === 'object' && 'response' in e
+          ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail
+          : null
+      setError(msg ?? 'Failed to parse CSV.')
+    } finally {
+      setBulkCsvLoading(false)
+    }
+  }
+
   return (
     <Box>
       <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
@@ -422,9 +485,31 @@ export const PurchaseOrderFormPage = () => {
       </Box>
 
       <Box sx={{ mb: 2 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1, flexWrap: 'wrap', gap: 1 }}>
           <Typography variant="h6">Order lines</Typography>
-          <Box sx={{ display: 'flex', gap: 1 }}>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            {!isEdit ? (
+              <>
+                <Button variant="outlined" size="small" onClick={downloadLinesTemplate}>
+                  Download template
+                </Button>
+                <input
+                  ref={bulkCsvInputRef}
+                  type="file"
+                  accept=".csv"
+                  style={{ display: 'none' }}
+                  onChange={() => uploadLinesCsv()}
+                />
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => bulkCsvInputRef.current?.click()}
+                  disabled={bulkCsvLoading}
+                >
+                  {bulkCsvLoading ? 'Parsing…' : 'Upload CSV'}
+                </Button>
+              </>
+            ) : null}
             <Button size="small" onClick={() => addLine('inventory')}>
               Add from inventory
             </Button>
@@ -436,6 +521,13 @@ export const PurchaseOrderFormPage = () => {
             </Button>
           </Box>
         </Box>
+        {bulkCsvErrors.length > 0 ? (
+          <Alert severity="warning" sx={{ mt: 1, mb: 1 }}>
+            {bulkCsvErrors.length} row(s) had errors:{' '}
+            {bulkCsvErrors.slice(0, 5).map((e) => `Row ${e.row}: ${e.message}`).join('; ')}
+            {bulkCsvErrors.length > 5 ? ` … and ${bulkCsvErrors.length - 5} more` : ''}
+          </Alert>
+        ) : null}
 
         <Table>
           <TableHead>

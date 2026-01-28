@@ -1015,6 +1015,7 @@ class InventoryService:
             name = (row.get("item_name") or "").strip()
             qty_str = (row.get("quantity") or "").strip()
             sku = (row.get("sku") or "").strip() or None
+            unit_cost_str = (row.get("unit_cost") or "").strip()
             if not cat or not name:
                 errors.append({"row": row_num, "message": "category and item_name required"})
                 continue
@@ -1026,6 +1027,17 @@ class InventoryService:
             if qty < 0:
                 errors.append({"row": row_num, "message": "quantity must be >= 0"})
                 continue
+
+            unit_cost_csv = None
+            if unit_cost_str:
+                try:
+                    unit_cost_csv = round_money(Decimal(unit_cost_str))
+                    if unit_cost_csv < 0:
+                        errors.append({"row": row_num, "message": "unit_cost must be >= 0"})
+                        continue
+                except Exception:
+                    errors.append({"row": row_num, "message": f"invalid unit_cost: {unit_cost_str!r}"})
+                    continue
 
             try:
                 item, created = await item_service.get_or_create_product_item(
@@ -1051,8 +1063,24 @@ class InventoryService:
                     }
                 )
                 continue
+
             delta = target - stock.quantity_on_hand
-            if delta != 0:
+            if delta == 0:
+                rows_processed += 1
+                continue
+            # When adding stock (delta > 0) and unit_cost in CSV: use receive so average_cost is set/updated
+            if delta > 0 and unit_cost_csv is not None:
+                await self.receive_stock(
+                    ReceiveStockRequest(
+                        item_id=item.id,
+                        quantity=delta,
+                        unit_cost=unit_cost_csv,
+                        notes="Bulk upload from CSV",
+                    ),
+                    received_by_id=user_id,
+                    commit=False,
+                )
+            else:
                 await self._apply_adjustment(
                     item_id=item.id,
                     quantity_delta=delta,

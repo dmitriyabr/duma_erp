@@ -1,17 +1,16 @@
 """API for uploading and downloading attachments."""
 
-from pathlib import Path
+import io
 
 from fastapi import APIRouter, Depends, File, HTTPException, status, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.attachments.schemas import AttachmentResponse
-from src.core.attachments.service import get_attachment, save_attachment
+from src.core.attachments.service import get_attachment, get_attachment_content, save_attachment
 from src.core.auth.dependencies import get_current_user
 from src.core.auth.models import User, UserRole
 from src.core.auth.dependencies import require_roles
-from src.core.config import settings
 from src.core.database.session import get_db
 from src.shared.schemas.base import ApiResponse
 
@@ -68,15 +67,18 @@ async def download_attachment(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Download attachment file (for viewing confirmation)."""
+    """Download attachment file (for viewing confirmation). Uses local storage or S3/R2."""
     attachment = await get_attachment(db, attachment_id)
     if not attachment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
-    full_path = Path(settings.storage_path) / attachment.storage_path
-    if not full_path.is_file():
+    try:
+        content = await get_attachment_content(attachment)
+    except FileNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found on disk")
-    return FileResponse(
-        full_path,
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+    return StreamingResponse(
+        io.BytesIO(content),
         media_type=attachment.content_type,
-        filename=attachment.file_name,
+        headers={"Content-Disposition": f'attachment; filename="{attachment.file_name}"'},
     )

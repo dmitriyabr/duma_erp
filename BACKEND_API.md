@@ -227,6 +227,8 @@
 - `POST /procurement/purchase-orders/{po_id}/submit`
 - `POST /procurement/purchase-orders/{po_id}/close`
 - `POST /procurement/purchase-orders/{po_id}/cancel`
+- `GET /procurement/purchase-orders/bulk-upload/template` — скачать CSV-шаблон линий PO: заголовки, одна строка-пример, затем все product items (sku + item_name заполнены, quantity_expected и unit_price пустые). Роль: Admin.
+- `POST /procurement/purchase-orders/bulk-upload/parse-lines` — разобрать CSV в линии (PO не создаётся). Тело: `multipart/form-data`, файл `file` (CSV). Колонки: sku, item_name, quantity_expected, unit_price. Ответ: `{ lines: [{ item_id?, description, quantity_expected, unit_price }], errors: [{ row, message }] }`. Роль: Admin.
 - `POST /procurement/grns`
 - `GET /procurement/grns` — filters: `po_id`, `status`, `date_from`, `date_to`, `page`, `limit`
 - `GET /procurement/grns/{grn_id}`

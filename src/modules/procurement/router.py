@@ -2,14 +2,18 @@
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth.dependencies import require_roles
 from src.core.auth.models import User, UserRole
 from src.core.database.session import get_db
 from src.modules.procurement.schemas import (
+    BulkUploadPOError,
     CancelPurchaseOrderRequest,
+    ParsePOLinesResponse,
+    ParsedPOLine,
     GoodsReceivedFilters,
     GoodsReceivedNoteCreate,
     GoodsReceivedNoteResponse,
@@ -26,6 +30,7 @@ from src.modules.procurement.schemas import (
     ProcurementPaymentResponse,
     CancelProcurementPaymentRequest,
 )
+from src.modules.items.models import Item, ItemType
 from src.modules.procurement.service import (
     GoodsReceivedService,
     PaymentPurposeService,
@@ -34,6 +39,7 @@ from src.modules.procurement.service import (
     PurchaseOrderService,
 )
 from src.shared.schemas.base import ApiResponse, PaginatedResponse
+from sqlalchemy import select
 
 
 router = APIRouter(prefix="/procurement", tags=["Procurement"])
@@ -188,6 +194,64 @@ async def list_purchase_orders(
             total=total,
             page=page,
             limit=limit,
+        ),
+    )
+
+
+@router.get("/purchase-orders/bulk-upload/template")
+async def get_po_bulk_upload_template(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+    ),
+):
+    """Download CSV template for PO lines. One example row + all product items (sku, name only)."""
+    import csv
+    import io
+
+    headers = ["sku", "item_name", "quantity_expected", "unit_price"]
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(headers)
+    writer.writerow(["EXAMPLE-001", "Example product", "1", "0.00"])
+    result = await db.execute(
+        select(Item.sku_code, Item.name)
+        .where(Item.item_type == ItemType.PRODUCT.value)
+        .where(Item.is_active.is_(True))
+        .order_by(Item.sku_code)
+    )
+    for row in result.all():
+        writer.writerow([row.sku_code, row.name, "", ""])
+    body = ("\ufeff" + buf.getvalue()).encode("utf-8")
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=po_lines_template.csv"},
+    )
+
+
+@router.post(
+    "/purchase-orders/bulk-upload/parse-lines",
+    response_model=ApiResponse[ParsePOLinesResponse],
+)
+async def parse_po_lines_from_csv(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+    ),
+):
+    """Parse CSV into PO lines only (no PO created). For use on create-PO form."""
+    content = await file.read()
+    if not content or not content.strip():
+        raise HTTPException(status_code=400, detail="CSV file is empty")
+    service = PurchaseOrderService(db)
+    result = await service.parse_po_lines_from_csv(content)
+    return ApiResponse(
+        success=True,
+        data=ParsePOLinesResponse(
+            lines=[ParsedPOLine(**line) for line in result["lines"]],
+            errors=[BulkUploadPOError(row=e["row"], message=e["message"]) for e in result["errors"]],
         ),
     )
 

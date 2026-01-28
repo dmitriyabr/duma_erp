@@ -91,6 +91,36 @@ class PurchaseOrderResponse(BaseSchema):
     lines: list[PurchaseOrderLineResponse] = Field(default_factory=list)
 
 
+class BulkUploadPOError(BaseSchema):
+    """Single row error for bulk PO upload."""
+
+    row: int
+    message: str
+
+
+class BulkUploadPOResponse(BaseSchema):
+    """Response after bulk PO CSV upload (create PO from full CSV)."""
+
+    po: dict | None = None  # {"id": int, "po_number": str} if success
+    errors: list[BulkUploadPOError] = Field(default_factory=list)
+
+
+class ParsedPOLine(BaseSchema):
+    """One parsed PO line from CSV (for form preview)."""
+
+    item_id: int | None = None
+    description: str
+    quantity_expected: int
+    unit_price: Decimal
+
+
+class ParsePOLinesResponse(BaseSchema):
+    """Response after parsing PO lines from CSV (no PO created)."""
+
+    lines: list[ParsedPOLine] = Field(default_factory=list)
+    errors: list[BulkUploadPOError] = Field(default_factory=list)
+
+
 class PurchaseOrderFilters(BaseSchema):
     """Filters for listing purchase orders."""
 

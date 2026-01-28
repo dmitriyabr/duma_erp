@@ -1,8 +1,10 @@
 """Service layer for Purchase Orders."""
 
+import csv
+import io
 from datetime import date, datetime
-from decimal import Decimal
 
+from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -29,10 +31,12 @@ from src.modules.procurement.schemas import (
     PaymentPurposeUpdate,
     PurchaseOrderCreate,
     PurchaseOrderFilters,
+    PurchaseOrderLineCreate,
     PurchaseOrderUpdate,
     ProcurementPaymentCreate,
     ProcurementPaymentFilters,
 )
+from src.shared.utils.money import round_money
 from src.modules.compensations.service import ExpenseClaimService
 
 
@@ -257,6 +261,229 @@ class PurchaseOrderService:
 
         if total_received_qty > 0:
             purchase_order.status = PurchaseOrderStatus.PARTIALLY_RECEIVED.value
+
+    async def bulk_upload_from_csv(
+        self, content: bytes | str, created_by_id: int
+    ) -> dict:
+        """Parse CSV and create one purchase order. One file = one PO; rows = lines.
+
+        Returns dict with po: {id, po_number} or None, and errors: list of {row, message}.
+        If any row has errors, PO is not created.
+        """
+        if isinstance(content, bytes):
+            text = content.decode("utf-8-sig")
+        else:
+            text = content
+        reader = csv.DictReader(io.StringIO(text))
+        required = {"supplier_name", "purpose", "description", "quantity_expected", "unit_price"}
+        if not reader.fieldnames:
+            raise ValidationError("CSV has no headers")
+        missing = required - set(reader.fieldnames or [])
+        if missing:
+            raise ValidationError(f"CSV missing columns: {sorted(missing)}")
+
+        purpose_service = PaymentPurposeService(self.db)
+        errors: list[dict] = []
+        rows_data: list[dict] = []
+
+        for row_num, row in enumerate(reader, start=2):
+            supplier_name = (row.get("supplier_name") or "").strip()
+            purpose_name = (row.get("purpose") or "").strip()
+            description = (row.get("description") or "").strip()
+            qty_str = (row.get("quantity_expected") or "").strip()
+            price_str = (row.get("unit_price") or "").strip()
+
+            if row_num == 2:
+                if not supplier_name:
+                    errors.append({"row": row_num, "message": "supplier_name is required in first row"})
+                if not purpose_name:
+                    errors.append({"row": row_num, "message": "purpose is required in first row"})
+
+            if not description:
+                errors.append({"row": row_num, "message": "description is required"})
+                continue
+            try:
+                qty = int(qty_str)
+            except ValueError:
+                errors.append({"row": row_num, "message": f"invalid quantity_expected: {qty_str!r}"})
+                continue
+            if qty <= 0:
+                errors.append({"row": row_num, "message": "quantity_expected must be > 0"})
+                continue
+            try:
+                unit_price = round_money(Decimal(price_str))
+                if unit_price < 0:
+                    errors.append({"row": row_num, "message": "unit_price must be >= 0"})
+                    continue
+            except Exception:
+                errors.append({"row": row_num, "message": f"invalid unit_price: {price_str!r}"})
+                continue
+
+            sku = (row.get("sku") or "").strip() or None
+            item_id: int | None = None
+            if sku:
+                try:
+                    from src.modules.items.service import ItemService
+                    item_service = ItemService(self.db)
+                    item = await item_service.get_item_by_sku(sku)
+                    item_id = item.id
+                except NotFoundError:
+                    errors.append({"row": row_num, "message": f"item with SKU '{sku}' not found"})
+                    continue
+
+            rows_data.append({
+                "row_num": row_num,
+                "supplier_name": supplier_name,
+                "purpose_name": purpose_name,
+                "supplier_contact": (row.get("supplier_contact") or "").strip() or None,
+                "order_date_str": (row.get("order_date") or "").strip() or None,
+                "expected_delivery_date_str": (row.get("expected_delivery_date") or "").strip() or None,
+                "track_to_warehouse_str": (row.get("track_to_warehouse") or "").strip() or None,
+                "notes": (row.get("notes") or "").strip() or None,
+                "description": description,
+                "quantity_expected": qty,
+                "unit_price": unit_price,
+                "item_id": item_id,
+            })
+
+        if not rows_data:
+            if errors:
+                return {"po": None, "errors": errors}
+            raise ValidationError("CSV has no data rows")
+
+        first = rows_data[0]
+        if not first["supplier_name"]:
+            errors.append({"row": first["row_num"], "message": "supplier_name is required in first row"})
+        if not first["purpose_name"]:
+            errors.append({"row": first["row_num"], "message": "purpose is required in first row"})
+
+        if errors:
+            return {"po": None, "errors": errors}
+
+        purpose = await purpose_service.get_purpose_by_name(first["purpose_name"])
+        order_date: date | None = None
+        if first["order_date_str"]:
+            try:
+                order_date = date.fromisoformat(first["order_date_str"])
+            except ValueError:
+                errors.append({"row": first["row_num"], "message": f"invalid order_date: {first['order_date_str']!r}"})
+        if not order_date:
+            order_date = date.today()
+
+        expected_delivery_date: date | None = None
+        if first["expected_delivery_date_str"]:
+            try:
+                expected_delivery_date = date.fromisoformat(first["expected_delivery_date_str"])
+            except ValueError:
+                errors.append({"row": first["row_num"], "message": f"invalid expected_delivery_date: {first['expected_delivery_date_str']!r}"})
+
+        track_to_warehouse = True
+        if first["track_to_warehouse_str"]:
+            low = first["track_to_warehouse_str"].lower()
+            if low in ("false", "0", "no"):
+                track_to_warehouse = False
+            elif low in ("true", "1", "yes"):
+                track_to_warehouse = True
+
+        lines: list[PurchaseOrderLineCreate] = [
+            PurchaseOrderLineCreate(
+                item_id=r["item_id"],
+                description=r["description"],
+                quantity_expected=r["quantity_expected"],
+                unit_price=r["unit_price"],
+            )
+            for r in rows_data
+        ]
+        create_data = PurchaseOrderCreate(
+            supplier_name=first["supplier_name"],
+            supplier_contact=first["supplier_contact"],
+            purpose_id=purpose.id,
+            order_date=order_date,
+            expected_delivery_date=expected_delivery_date,
+            track_to_warehouse=track_to_warehouse,
+            notes=first["notes"] or None,
+            lines=lines,
+        )
+        po = await self.create_purchase_order(create_data, created_by_id)
+        return {"po": {"id": po.id, "po_number": po.po_number}, "errors": []}
+
+    async def parse_po_lines_from_csv(self, content: bytes | str) -> dict:
+        """Parse CSV into PO lines only (no PO created). For use on create-PO form.
+
+        CSV columns: sku, item_name, quantity_expected, unit_price.
+        Returns { lines: [{ item_id?, description, quantity_expected, unit_price }], errors: [...] }.
+        """
+        if isinstance(content, bytes):
+            text = content.decode("utf-8-sig")
+        else:
+            text = content
+        reader = csv.DictReader(io.StringIO(text))
+        required = {"sku", "item_name", "quantity_expected", "unit_price"}
+        if not reader.fieldnames:
+            raise ValidationError("CSV has no headers")
+        missing = required - set(reader.fieldnames or [])
+        if missing:
+            raise ValidationError(f"CSV missing columns: {sorted(missing)}")
+
+        errors: list[dict] = []
+        lines_out: list[dict] = []
+        from src.modules.items.service import ItemService
+        item_service = ItemService(self.db)
+
+        for row_num, row in enumerate(reader, start=2):
+            sku = (row.get("sku") or "").strip() or None
+            item_name = (row.get("item_name") or "").strip()
+            qty_str = (row.get("quantity_expected") or "").strip()
+            price_str = (row.get("unit_price") or "").strip()
+
+            if not qty_str and not price_str and not item_name and not sku:
+                continue
+            if not qty_str:
+                errors.append({"row": row_num, "message": "quantity_expected is required"})
+                continue
+            if not price_str:
+                errors.append({"row": row_num, "message": "unit_price is required"})
+                continue
+            try:
+                qty = int(qty_str)
+            except ValueError:
+                errors.append({"row": row_num, "message": f"invalid quantity_expected: {qty_str!r}"})
+                continue
+            if qty <= 0:
+                errors.append({"row": row_num, "message": "quantity_expected must be > 0"})
+                continue
+            try:
+                unit_price = round_money(Decimal(price_str))
+                if unit_price < 0:
+                    errors.append({"row": row_num, "message": "unit_price must be >= 0"})
+                    continue
+            except Exception:
+                errors.append({"row": row_num, "message": f"invalid unit_price: {price_str!r}"})
+                continue
+
+            item_id: int | None = None
+            description = item_name
+            if sku:
+                try:
+                    item = await item_service.get_item_by_sku(sku)
+                    item_id = item.id
+                    if not description:
+                        description = item.name
+                except NotFoundError:
+                    errors.append({"row": row_num, "message": f"item with SKU '{sku}' not found"})
+                    continue
+            if not description:
+                errors.append({"row": row_num, "message": "item_name or sku is required"})
+                continue
+
+            lines_out.append({
+                "item_id": item_id,
+                "description": description,
+                "quantity_expected": qty,
+                "unit_price": unit_price,
+            })
+
+        return {"lines": lines_out, "errors": errors}
 
 
 class GoodsReceivedService:
@@ -496,6 +723,20 @@ class PaymentPurposeService:
         purpose = result.scalar_one_or_none()
         if not purpose:
             raise NotFoundError(f"Payment purpose {purpose_id} not found")
+        return purpose
+
+    async def get_purpose_by_name(self, name: str) -> PaymentPurpose:
+        """Get payment purpose by name (case-insensitive). Only active purposes."""
+        if not (name and name.strip()):
+            raise ValidationError("Payment purpose name is required")
+        result = await self.db.execute(
+            select(PaymentPurpose)
+            .where(PaymentPurpose.name.ilike(name.strip()))
+            .where(PaymentPurpose.is_active.is_(True))
+        )
+        purpose = result.scalar_one_or_none()
+        if not purpose:
+            raise NotFoundError(f"Payment purpose '{name.strip()}' not found")
         return purpose
 
 

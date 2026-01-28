@@ -33,7 +33,7 @@
 
 - По строке CSV: категория по имени (get or create), позиция по (category_id, item_name) или по sku.
 - Если позиции нет: создать Item (product), SKU сгенерировать из префикса категории (как в Items: `_build_sku_prefix` + `_next_sku_sequence`). Затем создать Stock и установить остаток (receive с quantity и unit_cost из CSV, или сразу установить quantity через adjustment).
-- Логика: один метод в backend «get_or_create_product_item(category_name, item_name, sku?)» → (item, created). Затем «set_stock(item_id, quantity, unit_cost?)» с учётом режима (overwrite/update).
+- Логика: get_or_create_product_item → (item, created). Затем: если в CSV указан **unit_cost** и остаток увеличивается (delta > 0) — вызывается **receive** с quantity=delta и unit_cost из CSV (устанавливает/обновляет average_cost по взвешенной средней). Иначе — adjustment до целевого quantity (average_cost не меняется).
 
 ## Backend
 
@@ -43,7 +43,7 @@
   - Логика:
     1. Парсинг CSV, валидация заголовков и строк (category, item_name, quantity; unit_cost, sku опционально).
     2. Если `mode == overwrite`: обнулить **только quantity_on_hand** по всем product (quantity_reserved не трогаем).
-    3. Для каждой строки: get_or_create_item(category, item_name, sku?) → item; установить quantity_on_hand через receive или adjustment. Если unit_cost указан и новая позиция — receive; иначе adjustment до target quantity.
+    3. Для каждой строки: get_or_create_item(category, item_name, sku?) → item; парсинг unit_cost из CSV (опционально). Если unit_cost указан и остаток по строке увеличивается (delta > 0) — **receive**(delta, unit_cost), иначе — **adjustment** до target quantity. Так цена из CSV применяется и для новых позиций, и при добавлении к существующим (взвешенная средняя).
   - Ответ: обработано строк, создано позиций, ошибки по строкам (при необходимости).
 
 - **GET /inventory/bulk-upload/export** (вместо «шаблона»)  

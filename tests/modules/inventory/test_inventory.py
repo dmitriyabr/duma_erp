@@ -521,6 +521,36 @@ class TestInventoryService:
         assert any("invalid quantity" in row_messages.get(r, "") for r in row_messages)
         assert any(">= 0" in row_messages.get(r, "") or "must be" in row_messages.get(r, "") for r in row_messages)
 
+    async def test_bulk_upload_from_csv_applies_unit_cost(self, db_session: AsyncSession):
+        """Test bulk upload applies unit_cost from CSV (new item and when adding to existing)."""
+        admin_id = await self._create_super_admin(db_session)
+        service = InventoryService(db_session)
+
+        # New item with unit_cost: should set average_cost
+        csv_new = (
+            "category,item_name,quantity,unit_cost\n"
+            "Cost Cat,Cost Item,20,12.50\n"
+        )
+        result = await service.bulk_upload_from_csv(csv_new.encode("utf-8"), "update", admin_id)
+        assert result["rows_processed"] == 1
+        assert result["items_created"] == 1
+        stocks, _ = await service.list_stock(include_zero=True)
+        stock = next(s for s in stocks if s.item and s.item.name == "Cost Item")
+        assert stock.quantity_on_hand == 20
+        assert stock.average_cost == Decimal("12.50")
+
+        # Existing item: add more with unit_cost from CSV (weighted average)
+        csv_add = (
+            "category,item_name,quantity,unit_cost\n"
+            "Cost Cat,Cost Item,30,20.00\n"
+        )
+        result2 = await service.bulk_upload_from_csv(csv_add.encode("utf-8"), "update", admin_id)
+        assert result2["rows_processed"] == 1
+        stock2 = await service.get_stock_by_item_id(stock.item_id)
+        assert stock2.quantity_on_hand == 30
+        # (20*12.50 + 10*20.00) / 30 = (250 + 200) / 30 = 15.00
+        assert stock2.average_cost == Decimal("15.00")
+
 
 class TestInventoryEndpoints:
     """Tests for inventory API endpoints."""
