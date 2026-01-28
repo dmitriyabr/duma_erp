@@ -283,6 +283,7 @@ export const ProcurementPaymentFormPage = () => {
               {...params}
               label="Purchase Order (optional)"
               placeholder="Search by PO number or supplier name"
+              InputLabelProps={{ shrink: true }}
             />
           )}
           isOptionEqualToValue={(option, value) => option.id === value.id}
@@ -440,6 +441,7 @@ export const ProcurementPaymentFormPage = () => {
             required
             autoFocus
             placeholder="e.g., Uniforms, Stationery, Furniture"
+            InputLabelProps={{ shrink: true }}
             helperText="Category for classifying purchases and payments"
           />
         </DialogContent>

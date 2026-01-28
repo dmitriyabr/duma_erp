@@ -205,6 +205,9 @@ export const theme = createTheme({
       },
     },
     MuiTextField: {
+      defaultProps: {
+        InputLabelProps: { shrink: true },
+      },
       styleOverrides: {
         root: {
           '& .MuiOutlinedInput-root': {
@@ -218,6 +221,11 @@ export const theme = createTheme({
             },
           },
         },
+      },
+    },
+    MuiInputLabel: {
+      defaultProps: {
+        shrink: true,
       },
     },
     MuiOutlinedInput: {

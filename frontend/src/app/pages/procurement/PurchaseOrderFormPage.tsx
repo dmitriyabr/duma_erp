@@ -702,6 +702,7 @@ export const PurchaseOrderFormPage = () => {
             required
             autoFocus
             placeholder="e.g., Uniforms, Stationery, Furniture"
+            InputLabelProps={{ shrink: true }}
             helperText="Category for classifying purchases and payments"
           />
         </DialogContent>

@@ -11,8 +11,6 @@ import {
   FormControlLabel,
   InputLabel,
   MenuItem,
-  Radio,
-  RadioGroup,
   Select,
   Switch,
   Table,
@@ -25,6 +23,7 @@ import {
   Typography,
 } from '@mui/material'
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import { formatMoney } from '../../utils/format'
@@ -65,20 +64,6 @@ interface PaginatedResponse<T> {
   pages: number
 }
 
-type RecipientTypeOption = 'student' | 'employee' | 'other'
-
-interface StudentOption {
-  id: number
-  student_number: string
-  first_name: string
-  last_name: string
-}
-
-interface UserOption {
-  id: number
-  full_name: string
-}
-
 type WriteOffReason = 'damage' | 'expired' | 'lost' | 'other'
 
 const lowStockThreshold = 5
@@ -103,6 +88,7 @@ const nextSkuForCategory = (categoryName: string, items: ItemOption[]) => {
 }
 
 export const StockPage = () => {
+  const navigate = useNavigate()
   const { user } = useAuth()
   const canManage = user?.role === 'SuperAdmin' || user?.role === 'Admin'
   const canCreateItem = user?.role === 'SuperAdmin'
@@ -127,18 +113,12 @@ export const StockPage = () => {
   const [newItemName, setNewItemName] = useState('')
   const [newItemQuantity, setNewItemQuantity] = useState('')
   const [newItemUnitCost, setNewItemUnitCost] = useState('')
-  const [issueDialog, setIssueDialog] = useState<StockRow | null>(null)
   const [writeoffDialog, setWriteoffDialog] = useState<StockRow | null>(null)
   const [quantity, setQuantity] = useState('')
   const [unitCost, setUnitCost] = useState('')
   const [notes, setNotes] = useState('')
   const [reasonCategory, setReasonCategory] = useState<WriteOffReason>('damage')
   const [reasonDetail, setReasonDetail] = useState('')
-  const [recipientType, setRecipientType] = useState<RecipientTypeOption>('employee')
-  const [recipientId, setRecipientId] = useState<string>('') // store as string for Select, convert to number on submit
-  const [recipientNameOther, setRecipientNameOther] = useState('')
-  const [studentsForIssue, setStudentsForIssue] = useState<StudentOption[]>([])
-  const [usersForIssue, setUsersForIssue] = useState<UserOption[]>([])
 
   const fetchCategories = async () => {
     try {
@@ -148,34 +128,6 @@ export const StockPage = () => {
       setCategories([])
     }
   }
-
-  useEffect(() => {
-    if (!issueDialog) return
-    const loadRecipients = async () => {
-      const load = async () => {
-        const [studentsRes, usersRes] = await Promise.allSettled([
-          api.get<ApiResponse<PaginatedResponse<StudentOption>>>('/students', {
-            params: { limit: 500 },
-          }),
-          api.get<ApiResponse<PaginatedResponse<UserOption>>>('/users', {
-            params: { limit: 500 },
-          }),
-        ])
-        if (studentsRes.status === 'fulfilled') {
-          setStudentsForIssue(studentsRes.value.data.data?.items ?? [])
-        } else {
-          setStudentsForIssue([])
-        }
-        if (usersRes.status === 'fulfilled') {
-          setUsersForIssue(usersRes.value.data.data?.items ?? [])
-        } else {
-          setUsersForIssue([])
-        }
-      }
-      load()
-    }
-    loadRecipients()
-  }, [issueDialog])
 
   const fetchItems = async () => {
     try {
@@ -260,9 +212,6 @@ export const StockPage = () => {
     setReasonCategory('damage')
     setReasonDetail('')
     setReceiveItemId('')
-    setRecipientType('employee')
-    setRecipientId('')
-    setRecipientNameOther('')
   }
 
   const resetNewItemForm = () => {
@@ -295,74 +244,6 @@ export const StockPage = () => {
       await fetchItems()
     } catch {
       setError('Failed to receive stock.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const recipientValid =
-    recipientType === 'student'
-      ? recipientId !== ''
-      : recipientType === 'employee'
-        ? recipientId !== ''
-        : recipientNameOther.trim() !== ''
-
-  const handleIssue = async () => {
-    if (!issueDialog) return
-    const qty = Number(quantity)
-    if (!qty || qty < 1) {
-      setError('Enter a valid quantity.')
-      return
-    }
-    if (!recipientValid) {
-      setError(
-        recipientType === 'other'
-          ? 'Enter recipient name for "Other".'
-          : recipientType === 'student'
-            ? 'Select a student.'
-            : 'Select an employee.'
-      )
-      return
-    }
-    let recipientName = ''
-    let payloadRecipientId: number | undefined
-    if (recipientType === 'other') {
-      recipientName = recipientNameOther.trim()
-    } else if (recipientType === 'student') {
-      const idNum = Number(recipientId)
-      const student = studentsForIssue.find((s) => s.id === idNum)
-      recipientName = student ? `${student.first_name} ${student.last_name}`.trim() : ''
-      payloadRecipientId = idNum
-    } else {
-      const idNum = Number(recipientId)
-      const emp = usersForIssue.find((u) => u.id === idNum)
-      recipientName = emp?.full_name ?? ''
-      payloadRecipientId = idNum
-    }
-    setLoading(true)
-    setError(null)
-    try {
-      const body: {
-        recipient_type: string
-        recipient_id?: number
-        recipient_name: string
-        items: Array<{ item_id: number; quantity: number }>
-        notes?: string
-      } = {
-        recipient_type: recipientType,
-        recipient_name: recipientName,
-        items: [{ item_id: issueDialog.item_id, quantity: qty }],
-        notes: notes.trim() || undefined,
-      }
-      if (recipientType !== 'other' && payloadRecipientId != null) {
-        body.recipient_id = payloadRecipientId
-      }
-      await api.post('/inventory/issuances', body)
-      setIssueDialog(null)
-      resetDialogState()
-      await fetchStock()
-    } catch {
-      setError('Failed to issue stock.')
     } finally {
       setLoading(false)
     }
@@ -443,17 +324,24 @@ export const StockPage = () => {
         <Typography variant="h4" sx={{ fontWeight: 700 }}>
           Stock
         </Typography>
-        {canCreateItem ? (
-          <Button
-            variant="contained"
-            onClick={() => {
-              resetNewItemForm()
-              setCreateItemOpen(true)
-            }}
-          >
-            New item
-          </Button>
-        ) : null}
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          {canManage ? (
+            <Button variant="contained" onClick={() => navigate('/inventory/issue')}>
+              Issue
+            </Button>
+          ) : null}
+          {canCreateItem ? (
+            <Button
+              variant="contained"
+              onClick={() => {
+                resetNewItemForm()
+                setCreateItemOpen(true)
+              }}
+            >
+              New item
+            </Button>
+          ) : null}
+        </Box>
       </Box>
 
       <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
@@ -510,7 +398,6 @@ export const StockPage = () => {
         <TableHead>
           <TableRow>
             <TableCell>Item</TableCell>
-            <TableCell>SKU</TableCell>
             <TableCell>On hand</TableCell>
             <TableCell>Reserved</TableCell>
             <TableCell>Available</TableCell>
@@ -523,7 +410,6 @@ export const StockPage = () => {
           {filteredRows.map((row) => (
             <TableRow key={row.id}>
               <TableCell>{row.item_name ?? '—'}</TableCell>
-              <TableCell>{row.item_sku ?? '—'}</TableCell>
               <TableCell>{row.quantity_on_hand}</TableCell>
               <TableCell>{row.quantity_reserved}</TableCell>
               <TableCell>{row.quantity_available}</TableCell>
@@ -547,9 +433,6 @@ export const StockPage = () => {
                     >
                       Receive
                     </Button>
-                    <Button size="small" onClick={() => setIssueDialog(row)}>
-                      Issue
-                    </Button>
                     <Button size="small" onClick={() => setWriteoffDialog(row)}>
                       Write-off
                     </Button>
@@ -562,7 +445,7 @@ export const StockPage = () => {
           ))}
           {!filteredRows.length && !loading ? (
             <TableRow>
-              <TableCell colSpan={8} align="center">
+              <TableCell colSpan={7} align="center">
                 No stock found
               </TableCell>
             </TableRow>
@@ -687,99 +570,6 @@ export const StockPage = () => {
           <Button onClick={() => setCreateItemOpen(false)}>Cancel</Button>
           <Button variant="contained" onClick={handleCreateItem} disabled={loading}>
             Create item
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={Boolean(issueDialog)} onClose={() => setIssueDialog(null)} fullWidth maxWidth="sm">
-        <DialogTitle>Issue stock</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <TextField label="Item" value={issueDialog?.item_name ?? ''} disabled />
-          <TextField
-            label="Quantity"
-            type="number"
-            value={quantity}
-            onChange={(event) => setQuantity(event.target.value)}
-          />
-          <Typography variant="subtitle2" sx={{ mt: 1 }}>
-            To whom <Box component="span" sx={{ color: 'error.main' }}>*</Box>
-          </Typography>
-          <FormControl component="fieldset">
-            <RadioGroup
-              row
-              value={recipientType}
-              onChange={(event) => {
-                setRecipientType(event.target.value as RecipientTypeOption)
-                setRecipientId('')
-                setRecipientNameOther('')
-              }}
-            >
-              <FormControlLabel value="student" control={<Radio />} label="Student" />
-              <FormControlLabel value="employee" control={<Radio />} label="Employee" />
-              <FormControlLabel value="other" control={<Radio />} label="Other" />
-            </RadioGroup>
-          </FormControl>
-          {recipientType === 'student' && (
-            <FormControl fullWidth size="small" required>
-              <InputLabel>Student *</InputLabel>
-              <Select
-                value={recipientId}
-                label="Student *"
-                onChange={(event) => setRecipientId(event.target.value as string)}
-                displayEmpty
-              >
-                <MenuItem value="">Select student</MenuItem>
-                {studentsForIssue.map((s) => (
-                  <MenuItem key={s.id} value={String(s.id)}>
-                    {s.first_name} {s.last_name} ({s.student_number})
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-          {recipientType === 'employee' && (
-            <FormControl fullWidth size="small" required>
-              <InputLabel>Employee *</InputLabel>
-              <Select
-                value={recipientId}
-                label="Employee *"
-                onChange={(event) => setRecipientId(event.target.value as string)}
-                displayEmpty
-              >
-                <MenuItem value="">Select employee</MenuItem>
-                {usersForIssue.map((u) => (
-                  <MenuItem key={u.id} value={String(u.id)}>
-                    {u.full_name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-          {recipientType === 'other' && (
-            <TextField
-              label="Recipient name *"
-              value={recipientNameOther}
-              onChange={(event) => setRecipientNameOther(event.target.value)}
-              placeholder="e.g. Kitchen, Maintenance"
-              required
-            />
-          )}
-          <TextField
-            label="Notes"
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            multiline
-            minRows={2}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setIssueDialog(null)}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={handleIssue}
-            disabled={loading || !recipientValid || !quantity || Number(quantity) < 1}
-          >
-            Issue
           </Button>
         </DialogActions>
       </Dialog>

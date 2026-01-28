@@ -312,6 +312,7 @@ export const StudentsPage = () => {
           onChange={(event) => setSearch(event.target.value)}
           size="small"
           placeholder="Name, number, guardian"
+          InputLabelProps={{ shrink: true }}
         />
         <FormControl size="small" sx={{ minWidth: 160 }}>
           <InputLabel>Status</InputLabel>
@@ -512,6 +513,7 @@ export const StudentsPage = () => {
               value={form.guardian_phone}
               onChange={(event) => setForm({ ...form, guardian_phone: event.target.value })}
               placeholder="+254..."
+              InputLabelProps={{ shrink: true }}
               required
             />
             <TextField

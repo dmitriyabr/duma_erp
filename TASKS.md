@@ -389,6 +389,7 @@
 - [x] Страница логина
 - [x] Обработка ошибок API
 - [x] Кастомная тема MUI (цвета Indigo/Slate, шрифт Inter, скругления, тени)
+- [x] MUI: фикс наложения label и placeholder — в теме заданы `MuiTextField.defaultProps.InputLabelProps.shrink: true` и `MuiInputLabel.defaultProps.shrink: true`, подпись всегда сверху у полей и селектов
 - [x] Современный Sidebar (тёмный gradient, логотип)
 - [x] TopBar с аватаром и dropdown меню
 
@@ -433,6 +434,11 @@
   - Миграция 017: `issuances.recipient_id` → nullable.
 - [x] **Frontend (StockPage, диалог Issue):** В форме выдачи добавлен блок «Кому»: тип Student/Employee/Other, при Student — select студентов, при Employee — select пользователей, при Other — текстовое поле. Выдача идёт через `POST /inventory/issuances` с одним item.
 - [x] В списке issuances отображается «Кому» (recipient_name уже в IssuanceResponse).
+
+**Issue stock — форма выдачи комплектом (ветка `feature/bulk-issue-stock`, план в `docs/ISSUE_FORM.md`):**
+- [x] **Frontend (Stock):** Кнопка «Issue» сверху страницы (не у каждого айтема). Убраны кнопка Issue в строке таблицы и диалог Issue.
+- [x] **Frontend (IssueFormPage):** Новая страница `/inventory/issue` — форма получателя (Student/Employee/Other) + таблица строк (Item, Quantity), Add line, Submit → POST /inventory/issuances (несколько items в одном issuance), redirect на /inventory/issuances.
+- [x] **Backend:** Используется существующий POST /inventory/issuances (уже поддерживает items[]).
 
 **Массовая загрузка стока (CSV) — ветка `feature/bulk-stock-csv`, план в `docs/BULK_STOCK_CSV.md`:**
 - [x] **Backend:** POST `/inventory/bulk-upload` (file CSV + mode: overwrite | update).

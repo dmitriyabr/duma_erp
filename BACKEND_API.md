@@ -206,7 +206,7 @@
 - `POST /inventory/issue`
 - `GET /inventory/movements` — filters: `item_id`, `movement_type`, `page`, `limit`
 - `GET /inventory/movements/{item_id}` — `page`, `limit`
-- `POST /inventory/issuances`
+- `POST /inventory/issuances` — создание internal issuance (recipient_type, recipient_id?, recipient_name, items: [{ item_id, quantity }], notes?). Поддерживает несколько items в одном issuance. Форма выдачи комплектом: страница `/inventory/issue` (см. docs/ISSUE_FORM.md).
 - `GET /inventory/issuances` — filters: `issuance_type`, `recipient_type`, `recipient_id`, `page`, `limit`
 - `GET /inventory/issuances/{issuance_id}`
 - `POST /inventory/issuances/{issuance_id}/cancel`

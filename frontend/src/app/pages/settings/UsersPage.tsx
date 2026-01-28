@@ -314,6 +314,7 @@ export const UsersPage = () => {
               fullWidth
               type="password"
               placeholder="Optional"
+              InputLabelProps={{ shrink: true }}
             />
           ) : null}
           <TextField
@@ -329,6 +330,7 @@ export const UsersPage = () => {
             onChange={(event) => setForm({ ...form, phone: event.target.value })}
             fullWidth
             placeholder="+254..."
+            InputLabelProps={{ shrink: true }}
           />
           <FormControl fullWidth>
             <InputLabel>Role</InputLabel>
