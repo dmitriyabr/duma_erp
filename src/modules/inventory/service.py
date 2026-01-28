@@ -27,7 +27,9 @@ from src.modules.inventory.schemas import (
     WriteOffItem,
     InventoryCountItem,
 )
+from src.core.auth.models import User
 from src.modules.items.models import Item, ItemType
+from src.modules.students.models import Student
 from src.shared.utils.money import round_money
 
 
@@ -646,15 +648,37 @@ class InventoryService:
     async def create_internal_issuance(
         self, data: InternalIssuanceCreate, issued_by_id: int
     ) -> Issuance:
-        """Create an internal issuance (to employee, department, etc.).
+        """Create an internal issuance (to employee, student, or other).
 
         This creates an issuance record and issues stock for each item.
         """
-        # Validate recipient type
-        if data.recipient_type == RecipientType.STUDENT:
-            raise ValidationError(
-                "Use create_reservation_issuance for student issuances"
+        # Validate recipient and resolve recipient_name for employee/student
+        recipient_id: int | None = data.recipient_id
+        recipient_name = data.recipient_name
+
+        if data.recipient_type == RecipientType.EMPLOYEE:
+            if recipient_id is None:
+                raise ValidationError("recipient_id is required for employee")
+            result = await self.db.execute(select(User).where(User.id == recipient_id))
+            user = result.scalar_one_or_none()
+            if not user:
+                raise NotFoundError(f"User with id {recipient_id} not found")
+            recipient_name = user.full_name or data.recipient_name
+        elif data.recipient_type == RecipientType.STUDENT:
+            if recipient_id is None:
+                raise ValidationError("recipient_id is required for student")
+            result = await self.db.execute(
+                select(Student).where(Student.id == recipient_id)
             )
+            student = result.scalar_one_or_none()
+            if not student:
+                raise NotFoundError(f"Student with id {recipient_id} not found")
+            recipient_name = (
+                f"{student.first_name} {student.last_name}".strip()
+                or data.recipient_name
+            )
+        elif data.recipient_type == RecipientType.OTHER:
+            recipient_id = None  # Ensure null for other
 
         # Validate all items have sufficient stock
         for item_data in data.items:
@@ -680,8 +704,8 @@ class InventoryService:
             issuance_number=issuance_number,
             issuance_type=IssuanceType.INTERNAL.value,
             recipient_type=data.recipient_type.value,
-            recipient_id=data.recipient_id,
-            recipient_name=data.recipient_name,
+            recipient_id=recipient_id,
+            recipient_name=recipient_name,
             reservation_id=None,
             issued_by_id=issued_by_id,
             notes=data.notes,

@@ -11,6 +11,8 @@ import {
   FormControlLabel,
   InputLabel,
   MenuItem,
+  Radio,
+  RadioGroup,
   Select,
   Switch,
   Table,
@@ -61,6 +63,20 @@ interface PaginatedResponse<T> {
   page: number
   limit: number
   pages: number
+}
+
+type RecipientTypeOption = 'student' | 'employee' | 'other'
+
+interface StudentOption {
+  id: number
+  student_number: string
+  first_name: string
+  last_name: string
+}
+
+interface UserOption {
+  id: number
+  full_name: string
 }
 
 type WriteOffReason = 'damage' | 'expired' | 'lost' | 'other'
@@ -118,6 +134,11 @@ export const StockPage = () => {
   const [notes, setNotes] = useState('')
   const [reasonCategory, setReasonCategory] = useState<WriteOffReason>('damage')
   const [reasonDetail, setReasonDetail] = useState('')
+  const [recipientType, setRecipientType] = useState<RecipientTypeOption>('employee')
+  const [recipientId, setRecipientId] = useState<number | ''>('')
+  const [recipientNameOther, setRecipientNameOther] = useState('')
+  const [studentsForIssue, setStudentsForIssue] = useState<StudentOption[]>([])
+  const [usersForIssue, setUsersForIssue] = useState<UserOption[]>([])
 
   const fetchCategories = async () => {
     try {
@@ -127,6 +148,28 @@ export const StockPage = () => {
       setCategories([])
     }
   }
+
+  useEffect(() => {
+    if (!issueDialog) return
+    const loadRecipients = async () => {
+      try {
+        const [studentsRes, usersRes] = await Promise.all([
+          api.get<ApiResponse<PaginatedResponse<StudentOption>>>('/students', {
+            params: { limit: 500 },
+          }),
+          api.get<ApiResponse<PaginatedResponse<UserOption>>>('/users', {
+            params: { limit: 500 },
+          }),
+        ])
+        setStudentsForIssue(studentsRes.data.data.items)
+        setUsersForIssue(usersRes.data.data.items)
+      } catch {
+        setStudentsForIssue([])
+        setUsersForIssue([])
+      }
+    }
+    loadRecipients()
+  }, [issueDialog])
 
   const fetchItems = async () => {
     try {
@@ -211,6 +254,9 @@ export const StockPage = () => {
     setReasonCategory('damage')
     setReasonDetail('')
     setReceiveItemId('')
+    setRecipientType('employee')
+    setRecipientId('')
+    setRecipientNameOther('')
   }
 
   const resetNewItemForm = () => {
@@ -249,18 +295,56 @@ export const StockPage = () => {
   }
 
   const handleIssue = async () => {
-    if (!issueDialog) {
+    if (!issueDialog) return
+    const qty = Number(quantity)
+    if (!qty || qty < 1) {
+      setError('Enter a valid quantity.')
       return
+    }
+    let recipientName = ''
+    let payloadRecipientId: number | undefined
+    if (recipientType === 'other') {
+      recipientName = recipientNameOther.trim()
+      if (!recipientName) {
+        setError('Enter recipient name for "Other".')
+        return
+      }
+    } else if (recipientType === 'student') {
+      if (recipientId === '') {
+        setError('Select a student.')
+        return
+      }
+      const student = studentsForIssue.find((s) => s.id === recipientId)
+      recipientName = student ? `${student.first_name} ${student.last_name}`.trim() : ''
+      payloadRecipientId = Number(recipientId)
+    } else {
+      if (recipientId === '') {
+        setError('Select an employee.')
+        return
+      }
+      const emp = usersForIssue.find((u) => u.id === recipientId)
+      recipientName = emp?.full_name ?? ''
+      payloadRecipientId = Number(recipientId)
     }
     setLoading(true)
     setError(null)
     try {
-      await api.post('/inventory/issue', {
-        item_id: issueDialog.item_id,
-        quantity: Number(quantity),
-        reference_type: 'manual_issue',
-        notes: notes.trim() || null,
-      })
+      const body: {
+        recipient_type: string
+        recipient_id?: number
+        recipient_name: string
+        items: Array<{ item_id: number; quantity: number }>
+        notes?: string
+      } = {
+        recipient_type: recipientType,
+        recipient_name: recipientName,
+        items: [{ item_id: issueDialog.item_id, quantity: qty }],
+        notes: notes.trim() || undefined,
+      }
+      if (recipientType !== 'other' && payloadRecipientId != null) {
+        body.recipient_id = payloadRecipientId
+      }
+      await api.post('/inventory/issuances', body)
       setIssueDialog(null)
       resetDialogState()
       await fetchStock()
@@ -604,6 +688,69 @@ export const StockPage = () => {
             value={quantity}
             onChange={(event) => setQuantity(event.target.value)}
           />
+          <Typography variant="subtitle2" sx={{ mt: 1 }}>
+            To whom
+          </Typography>
+          <FormControl component="fieldset">
+            <RadioGroup
+              row
+              value={recipientType}
+              onChange={(event) => {
+                setRecipientType(event.target.value as RecipientTypeOption)
+                setRecipientId('')
+                setRecipientNameOther('')
+              }}
+            >
+              <FormControlLabel value="student" control={<Radio />} label="Student" />
+              <FormControlLabel value="employee" control={<Radio />} label="Employee" />
+              <FormControlLabel value="other" control={<Radio />} label="Other" />
+            </RadioGroup>
+          </FormControl>
+          {recipientType === 'student' && (
+            <FormControl fullWidth size="small">
+              <InputLabel>Student</InputLabel>
+              <Select
+                value={recipientId}
+                label="Student"
+                onChange={(event) => setRecipientId(event.target.value === '' ? '' : Number(event.target.value))}
+                displayEmpty
+              >
+                <MenuItem value="">Select student</MenuItem>
+                {studentsForIssue.map((s) => (
+                  <MenuItem key={s.id} value={s.id}>
+                    {s.first_name} {s.last_name} ({s.student_number})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+          {recipientType === 'employee' && (
+            <FormControl fullWidth size="small">
+              <InputLabel>Employee</InputLabel>
+              <Select
+                value={recipientId}
+                label="Employee"
+                onChange={(event) => setRecipientId(event.target.value === '' ? '' : Number(event.target.value))}
+                displayEmpty
+              >
+                <MenuItem value="">Select employee</MenuItem>
+                {usersForIssue.map((u) => (
+                  <MenuItem key={u.id} value={u.id}>
+                    {u.full_name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+          {recipientType === 'other' && (
+            <TextField
+              label="Recipient name"
+              value={recipientNameOther}
+              onChange={(event) => setRecipientNameOther(event.target.value)}
+              placeholder="e.g. Kitchen, Maintenance"
+              required
+            />
+          )}
           <TextField
             label="Notes"
             value={notes}

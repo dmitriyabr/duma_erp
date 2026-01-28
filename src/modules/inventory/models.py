@@ -40,8 +40,9 @@ class RecipientType(StrEnum):
     """Recipient type enumeration."""
 
     EMPLOYEE = "employee"  # User (employee)
-    DEPARTMENT = "department"  # Department (kitchen, etc.)
-    STUDENT = "student"  # Student (for reservation issuances)
+    DEPARTMENT = "department"  # Department (kitchen, etc.) — legacy, use OTHER with name
+    STUDENT = "student"  # Student (reservation or manual issuance)
+    OTHER = "other"  # Free-text recipient (recipient_id not used)
 
 
 class IssuanceStatus(StrEnum):
@@ -162,10 +163,10 @@ class Issuance(Base):
     )  # internal | reservation
     recipient_type: Mapped[str] = mapped_column(
         String(20), nullable=False
-    )  # employee | department | student
-    recipient_id: Mapped[int] = mapped_column(
-        BigInteger, nullable=False, index=True
-    )  # user_id for employee, student_id for student, department enum for department
+    )  # employee | department | student | other
+    recipient_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True, index=True
+    )  # user_id for employee, student_id for student; null for other
     recipient_name: Mapped[str] = mapped_column(
         String(200), nullable=False
     )  # Denormalized for display

@@ -492,7 +492,7 @@ async def create_internal_issuance(
         require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
     ),
 ):
-    """Create an internal issuance (to employee, department, etc.). Requires ADMIN role."""
+    """Create an internal issuance (to employee, student, or other). Requires ADMIN role."""
     service = InventoryService(db)
     issuance = await service.create_internal_issuance(data, current_user.id)
     issuance = await service.get_issuance_by_id(issuance.id)

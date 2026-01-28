@@ -78,7 +78,7 @@
 - **ReservationStatus:** `pending`, `partial`, `fulfilled`, `cancelled`
 - **MovementType:** `receipt`, `issue`, `reserve`, `unreserve`, `adjustment`
 - **IssuanceType:** `internal`, `reservation`
-- **RecipientType:** `employee`, `department`, `student`
+- **RecipientType:** `employee`, `department`, `student`, `other` (для `other` — recipient_id не передаётся, только recipient_name)
 - **IssuanceStatus:** `completed`, `cancelled`
 - **PurchaseOrderStatus:** `draft`, `ordered`, `partially_received`, `received`, `cancelled`, `closed`
 - **GoodsReceivedStatus:** `draft`, `approved`, `cancelled`
@@ -350,9 +350,9 @@
 - `StockMovementResponse`: `id`, `stock_id`, `item_id`, `item_sku?`, `item_name?`, `movement_type`, `quantity`, `unit_cost?`, `quantity_before`, `quantity_after`, `average_cost_before`, `average_cost_after`, `reference_type?`, `reference_id?`, `notes?`, `created_by_id`, `created_by_name?`, `created_at`
 - `WriteOffResponse`: `movements[]`, `total`
 - `InventoryCountResponse`: `movements[]`, `adjustments_created`, `total_variance`
-- `InternalIssuanceCreate`: `recipient_type`, `recipient_id`, `recipient_name`, `items[]`, `notes?`
+- `InternalIssuanceCreate`: `recipient_type` (employee | student | other), `recipient_id?` (обязателен для employee/student, не передавать для other), `recipient_name`, `items[]`, `notes?`
 - `IssuanceItemCreate`: `item_id`, `quantity`
-- `IssuanceResponse`: `id`, `issuance_number`, `issuance_type`, `recipient_type`, `recipient_id`, `recipient_name`, `reservation_id?`, `issued_by_id`, `issued_by_name?`, `issued_at`, `notes?`, `status`, `items[]`
+- `IssuanceResponse`: `id`, `issuance_number`, `issuance_type`, `recipient_type`, `recipient_id?` (null для other), `recipient_name`, `reservation_id?`, `issued_by_id`, `issued_by_name?`, `issued_at`, `notes?`, `status`, `items[]`
 
 ### 6.10. Reservations
 - `ReservationIssueRequest`: `items[]` (каждый: `reservation_item_id`, `quantity`), `notes?`

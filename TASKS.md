@@ -426,6 +426,14 @@
 - [x] Issuances: список/деталь/отмена
 - [x] Reservations: список/выдача/отмена (показывает имя студента, фильтр Active)
 
+**Выдача (Issue): трекинг «кому» (инициатор уже есть — issued_by):**
+- [x] **Backend:** Расширить тип получателя: ученик / сотрудник / другое.
+  - В `RecipientType` добавлен `OTHER`; для «другое» хранится только `recipient_name`, `recipient_id` nullable в Issuance.
+  - В `create_internal_issuance` разрешён `recipient_type=student`; для `other` не требуется `recipient_id`, требуется `recipient_name`; для employee/student имя подставляется с бэка по id.
+  - Миграция 017: `issuances.recipient_id` → nullable.
+- [x] **Frontend (StockPage, диалог Issue):** В форме выдачи добавлен блок «Кому»: тип Student/Employee/Other, при Student — select студентов, при Employee — select пользователей, при Other — текстовое поле. Выдача идёт через `POST /inventory/issuances` с одним item.
+- [x] В списке issuances отображается «Кому» (recipient_name уже в IssuanceResponse).
+
 **После рефакторинга 1.9:**
 - [x] Управление складскими позициями (Items type=product)
 - [x] Создание новой позиции: Name, Category, SKU (авто)

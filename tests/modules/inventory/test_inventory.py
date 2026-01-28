@@ -786,12 +786,93 @@ class TestIssuanceService:
         issuances, total = await service.list_issuances()
         assert total == 2
 
-        # Filter by recipient type
+        # Filter by recipient type (recipient_name resolved from User on create)
         issuances, total = await service.list_issuances(
             recipient_type=RecipientType.EMPLOYEE
         )
         assert total == 1
-        assert issuances[0].recipient_name == "Employee 1"
+        assert issuances[0].recipient_name == "Admin"
+
+    async def test_create_internal_issuance_recipient_other(self, db_session: AsyncSession):
+        """Test internal issuance with recipient_type=other (free text, no recipient_id)."""
+        admin_id = await self._create_super_admin(db_session)
+        item_id = await self._create_product_item(db_session, admin_id)
+        service = InventoryService(db_session)
+
+        await service.receive_stock(
+            ReceiveStockRequest(
+                item_id=item_id,
+                quantity=100,
+                unit_cost=Decimal("50.00"),
+            ),
+            received_by_id=admin_id,
+        )
+
+        issuance = await service.create_internal_issuance(
+            InternalIssuanceCreate(
+                recipient_type=RecipientType.OTHER,
+                recipient_name="Kitchen",
+                items=[IssuanceItemCreate(item_id=item_id, quantity=5)],
+            ),
+            issued_by_id=admin_id,
+        )
+
+        assert issuance.recipient_type == RecipientType.OTHER.value
+        assert issuance.recipient_id is None
+        assert issuance.recipient_name == "Kitchen"
+        stock = await service.get_stock_by_item_id(item_id)
+        assert stock.quantity_on_hand == 95
+
+    async def test_create_internal_issuance_recipient_student(self, db_session: AsyncSession):
+        """Test internal issuance with recipient_type=student (manual issue to student)."""
+        from src.modules.students.models import Grade, Student, StudentStatus
+
+        admin_id = await self._create_super_admin(db_session)
+        item_id = await self._create_product_item(db_session, admin_id)
+        service = InventoryService(db_session)
+
+        grade = Grade(code="G1", name="Grade 1", display_order=1, is_active=True)
+        db_session.add(grade)
+        await db_session.flush()
+        student = Student(
+            student_number="STU-2026-000001",
+            first_name="John",
+            last_name="Doe",
+            gender="male",
+            guardian_name="Jane Doe",
+            guardian_phone="+254700000000",
+            grade_id=grade.id,
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=admin_id,
+        )
+        db_session.add(student)
+        await db_session.commit()
+        await db_session.refresh(student)
+
+        await service.receive_stock(
+            ReceiveStockRequest(
+                item_id=item_id,
+                quantity=100,
+                unit_cost=Decimal("50.00"),
+            ),
+            received_by_id=admin_id,
+        )
+
+        issuance = await service.create_internal_issuance(
+            InternalIssuanceCreate(
+                recipient_type=RecipientType.STUDENT,
+                recipient_id=student.id,
+                recipient_name="John Doe",
+                items=[IssuanceItemCreate(item_id=item_id, quantity=3)],
+            ),
+            issued_by_id=admin_id,
+        )
+
+        assert issuance.recipient_type == RecipientType.STUDENT.value
+        assert issuance.recipient_id == student.id
+        assert issuance.recipient_name == "John Doe"  # first_name + last_name from service
+        stock = await service.get_stock_by_item_id(item_id)
+        assert stock.quantity_on_hand == 97
 
 
 class TestIssuanceEndpoints:
@@ -872,6 +953,28 @@ class TestIssuanceEndpoints:
         assert data["success"] is True
         assert data["data"]["issuance_number"].startswith("ISS-")
         assert len(data["data"]["items"]) == 1
+
+    async def test_create_issuance_endpoint_recipient_other(self, client: AsyncClient, db_session: AsyncSession):
+        """Test creating issuance via API with recipient_type=other (no recipient_id)."""
+        token = await self._get_admin_token(client, db_session)
+        item_id = await self._create_product_and_stock(client, token)
+
+        response = await client.post(
+            "/api/v1/inventory/issuances",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "recipient_type": "other",
+                "recipient_name": "Kitchen",
+                "items": [{"item_id": item_id, "quantity": 5}],
+            },
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["success"] is True
+        assert data["data"]["recipient_type"] == "other"
+        assert data["data"]["recipient_id"] is None
+        assert data["data"]["recipient_name"] == "Kitchen"
 
     async def test_list_issuances_endpoint(self, client: AsyncClient, db_session: AsyncSession):
         """Test listing issuances via API."""

@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from src.modules.inventory.models import IssuanceType, MovementType, RecipientType
 
@@ -149,19 +149,30 @@ class IssuanceItemCreate(BaseModel):
 
 
 class InternalIssuanceCreate(BaseModel):
-    """Schema for creating an internal issuance (to employee/department)."""
+    """Schema for creating an internal issuance (to employee/student/other)."""
 
     recipient_type: RecipientType = Field(
-        ..., description="Type of recipient: employee or department"
+        ..., description="Type of recipient: employee, student, or other"
     )
-    recipient_id: int = Field(
-        ..., description="User ID for employee, or department enum value"
+    recipient_id: int | None = Field(
+        None,
+        description="User ID for employee, student_id for student; omit for other",
     )
     recipient_name: str = Field(
         ..., min_length=1, max_length=200, description="Name of recipient for display"
     )
     items: list[IssuanceItemCreate] = Field(..., min_length=1)
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def validate_recipient(self):
+        if self.recipient_type in (RecipientType.EMPLOYEE, RecipientType.STUDENT):
+            if self.recipient_id is None:
+                raise ValueError("recipient_id is required for employee or student")
+        elif self.recipient_type == RecipientType.OTHER:
+            if self.recipient_id is not None:
+                raise ValueError("recipient_id must be omitted for other")
+        return self
 
 
 class IssuanceItemResponse(BaseModel):
@@ -184,7 +195,7 @@ class IssuanceResponse(BaseModel):
     issuance_number: str
     issuance_type: str
     recipient_type: str
-    recipient_id: int
+    recipient_id: int | None
     recipient_name: str
     reservation_id: int | None
     issued_by_id: int
