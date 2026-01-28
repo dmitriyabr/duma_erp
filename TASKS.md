@@ -434,6 +434,17 @@
 - [x] **Frontend (StockPage, диалог Issue):** В форме выдачи добавлен блок «Кому»: тип Student/Employee/Other, при Student — select студентов, при Employee — select пользователей, при Other — текстовое поле. Выдача идёт через `POST /inventory/issuances` с одним item.
 - [x] В списке issuances отображается «Кому» (recipient_name уже в IssuanceResponse).
 
+**Массовая загрузка стока (CSV) — ветка `feature/bulk-stock-csv`, план в `docs/BULK_STOCK_CSV.md`:**
+- [x] **Backend:** POST `/inventory/bulk-upload` (file CSV + mode: overwrite | update).
+  - Парсинг CSV: category, item_name, quantity, unit_cost? (и опционально sku). Reserved в CSV не участвует.
+  - Get-or-create категории по имени; get-or-create Item (product) по (category, item_name) или sku, автоСКУ при создании.
+  - Режим overwrite: обнулить **только quantity_on_hand** по всем product (quantity_reserved не трогаем).
+  - Режим update: только для позиций из CSV установить quantity_on_hand (adjustment до target quantity).
+  - Аудит и движения StockMovement.
+- [x] **Backend:** GET `/inventory/bulk-upload/export` — выгрузка **текущего склада** в CSV (не пустой шаблон), чтобы редактировать и заливать обратно.
+- [x] **Frontend (страница Inventory count):** секция «Bulk upload from CSV»: кнопка «Download current stock», выбор файла, режим (Overwrite warehouse / Update only), Upload; результат (обработано строк, создано позиций, ошибки).
+- [ ] **CDN / хранилище:** прод = Cloudflare S3; дев = MinIO в docker-compose. Для bulk CSV CDN не нужен.
+
 **После рефакторинга 1.9:**
 - [x] Управление складскими позициями (Items type=product)
 - [x] Создание новой позиции: Name, Category, SKU (авто)

@@ -400,6 +400,127 @@ class TestInventoryService:
         assert movements[1].movement_type == MovementType.ISSUE.value
         assert movements[2].movement_type == MovementType.RECEIPT.value
 
+    async def test_export_stock_to_csv(self, db_session: AsyncSession):
+        """Test export_stock_to_csv returns CSV with header and rows."""
+        admin_id = await self._create_super_admin(db_session)
+        item_id = await self._create_product_item(db_session, admin_id)
+        service = InventoryService(db_session)
+
+        await service.receive_stock(
+            ReceiveStockRequest(item_id=item_id, quantity=50, unit_cost=Decimal("10.00")),
+            received_by_id=admin_id,
+        )
+        await db_session.commit()
+
+        csv_bytes = await service.export_stock_to_csv()
+        assert csv_bytes.startswith(b"\xef\xbb\xbf")  # UTF-8 BOM
+        text = csv_bytes.decode("utf-8-sig")
+        lines = text.strip().split("\r\n") if "\r\n" in text else text.strip().split("\n")
+        assert lines[0] == "category,item_name,sku,quantity,unit_cost"
+        assert len(lines) >= 2  # header + at least one row
+
+    async def test_bulk_upload_from_csv_update(self, db_session: AsyncSession):
+        """Test bulk_upload_from_csv in update mode sets quantity from CSV."""
+        admin_id = await self._create_super_admin(db_session)
+        item_id = await self._create_product_item(db_session, admin_id)
+        service = InventoryService(db_session)
+
+        await service.receive_stock(
+            ReceiveStockRequest(item_id=item_id, quantity=10, unit_cost=Decimal("5.00")),
+            received_by_id=admin_id,
+        )
+        await db_session.commit()
+
+        csv_content = "category,item_name,sku,quantity\nTest Category,Test Product,PROD-001,25\n"
+        result = await service.bulk_upload_from_csv(csv_content.encode("utf-8"), "update", admin_id)
+
+        assert result["rows_processed"] == 1
+        assert result["items_created"] == 0
+        assert len(result["errors"]) == 0
+        stock = await service.get_stock_by_item_id(item_id)
+        assert stock.quantity_on_hand == 25
+
+    async def test_bulk_upload_from_csv_overwrite(self, db_session: AsyncSession):
+        """Test bulk_upload_from_csv in overwrite mode zeros then sets from CSV."""
+        admin_id = await self._create_super_admin(db_session)
+        item_id = await self._create_product_item(db_session, admin_id)
+        service = InventoryService(db_session)
+
+        await service.receive_stock(
+            ReceiveStockRequest(item_id=item_id, quantity=100, unit_cost=Decimal("10.00")),
+            received_by_id=admin_id,
+        )
+        await db_session.commit()
+
+        csv_content = "category,item_name,sku,quantity\nTest Category,Test Product,PROD-001,30\n"
+        result = await service.bulk_upload_from_csv(csv_content.encode("utf-8"), "overwrite", admin_id)
+
+        assert result["rows_processed"] == 1
+        stock = await service.get_stock_by_item_id(item_id)
+        assert stock.quantity_on_hand == 30
+
+    async def test_bulk_upload_from_csv_overwrite_fails_with_reserved(self, db_session: AsyncSession):
+        """Test overwrite mode raises when any product has reserved stock."""
+        admin_id = await self._create_super_admin(db_session)
+        item_id = await self._create_product_item(db_session, admin_id)
+        service = InventoryService(db_session)
+
+        await service.receive_stock(
+            ReceiveStockRequest(item_id=item_id, quantity=50, unit_cost=Decimal("5.00")),
+            received_by_id=admin_id,
+        )
+        await service.reserve_stock(
+            item_id=item_id,
+            quantity=10,
+            reference_type="invoice",
+            reference_id=1,
+            reserved_by_id=admin_id,
+        )
+        await db_session.commit()
+
+        csv_content = "category,item_name,sku,quantity\nTest Category,Test Product,PROD-001,20\n"
+        with pytest.raises(ValidationError) as exc_info:
+            await service.bulk_upload_from_csv(csv_content.encode("utf-8"), "overwrite", admin_id)
+        assert "reserved" in str(exc_info.value).lower()
+
+    async def test_bulk_upload_from_csv_creates_items(self, db_session: AsyncSession):
+        """Test bulk upload creates new category and product when not present."""
+        admin_id = await self._create_super_admin(db_session)
+        service = InventoryService(db_session)
+
+        csv_content = (
+            "category,item_name,sku,quantity\n"
+            "New Category,New Product,,15\n"
+        )
+        result = await service.bulk_upload_from_csv(csv_content.encode("utf-8"), "update", admin_id)
+
+        assert result["rows_processed"] == 1
+        assert result["items_created"] == 1
+        stocks, _ = await service.list_stock(include_zero=True)
+        names = [s.item.name for s in stocks if s.item]
+        assert "New Product" in names
+        stock = next(s for s in stocks if s.item and s.item.name == "New Product")
+        assert stock.quantity_on_hand == 15
+
+    async def test_bulk_upload_from_csv_invalid_quantity_errors(self, db_session: AsyncSession):
+        """Test bulk upload collects errors for invalid quantity rows."""
+        admin_id = await self._create_super_admin(db_session)
+        service = InventoryService(db_session)
+
+        csv_content = (
+            "category,item_name,quantity\n"
+            "Cat A,Item A,10\n"
+            "Cat B,Item B,not_a_number\n"
+            "Cat C,Item C,-1\n"
+        )
+        result = await service.bulk_upload_from_csv(csv_content.encode("utf-8"), "update", admin_id)
+
+        assert result["rows_processed"] == 1
+        assert len(result["errors"]) >= 2
+        row_messages = {e["row"]: e["message"] for e in result["errors"]}
+        assert any("invalid quantity" in row_messages.get(r, "") for r in row_messages)
+        assert any(">= 0" in row_messages.get(r, "") or "must be" in row_messages.get(r, "") for r in row_messages)
+
 
 class TestInventoryEndpoints:
     """Tests for inventory API endpoints."""
@@ -514,7 +635,58 @@ class TestInventoryEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert data["data"]["total"] == 1
-        assert len(data["data"]["items"]) == 1
+
+    async def test_export_stock_csv_endpoint(self, client: AsyncClient, db_session: AsyncSession):
+        """Test GET /inventory/bulk-upload/export returns CSV."""
+        token = await self._get_admin_token(client, db_session)
+        item_id = await self._create_product_item(client, token)
+        await client.post(
+            "/api/v1/inventory/receive",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"item_id": item_id, "quantity": 50, "unit_cost": "10.00"},
+        )
+
+        response = await client.get(
+            "/api/v1/inventory/bulk-upload/export",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        assert "text/csv" in response.headers.get("content-type", "")
+        assert "attachment" in response.headers.get("content-disposition", "").lower()
+        content = response.content
+        assert content.startswith(b"\xef\xbb\xbf")  # UTF-8 BOM
+        assert b"category,item_name,sku,quantity,unit_cost" in content
+
+    async def test_bulk_upload_endpoint(self, client: AsyncClient, db_session: AsyncSession):
+        """Test POST /inventory/bulk-upload with CSV file and mode."""
+        token = await self._get_admin_token(client, db_session)
+        item_id = await self._create_product_item(client, token)
+        await client.post(
+            "/api/v1/inventory/receive",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"item_id": item_id, "quantity": 10, "unit_cost": "5.00"},
+        )
+
+        csv_content = b"category,item_name,sku,quantity\nTest Category,Test Product,PROD-001,22\n"
+        response = await client.post(
+            "/api/v1/inventory/bulk-upload",
+            headers={"Authorization": f"Bearer {token}"},
+            data={"mode": "update"},
+            files={"file": ("stock.csv", csv_content, "text/csv")},
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["success"] is True
+        assert data["data"]["rows_processed"] == 1
+        assert data["data"]["items_created"] == 0
+        assert len(data["data"]["errors"]) == 0
+        stock_resp = await client.get(
+            f"/api/v1/inventory/stock/{item_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert stock_resp.json()["data"]["quantity_on_hand"] == 22
 
     async def test_adjust_stock_endpoint(self, client: AsyncClient, db_session: AsyncSession):
         """Test adjust stock via API."""

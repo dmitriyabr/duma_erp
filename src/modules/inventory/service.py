@@ -1,5 +1,7 @@
 """Service for Inventory module."""
 
+import csv
+import io
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -917,3 +919,154 @@ class InventoryService:
             await self.db.commit()
             await self.db.refresh(issuance)
         return issuance
+
+    # --- Bulk CSV ---
+
+    async def export_stock_to_csv(self) -> bytes:
+        """Export current stock (quantity_on_hand only, no reserved) to CSV.
+
+        Columns: category, item_name, sku, quantity, unit_cost.
+        """
+        query = (
+            select(Stock)
+            .options(
+                selectinload(Stock.item).selectinload(Item.category),
+            )
+            .join(Item)
+            .where(Item.item_type == ItemType.PRODUCT.value)
+            .order_by(Item.name)
+        )
+        result = await self.db.execute(query)
+        stocks = list(result.scalars().unique().all())
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["category", "item_name", "sku", "quantity", "unit_cost"])
+        for stock in stocks:
+            cat_name = stock.item.category.name if stock.item and stock.item.category else ""
+            name = stock.item.name if stock.item else ""
+            sku = stock.item.sku_code if stock.item else ""
+            qty = stock.quantity_on_hand
+            cost = str(stock.average_cost) if stock.average_cost is not None else ""
+            writer.writerow([cat_name, name, sku, qty, cost])
+
+        return ("\ufeff" + buf.getvalue()).encode("utf-8")
+
+    async def bulk_upload_from_csv(
+        self,
+        content: bytes | str,
+        mode: str,
+        user_id: int,
+    ) -> dict:
+        """Parse CSV and apply stock updates. mode: 'overwrite' | 'update'.
+
+        Overwrite: zero quantity_on_hand for all product stocks (only where reserved=0), then set from CSV.
+        Update: only set quantity for rows in CSV.
+        Returns dict with rows_processed, items_created, errors (list of {row, message}).
+        """
+        from src.modules.items.service import ItemService
+
+        if isinstance(content, bytes):
+            text = content.decode("utf-8-sig")
+        else:
+            text = content
+        reader = csv.DictReader(io.StringIO(text))
+        required = {"category", "item_name", "quantity"}
+        if not reader.fieldnames:
+            raise ValidationError("CSV has no headers")
+        missing = required - set(reader.fieldnames or [])
+        if missing:
+            raise ValidationError(f"CSV missing columns: {sorted(missing)}")
+
+        item_service = ItemService(self.db)
+        rows_processed = 0
+        items_created = 0
+        errors: list[dict] = []
+
+        if mode == "overwrite":
+            # Zero quantity_on_hand only (do not touch quantity_reserved)
+            result = await self.db.execute(
+                select(Stock)
+                .options(selectinload(Stock.item))
+                .join(Item)
+                .where(Item.item_type == ItemType.PRODUCT.value)
+                .where(Stock.quantity_on_hand > 0)
+            )
+            stocks_to_zero = list(result.scalars().unique().all())
+            for stock in stocks_to_zero:
+                if stock.quantity_reserved > 0:
+                    raise ValidationError(
+                        "Cannot overwrite warehouse while there is reserved stock. "
+                        "Cancel or fulfill reservations first."
+                    )
+            for stock in stocks_to_zero:
+                await self._apply_adjustment(
+                    item_id=stock.item_id,
+                    quantity_delta=-stock.quantity_on_hand,
+                    reason="Bulk overwrite: zero stock",
+                    reference_type="bulk_upload",
+                    reference_id=None,
+                    adjusted_by_id=user_id,
+                    audit_action="inventory.bulk_overwrite",
+                )
+
+        for row_num, row in enumerate(reader, start=2):
+            cat = (row.get("category") or "").strip()
+            name = (row.get("item_name") or "").strip()
+            qty_str = (row.get("quantity") or "").strip()
+            sku = (row.get("sku") or "").strip() or None
+            if not cat or not name:
+                errors.append({"row": row_num, "message": "category and item_name required"})
+                continue
+            try:
+                qty = int(qty_str)
+            except ValueError:
+                errors.append({"row": row_num, "message": f"invalid quantity: {qty_str!r}"})
+                continue
+            if qty < 0:
+                errors.append({"row": row_num, "message": "quantity must be >= 0"})
+                continue
+
+            try:
+                item, created = await item_service.get_or_create_product_item(
+                    category_name=cat,
+                    item_name=name,
+                    sku=sku,
+                    created_by_id=user_id,
+                )
+            except Exception as e:
+                errors.append({"row": row_num, "message": str(e)})
+                continue
+
+            if created:
+                items_created += 1
+
+            stock = await self._get_or_create_stock(item.id)
+            target = qty
+            if target < stock.quantity_reserved:
+                errors.append(
+                    {
+                        "row": row_num,
+                        "message": f"quantity {target} less than reserved {stock.quantity_reserved}",
+                    }
+                )
+                continue
+            delta = target - stock.quantity_on_hand
+            if delta != 0:
+                await self._apply_adjustment(
+                    item_id=item.id,
+                    quantity_delta=delta,
+                    reason="Bulk upload from CSV",
+                    reference_type="bulk_upload",
+                    reference_id=None,
+                    adjusted_by_id=user_id,
+                    audit_action="inventory.bulk_upload",
+                )
+            rows_processed += 1
+
+        await self.db.commit()
+        return {
+            "rows_processed": rows_processed,
+            "items_created": items_created,
+            "errors": errors,
+        }

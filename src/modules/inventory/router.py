@@ -1,6 +1,7 @@
 """API endpoints for Inventory module."""
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, status, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth.dependencies import require_roles
@@ -9,6 +10,7 @@ from src.core.database.session import get_db
 from src.modules.inventory.models import IssuanceType, MovementType, RecipientType, StockMovement
 from src.modules.inventory.schemas import (
     AdjustStockRequest,
+    BulkUploadResponse,
     InternalIssuanceCreate,
     IssuanceItemResponse,
     IssuanceResponse,
@@ -284,6 +286,53 @@ async def inventory_count(
             movements=[_movement_to_response(m) for m in movements],
             adjustments_created=len(movements),
             total_variance=total_variance,
+        ),
+    )
+
+
+@router.get("/bulk-upload/export")
+async def export_stock_csv(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
+):
+    """Export current stock to CSV (for editing and re-upload). Requires ADMIN role."""
+    service = InventoryService(db)
+    csv_bytes = await service.export_stock_to_csv()
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": "attachment; filename=stock_export.csv",
+        },
+    )
+
+
+@router.post(
+    "/bulk-upload",
+    response_model=ApiResponse[BulkUploadResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def bulk_upload_stock(
+    file: UploadFile = File(...),
+    mode: str = Form(..., description="overwrite | update"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
+):
+    """Bulk upload stock from CSV. mode: overwrite (zero then set) or update (only rows in CSV). Requires ADMIN role."""
+    if mode not in ("overwrite", "update"):
+        raise HTTPException(status_code=400, detail="mode must be 'overwrite' or 'update'")
+    content = await file.read()
+    if not content or not content.strip():
+        raise HTTPException(status_code=400, detail="CSV file is empty")
+    service = InventoryService(db)
+    result = await service.bulk_upload_from_csv(content, mode, current_user.id)
+    return ApiResponse(
+        success=True,
+        message="Bulk upload completed",
+        data=BulkUploadResponse(
+            rows_processed=result["rows_processed"],
+            items_created=result["items_created"],
+            errors=[{"row": e["row"], "message": e["message"]} for e in result["errors"]],
         ),
     )
 
