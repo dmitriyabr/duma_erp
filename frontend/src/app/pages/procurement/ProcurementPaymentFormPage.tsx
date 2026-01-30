@@ -19,6 +19,7 @@ import {
 import React, { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import axios from 'axios'
+import { USERS_LIST_LIMIT } from '../../constants/pagination'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
@@ -81,7 +82,9 @@ export const ProcurementPaymentFormPage = () => {
     '/procurement/payment-purposes',
     { params: { include_inactive: true } }
   )
-  const { data: usersData } = useApi<{ items: UserRow[] }>('/users', { params: { limit: 100 } })
+  const { data: usersData } = useApi<{ items: UserRow[] }>('/users', {
+    params: { limit: USERS_LIST_LIMIT },
+  }, [])
 
   const purposes = purposesData || []
   const users = usersData?.items || []

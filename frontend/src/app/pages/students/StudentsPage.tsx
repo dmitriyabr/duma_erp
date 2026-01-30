@@ -27,6 +27,7 @@ import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { api } from '../../services/api'
 import type { ApiResponse, PaginatedResponse } from '../../types/api'
+import { DEFAULT_PAGE_SIZE } from '../../constants/pagination'
 import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
@@ -95,7 +96,7 @@ const parseNumber = (value: unknown) => {
 export const StudentsPage = () => {
   const navigate = useNavigate()
   const [page, setPage] = useState(0)
-  const [limit, setLimit] = useState(25)
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE)
   const [statusFilter, setStatusFilter] = useState<'all' | StudentStatus>('all')
   const [gradeFilter, setGradeFilter] = useState<number | 'all'>('all')
   const [transportFilter, setTransportFilter] = useState<number | 'all'>('all')

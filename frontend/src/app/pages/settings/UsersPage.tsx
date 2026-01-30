@@ -21,6 +21,7 @@ import {
   Typography,
 } from '@mui/material'
 import { useMemo, useState } from 'react'
+import { DEFAULT_PAGE_SIZE } from '../../constants/pagination'
 import { api } from '../../services/api'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
@@ -53,7 +54,7 @@ const emptyForm = {
 
 export const UsersPage = () => {
   const [page, setPage] = useState(0)
-  const [limit, setLimit] = useState(25)
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE)
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebouncedValue(search, 400)
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all')

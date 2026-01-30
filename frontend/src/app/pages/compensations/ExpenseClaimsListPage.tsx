@@ -19,6 +19,7 @@ import {
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
+import { USERS_LIST_LIMIT } from '../../constants/pagination'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
@@ -92,7 +93,9 @@ export const ExpenseClaimsListPage = () => {
 
   const { data: claimsData, loading, error } = useApi<PaginatedResponse<ClaimRow>>(claimsUrl)
   const { data: employeesData } = useApi<{ items: UserRow[] }>(
-    userIsSuperAdmin ? '/users?limit=100' : null
+    userIsSuperAdmin ? '/users' : null,
+    userIsSuperAdmin ? { params: { limit: USERS_LIST_LIMIT } } : undefined,
+    [userIsSuperAdmin]
   )
   const { data: myBalance } = useApi<BalanceResponse>(
     user?.id && !userIsSuperAdmin ? `/compensations/payouts/employees/${user.id}/balance` : null

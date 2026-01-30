@@ -21,6 +21,7 @@ import {
 } from '@mui/material'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { USERS_LIST_LIMIT } from '../../constants/pagination'
 import { api } from '../../services/api'
 import type { ApiResponse, PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
@@ -61,7 +62,9 @@ export const PayoutsPage = () => {
 
   const payoutsUrl = useMemo(() => `/compensations/payouts?page=${page + 1}&limit=${limit}`, [page, limit])
   const { data: payoutsData, loading, error, refetch } = useApi<PaginatedResponse<PayoutRow>>(payoutsUrl)
-  const { data: employeesData } = useApi<{ items: UserRow[] }>('/users?limit=100')
+  const { data: employeesData } = useApi<{ items: UserRow[] }>('/users', {
+    params: { limit: USERS_LIST_LIMIT },
+  }, [])
   const { execute: createPayout, loading: _creating, error: createError } = useApiMutation()
 
   const payouts = payoutsData?.items || []

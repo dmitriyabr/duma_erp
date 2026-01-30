@@ -27,7 +27,23 @@
 - **8.2 Синхронизация URL и вкладок:** сделано — вкладка выводится из searchParams (tab = searchParams.get('tab') ?? 'overview'), валидация допустимых значений; при прямом заходе по URL с ?tab=payments открывается нужная вкладка без вспышки.
 - **2.2 Справочники Grades и Transport zones:** сделано — контекст ReferencedDataContext (ReferencedDataProvider в роутах вокруг AppLayout); один раз загружаются /students/grades и /terms/transport-zones; используют StudentDetailPage, StudentsPage, TermFormPage, TermDetailPage, GradesPage, TransportZonesPage; после мутаций в GradesPage/TransportZonesPage вызывается refetchGrades/refetchTransportZones.
 
-Остаётся: 3 (кэш), 6 (пагинация).
+**Константы лимитов (добивка):** добавлена `USERS_LIST_LIMIT = 100`; использованы `DEFAULT_PAGE_SIZE` для начального limit на StudentsPage и UsersPage; `USERS_LIST_LIMIT` — в PayoutsPage, ExpenseClaimsListPage, ProcurementPaymentFormPage; `SECONDARY_LIST_LIMIT` — в OverviewTab (discounts).
+
+---
+
+## Отложено (рекомендации на следующий этап)
+
+### 3. Кэширование запросов (TanStack Query)
+
+**Почему отложено:** Введение TanStack Query затрагивает все вызовы `useApi` и мутаций; справочники уже кэшируются через ReferencedDataContext. При росте приложения имеет смысл поэтапно мигрировать на TanStack Query (useQuery/useMutation) с настройкой staleTime/cacheTime.
+
+**Рекомендация:** Добавить зависимость `@tanstack/react-query`, обернуть приложение в `QueryClientProvider`, по одному экрану переводить useApi → useQuery и мутации → useMutation; затем единообразно настроить инвалидацию.
+
+### 6. Пагинация в UI для «длинных» списков без пагинации
+
+**Почему отложено:** Списки в рамках одного студента (invoices, payments, discounts, reservations) ограничены константами (INVOICE_LIST_LIMIT, SECONDARY_LIST_LIMIT и т.д.). При росте данных можно добавить TablePagination или «Load more» на этих вкладках.
+
+**Рекомендация:** При появлении сценариев «счетов/платежей больше 200» — добавить пагинацию по страницам или кнопку «Загрузить ещё» с увеличением limit/offset.
 
 ---
 
@@ -217,4 +233,9 @@
 5. **Пагинация и UX:** п. 6, 7.
 6. **Уборка и константы:** п. 8.
 
-После выполнения плана стоит обновить `TASKS.md` и при необходимости `frontend/REFACTORING_SUMMARY.md`, указав завершённые пункты и оставшиеся задачи.
+---
+
+## Итог рефакторинга (ветка feature/frontend-refactoring)
+
+Выполнено: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 4, 5.1, 5.2, 5.3, 7.1, 7.2, 8.1–8.5, константы лимитов (в т.ч. DEFAULT_PAGE_SIZE, USERS_LIST_LIMIT в оставшихся местах).  
+Отложено: п. 3 (TanStack Query), п. 6 (пагинация на вкладках студента) — см. раздел «Отложено» выше.

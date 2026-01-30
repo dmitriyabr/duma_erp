@@ -20,6 +20,7 @@ import {
 } from '@mui/material'
 import { useMemo, useState } from 'react'
 import { api } from '../../../services/api'
+import { SECONDARY_LIST_LIMIT } from '../../../constants/pagination'
 import { useApi, useApiMutation } from '../../../hooks/useApi'
 import { formatDate, formatMoney } from '../../../utils/format'
 import type {
@@ -38,7 +39,7 @@ interface OverviewTabProps {
 
 export const OverviewTab = ({ student, studentId, onError }: OverviewTabProps) => {
   const discountsUrl = useMemo(
-    () => `/discounts/student?student_id=${studentId}&include_inactive=true&limit=200&page=1`,
+    () => `/discounts/student?student_id=${studentId}&include_inactive=true&limit=${SECONDARY_LIST_LIMIT}&page=1`,
     [studentId]
   )
   const { data: discountsData, refetch } = useApi<PaginatedResponse<StudentDiscountResponse>>(discountsUrl)

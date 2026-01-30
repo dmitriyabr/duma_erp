@@ -17,3 +17,6 @@ export const PAYMENTS_LIST_LIMIT = 100
 
 /** Limit for reservations and similar secondary lists. */
 export const SECONDARY_LIST_LIMIT = 200
+
+/** Limit for users/employees dropdowns and lists (e.g. PayoutsPage, forms). */
+export const USERS_LIST_LIMIT = 100
