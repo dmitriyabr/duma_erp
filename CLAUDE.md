@@ -40,9 +40,9 @@ CROSS-CUTTING: User, Role, AuditLog, Attachment, SystemSettings
 ## Key Business Rules
 
 ### Payment Allocation Priority
-1. Items requiring full payment first (UniformBundle, Admission, Interview, DiaryBooks)
-2. Items allowing partial payment (SchoolFee, Transport)
-3. Excess goes to CreditBalance
+1. Invoices with requires_full_payment first (can be partially paid; fulfillment/issuance only when fully paid)
+2. Invoices with partial_ok: remaining balance distributed proportionally by amount_due
+3. Excess stays in CreditBalance. Auto-allocation runs on payment complete and on any invoice Issued (single issue, mass generate, generate for student); backend only, no frontend trigger after complete.
 
 ### Document Statuses
 - **Invoice**: Draft → Issued → PartiallyPaid → Paid (or Cancelled)

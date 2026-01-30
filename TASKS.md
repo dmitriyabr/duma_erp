@@ -229,7 +229,7 @@
 - [x] Поле `requires_full_payment` в Kit (default: True)
 - [x] Property `Invoice.requires_full_payment`
 - [x] Миграция 009_requires_full_payment.py
-- [x] Сервис allocate_auto (автоматическая аллокация с приоритетом полной оплаты товаров)
+- [x] Сервис allocate_auto (приоритет: requires_full — можно частично; partial_ok — пропорционально по amount_due; триггеры: payment complete, любой Issued)
 - [x] Сервис allocate_manual (ручная аллокация на конкретный invoice)
 - [x] Сервис delete_allocation (удаление аллокации с возвратом в баланс)
 - [x] API endpoints (POST /allocations/auto, POST /allocations/manual, DELETE /allocations/{id})
@@ -407,7 +407,7 @@
 - [x] Назначение student discount при создании студента
 - [x] Управление student discount в карточке студента
 - [x] Просмотр/создание счетов
-- [x] Форма приёма платежа (auto-allocate + результат аллокации)
+- [x] Форма приёма платежа (аллокация по complete на бэке, без вызова allocations/auto с фронта)
 - [x] Ручная аллокация кредита (модалка в карточке студента)
 - [x] Список платежей + детальная страница
 - [x] Отмена платежа (только SuperAdmin)
