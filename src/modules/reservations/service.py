@@ -26,11 +26,14 @@ class ReservationService:
         self.inventory = InventoryService(db)
 
     async def get_by_id(self, reservation_id: int) -> Reservation:
-        """Get reservation by ID with items."""
+        """Get reservation by ID with items and student."""
         result = await self.db.execute(
             select(Reservation)
             .where(Reservation.id == reservation_id)
-            .options(selectinload(Reservation.items).selectinload(ReservationItem.item))
+            .options(
+                selectinload(Reservation.student),
+                selectinload(Reservation.items).selectinload(ReservationItem.item),
+            )
         )
         reservation = result.scalar_one_or_none()
         if not reservation:
@@ -55,7 +58,10 @@ class ReservationService:
         """List reservations with filters."""
         query = (
             select(Reservation)
-            .options(selectinload(Reservation.items).selectinload(ReservationItem.item))
+            .options(
+                selectinload(Reservation.student),
+                selectinload(Reservation.items).selectinload(ReservationItem.item),
+            )
             .order_by(Reservation.created_at.desc())
         )
 

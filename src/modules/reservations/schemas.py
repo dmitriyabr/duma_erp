@@ -26,6 +26,7 @@ class ReservationResponse(BaseModel):
 
     id: int
     student_id: int
+    student_name: str | None = None
     invoice_id: int
     invoice_line_id: int
     status: ReservationStatus

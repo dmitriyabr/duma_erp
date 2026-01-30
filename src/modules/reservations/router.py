@@ -20,9 +20,13 @@ router = APIRouter(prefix="/reservations", tags=["Reservations"])
 
 
 def _map_reservation(reservation) -> ReservationResponse:
+    student_name = None
+    if getattr(reservation, "student", None) is not None:
+        student_name = reservation.student.full_name
     return ReservationResponse(
         id=reservation.id,
         student_id=reservation.student_id,
+        student_name=student_name,
         invoice_id=reservation.invoice_id,
         invoice_line_id=reservation.invoice_line_id,
         status=ReservationStatus(reservation.status),
