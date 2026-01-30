@@ -384,7 +384,7 @@
 > План исправлений: см. **FRONTEND_REFACTORING_PLAN.md** (отдельный документ). Ниже — краткий список направлений.
 
 - [x] **Производительность (частично):** N+1 на странице студентов устранён (batch). ReservationsPage — student_name из API. PayoutsPage — batch-эндпоинт для балансов сотрудников. IssueFormPage — лимиты 500→200 (MAX_DROPDOWN_SIZE).
-- [x] **Дублирование запросов (частично):** список счетов студента загружается один раз в StudentDetailPage, передаётся в InvoicesTab и PaymentsTab (initialInvoices); долг считается из того же списка. Справочники (grades, transport-zones) — единый кэш/контекст в плане.
+- [x] **Дублирование запросов (частично):** список счетов студента загружается один раз в StudentDetailPage, передаётся в InvoicesTab и PaymentsTab. Справочники grades и transport-zones — контекст ReferencedDataContext (один запрос на приложение); используют StudentDetailPage, StudentsPage, TermFormPage, TermDetailPage, GradesPage, TransportZonesPage.
 - [ ] **Кэш запросов:** TanStack Query или кэш в useApi для снижения повторных запросов при навигации.
 - [x] **Поиск:** debounce для полей поиска (Students, Users, Stock; Items/Movements/Catalog — фильтр клиентский).
 - [x] **Типы:** общие ApiResponse/PaginatedResponse в app/types/api.ts. InvoicesTab: форма «Add line» только Kit (контракт API). Хелпер unwrapResponse в services/api.ts для единого разбора ответов.

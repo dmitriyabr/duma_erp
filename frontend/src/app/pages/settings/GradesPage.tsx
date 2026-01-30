@@ -15,9 +15,10 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { api } from '../../services/api'
-import { useApi, useApiMutation } from '../../hooks/useApi'
+import { useApiMutation } from '../../hooks/useApi'
 
 interface GradeRow {
   id: number
@@ -34,14 +35,17 @@ const emptyForm = {
 }
 
 export const GradesPage = () => {
-  const { data, loading, error, refetch } = useApi<GradeRow[]>('/students/grades')
+  const { grades, loading, error, refetchGrades } = useReferencedData()
   const { execute: saveGrade, loading: saving, error: saveError } = useApiMutation<GradeRow>()
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingGrade, setEditingGrade] = useState<GradeRow | null>(null)
   const [form, setForm] = useState({ ...emptyForm })
 
-  const rows = (data || []).sort((a, b) => a.display_order - b.display_order)
+  const rows = useMemo(
+    () => [...grades].sort((a, b) => a.display_order - b.display_order),
+    [grades]
+  )
 
   const openCreate = () => {
     setEditingGrade(null)
@@ -75,7 +79,7 @@ export const GradesPage = () => {
 
     if (result) {
       setDialogOpen(false)
-      refetch()
+      refetchGrades()
     }
   }
 

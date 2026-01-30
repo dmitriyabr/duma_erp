@@ -12,22 +12,10 @@ import {
 } from '@mui/material'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api } from '../../services/api'
 import { formatMoney } from '../../utils/format'
-
-interface GradeRow {
-  id: number
-  code: string
-  name: string
-  display_order: number
-}
-
-interface ZoneRow {
-  id: number
-  zone_name: string
-  zone_code: string
-}
 
 interface PriceSettingRow {
   grade: string
@@ -93,20 +81,17 @@ export const TermFormPage = () => {
   const [initialized, setInitialized] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
 
-  const gradesApi = useApi<GradeRow[]>('/students/grades', { params: { include_inactive: true } })
-  const zonesApi = useApi<ZoneRow[]>('/terms/transport-zones', {
-    params: { include_inactive: true },
-  })
+  const { grades: gradesRaw, transportZones } = useReferencedData()
+  const grades = useMemo(
+    () => [...gradesRaw].sort((a, b) => a.display_order - b.display_order),
+    [gradesRaw]
+  )
+  const zones = transportZones
   const termApi = useApi<TermDetail | null>(
     isEdit && resolvedId != null ? `/terms/${resolvedId}` : isEdit ? null : '/terms/active'
   )
   const submitMutation = useApiMutation<{ id: number }>()
 
-  const grades = useMemo(
-    () => [...(gradesApi.data ?? [])].sort((a, b) => a.display_order - b.display_order),
-    [gradesApi.data]
-  )
-  const zones = zonesApi.data ?? []
   const existingPricing = useMemo(
     () =>
       termApi.data
@@ -117,7 +102,7 @@ export const TermFormPage = () => {
         : { price_settings: [] as PriceSettingRow[], transport_pricings: [] as TransportPricingRow[] },
     [termApi.data]
   )
-  const error = gradesApi.error ?? zonesApi.error ?? termApi.error ?? submitMutation.error
+  const error = termApi.error ?? submitMutation.error
   const displayError = validationError ?? error
   const loading = submitMutation.loading
 

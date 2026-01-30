@@ -19,6 +19,7 @@ import {
 } from '@mui/material'
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api, unwrapResponse } from '../../services/api'
 import { formatDate, formatMoney } from '../../utils/format'
@@ -33,12 +34,6 @@ interface TransportPricingRow {
   zone_name: string
   zone_code: string
   transport_fee_amount: number
-}
-
-interface GradeRow {
-  id: number
-  code: string
-  name: string
 }
 
 interface TermDetail {
@@ -80,7 +75,7 @@ export const TermDetailPage = () => {
   const termApi = useApi<TermDetail>(
     resolvedId != null && !Number.isNaN(resolvedId) ? `/terms/${resolvedId}` : null
   )
-  const gradesApi = useApi<GradeRow[]>('/students/grades', { params: { include_inactive: true } })
+  const { grades } = useReferencedData()
   const activateMutation = useApiMutation<unknown>()
   const closeMutation = useApiMutation<unknown>()
   const generateAllMutation = useApiMutation<GenerationResult>()
@@ -102,7 +97,6 @@ export const TermDetailPage = () => {
     }
   }, [termApi.data])
 
-  const grades = gradesApi.data ?? []
   const gradeNameMap = useMemo(() => new Map(grades.map((g) => [g.code, g.name])), [grades])
   const error =
     termApi.error ??

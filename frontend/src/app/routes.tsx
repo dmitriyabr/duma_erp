@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useAuth } from './auth/AuthContext'
+import { ReferencedDataProvider } from './contexts/ReferencedDataContext'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AppLayout } from './layout/AppLayout'
 import { AccessDeniedPage } from './pages/AccessDeniedPage'
@@ -63,7 +64,9 @@ export const AppRoutes = () => {
           element={
             <ProtectedRoute>
               <ErrorBoundary>
-                <AppLayout />
+                <ReferencedDataProvider>
+                  <AppLayout />
+                </ReferencedDataProvider>
               </ErrorBoundary>
             </ProtectedRoute>
           }

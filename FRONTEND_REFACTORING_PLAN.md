@@ -24,7 +24,10 @@
 - **2.1 Карточка студента и вкладки:** сделано — список счетов загружается один раз в StudentDetailPage (useApi /invoices), долг считается из него (useMemo); InvoicesTab и PaymentsTab получают initialInvoices и invoicesLoading; при мутациях вызывается onDebtChange → refetch в родителе. InvoicesTab при initialInvoices фильтрует по поиску на клиенте.
 - **8.3 useApi:** сделано — в JSDoc зафиксировано: запрос ключится по url + JSON.stringify(options), передавать стабильные options (useMemo).
 
-Остаётся: 2.2 (справочники), 3, 6, 8.2.
+- **8.2 Синхронизация URL и вкладок:** сделано — вкладка выводится из searchParams (tab = searchParams.get('tab') ?? 'overview'), валидация допустимых значений; при прямом заходе по URL с ?tab=payments открывается нужная вкладка без вспышки.
+- **2.2 Справочники Grades и Transport zones:** сделано — контекст ReferencedDataContext (ReferencedDataProvider в роутах вокруг AppLayout); один раз загружаются /students/grades и /terms/transport-zones; используют StudentDetailPage, StudentsPage, TermFormPage, TermDetailPage, GradesPage, TransportZonesPage; после мутаций в GradesPage/TransportZonesPage вызывается refetchGrades/refetchTransportZones.
+
+Остаётся: 3 (кэш), 6 (пагинация).
 
 ---
 

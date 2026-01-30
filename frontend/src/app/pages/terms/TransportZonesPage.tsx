@@ -20,8 +20,9 @@ import {
   Typography,
 } from '@mui/material'
 import { useState } from 'react'
+import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { api } from '../../services/api'
-import { useApi, useApiMutation } from '../../hooks/useApi'
+import { useApiMutation } from '../../hooks/useApi'
 
 interface TransportZoneRow {
   id: number
@@ -37,7 +38,7 @@ const emptyForm = {
 }
 
 export const TransportZonesPage = () => {
-  const { data: rows, loading, error, refetch } = useApi<TransportZoneRow[]>('/terms/transport-zones')
+  const { transportZones, loading, error, refetchTransportZones } = useReferencedData()
   const { execute: saveZone, loading: saving, error: saveError } = useApiMutation<TransportZoneRow>()
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
@@ -45,7 +46,7 @@ export const TransportZonesPage = () => {
   const [editingZone, setEditingZone] = useState<TransportZoneRow | null>(null)
   const [form, setForm] = useState({ ...emptyForm })
 
-  const filteredRows = (rows || []).filter((row) => {
+  const filteredRows = transportZones.filter((row) => {
     if (statusFilter === 'all') {
       return true
     }
@@ -84,7 +85,7 @@ export const TransportZonesPage = () => {
 
     if (result) {
       setDialogOpen(false)
-      refetch()
+      refetchTransportZones()
     }
   }
 

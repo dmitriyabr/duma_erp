@@ -27,6 +27,7 @@ import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { api } from '../../services/api'
 import type { ApiResponse, PaginatedResponse } from '../../types/api'
+import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { formatMoney } from '../../utils/format'
@@ -50,19 +51,6 @@ interface StudentRow {
   status: StudentStatus
   enrollment_date?: string | null
   notes?: string | null
-}
-
-interface GradeOption {
-  id: number
-  name: string
-  code: string
-  is_active: boolean
-}
-
-interface TransportZoneOption {
-  id: number
-  zone_name: string
-  is_active: boolean
 }
 
 interface StudentBalance {
@@ -119,10 +107,7 @@ export const StudentsPage = () => {
   const [form, setForm] = useState({ ...emptyForm })
   const [discountForm, setDiscountForm] = useState({ ...emptyDiscountForm })
 
-  const { data: grades } = useApi<GradeOption[]>('/students/grades', { params: { include_inactive: true } })
-  const { data: transportZones } = useApi<TransportZoneOption[]>('/terms/transport-zones', {
-    params: { include_inactive: true },
-  })
+  const { grades, transportZones } = useReferencedData()
 
   const requestParams = useMemo(() => {
     const params: Record<string, string | number> = {

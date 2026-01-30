@@ -2,6 +2,7 @@ import { Alert, Box, Button, Tab, Tabs } from '@mui/material'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { INVOICE_LIST_LIMIT } from '../../constants/pagination'
+import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { useApi } from '../../hooks/useApi'
 import { InvoicesTab } from './components/InvoicesTab'
 import { ItemsToIssueTab } from './components/ItemsToIssueTab'
@@ -10,12 +11,10 @@ import { PaymentsTab } from './components/PaymentsTab'
 import { StatementTab } from './components/StatementTab'
 import { StudentHeader } from './components/StudentHeader'
 import type {
-  GradeOption,
   InvoiceSummary,
   PaginatedResponse,
   StudentBalance,
   StudentResponse,
-  TransportZoneOption,
 } from './types'
 import { parseNumber } from './types'
 
@@ -46,8 +45,7 @@ export const StudentDetailPage = () => {
   const { data: balance, refetch: refetchBalance } = useApi<StudentBalance>(
     resolvedId ? `/payments/students/${resolvedId}/balance` : null
   )
-  const { data: grades } = useApi<GradeOption[]>('/students/grades?include_inactive=true')
-  const { data: transportZones } = useApi<TransportZoneOption[]>('/terms/transport-zones?include_inactive=true')
+  const { grades, transportZones } = useReferencedData()
 
   const invoicesApi = useApi<PaginatedResponse<InvoiceSummary>>(
     resolvedId ? '/invoices' : null,
@@ -69,7 +67,10 @@ export const StudentDetailPage = () => {
   }, [invoicesApi.data?.items])
 
   const [error, setError] = useState<string | null>(null)
-  const [tab, setTab] = useState('overview')
+  const tabParam = searchParams.get('tab') ?? 'overview'
+  const tab = ['overview', 'invoices', 'payments', 'items', 'statement'].includes(tabParam)
+    ? tabParam
+    : 'overview'
   const [allocationResult, setAllocationResult] = useState<string | null>(null)
 
   const loadStudent = useCallback(async () => {
@@ -96,15 +97,7 @@ export const StudentDetailPage = () => {
     loadBalance()
   }, [resolvedId, loadStudent, loadBalance])
 
-  useEffect(() => {
-    const nextTab = searchParams.get('tab') ?? 'overview'
-    if (nextTab !== tab) {
-      setTab(nextTab)
-    }
-  }, [searchParams, tab])
-
   const handleTabChange = (_: React.SyntheticEvent, value: string) => {
-    setTab(value)
     if (value === 'overview') {
       setSearchParams({})
     } else {
@@ -141,8 +134,8 @@ export const StudentDetailPage = () => {
           student={student}
           balance={balance}
           debt={debt}
-          grades={grades ?? []}
-          transportZones={transportZones ?? []}
+          grades={grades}
+          transportZones={transportZones}
           onStudentUpdate={loadStudent}
           onError={handleError}
         />
