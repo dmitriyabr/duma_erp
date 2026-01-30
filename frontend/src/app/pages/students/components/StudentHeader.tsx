@@ -125,8 +125,7 @@ export const StudentHeader = ({
     }
   }
 
-  const credit = balance != null ? parseNumber(balance.available_balance) : 0
-  const netBalance = credit - debt
+  const netBalance = balance != null ? parseNumber(balance.balance) : -debt
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>

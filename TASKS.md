@@ -383,7 +383,8 @@
 ### 9.0 Рефакторинг фронтенда (архитектура и производительность)
 > План исправлений: см. **FRONTEND_REFACTORING_PLAN.md** (отдельный документ). Ниже — краткий список направлений.
 
-- [x] **Производительность (частично):** N+1 на странице студентов устранён (batch). ReservationsPage — student_name из API. PayoutsPage — batch-эндпоинт для балансов сотрудников. IssueFormPage — лимиты 500→200 (MAX_DROPDOWN_SIZE).
+- [x] **Производительность (частично):** N+1 на странице студентов устранён (batch). Расчёт чистого баланса (credit − debt) перенесён на бэкенд: StudentBalance с полями outstanding_debt и balance; StudentsPage и StudentDetailPage используют один запрос balances-batch / balance без outstanding-totals.
+- [x] ReservationsPage — student_name из API. PayoutsPage — batch-эндпоинт для балансов сотрудников. IssueFormPage — лимиты 500→200 (MAX_DROPDOWN_SIZE).
 - [x] **Дублирование запросов (частично):** список счетов студента загружается один раз в StudentDetailPage, передаётся в InvoicesTab и PaymentsTab. Справочники grades и transport-zones — контекст ReferencedDataContext (один запрос на приложение); используют StudentDetailPage, StudentsPage, TermFormPage, TermDetailPage, GradesPage, TransportZonesPage.
 - [ ] **Кэш запросов (отложено):** TanStack Query или кэш в useApi — см. FRONTEND_REFACTORING_PLAN.md, раздел «Отложено».
 - [x] **Поиск:** debounce для полей поиска (Students, Users, Stock; Items/Movements/Catalog — фильтр клиентский).

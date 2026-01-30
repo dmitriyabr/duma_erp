@@ -6,7 +6,7 @@
 
 ## Прогресс (ветка feature/frontend-refactoring)
 
-- **1.1 Студенты:** сделано — batch-эндпоинты `POST /payments/students/balances-batch` и `GET /invoices/outstanding-totals?student_ids=…`; StudentsPage использует их (1+2N → 3 запроса).
+- **1.1 Студенты:** сделано — один batch `POST /payments/students/balances-batch` возвращает кредит, долг и чистый баланс (считается на бэкенде); StudentsPage один запрос, без `GET /invoices/outstanding-totals`.
 - **1.3 Резервации:** сделано — в `ReservationResponse` добавлено поле `student_name`; ReservationsPage убран запрос `/students?limit=500`.
 - **4. Поиск:** сделано — хук `useDebouncedValue(400ms)` на StudentsPage, UsersPage, StockPage.
 - **5.1 Типы:** сделано — общие `ApiResponse` и `PaginatedResponse` в `frontend/src/app/types/api.ts`.
@@ -60,8 +60,8 @@
 **Решение:**
 - **Backend:** Добавить batch-эндпоинты или расширить ответ списка студентов:
   - Вариант A: `GET /students?…&include_balance=true&include_debt=true` — в каждом элементе списка возвращать `available_balance` и `outstanding_debt` (бэкенд считает одним запросом/подзапросами).
-  - Вариант B: `POST /payments/students/balances-batch` (body: `student_ids: number[]`) и `GET /invoices/outstanding-totals?student_ids=1,2,3` — один запрос на все балансы и один на сводку долгов по студентам.
-- **Frontend:** Убрать `useEffect` с `fetchBalancesAndDebts`, использовать данные из одного/двух batch-запросов или из расширенного ответа списка студентов.
+  - Вариант B (реализован): `POST /payments/students/balances-batch` возвращает `outstanding_debt` и `balance` (net) на бэкенде; один запрос вместо двух.
+- **Frontend:** Использовать один запрос `balances-batch`, колонка Balance из `balance` в ответе.
 
 ### 1.2 Страница выплат (PayoutsPage) — запрос баланса на каждого сотрудника
 

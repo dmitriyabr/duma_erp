@@ -57,6 +57,8 @@ interface StudentRow {
 interface StudentBalance {
   student_id: number
   available_balance: number
+  outstanding_debt: number
+  balance: number // net: available_balance − outstanding_debt (computed on backend)
 }
 
 type DiscountValueType = 'fixed' | 'percentage'
@@ -102,8 +104,7 @@ export const StudentsPage = () => {
   const [transportFilter, setTransportFilter] = useState<number | 'all'>('all')
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebouncedValue(search, 400)
-  const [balanceMap, setBalanceMap] = useState<Record<number, number>>({})
-  const [debtMap, setDebtMap] = useState<Record<number, number>>({})
+  const [balanceMap, setBalanceMap] = useState<Record<number, number>>({}) // student_id -> net balance (from backend)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [form, setForm] = useState({ ...emptyForm })
   const [discountForm, setDiscountForm] = useState({ ...emptyDiscountForm })
@@ -140,54 +141,37 @@ export const StudentsPage = () => {
   const rows = studentsData?.items || []
   const total = studentsData?.total || 0
 
-  const fetchBalancesAndDebts = async (students: StudentRow[]) => {
+  const fetchBalances = async (students: StudentRow[]) => {
     if (!students.length) {
       setBalanceMap({})
-      setDebtMap({})
       return
     }
     const ids = students.map((s) => s.id)
     try {
-      const [balanceRes, totalsRes] = await Promise.all([
-        api.post<ApiResponse<{ balances: StudentBalance[] }>>('/payments/students/balances-batch', {
-          student_ids: ids,
-        }),
-        api.get<ApiResponse<{ totals: Array<{ student_id: number; total_due: number }> }>>(
-          '/invoices/outstanding-totals',
-          { params: { student_ids: ids.join(',') } }
-        ),
-      ])
-      const balances = (balanceRes.data.data.balances || []).reduce<Record<number, number>>(
+      const res = await api.post<ApiResponse<{ balances: StudentBalance[] }>>(
+        '/payments/students/balances-batch',
+        { student_ids: ids }
+      )
+      const map = (res.data.data.balances || []).reduce<Record<number, number>>(
         (acc, b) => {
-          acc[b.student_id] = parseNumber(b.available_balance)
+          acc[b.student_id] = parseNumber(b.balance)
           return acc
         },
         {}
       )
-      setBalanceMap(balances)
-      const debts = (totalsRes.data.data.totals || []).reduce<Record<number, number>>(
-        (acc, t) => {
-          acc[t.student_id] = parseNumber(t.total_due)
-          return acc
-        },
-        {}
-      )
-      setDebtMap(debts)
+      setBalanceMap(map)
     } catch (err) {
       if (axios.isAxiosError(err) && err.response?.status === 401) {
         return
       }
-      console.error('Failed to load balances/debts:', err)
+      console.error('Failed to load balances:', err)
     }
   }
 
   useEffect(() => {
     const list = studentsData?.items ?? []
-    if (list.length) fetchBalancesAndDebts(list)
-    else {
-      setBalanceMap({})
-      setDebtMap({})
-    }
+    if (list.length) fetchBalances(list)
+    else setBalanceMap({})
   }, [studentsData])
 
   const { execute: createStudent, loading: saving, error: saveError } = useApiMutation<StudentRow>()
@@ -315,8 +299,7 @@ export const StudentsPage = () => {
             <TableCell>Transport zone</TableCell>
             <TableCell>Guardian</TableCell>
             <TableCell>Status</TableCell>
-            <TableCell>Debt</TableCell>
-            <TableCell>Credit</TableCell>
+            <TableCell>Balance</TableCell>
             <TableCell align="right">Actions</TableCell>
           </TableRow>
         </TableHead>
@@ -342,8 +325,7 @@ export const StudentsPage = () => {
                   color={row.status === 'active' ? 'success' : 'default'}
                 />
               </TableCell>
-              <TableCell>{formatMoney(debtMap[row.id])}</TableCell>
-              <TableCell>{formatMoney(balanceMap[row.id])}</TableCell>
+              <TableCell>{formatMoney(balanceMap[row.id] ?? 0)}</TableCell>
               <TableCell align="right">
                 <Button size="small" onClick={() => navigate(`/students/${row.id}`)}>
                   Open
@@ -353,14 +335,14 @@ export const StudentsPage = () => {
           ))}
           {loading ? (
             <TableRow>
-              <TableCell colSpan={9} align="center">
+              <TableCell colSpan={8} align="center">
                 Loading…
               </TableCell>
             </TableRow>
           ) : null}
           {!rows.length && !loading ? (
             <TableRow>
-              <TableCell colSpan={9} align="center">
+              <TableCell colSpan={8} align="center">
                 No students found
               </TableCell>
             </TableRow>

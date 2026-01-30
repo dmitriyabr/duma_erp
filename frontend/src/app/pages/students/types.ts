@@ -27,6 +27,8 @@ export interface StudentBalance {
   total_payments: number
   total_allocated: number
   available_balance: number
+  outstanding_debt: number
+  balance: number // net: available_balance − outstanding_debt (computed on backend)
 }
 
 export interface InvoiceSummary {

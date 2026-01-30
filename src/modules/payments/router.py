@@ -27,8 +27,10 @@ from src.modules.payments.schemas import (
     StudentBalancesBatchRequest,
     StudentBalancesBatchResponse,
 )
+from src.modules.invoices.service import InvoiceService
 from src.modules.payments.service import PaymentService
 from src.shared.schemas.base import ApiResponse, PaginatedResponse
+from src.shared.utils.money import round_money
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
 
@@ -238,10 +240,24 @@ async def get_student_balances_batch(
         require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.USER)
     ),
 ):
-    """Get credit balances for multiple students in one request."""
-    service = PaymentService(db)
-    balances = await service.get_student_balances_batch(payload.student_ids)
-    return ApiResponse(data=StudentBalancesBatchResponse(balances=balances))
+    """Get credit balances, outstanding debt, and net balance for multiple students."""
+    payment_service = PaymentService(db)
+    invoice_service = InvoiceService(db)
+    balances = await payment_service.get_student_balances_batch(payload.student_ids)
+    totals = await invoice_service.get_outstanding_totals(payload.student_ids)
+    debt_by_student = {t.student_id: t.total_due for t in totals}
+    merged = [
+        StudentBalance(
+            student_id=b.student_id,
+            total_payments=b.total_payments,
+            total_allocated=b.total_allocated,
+            available_balance=b.available_balance,
+            outstanding_debt=debt_by_student.get(b.student_id, b.outstanding_debt),
+            balance=round_money(b.available_balance - debt_by_student.get(b.student_id, b.outstanding_debt)),
+        )
+        for b in balances
+    ]
+    return ApiResponse(data=StudentBalancesBatchResponse(balances=merged))
 
 
 @router.get(
@@ -255,10 +271,21 @@ async def get_student_balance(
         require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.USER)
     ),
 ):
-    """Get student's credit balance."""
-    service = PaymentService(db)
-    balance = await service.get_student_balance(student_id)
-    return ApiResponse(data=balance)
+    """Get student's credit balance, outstanding debt, and net balance."""
+    payment_service = PaymentService(db)
+    invoice_service = InvoiceService(db)
+    balance = await payment_service.get_student_balance(student_id)
+    totals = await invoice_service.get_outstanding_totals([student_id])
+    total_due = totals[0].total_due if totals else balance.outstanding_debt
+    merged = StudentBalance(
+        student_id=balance.student_id,
+        total_payments=balance.total_payments,
+        total_allocated=balance.total_allocated,
+        available_balance=balance.available_balance,
+        outstanding_debt=total_due,
+        balance=round_money(balance.available_balance - total_due),
+    )
+    return ApiResponse(data=merged)
 
 
 @router.get(

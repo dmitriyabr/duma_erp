@@ -191,7 +191,7 @@
 - `PATCH /payments/{payment_id}`
 - `POST /payments/{payment_id}/complete`
 - `POST /payments/{payment_id}/cancel`
-- `POST /payments/students/balances-batch` — body: `{ student_ids: number[] }`. Ответ: `{ balances: StudentBalance[] }` — кредитные балансы по списку студентов (один запрос вместо N).
+- `POST /payments/students/balances-batch` — body: `{ student_ids: number[] }`. Ответ: `{ balances: StudentBalance[] }` — кредитные балансы, долг по счетам и чистый баланс (balance = available_balance − outstanding_debt) по списку студентов; расчёт на бэкенде.
 - `GET /payments/students/{student_id}/balance`
 - `GET /payments/students/{student_id}/statement` — `date_from`, `date_to`
 - `POST /payments/allocations/auto`
@@ -351,7 +351,7 @@
 - `AllocationResponse`: `id`, `student_id`, `invoice_id`, `invoice_line_id?`, `amount`, `allocated_by_id`, `created_at`
 - `AutoAllocateRequest`: `student_id`, `max_amount?`
 - `AutoAllocateResult`: `total_allocated`, `invoices_fully_paid`, `invoices_partially_paid`, `remaining_balance`, `allocations[]`
-- `StudentBalance`: `student_id`, `total_payments`, `total_allocated`, `available_balance`
+- `StudentBalance`: `student_id`, `total_payments`, `total_allocated`, `available_balance`, `outstanding_debt`, `balance` (net: available_balance − outstanding_debt, считается на бэкенде)
 - `StatementResponse`: `student_id`, `student_name`, `period_from`, `period_to`, `opening_balance`, `total_credits`, `total_debits`, `closing_balance`, `entries[]`
 - `StatementEntry`: `date`, `description`, `reference?`, `credit?`, `debit?`, `balance`
 

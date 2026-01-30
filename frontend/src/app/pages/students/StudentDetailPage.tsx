@@ -55,16 +55,7 @@ export const StudentDetailPage = () => {
     [resolvedId]
   )
 
-  const debt = useMemo(() => {
-    const items = invoicesApi.data?.items ?? []
-    return items.reduce((sum, invoice) => {
-      const status = invoice.status?.toLowerCase()
-      if (status === 'paid' || status === 'cancelled' || status === 'void') {
-        return sum
-      }
-      return sum + parseNumber(invoice.amount_due)
-    }, 0)
-  }, [invoicesApi.data?.items])
+  const debt = balance != null ? parseNumber(balance.outstanding_debt) : 0
 
   const [error, setError] = useState<string | null>(null)
   const tabParam = searchParams.get('tab') ?? 'overview'

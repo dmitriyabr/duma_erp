@@ -118,12 +118,14 @@ class AutoAllocateResult(BaseSchema):
 
 
 class StudentBalance(BaseSchema):
-    """Student's credit balance."""
+    """Student's credit balance and net balance (credit − debt)."""
 
     student_id: int
     total_payments: Decimal
     total_allocated: Decimal
     available_balance: Decimal
+    outstanding_debt: Decimal = Decimal("0")  # sum of amount_due on unpaid invoices
+    balance: Decimal = Decimal("0")  # net: available_balance − outstanding_debt
 
 
 class StudentBalancesBatchRequest(BaseSchema):
