@@ -4,7 +4,9 @@ import pytest
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.core.auth.models import UserRole
 from src.core.auth.service import AuthService
@@ -259,7 +261,7 @@ class TestPaymentService:
         balance = await service.get_student_balance(data["student"].id)
         assert balance.available_balance == Decimal("0.00")
 
-        # Create and complete a payment
+        # Create and complete a payment (triggers auto-allocation)
         payment = await service.create_payment(
             PaymentCreate(
                 student_id=data["student"].id,
@@ -272,18 +274,18 @@ class TestPaymentService:
         )
         await service.complete_payment(payment.id, data["user"].id)
 
-        # Now should have balance
+        # Auto-allocation runs on complete: 10000 distributed across 3 invoices
         balance = await service.get_student_balance(data["student"].id)
         assert balance.total_payments == Decimal("10000.00")
-        assert balance.total_allocated == Decimal("0.00")
-        assert balance.available_balance == Decimal("10000.00")
+        assert balance.total_allocated == Decimal("10000.00")
+        assert balance.available_balance == Decimal("0.00")
 
     async def test_manual_allocation(self, db_session: AsyncSession):
         """Test manual credit allocation to invoice."""
         data = await self._setup_test_data(db_session)
         service = PaymentService(db_session)
 
-        # Create and complete payment
+        # Create and complete payment (auto-allocates everything)
         payment = await service.create_payment(
             PaymentCreate(
                 student_id=data["student"].id,
@@ -295,6 +297,15 @@ class TestPaymentService:
             received_by_id=data["user"].id,
         )
         await service.complete_payment(payment.id, data["user"].id)
+
+        # Undo auto-allocations so we have balance for manual test
+        alloc_result = await db_session.execute(
+            select(CreditAllocation).where(
+                CreditAllocation.student_id == data["student"].id
+            )
+        )
+        for alloc in alloc_result.scalars().all():
+            await service.delete_allocation(alloc.id, data["user"].id, "Test undo")
 
         # Allocate to invoice1 (5000)
         allocation = await service.allocate_manual(
@@ -312,12 +323,12 @@ class TestPaymentService:
         balance = await service.get_student_balance(data["student"].id)
         assert balance.available_balance == Decimal("5000.00")
 
-    async def test_auto_allocation_smallest_first(self, db_session: AsyncSession):
-        """Test auto allocation pays smallest invoices first."""
+    async def test_auto_allocation_proportional(self, db_session: AsyncSession):
+        """Test auto allocation distributes proportionally across partial_ok invoices."""
         data = await self._setup_test_data(db_session)
         service = PaymentService(db_session)
 
-        # Create and complete payment for 6000 (can fully pay invoice3=2000 and invoice2=3000, partial on invoice1)
+        # Create and complete payment for 6000 (triggers auto-allocate proportionally)
         payment = await service.create_payment(
             PaymentCreate(
                 student_id=data["student"].id,
@@ -330,24 +341,31 @@ class TestPaymentService:
         )
         await service.complete_payment(payment.id, data["user"].id)
 
-        # Auto allocate
-        result = await service.allocate_auto(
-            AutoAllocateRequest(student_id=data["student"].id),
-            allocated_by_id=data["user"].id,
-        )
+        # complete_payment already ran allocate_auto; balance should be 0
+        balance = await service.get_student_balance(data["student"].id)
+        assert balance.available_balance == Decimal("0.00")
+        assert balance.total_allocated == Decimal("6000.00")
 
-        # Should have fully paid 2 invoices (2000 + 3000 = 5000) and 1000 partial
-        assert result.total_allocated == Decimal("6000.00")
-        assert result.invoices_fully_paid == 2  # invoice3 (2000) and invoice2 (3000)
-        assert result.invoices_partially_paid == 1  # invoice1 (1000 of 5000)
-        assert result.remaining_balance == Decimal("0.00")
+        # Proportional: 5000:3000:2000 = 50%:30%:20% of 6000 -> 3000, 1800, 1200
+        from src.modules.invoices.models import Invoice
+
+        inv_result = await db_session.execute(
+            select(Invoice)
+            .where(Invoice.student_id == data["student"].id)
+            .order_by(Invoice.invoice_number)
+        )
+        invoices = list(inv_result.scalars().all())
+        paid_totals = sorted([inv.paid_total for inv in invoices], reverse=True)
+        assert paid_totals[0] == Decimal("3000.00")
+        assert paid_totals[1] == Decimal("1800.00")
+        assert paid_totals[2] == Decimal("1200.00")
 
     async def test_auto_allocation_max_amount(self, db_session: AsyncSession):
         """Test auto allocation with max_amount limit."""
         data = await self._setup_test_data(db_session)
         service = PaymentService(db_session)
 
-        # Create payment for 10000
+        # Create and complete payment for 10000 (auto-allocates all)
         payment = await service.create_payment(
             PaymentCreate(
                 student_id=data["student"].id,
@@ -360,24 +378,33 @@ class TestPaymentService:
         )
         await service.complete_payment(payment.id, data["user"].id)
 
-        # Auto allocate only 3000
-        result = await service.allocate_auto(
-            AutoAllocateRequest(
-                student_id=data["student"].id,
-                max_amount=Decimal("3000.00"),
-            ),
-            allocated_by_id=data["user"].id,
+        # Undo auto-allocations to get balance back
+        alloc_result = await db_session.execute(
+            select(CreditAllocation).where(
+                CreditAllocation.student_id == data["student"].id
+            )
         )
+        for alloc in alloc_result.scalars().all():
+            await service.delete_allocation(alloc.id, data["user"].id, "Test undo")
 
-        # Should allocate exactly 3000
+        # Use a fresh session so allocate_auto sees updated invoice amount_due
+        from tests.conftest import test_async_session
+
+        async with test_async_session() as new_session:
+            service2 = PaymentService(new_session)
+            result = await service2.allocate_auto(
+                AutoAllocateRequest(
+                    student_id=data["student"].id,
+                    max_amount=Decimal("3000.00"),
+                ),
+                allocated_by_id=data["user"].id,
+            )
+
         assert result.total_allocated == Decimal("3000.00")
         assert result.remaining_balance == Decimal("7000.00")
 
     async def test_auto_allocation_requires_full_payment(self, db_session: AsyncSession):
-        """Test that invoices with products are skipped if can't be fully paid."""
-        from sqlalchemy import select
-        from sqlalchemy.orm import selectinload
-
+        """Test requires_full invoices get priority but can receive partial payment."""
         # Setup: create user, grade, student
         auth_service = AuthService(db_session)
         user = await auth_service.create_user(
@@ -560,24 +587,35 @@ class TestPaymentService:
         )
         await service.complete_payment(payment.id, user.id)
 
+        # complete_payment already ran allocate_auto: requires_full (product) first
+        # gets partial 2000; service gets 0
         result = await service.allocate_auto(
             AutoAllocateRequest(student_id=student.id),
             allocated_by_id=user.id,
         )
 
-        # Product invoice (3000) skipped - not enough for full payment
-        # Service invoice (5000) gets partial payment of 2000
-        assert result.invoices_fully_paid == 0
-        assert result.invoices_partially_paid == 1
-        assert result.total_allocated == Decimal("2000.00")
+        # Second call: no balance left (already allocated on complete)
+        assert result.total_allocated == Decimal("0.00")
         assert result.remaining_balance == Decimal("0.00")
+
+        # After first (on complete): product invoice got 2000 partial, service 0
+        inv_result = await db_session.execute(
+            select(Invoice)
+            .where(Invoice.student_id == student.id)
+            .options(selectinload(Invoice.lines))
+        )
+        invs = list(inv_result.scalars().all())
+        prod_inv = next(i for i in invs if i.invoice_number == "INV-FULLPAY-PROD")
+        assert prod_inv.paid_total == Decimal("2000.00")
+        svc_inv = next(i for i in invs if i.invoice_number == "INV-FULLPAY-SVC")
+        assert svc_inv.paid_total == Decimal("0.00")
 
     async def test_delete_allocation(self, db_session: AsyncSession):
         """Test deleting an allocation returns credit to balance."""
         data = await self._setup_test_data(db_session)
         service = PaymentService(db_session)
 
-        # Create and complete payment
+        # Create and complete payment (auto-allocates proportionally)
         payment = await service.create_payment(
             PaymentCreate(
                 student_id=data["student"].id,
@@ -590,32 +628,33 @@ class TestPaymentService:
         )
         await service.complete_payment(payment.id, data["user"].id)
 
-        # Allocate
-        allocation = await service.allocate_manual(
-            AllocationCreate(
-                student_id=data["student"].id,
-                invoice_id=data["invoice3"].id,
-                amount=Decimal("2000.00"),
-            ),
-            allocated_by_id=data["user"].id,
+        # Get one of the auto-allocations and delete it
+        alloc_result = await db_session.execute(
+            select(CreditAllocation).where(
+                CreditAllocation.student_id == data["student"].id
+            )
         )
+        allocations = list(alloc_result.scalars().all())
+        assert len(allocations) >= 1
+        allocation_to_delete = allocations[0]
+        amount_deleted = allocation_to_delete.amount
 
         balance_before = await service.get_student_balance(data["student"].id)
-        assert balance_before.available_balance == Decimal("3000.00")
+        assert balance_before.available_balance == Decimal("0.00")
 
-        # Delete allocation
-        await service.delete_allocation(allocation.id, data["user"].id, "Test delete")
+        await service.delete_allocation(
+            allocation_to_delete.id, data["user"].id, "Test delete"
+        )
 
-        # Balance should be restored
         balance_after = await service.get_student_balance(data["student"].id)
-        assert balance_after.available_balance == Decimal("5000.00")
+        assert balance_after.available_balance == amount_deleted
 
     async def test_get_statement(self, db_session: AsyncSession):
         """Test generating account statement."""
         data = await self._setup_test_data(db_session)
         service = PaymentService(db_session)
 
-        # Create and complete payment
+        # Create and complete payment (auto-allocates all)
         payment = await service.create_payment(
             PaymentCreate(
                 student_id=data["student"].id,
@@ -628,7 +667,15 @@ class TestPaymentService:
         )
         await service.complete_payment(payment.id, data["user"].id)
 
-        # Allocate to invoice
+        # Undo auto-allocations so we can manually allocate 2000 for statement test
+        alloc_result = await db_session.execute(
+            select(CreditAllocation).where(
+                CreditAllocation.student_id == data["student"].id
+            )
+        )
+        for alloc in alloc_result.scalars().all():
+            await service.delete_allocation(alloc.id, data["user"].id, "Test undo")
+
         allocation = await service.allocate_manual(
             AllocationCreate(
                 student_id=data["student"].id,
@@ -640,7 +687,6 @@ class TestPaymentService:
         allocation.created_at = datetime.now(timezone.utc)
         await db_session.commit()
 
-        # Get statement
         statement = await service.get_statement(
             data["student"].id,
             date.today() - timedelta(days=1),
@@ -781,10 +827,10 @@ class TestPaymentEndpoints:
         assert Decimal(result["data"]["available_balance"]) == Decimal("0.00")
 
     async def test_auto_allocate_api(self, client: AsyncClient, db_session: AsyncSession):
-        """Test auto allocation via API."""
+        """Test auto allocation: complete runs it; second call is no-op when nothing left."""
         token, _, data = await self._setup_auth_and_data(db_session)
 
-        # Create and complete payment
+        # Create and complete payment (backend runs allocate_auto; invoice 5000 fully paid)
         create_response = await client.post(
             "/api/v1/payments",
             headers={"Authorization": f"Bearer {token}"},
@@ -803,14 +849,23 @@ class TestPaymentEndpoints:
             headers={"Authorization": f"Bearer {token}"},
         )
 
-        # Auto allocate
+        # Balance: 10000 - 5000 (allocated to invoice) = 5000
+        balance_response = await client.get(
+            f"/api/v1/payments/students/{data['student'].id}/balance",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert balance_response.status_code == 200
+        assert Decimal(balance_response.json()["data"]["available_balance"]) == Decimal(
+            "5000.00"
+        )
+
+        # Second auto-allocate: no unpaid invoices (single invoice already fully paid)
         response = await client.post(
             "/api/v1/payments/allocations/auto",
             headers={"Authorization": f"Bearer {token}"},
             json={"student_id": data["student"].id},
         )
-
         assert response.status_code == 200
         result = response.json()
-        assert Decimal(result["data"]["total_allocated"]) == Decimal("5000.00")  # Invoice was 5000
-        assert result["data"]["invoices_fully_paid"] == 1
+        assert Decimal(result["data"]["total_allocated"]) == Decimal("0.00")
+        assert result["data"]["invoices_fully_paid"] == 0
