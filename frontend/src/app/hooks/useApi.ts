@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import axios, { type AxiosError } from 'axios'
+import axios from 'axios'
 
 interface UseApiState<T> {
   data: T | null

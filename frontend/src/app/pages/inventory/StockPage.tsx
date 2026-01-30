@@ -117,7 +117,7 @@ export const StockPage = () => {
   const [reasonCategory, setReasonCategory] = useState<WriteOffReason>('damage')
   const [reasonDetail, setReasonDetail] = useState('')
 
-  const { data: categories, refetch: refetchCategories } = useApi<CategoryOption[]>('/items/categories')
+  const { data: categories, refetch: _refetchCategories } = useApi<CategoryOption[]>('/items/categories')
   const { data: items, refetch: refetchItems } = useApi<ItemOption[]>('/items', {
     params: { include_inactive: true, item_type: 'product' },
   })

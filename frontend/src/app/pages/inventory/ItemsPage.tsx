@@ -24,11 +24,6 @@ import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
-
 interface CategoryRow {
   id: number
   name: string
@@ -42,6 +37,10 @@ interface ItemRow {
   sku_code: string
   name: string
   is_active: boolean
+}
+
+interface ApiResponse<T> {
+  data: T
 }
 
 const emptyForm = {
@@ -75,7 +74,7 @@ export const ItemsPage = () => {
   const { data: items, loading, error, refetch } = useApi<ItemRow[]>('/items?item_type=product&include_inactive=true')
   const { data: categories } = useApi<CategoryRow[]>('/items/categories?include_inactive=true')
   const { execute: saveItem, loading: saving, error: saveError } = useApiMutation<{ id: number }>()
-  const { execute: toggleActive, loading: toggling, error: toggleError } = useApiMutation()
+  const { execute: toggleActive, loading: _toggling, error: toggleError } = useApiMutation()
 
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<number | 'all'>('all')

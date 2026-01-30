@@ -18,14 +18,8 @@ import {
 } from '@mui/material'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api } from '../../services/api'
 import { useApi } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
-
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
 
 interface PaginatedResponse<T> {
   items: T[]

@@ -22,11 +22,6 @@ import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
 
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
-
 interface PaginatedResponse<T> {
   items: T[]
   total: number

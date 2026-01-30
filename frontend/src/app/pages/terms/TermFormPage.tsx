@@ -10,15 +10,11 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api } from '../../services/api'
 import { formatMoney } from '../../utils/format'
-
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
 
 interface GradeRow {
   id: number
@@ -79,131 +75,79 @@ const getDefaultTermDates = () => {
   }
 }
 
+const defaultDates = getDefaultTermDates()
+
 export const TermFormPage = () => {
   const { termId } = useParams()
   const navigate = useNavigate()
   const isEdit = Boolean(termId)
   const resolvedId = termId ? Number(termId) : null
   const currentYear = new Date().getFullYear()
-  const defaultDates = getDefaultTermDates()
 
   const [year, setYear] = useState<number | ''>(currentYear)
   const [termNumber, setTermNumber] = useState<number | ''>('')
   const [startDate, setStartDate] = useState(defaultDates.start)
   const [endDate, setEndDate] = useState(defaultDates.end)
-
-  const [grades, setGrades] = useState<GradeRow[]>([])
-  const [zones, setZones] = useState<ZoneRow[]>([])
   const [priceSettings, setPriceSettings] = useState<PriceSettingDraft[]>([])
   const [transportPricing, setTransportPricing] = useState<TransportPricingDraft[]>([])
-  const [existingPricing, setExistingPricing] = useState<{
-    price_settings: PriceSettingRow[]
-    transport_pricings: TransportPricingRow[]
-  }>({ price_settings: [], transport_pricings: [] })
-
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [initialized, setInitialized] = useState(false)
+  const [validationError, setValidationError] = useState<string | null>(null)
 
-  const loadReferenceData = useCallback(async () => {
-    try {
-      const [gradesResponse, zonesResponse] = await Promise.all([
-        api.get<ApiResponse<GradeRow[]>>('/students/grades', { params: { include_inactive: true } }),
-        api.get<ApiResponse<ZoneRow[]>>('/terms/transport-zones', {
-          params: { include_inactive: true },
-        }),
-      ])
-      const sortedGrades = [...gradesResponse.data.data].sort(
-        (a, b) => a.display_order - b.display_order
-      )
-      setGrades(sortedGrades)
-      setZones(zonesResponse.data.data)
-    } catch {
-      setError('Failed to load pricing references.')
-    }
-  }, [])
+  const gradesApi = useApi<GradeRow[]>('/students/grades', { params: { include_inactive: true } })
+  const zonesApi = useApi<ZoneRow[]>('/terms/transport-zones', {
+    params: { include_inactive: true },
+  })
+  const termApi = useApi<TermDetail | null>(
+    isEdit && resolvedId != null ? `/terms/${resolvedId}` : isEdit ? null : '/terms/active'
+  )
+  const submitMutation = useApiMutation<{ id: number }>()
 
-  const loadTerm = useCallback(async () => {
-    if (!resolvedId) {
-      return
-    }
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<TermDetail>>(`/terms/${resolvedId}`)
-      const term = response.data.data
-      setInitialized(false)
-      setYear(term.year)
-      setTermNumber(term.term_number)
-      setStartDate(term.start_date ?? defaultDates.start)
-      setEndDate(term.end_date ?? defaultDates.end)
-      setExistingPricing({
-        price_settings: term.price_settings,
-        transport_pricings: term.transport_pricings,
-      })
-    } catch {
-      setError('Failed to load term.')
-    } finally {
-      setLoading(false)
-    }
-  }, [resolvedId])
-
-  const loadDefaultsFromActive = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<TermDetail | null>>('/terms/active')
-      if (response.data.data) {
-        setInitialized(false)
-        setExistingPricing({
-          price_settings: response.data.data.price_settings,
-          transport_pricings: response.data.data.transport_pricings,
-        })
-      }
-    } catch {
-      setExistingPricing({ price_settings: [], transport_pricings: [] })
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const grades = useMemo(
+    () => [...(gradesApi.data ?? [])].sort((a, b) => a.display_order - b.display_order),
+    [gradesApi.data]
+  )
+  const zones = zonesApi.data ?? []
+  const existingPricing = useMemo(
+    () =>
+      termApi.data
+        ? {
+            price_settings: termApi.data.price_settings,
+            transport_pricings: termApi.data.transport_pricings,
+          }
+        : { price_settings: [] as PriceSettingRow[], transport_pricings: [] as TransportPricingRow[] },
+    [termApi.data]
+  )
+  const error = gradesApi.error ?? zonesApi.error ?? termApi.error ?? submitMutation.error
+  const displayError = validationError ?? error
+  const loading = submitMutation.loading
 
   useEffect(() => {
-    loadReferenceData()
-  }, [loadReferenceData])
+    const term = termApi.data
+    if (!term) return
+    setYear(term.year)
+    setTermNumber(term.term_number)
+    setStartDate(term.start_date ?? defaultDates.start)
+    setEndDate(term.end_date ?? defaultDates.end)
+    setInitialized(false)
+  }, [termApi.data])
 
   useEffect(() => {
-    if (isEdit) {
-      loadTerm()
-    } else {
-      loadDefaultsFromActive()
-    }
-  }, [isEdit, loadDefaultsFromActive, loadTerm])
-
-  useEffect(() => {
-    if (initialized || !grades.length || !zones.length) {
-      return
-    }
+    if (initialized || !grades.length || !zones.length) return
     const gradeMap = new Map(
-      existingPricing.price_settings.map((entry) => [entry.grade, Number(entry.school_fee_amount)])
+      existingPricing.price_settings.map((e) => [e.grade, Number(e.school_fee_amount)])
     )
     const zoneMap = new Map(
-      existingPricing.transport_pricings.map((entry) => [
-        entry.zone_id,
-        Number(entry.transport_fee_amount),
-      ])
+      existingPricing.transport_pricings.map((e) => [e.zone_id, Number(e.transport_fee_amount)])
     )
     setPriceSettings(
-      grades.map((grade) => ({
-        grade: grade.code,
-        school_fee_amount: gradeMap.get(grade.code) ?? 0,
-      }))
+      grades.map((g) => ({ grade: g.code, school_fee_amount: gradeMap.get(g.code) ?? 0 }))
     )
     setTransportPricing(
-      zones.map((zone) => ({
-        zone_id: zone.id,
-        zone_name: zone.zone_name,
-        zone_code: zone.zone_code,
-        transport_fee_amount: zoneMap.get(zone.id) ?? 0,
+      zones.map((z) => ({
+        zone_id: z.id,
+        zone_name: z.zone_name,
+        zone_code: z.zone_code,
+        transport_fee_amount: zoneMap.get(z.id) ?? 0,
       }))
     )
     setInitialized(true)
@@ -243,55 +187,45 @@ export const TermFormPage = () => {
 
   const handleSubmit = async () => {
     if (!year || !termNumber) {
-      setError('Enter year and term number.')
+      setValidationError('Enter year and term number.')
       return
     }
-    setLoading(true)
-    setError(null)
-    try {
-      let termId = resolvedId
+    setValidationError(null)
+    submitMutation.reset()
+    let termId: number | null = resolvedId
+    const result = await submitMutation.execute(async () => {
       if (isEdit && termId) {
         await api.put(`/terms/${termId}`, {
           start_date: startDate || null,
           end_date: endDate || null,
         })
       } else {
-        const response = await api.post<ApiResponse<{ id: number }>>('/terms', {
+        const r = await api.post<{ data: { id: number } }>('/terms', {
           year: Number(year),
           term_number: Number(termNumber),
           start_date: startDate || null,
           end_date: endDate || null,
         })
-        termId = response.data.data.id
+        termId = r.data.data.id
       }
-
-      if (!termId) {
-        setError('Term id not returned.')
-        setLoading(false)
-        return
-      }
-
+      if (!termId) throw new Error('Term id not returned')
       await Promise.all([
         api.put(`/terms/${termId}/price-settings`, {
-          price_settings: priceSettings.map((entry) => ({
-            grade: entry.grade,
-            school_fee_amount: entry.school_fee_amount || 0,
+          price_settings: priceSettings.map((e) => ({
+            grade: e.grade,
+            school_fee_amount: e.school_fee_amount || 0,
           })),
         }),
         api.put(`/terms/${termId}/transport-pricing`, {
-          transport_pricings: transportPricing.map((entry) => ({
-            zone_id: entry.zone_id,
-            transport_fee_amount: entry.transport_fee_amount || 0,
+          transport_pricings: transportPricing.map((e) => ({
+            zone_id: e.zone_id,
+            transport_fee_amount: e.transport_fee_amount || 0,
           })),
         }),
       ])
-
-      navigate(`/billing/terms/${termId}`)
-    } catch {
-      setError('Failed to save term.')
-    } finally {
-      setLoading(false)
-    }
+      return { data: { data: { id: termId } } }
+    })
+    if (result != null) navigate(`/billing/terms/${result.id}`)
   }
 
   const displayName = useMemo(() => {
@@ -307,9 +241,9 @@ export const TermFormPage = () => {
         {isEdit ? 'Edit term' : 'New term'}
       </Typography>
 
-      {error ? (
+      {displayError ? (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {displayError}
         </Alert>
       ) : null}
 

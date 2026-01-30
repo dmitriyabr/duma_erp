@@ -30,11 +30,6 @@ interface TransportZoneRow {
   is_active: boolean
 }
 
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
-
 const emptyForm = {
   zone_name: '',
   zone_code: '',

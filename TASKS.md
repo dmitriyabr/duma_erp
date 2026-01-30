@@ -400,21 +400,13 @@
 - [x] Создан `frontend/src/app/hooks/useApi.ts` с двумя хуками:
   - `useApi<T>` для GET-запросов (авто-загрузка при монтировании)
   - `useApiMutation<T>` для POST/PUT/DELETE (ручной вызов через execute)
-- [~] Рефакторинг страниц для использования хуков (31 из 38 завершено):
+- [x] Рефакторинг страниц для использования хуков (38 из 38 завершено):
   - [x] Compensations: ExpenseClaimDetailPage, ExpenseClaimsListPage, PayoutDetailPage, PayoutsPage
   - [x] Inventory: InventoryCountPage, IssuancesPage, IssueFormPage, ItemsPage, MovementsPage, ReservationsPage, StockPage
   - [x] Procurement: GRNDetailPage, GRNListPage, ProcurementPaymentDetailPage, ProcurementPaymentFormPage, ProcurementPaymentsListPage, PurchaseOrderDetailPage, PurchaseOrderFormPage, PurchaseOrdersListPage
-  - [x] Settings: GradesPage, PaymentPurposesPage, UsersPage
-  - [x] Students: StudentDetailPage, StudentsPage, ItemsToIssueTab, OverviewTab, StatementTab, StudentHeader
-  - [x] Terms: FixedFeesPage, TermsListPage, TransportZonesPage
-  - [ ] **Осталось 7 файлов:**
-    - [ ] settings/CatalogPage.tsx (9 API вызовов)
-    - [ ] settings/SchoolPage.tsx (6 API вызовов)
-    - [ ] students/components/InvoicesTab.tsx (18 API вызовов)
-    - [ ] students/components/PaymentsTab.tsx (9 API вызовов)
-    - [ ] students/CreateInvoicePage.tsx (3 API вызова)
-    - [ ] terms/TermDetailPage.tsx (6 API вызовов)
-    - [ ] terms/TermFormPage.tsx (8 API вызовов)
+  - [x] Settings: GradesPage, PaymentPurposesPage, UsersPage, **CatalogPage**, **SchoolPage**
+  - [x] Students: StudentDetailPage, StudentsPage, ItemsToIssueTab, OverviewTab, StatementTab, StudentHeader, **InvoicesTab**, **PaymentsTab**, **CreateInvoicePage**
+  - [x] Terms: FixedFeesPage, TermsListPage, TransportZonesPage, **TermDetailPage**, **TermFormPage**
 
 ### 9.2 Справочники UI
 > Решения: Settings содержит Users и Grades, Users только SuperAdmin

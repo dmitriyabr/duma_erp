@@ -124,7 +124,7 @@ const parseNumber = (value: unknown) => {
 export const StudentsPage = () => {
   const navigate = useNavigate()
   const [page, setPage] = useState(0)
-  const [limit, setLimit] = useState(20)
+  const [limit, setLimit] = useState(25)
   const [statusFilter, setStatusFilter] = useState<'all' | StudentStatus>('all')
   const [gradeFilter, setGradeFilter] = useState<number | 'all'>('all')
   const [transportFilter, setTransportFilter] = useState<number | 'all'>('all')
@@ -164,6 +164,7 @@ export const StudentsPage = () => {
     data: studentsData,
     loading,
     error,
+    refetch: refetchStudents,
   } = useApi<PaginatedResponse<StudentRow>>('/students', { params: requestParams }, [requestParams])
 
   const rows = studentsData?.items || []
@@ -228,8 +229,13 @@ export const StudentsPage = () => {
   }
 
   useEffect(() => {
-    fetchBalancesAndDebts(rows)
-  }, [rows])
+    const list = studentsData?.items ?? []
+    if (list.length) fetchBalancesAndDebts(list)
+    else {
+      setBalanceMap({})
+      setDebtMap({})
+    }
+  }, [studentsData])
 
   const { execute: createStudent, loading: saving, error: saveError } = useApiMutation<StudentRow>()
 
@@ -274,6 +280,7 @@ export const StudentsPage = () => {
     }
 
     setDialogOpen(false)
+    await refetchStudents()
   }
 
   return (

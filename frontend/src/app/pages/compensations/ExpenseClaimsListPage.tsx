@@ -16,17 +16,11 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
-import { api } from '../../services/api'
 import { useApi } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
-
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
 
 interface PaginatedResponse<T> {
   items: T[]

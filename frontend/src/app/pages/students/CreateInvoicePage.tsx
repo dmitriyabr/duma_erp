@@ -13,8 +13,9 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api } from '../../services/api'
 import { formatMoney } from '../../utils/format'
 
@@ -33,11 +34,6 @@ interface StudentResponse {
 
 interface InvoiceDetail {
   id: number
-}
-
-interface ApiResponse<T> {
-  success: boolean
-  data: T
 }
 
 type DiscountType = 'percentage' | 'fixed'
@@ -68,42 +64,24 @@ export const CreateInvoicePage = () => {
   const { studentId } = useParams()
   const navigate = useNavigate()
   const resolvedId = Number(studentId)
-  const [kits, setKits] = useState<KitOption[]>([])
-  const [student, setStudent] = useState<StudentResponse | null>(null)
   const [lines, setLines] = useState<DraftLine[]>([emptyLine()])
   const [dueDate, setDueDate] = useState(getDefaultDueDate())
   const [notes, setNotes] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [validationError, setValidationError] = useState<string | null>(null)
 
-  const loadReferenceData = async () => {
-    try {
-      const kitsResponse = await api.get<ApiResponse<KitOption[]>>('/items/kits', {
-        params: { include_inactive: false },
-      })
-      const standardKits = kitsResponse.data.data.filter((kit) => kit.price_type === 'standard')
-      setKits(standardKits)
-    } catch {
-      setError('Failed to load catalog items.')
-    }
-  }
+  const kitsApi = useApi<KitOption[]>('/items/kits', { params: { include_inactive: false } })
+  const studentApi = useApi<StudentResponse>(
+    resolvedId && !Number.isNaN(resolvedId) ? `/students/${resolvedId}` : null
+  )
+  const createMutation = useApiMutation<InvoiceDetail>()
 
-  const loadStudent = async () => {
-    if (!resolvedId) {
-      return
-    }
-    try {
-      const response = await api.get<ApiResponse<StudentResponse>>(`/students/${resolvedId}`)
-      setStudent(response.data.data)
-    } catch {
-      setStudent(null)
-    }
-  }
-
-  useEffect(() => {
-    loadReferenceData()
-    loadStudent()
-  }, [resolvedId])
+  const kits = useMemo(
+    () => (kitsApi.data ?? []).filter((kit) => kit.price_type === 'standard'),
+    [kitsApi.data]
+  )
+  const student = studentApi.data ?? null
+  const error = validationError ?? kitsApi.error ?? studentApi.error ?? createMutation.error
+  const loading = createMutation.loading
 
   const updateLine = (lineId: string, updates: Partial<DraftLine>) => {
     setLines((prev) => prev.map((line) => (line.id === lineId ? { ...line, ...updates } : line)))
@@ -157,42 +135,32 @@ export const CreateInvoicePage = () => {
   ])
 
   const submitInvoice = async () => {
-    if (!resolvedId) {
+    if (!resolvedId) return
+    setValidationError(null)
+    createMutation.reset()
+    if (!lines.length) {
+      setValidationError('Add at least one line.')
       return
     }
-    setLoading(true)
-    setError(null)
-    try {
-      if (!lines.length) {
-        setError('Add at least one line.')
-        setLoading(false)
-        return
-      }
-      const invalidLine = lines.find((line) => {
-        return !line.kit_id
-      })
-      if (invalidLine) {
-        setError('Each line must have a catalog item selected.')
-        setLoading(false)
-        return
-      }
-
-      await api.post<ApiResponse<InvoiceDetail>>('/invoices', {
-        student_id: resolvedId,
-        due_date: dueDate || null,
-        notes: notes.trim() || null,
-        lines: lines.map((line) => ({
-          kit_id: line.kit_id,
-          quantity: line.quantity,
-          discount_amount: discountAmountForLine(line),
-        })),
-      })
-      navigate(`/students/${resolvedId}?tab=invoices`)
-    } catch (err) {
-      setError('Failed to create invoice.')
-    } finally {
-      setLoading(false)
+    if (lines.some((line) => !line.kit_id)) {
+      setValidationError('Each line must have a catalog item selected.')
+      return
     }
+    const result = await createMutation.execute(() =>
+      api
+        .post('/invoices', {
+          student_id: resolvedId,
+          due_date: dueDate || null,
+          notes: notes.trim() || null,
+          lines: lines.map((line) => ({
+            kit_id: line.kit_id,
+            quantity: line.quantity,
+            discount_amount: discountAmountForLine(line),
+          })),
+        })
+        .then((r) => ({ data: { data: (r.data as { data: InvoiceDetail }).data } }))
+    )
+    if (result != null) navigate(`/students/${resolvedId}?tab=invoices`)
   }
 
   return (

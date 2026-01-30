@@ -21,13 +21,13 @@ import {
   Typography,
 } from '@mui/material'
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../../auth/AuthContext'
+import { useApi, useApiMutation } from '../../../hooks/useApi'
 import { api } from '../../../services/api'
 import { formatDate, formatMoney } from '../../../utils/format'
 import type {
-  ApiResponse,
   DiscountValueType,
   InvoiceDetail,
   InvoiceLine,
@@ -47,15 +47,10 @@ interface InvoicesTabProps {
 export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabProps) => {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const [loading, setLoading] = useState(false)
-  const [invoices, setInvoices] = useState<InvoiceSummary[]>([])
   const [invoiceSearch, setInvoiceSearch] = useState('')
   const [showCancelledInvoices, setShowCancelledInvoices] = useState(false)
-  const [activeTermId, setActiveTermId] = useState<number | null>(null)
-  const [termInvoiceExists, setTermInvoiceExists] = useState(false)
-  const [termInvoiceLoading, setTermInvoiceLoading] = useState(false)
   const [termInvoiceMessage, setTermInvoiceMessage] = useState<string | null>(null)
-  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceDetail | null>(null)
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null)
   const [lineForm, setLineForm] = useState({
     line_type: 'item',
     item_id: '',
@@ -73,82 +68,73 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
     reason_text: '',
   })
   const [discountLineId, setDiscountLineId] = useState<number | null>(null)
-  const [items, setItems] = useState<ItemOption[]>([])
-  const [kits, setKits] = useState<KitOption[]>([])
   const [downloadingPdf, setDownloadingPdf] = useState(false)
 
-  const loadInvoices = useCallback(async () => {
-    try {
-      const params: Record<string, string | number> = { student_id: studentId, limit: 200, page: 1 }
-      if (invoiceSearch.trim()) {
-        params.search = invoiceSearch.trim()
-      }
-      const response = await api.get<ApiResponse<PaginatedResponse<InvoiceSummary>>>('/invoices', {
-        params,
-      })
-      setInvoices(response.data.data.items)
-    } catch {
-      onError('Failed to load invoices.')
-    }
-  }, [studentId, invoiceSearch, onError])
-
-  const loadActiveTerm = async () => {
-    try {
-      const response = await api.get<ApiResponse<{ id: number } | null>>('/terms/active')
-      if (response.data.data?.id) {
-        setActiveTermId(response.data.data.id)
-      } else {
-        setActiveTermId(null)
-      }
-    } catch {
-      setActiveTermId(null)
-    }
-  }
-
-  const refreshTermInvoiceState = useCallback(
-    async (termId: number) => {
-      try {
-        const response = await api.get<ApiResponse<PaginatedResponse<InvoiceSummary>>>('/invoices', {
-          params: { student_id: studentId, term_id: termId, limit: 200, page: 1 },
-        })
-        const hasTermInvoice = response.data.data.items.some((invoice) => {
-          const status = invoice.status?.toLowerCase()
-          if (status === 'cancelled' || status === 'void') {
-            return false
-          }
-          return ['school_fee', 'transport'].includes(invoice.invoice_type)
-        })
-        setTermInvoiceExists(hasTermInvoice)
-      } catch {
-        setTermInvoiceExists(false)
-      }
+  const invoicesApi = useApi<PaginatedResponse<InvoiceSummary>>(
+    '/invoices',
+    {
+      params: {
+        student_id: studentId,
+        limit: 200,
+        page: 1,
+        ...(invoiceSearch.trim() && { search: invoiceSearch.trim() }),
+      },
     },
-    [studentId]
+    [studentId, invoiceSearch]
+  )
+  const activeTermApi = useApi<{ id: number } | null>('/terms/active')
+  const activeTermIdForApi = activeTermApi.data?.id ?? null
+  const termInvoicesApi = useApi<PaginatedResponse<InvoiceSummary>>(
+    activeTermIdForApi ? '/invoices' : null,
+    {
+      params: {
+        student_id: studentId,
+        term_id: activeTermIdForApi,
+        limit: 200,
+        page: 1,
+      },
+    },
+    [studentId, activeTermIdForApi]
+  )
+  const itemsApi = useApi<ItemOption[]>('/items', { params: { include_inactive: true } })
+  const kitsApi = useApi<KitOption[]>('/items/kits', { params: { include_inactive: true } })
+  const invoiceDetailApi = useApi<InvoiceDetail>(
+    selectedInvoiceId ? `/invoices/${selectedInvoiceId}` : null,
+    {},
+    [selectedInvoiceId]
   )
 
-  const loadItemsAndKits = async () => {
-    try {
-      const [itemsResponse, kitsResponse] = await Promise.all([
-        api.get<ApiResponse<ItemOption[]>>('/items', { params: { include_inactive: true } }),
-        api.get<ApiResponse<KitOption[]>>('/items/kits', { params: { include_inactive: true } }),
-      ])
-      setItems(itemsResponse.data.data)
-      setKits(kitsResponse.data.data)
-    } catch {
-      onError('Failed to load catalog items.')
-    }
-  }
+  const generateTermMutation = useApiMutation<unknown>()
+  const addLineMutation = useApiMutation<InvoiceDetail>()
+  const removeLineMutation = useApiMutation<unknown>()
+  const issueMutation = useApiMutation<unknown>()
+  const cancelMutation = useApiMutation<unknown>()
+  const discountMutation = useApiMutation<unknown>()
+
+  const invoices = invoicesApi.data?.items ?? []
+  const activeTermId = activeTermApi.data?.id ?? null
+  const termInvoiceExists = useMemo(() => {
+    const items = termInvoicesApi.data?.items ?? []
+    return items.some((inv) => {
+      const status = inv.status?.toLowerCase()
+      if (status === 'cancelled' || status === 'void') return false
+      return ['school_fee', 'transport'].includes(inv.invoice_type)
+    })
+  }, [termInvoicesApi.data])
+  const termInvoiceLoading = generateTermMutation.loading
+  const items = itemsApi.data ?? []
+  const kits = kitsApi.data ?? []
+  const selectedInvoice = invoiceDetailApi.data ?? null
+  const loading =
+    addLineMutation.loading ||
+    removeLineMutation.loading ||
+    issueMutation.loading ||
+    cancelMutation.loading ||
+    discountMutation.loading
 
   useEffect(() => {
-    loadInvoices()
-    loadActiveTerm()
-  }, [loadInvoices])
-
-  useEffect(() => {
-    if (activeTermId) {
-      refreshTermInvoiceState(activeTermId)
-    }
-  }, [activeTermId, refreshTermInvoiceState])
+    if (invoicesApi.error) onError(invoicesApi.error)
+  }, [invoicesApi.error, onError])
 
   const visibleInvoices = showCancelledInvoices
     ? invoices
@@ -159,99 +145,89 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
 
   const generateTermInvoices = async () => {
     if (!activeTermId) return
-    setTermInvoiceLoading(true)
-    try {
-      await api.post('/invoices/generate-term-invoices/student', {
-        term_id: activeTermId,
-        student_id: studentId,
-      })
+    generateTermMutation.reset()
+    const ok = await generateTermMutation.execute(() =>
+      api
+        .post('/invoices/generate-term-invoices/student', {
+          term_id: activeTermId,
+          student_id: studentId,
+        })
+        .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+    )
+    if (ok != null) {
       setTermInvoiceMessage('Term invoices generated.')
-      await loadInvoices()
+      invoicesApi.refetch()
+      termInvoicesApi.refetch()
       onDebtChange()
-      await refreshTermInvoiceState(activeTermId)
-    } catch {
-      onError('Failed to generate term invoices.')
-    } finally {
-      setTermInvoiceLoading(false)
+    } else if (generateTermMutation.error) {
+      onError(generateTermMutation.error)
     }
   }
 
-  const openInvoiceDetail = async (invoice: InvoiceSummary) => {
-    try {
-      const response = await api.get<ApiResponse<InvoiceDetail>>(`/invoices/${invoice.id}`)
-      setSelectedInvoice(response.data.data)
-    } catch {
-      onError('Failed to load invoice.')
-    }
+  const openInvoiceDetail = (invoice: InvoiceSummary) => {
+    setSelectedInvoiceId(invoice.id)
   }
 
   const closeInvoiceDetail = () => {
-    setSelectedInvoice(null)
+    setSelectedInvoiceId(null)
     setLineDialogOpen(false)
   }
 
-  const openAddLine = async () => {
+  const openAddLine = () => {
     if (!selectedInvoice) return
-    await loadItemsAndKits()
     setLineForm({ line_type: 'item', item_id: '', kit_id: '', quantity: 1, discount_amount: '' })
     setLineDialogOpen(true)
   }
 
   const submitLine = async () => {
     if (!selectedInvoice) return
-    setLoading(true)
-    try {
-      if (lineForm.line_type === 'item' && !lineForm.item_id) {
-        onError('Select an item to add to the invoice.')
-        setLoading(false)
-        return
-      }
-      if (lineForm.line_type === 'kit' && !lineForm.kit_id) {
-        onError('Select a kit to add to the invoice.')
-        setLoading(false)
-        return
-      }
-
-      const payload: Record<string, number | null> = {
-        item_id: null,
-        kit_id: null,
-        quantity: Number(lineForm.quantity),
-        discount_amount: lineForm.discount_amount ? Number(lineForm.discount_amount) : 0,
-      }
-      if (lineForm.line_type === 'item') {
-        payload.item_id = Number(lineForm.item_id)
-      } else {
-        payload.kit_id = Number(lineForm.kit_id)
-      }
-
-      const invoiceId = selectedInvoice.id
-      await api.post(`/invoices/${invoiceId}/lines`, payload)
-      const refreshed = await api.get<ApiResponse<InvoiceDetail>>(`/invoices/${invoiceId}`)
-      setSelectedInvoice(refreshed.data.data)
-      setLineDialogOpen(false)
-      await loadInvoices()
-      onDebtChange()
-    } catch {
-      onError('Failed to add invoice line.')
-    } finally {
-      setLoading(false)
+    if (lineForm.line_type === 'item' && !lineForm.item_id) {
+      onError('Select an item to add to the invoice.')
+      return
     }
+    if (lineForm.line_type === 'kit' && !lineForm.kit_id) {
+      onError('Select a kit to add to the invoice.')
+      return
+    }
+    const payload: Record<string, number | null> = {
+      item_id: null,
+      kit_id: null,
+      quantity: Number(lineForm.quantity),
+      discount_amount: lineForm.discount_amount ? Number(lineForm.discount_amount) : 0,
+    }
+    if (lineForm.line_type === 'item') {
+      payload.item_id = Number(lineForm.item_id)
+    } else {
+      payload.kit_id = Number(lineForm.kit_id)
+    }
+    addLineMutation.reset()
+    const refreshed = await addLineMutation.execute(() =>
+      api
+        .post(`/invoices/${selectedInvoice.id}/lines`, payload)
+        .then(() => api.get(`/invoices/${selectedInvoice.id}`))
+        .then((r) => ({ data: { data: (r.data as { data: InvoiceDetail }).data } }))
+    )
+    if (refreshed != null) {
+      setLineDialogOpen(false)
+      invoiceDetailApi.refetch()
+      invoicesApi.refetch()
+      onDebtChange()
+    } else if (addLineMutation.error) onError(addLineMutation.error)
   }
 
   const removeLine = async (lineId: number) => {
     if (!selectedInvoice) return
-    setLoading(true)
-    try {
-      await api.delete(`/invoices/${selectedInvoice.id}/lines/${lineId}`)
-      const refreshed = await api.get<ApiResponse<InvoiceDetail>>(`/invoices/${selectedInvoice.id}`)
-      setSelectedInvoice(refreshed.data.data)
-      await loadInvoices()
+    removeLineMutation.reset()
+    const ok = await removeLineMutation.execute(() =>
+      api
+        .delete(`/invoices/${selectedInvoice.id}/lines/${lineId}`)
+        .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+    )
+    if (ok != null) {
+      invoiceDetailApi.refetch()
+      invoicesApi.refetch()
       onDebtChange()
-    } catch {
-      onError('Failed to remove invoice line.')
-    } finally {
-      setLoading(false)
-    }
+    } else if (removeLineMutation.error) onError(removeLineMutation.error)
   }
 
   const openIssueInvoice = () => {
@@ -261,37 +237,33 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
 
   const submitIssueInvoice = async () => {
     if (!selectedInvoice) return
-    setLoading(true)
-    try {
-      await api.post(`/invoices/${selectedInvoice.id}/issue`, {
-        due_date: issueDueDate || null,
-      })
-      const refreshed = await api.get<ApiResponse<InvoiceDetail>>(`/invoices/${selectedInvoice.id}`)
-      setSelectedInvoice(refreshed.data.data)
+    issueMutation.reset()
+    const ok = await issueMutation.execute(() =>
+      api
+        .post(`/invoices/${selectedInvoice.id}/issue`, { due_date: issueDueDate || null })
+        .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+    )
+    if (ok != null) {
       setIssueDialogOpen(false)
-      await loadInvoices()
+      invoiceDetailApi.refetch()
+      invoicesApi.refetch()
       onDebtChange()
-    } catch {
-      onError('Failed to issue invoice.')
-    } finally {
-      setLoading(false)
-    }
+    } else if (issueMutation.error) onError(issueMutation.error)
   }
 
   const cancelInvoice = async () => {
     if (!selectedInvoice) return
-    setLoading(true)
-    try {
-      await api.post(`/invoices/${selectedInvoice.id}/cancel`)
-      const refreshed = await api.get<ApiResponse<InvoiceDetail>>(`/invoices/${selectedInvoice.id}`)
-      setSelectedInvoice(refreshed.data.data)
-      await loadInvoices()
+    cancelMutation.reset()
+    const ok = await cancelMutation.execute(() =>
+      api
+        .post(`/invoices/${selectedInvoice.id}/cancel`)
+        .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+    )
+    if (ok != null) {
+      invoiceDetailApi.refetch()
+      invoicesApi.refetch()
       onDebtChange()
-    } catch {
-      onError('Failed to cancel invoice.')
-    } finally {
-      setLoading(false)
-    }
+    } else if (cancelMutation.error) onError(cancelMutation.error)
   }
 
   const openDiscountDialog = (lineId: number) => {
@@ -302,26 +274,23 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
 
   const submitLineDiscount = async () => {
     if (!discountLineId) return
-    setLoading(true)
-    try {
-      await api.post('/discounts/apply', {
-        invoice_line_id: discountLineId,
-        value_type: discountForm.value_type,
-        value: Number(discountForm.value),
-        reason_text: discountForm.reason_text.trim() || null,
-      })
-      if (selectedInvoice) {
-        const refreshed = await api.get<ApiResponse<InvoiceDetail>>(`/invoices/${selectedInvoice.id}`)
-        setSelectedInvoice(refreshed.data.data)
-      }
-      await loadInvoices()
-      onDebtChange()
+    discountMutation.reset()
+    const ok = await discountMutation.execute(() =>
+      api
+        .post('/discounts/apply', {
+          invoice_line_id: discountLineId,
+          value_type: discountForm.value_type,
+          value: Number(discountForm.value),
+          reason_text: discountForm.reason_text.trim() || null,
+        })
+        .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+    )
+    if (ok != null) {
       setDiscountDialogOpen(false)
-    } catch {
-      onError('Failed to apply discount.')
-    } finally {
-      setLoading(false)
-    }
+      if (selectedInvoice) invoiceDetailApi.refetch()
+      invoicesApi.refetch()
+      onDebtChange()
+    } else if (discountMutation.error) onError(discountMutation.error)
   }
 
   const downloadInvoicePdf = async () => {
@@ -431,10 +400,10 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
       </Table>
 
       {/* Invoice Detail Dialog */}
-      <Dialog open={Boolean(selectedInvoice)} onClose={closeInvoiceDetail} fullWidth maxWidth="lg">
+      <Dialog open={Boolean(selectedInvoiceId)} onClose={closeInvoiceDetail} fullWidth maxWidth="lg">
         <DialogTitle>
           Invoice {selectedInvoice?.invoice_number ?? ''}
-          {selectedInvoice ? ` · ${selectedInvoice.status}` : ''}
+          {selectedInvoice ? ` · ${selectedInvoice.status}` : invoiceDetailApi.loading ? ' (loading…)' : ''}
         </DialogTitle>
         <DialogContent sx={{ display: 'grid', gap: 2 }}>
           {selectedInvoice ? (

@@ -18,11 +18,6 @@ import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDate } from '../../utils/format'
 
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
-
 interface GRNLine {
   id: number
   po_line_id: number
@@ -69,6 +64,7 @@ export const GRNDetailPage = () => {
   )
   const { execute: approveGRN, loading: approving } = useApiMutation()
   const { execute: cancelGRN, loading: cancelling } = useApiMutation()
+  const busy = approving || cancelling
 
   // Update PO lines map when PO data loads
   if (poData && poData.lines.length > 0 && poLines.size === 0) {
@@ -127,12 +123,12 @@ export const GRNDetailPage = () => {
             color={grn.status === 'approved' ? 'success' : grn.status === 'cancelled' ? 'default' : 'warning'}
           />
           {canApprove ? (
-            <Button variant="contained" onClick={() => setConfirmState({ open: true, action: 'approve' })}>
+            <Button variant="contained" disabled={busy} onClick={() => setConfirmState({ open: true, action: 'approve' })}>
               Approve
             </Button>
           ) : null}
           {canCancel ? (
-            <Button variant="outlined" color="error" onClick={() => setConfirmState({ open: true, action: 'cancel' })}>
+            <Button variant="outlined" color="error" disabled={busy} onClick={() => setConfirmState({ open: true, action: 'cancel' })}>
               Cancel
             </Button>
           ) : null}

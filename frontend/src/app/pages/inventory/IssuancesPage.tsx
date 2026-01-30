@@ -43,10 +43,6 @@ interface IssuanceRow {
   items: IssuanceItem[]
 }
 
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
 
 interface PaginatedResponse<T> {
   items: T[]
@@ -85,7 +81,7 @@ export const IssuancesPage = () => {
   }, [params])
 
   const { data, loading, error, refetch } = useApi<PaginatedResponse<IssuanceRow>>(url)
-  const { execute: cancelIssuanceApi, loading: cancelling, error: cancelError } = useApiMutation()
+  const { execute: cancelIssuanceApi, loading: _cancelling, error: cancelError } = useApiMutation()
 
   const rows = data?.items || []
   const total = data?.total || 0

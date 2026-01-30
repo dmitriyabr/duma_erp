@@ -647,7 +647,7 @@ export const PurchaseOrderFormPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setNewItemDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={createNewItemAndAssign} disabled={loading}>
+          <Button variant="contained" onClick={createNewItemAndAssign} disabled={saving}>
             Create & assign
           </Button>
         </DialogActions>
@@ -675,7 +675,7 @@ export const PurchaseOrderFormPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setNewPurposeDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={createNewPurpose} disabled={loading || !newPurposeName.trim()}>
+          <Button variant="contained" onClick={createNewPurpose} disabled={saving || !newPurposeName.trim()}>
             Create & select
           </Button>
         </DialogActions>

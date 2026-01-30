@@ -17,11 +17,6 @@ import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
 
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
-
 interface ClaimResponse {
   id: number
   claim_number: string
@@ -54,7 +49,7 @@ export const ExpenseClaimDetailPage = () => {
     resolvedId ? `/compensations/claims/${resolvedId}` : null
   )
   const { execute: approveClaim, loading: approving, error: approveError } = useApiMutation()
-  const { execute: rejectClaim, loading: rejecting, error: rejectError } = useApiMutation()
+  const { execute: rejectClaim, loading: _rejecting, error: rejectError } = useApiMutation()
 
   const [approveDialogOpen, setApproveDialogOpen] = useState(false)
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false)

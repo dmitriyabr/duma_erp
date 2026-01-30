@@ -13,13 +13,9 @@ import {
   TextField,
 } from '@mui/material'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api } from '../../services/api'
-
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
 
 interface SchoolSettingsData {
   id: number
@@ -58,57 +54,45 @@ const emptyForm: SchoolSettingsData = {
 }
 
 export const SchoolPage = () => {
+  const { data: settingsData, loading, error, refetch } = useApi<SchoolSettingsData>('/school-settings')
+  const saveMutation = useApiMutation<unknown>()
+  const logoUploadMutation = useApiMutation<{ id: number }>()
+  const stampUploadMutation = useApiMutation<{ id: number }>()
+
   const [form, setForm] = useState<SchoolSettingsData>(emptyForm)
-  const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
   const [stampPreview, setStampPreview] = useState<string | null>(null)
-  const [uploadingLogo, setUploadingLogo] = useState(false)
-  const [uploadingStamp, setUploadingStamp] = useState(false)
-
-  const fetchSettings = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<SchoolSettingsData>>('/school-settings')
-      const data = response.data.data
-      setForm(data)
-      if (data.logo_attachment_id) {
-        try {
-          const blobRes = await api.get(`/attachments/${data.logo_attachment_id}/download`, {
-            responseType: 'blob',
-          })
-          setLogoPreview(URL.createObjectURL(blobRes.data as Blob))
-        } catch {
-          setLogoPreview(null)
-        }
-      } else {
-        setLogoPreview(null)
-      }
-      if (data.stamp_attachment_id) {
-        try {
-          const blobRes = await api.get(`/attachments/${data.stamp_attachment_id}/download`, {
-            responseType: 'blob',
-          })
-          setStampPreview(URL.createObjectURL(blobRes.data as Blob))
-        } catch {
-          setStampPreview(null)
-        }
-      } else {
-        setStampPreview(null)
-      }
-    } catch {
-      setError('Failed to load school settings.')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
 
   useEffect(() => {
-    fetchSettings()
-  }, [fetchSettings])
+    if (settingsData) {
+      setForm(settingsData)
+    }
+  }, [settingsData])
+
+  useEffect(() => {
+    if (!settingsData) return
+    if (settingsData.logo_attachment_id) {
+      api
+        .get(`/attachments/${settingsData.logo_attachment_id}/download`, { responseType: 'blob' })
+        .then((res) => setLogoPreview(URL.createObjectURL(res.data as Blob)))
+        .catch(() => setLogoPreview(null))
+    } else {
+      setLogoPreview(null)
+    }
+  }, [settingsData?.logo_attachment_id])
+
+  useEffect(() => {
+    if (!settingsData) return
+    if (settingsData.stamp_attachment_id) {
+      api
+        .get(`/attachments/${settingsData.stamp_attachment_id}/download`, { responseType: 'blob' })
+        .then((res) => setStampPreview(URL.createObjectURL(res.data as Blob)))
+        .catch(() => setStampPreview(null))
+    } else {
+      setStampPreview(null)
+    }
+  }, [settingsData?.stamp_attachment_id])
 
   const handleChange = (field: keyof SchoolSettingsData) => (
     e: React.ChangeEvent<HTMLInputElement>
@@ -124,84 +108,72 @@ export const SchoolPage = () => {
     setForm((prev) => ({ ...prev, [field]: checked }))
   }
 
+  const displayError = error ?? saveMutation.error ?? logoUploadMutation.error ?? stampUploadMutation.error
+
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (!file.type.startsWith('image/')) {
-      setError('Please upload an image (PNG, JPEG, etc.).')
-      return
-    }
-    setUploadingLogo(true)
-    setError(null)
-    try {
-      const fd = new FormData()
-      fd.append('file', file)
-      const res = await api.post<ApiResponse<{ id: number }>>('/attachments', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      const id = res.data.data.id
-      setForm((prev) => ({ ...prev, logo_attachment_id: id }))
+    if (!file.type.startsWith('image/')) return
+    logoUploadMutation.reset()
+    const fd = new FormData()
+    fd.append('file', file)
+    const id = await logoUploadMutation.execute(() =>
+      api.post('/attachments', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => ({
+        data: { data: (r.data as { data: { id: number } }).data },
+      }))
+    )
+    if (id != null) {
+      setForm((prev) => ({ ...prev, logo_attachment_id: id.id }))
       setLogoPreview(URL.createObjectURL(file))
-    } catch {
-      setError('Failed to upload logo.')
-    } finally {
-      setUploadingLogo(false)
-      e.target.value = ''
     }
+    e.target.value = ''
   }
 
   const handleStampUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (!file.type.startsWith('image/')) {
-      setError('Please upload an image (PNG, JPEG, etc.).')
-      return
-    }
-    setUploadingStamp(true)
-    setError(null)
-    try {
-      const fd = new FormData()
-      fd.append('file', file)
-      const res = await api.post<ApiResponse<{ id: number }>>('/attachments', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      const id = res.data.data.id
-      setForm((prev) => ({ ...prev, stamp_attachment_id: id }))
+    if (!file.type.startsWith('image/')) return
+    stampUploadMutation.reset()
+    const fd = new FormData()
+    fd.append('file', file)
+    const id = await stampUploadMutation.execute(() =>
+      api.post('/attachments', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => ({
+        data: { data: (r.data as { data: { id: number } }).data },
+      }))
+    )
+    if (id != null) {
+      setForm((prev) => ({ ...prev, stamp_attachment_id: id.id }))
       setStampPreview(URL.createObjectURL(file))
-    } catch {
-      setError('Failed to upload stamp.')
-    } finally {
-      setUploadingStamp(false)
-      e.target.value = ''
     }
+    e.target.value = ''
   }
 
   const handleSave = async () => {
-    setSaving(true)
-    setError(null)
     setSuccess(false)
-    try {
-      await api.put('/school-settings', {
-        school_name: form.school_name || null,
-        school_address: form.school_address || null,
-        school_phone: form.school_phone || null,
-        school_email: form.school_email || null,
-        use_paybill: form.use_paybill,
-        mpesa_business_number: form.mpesa_business_number || null,
-        use_bank_transfer: form.use_bank_transfer,
-        bank_name: form.bank_name || null,
-        bank_account_name: form.bank_account_name || null,
-        bank_account_number: form.bank_account_number || null,
-        bank_branch: form.bank_branch || null,
-        bank_swift_code: form.bank_swift_code || null,
-        logo_attachment_id: form.logo_attachment_id,
-        stamp_attachment_id: form.stamp_attachment_id,
-      })
+    saveMutation.reset()
+    const ok = await saveMutation.execute(() =>
+      api
+        .put('/school-settings', {
+          school_name: form.school_name || null,
+          school_address: form.school_address || null,
+          school_phone: form.school_phone || null,
+          school_email: form.school_email || null,
+          use_paybill: form.use_paybill,
+          mpesa_business_number: form.mpesa_business_number || null,
+          use_bank_transfer: form.use_bank_transfer,
+          bank_name: form.bank_name || null,
+          bank_account_name: form.bank_account_name || null,
+          bank_account_number: form.bank_account_number || null,
+          bank_branch: form.bank_branch || null,
+          bank_swift_code: form.bank_swift_code || null,
+          logo_attachment_id: form.logo_attachment_id,
+          stamp_attachment_id: form.stamp_attachment_id,
+        })
+        .then((res) => ({ data: { data: (res.data as { data?: unknown })?.data ?? true } }))
+    )
+    if (ok != null) {
       setSuccess(true)
-    } catch {
-      setError('Failed to save school settings.')
-    } finally {
-      setSaving(false)
+      refetch()
     }
   }
 
@@ -219,14 +191,22 @@ export const SchoolPage = () => {
         <Typography variant="h4" sx={{ fontWeight: 700 }}>
           School settings
         </Typography>
-        <Button variant="contained" onClick={handleSave} disabled={saving}>
-          {saving ? 'Saving…' : 'Save'}
+        <Button variant="contained" onClick={handleSave} disabled={saveMutation.loading}>
+          {saveMutation.loading ? 'Saving…' : 'Save'}
         </Button>
       </Box>
 
-      {error && (
-        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
-          {error}
+      {displayError && (
+        <Alert
+          severity="error"
+          onClose={() => {
+            saveMutation.reset()
+            logoUploadMutation.reset()
+            stampUploadMutation.reset()
+          }}
+          sx={{ mb: 2 }}
+        >
+          {displayError}
         </Alert>
       )}
       {success && (
@@ -388,9 +368,9 @@ export const SchoolPage = () => {
                 variant="outlined"
                 component="label"
                 startIcon={<CloudUploadIcon />}
-                disabled={uploadingLogo}
+                disabled={logoUploadMutation.loading}
               >
-                {uploadingLogo ? 'Uploading…' : 'Upload logo'}
+                {logoUploadMutation.loading ? 'Uploading…' : 'Upload logo'}
                 <input type="file" hidden accept="image/*" onChange={handleLogoUpload} />
               </Button>
             </Grid>
@@ -410,9 +390,9 @@ export const SchoolPage = () => {
                 variant="outlined"
                 component="label"
                 startIcon={<CloudUploadIcon />}
-                disabled={uploadingStamp}
+                disabled={stampUploadMutation.loading}
               >
-                {uploadingStamp ? 'Uploading…' : 'Upload stamp'}
+                {stampUploadMutation.loading ? 'Uploading…' : 'Upload stamp'}
                 <input type="file" hidden accept="image/*" onChange={handleStampUpload} />
               </Button>
             </Grid>

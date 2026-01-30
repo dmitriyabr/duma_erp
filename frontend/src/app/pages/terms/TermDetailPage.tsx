@@ -17,15 +17,11 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api } from '../../services/api'
 import { formatDate, formatMoney } from '../../utils/format'
-
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
 
 interface PriceSettingRow {
   grade: string
@@ -74,90 +70,66 @@ export const TermDetailPage = () => {
   const { termId } = useParams()
   const navigate = useNavigate()
   const resolvedId = termId ? Number(termId) : null
-  const [term, setTerm] = useState<TermDetail | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [grades, setGrades] = useState<GradeRow[]>([])
-
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
   const [resultDialogOpen, setResultDialogOpen] = useState(false)
   const [result, setResult] = useState<GenerationResult | null>(null)
   const [studentDialogOpen, setStudentDialogOpen] = useState(false)
   const [studentId, setStudentId] = useState('')
+  const [studentIdError, setStudentIdError] = useState<string | null>(null)
 
-  const loadTerm = useCallback(async () => {
-    if (!resolvedId) {
-      return
+  const termApi = useApi<TermDetail>(
+    resolvedId != null && !Number.isNaN(resolvedId) ? `/terms/${resolvedId}` : null
+  )
+  const gradesApi = useApi<GradeRow[]>('/students/grades', { params: { include_inactive: true } })
+  const activateMutation = useApiMutation<unknown>()
+  const closeMutation = useApiMutation<unknown>()
+  const generateAllMutation = useApiMutation<GenerationResult>()
+  const generateSingleMutation = useApiMutation<GenerationResult>()
+
+  const term = useMemo(() => {
+    const data = termApi.data
+    if (!data) return null
+    return {
+      ...data,
+      price_settings: data.price_settings.map((e) => ({
+        ...e,
+        school_fee_amount: Number(e.school_fee_amount),
+      })),
+      transport_pricings: data.transport_pricings.map((e) => ({
+        ...e,
+        transport_fee_amount: Number(e.transport_fee_amount),
+      })),
     }
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<TermDetail>>(`/terms/${resolvedId}`)
-      const termData = response.data.data
-      setTerm({
-        ...termData,
-        price_settings: termData.price_settings.map((entry) => ({
-          ...entry,
-          school_fee_amount: Number(entry.school_fee_amount),
-        })),
-        transport_pricings: termData.transport_pricings.map((entry) => ({
-          ...entry,
-          transport_fee_amount: Number(entry.transport_fee_amount),
-        })),
-      })
-    } catch {
-      setError('Failed to load term.')
-    } finally {
-      setLoading(false)
-    }
-  }, [resolvedId])
+  }, [termApi.data])
 
-  useEffect(() => {
-    loadTerm()
-  }, [loadTerm])
-
-  useEffect(() => {
-    const loadGrades = async () => {
-      try {
-        const response = await api.get<ApiResponse<GradeRow[]>>('/students/grades', {
-          params: { include_inactive: true },
-        })
-        setGrades(response.data.data)
-      } catch {
-        // Ignore grade loading errors; fallback to codes in UI
-      }
-    }
-    loadGrades()
-  }, [])
-
-  const gradeNameMap = new Map(grades.map((grade) => [grade.code, grade.name]))
+  const grades = gradesApi.data ?? []
+  const gradeNameMap = useMemo(() => new Map(grades.map((g) => [g.code, g.name])), [grades])
+  const error =
+    termApi.error ??
+    activateMutation.error ??
+    closeMutation.error ??
+    generateAllMutation.error ??
+    generateSingleMutation.error
+  const loading =
+    activateMutation.loading ||
+    closeMutation.loading ||
+    generateAllMutation.loading ||
+    generateSingleMutation.loading
 
   const handleActivate = async () => {
     if (!resolvedId) return
-    setLoading(true)
-    setError(null)
-    try {
-      await api.post(`/terms/${resolvedId}/activate`)
-      await loadTerm()
-    } catch {
-      setError('Failed to activate term.')
-    } finally {
-      setLoading(false)
-    }
+    const ok = await activateMutation.execute(() =>
+      api.post(`/terms/${resolvedId}/activate`).then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+    )
+    if (ok != null) termApi.refetch()
   }
 
   const handleClose = async () => {
     if (!resolvedId) return
-    setLoading(true)
-    setError(null)
-    try {
-      await api.post(`/terms/${resolvedId}/close`)
-      await loadTerm()
-    } catch {
-      setError('Failed to close term.')
-    } finally {
-      setLoading(false)
-    }
+    const ok = await closeMutation.execute(() =>
+      api.post(`/terms/${resolvedId}/close`).then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+    )
+    if (ok != null) termApi.refetch()
   }
 
   const openMenu = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -175,45 +147,37 @@ export const TermDetailPage = () => {
 
   const generateAll = async () => {
     if (!resolvedId) return
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.post<ApiResponse<GenerationResult>>('/invoices/generate-term-invoices', {
-        term_id: resolvedId,
-      })
-      showResult(response.data.data)
-    } catch {
-      setError('Failed to generate invoices.')
-    } finally {
-      setLoading(false)
+    const data = await generateAllMutation.execute(() =>
+      api
+        .post('/invoices/generate-term-invoices', { term_id: resolvedId })
+        .then((r) => ({ data: { data: (r.data as { data: GenerationResult }).data } }))
+    )
+    if (data != null) {
+      showResult(data)
       closeMenu()
     }
   }
 
   const generateSingle = async () => {
     if (!resolvedId) return
+    setStudentIdError(null)
     const studentIdValue = Number(studentId)
     if (!studentIdValue) {
-      setError('Enter student ID.')
+      setStudentIdError('Enter student ID.')
       return
     }
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.post<ApiResponse<GenerationResult>>(
-        '/invoices/generate-term-invoices/student',
-        {
+    const data = await generateSingleMutation.execute(() =>
+      api
+        .post('/invoices/generate-term-invoices/student', {
           term_id: resolvedId,
           student_id: studentIdValue,
-        }
-      )
-      showResult(response.data.data)
+        })
+        .then((r) => ({ data: { data: (r.data as { data: GenerationResult }).data } }))
+    )
+    if (data != null) {
+      showResult(data)
       setStudentDialogOpen(false)
       setStudentId('')
-    } catch {
-      setError('Failed to generate invoices.')
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -335,9 +299,22 @@ export const TermDetailPage = () => {
         </MenuItem>
       </Menu>
 
-      <Dialog open={studentDialogOpen} onClose={() => setStudentDialogOpen(false)} fullWidth maxWidth="sm">
+      <Dialog
+        open={studentDialogOpen}
+        onClose={() => {
+          setStudentDialogOpen(false)
+          setStudentIdError(null)
+        }}
+        fullWidth
+        maxWidth="sm"
+      >
         <DialogTitle>Generate invoices for student</DialogTitle>
         <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
+          {studentIdError ? (
+            <Alert severity="error" onClose={() => setStudentIdError(null)}>
+              {studentIdError}
+            </Alert>
+          ) : null}
           <TextField
             label="Student ID"
             value={studentId}

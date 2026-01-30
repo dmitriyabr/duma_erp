@@ -26,20 +26,16 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api } from '../../services/api'
 import { formatMoney } from '../../utils/format'
 
 type CatalogTab = 'items' | 'categories'
 
 type ItemType = 'product' | 'service'
-
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
 
 interface CategoryRow {
   id: number
@@ -117,13 +113,6 @@ const TabPanel = ({
 export const CatalogPage = () => {
   const location = useLocation()
   const navigate = useNavigate()
-  const [tabError, setTabError] = useState<string | null>(null)
-
-  const [categories, setCategories] = useState<CategoryRow[]>([])
-  const [kits, setKits] = useState<KitRow[]>([])
-  const [inventoryItems, setInventoryItems] = useState<InventoryItemRow[]>([])
-  const [loading, setLoading] = useState(false)
-  const [kitsLoading, setKitsLoading] = useState(false)
 
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<number | 'all'>('all')
@@ -144,6 +133,36 @@ export const CatalogPage = () => {
     category?: CategoryRow
     nextActive?: boolean
   }>({ open: false })
+  const [validationError, setValidationError] = useState<string | null>(null)
+
+  const categoriesApi = useApi<CategoryRow[]>('/items/categories', {
+    params: { include_inactive: true },
+  })
+  const kitsApi = useApi<KitRow[]>('/items/kits', { params: { include_inactive: showInactive } }, [
+    showInactive,
+  ])
+  const inventoryApi = useApi<InventoryItemRow[]>('/items', {
+    params: { item_type: 'product', include_inactive: false },
+  })
+  const kitMutation = useApiMutation<unknown>()
+  const categoryMutation = useApiMutation<CategoryRow | unknown>()
+  const toggleMutation = useApiMutation<unknown>()
+
+  const categories = categoriesApi.data ?? []
+  const kits = useMemo(
+    () => (kitsApi.data ?? []).filter((kit) => kit.price_type === 'standard'),
+    [kitsApi.data]
+  )
+  const inventoryItems = inventoryApi.data ?? []
+  const tabError =
+    categoriesApi.error ??
+    kitsApi.error ??
+    inventoryApi.error ??
+    kitMutation.error ??
+    categoryMutation.error ??
+    toggleMutation.error
+  const loading = categoriesApi.loading || categoryMutation.loading || kitMutation.loading || toggleMutation.loading
+  const kitsLoading = kitsApi.loading
 
   const activeTab = useMemo<CatalogTab>(() => {
     const match = tabConfig.find((tab) => location.pathname.startsWith(tab.path))
@@ -162,58 +181,6 @@ export const CatalogPage = () => {
       navigate(target.path)
     }
   }
-
-  const loadCategories = useCallback(async () => {
-    setLoading(true)
-    setTabError(null)
-    try {
-      const response = await api.get<ApiResponse<CategoryRow[]>>('/items/categories', {
-        params: { include_inactive: true },
-      })
-      setCategories(response.data.data)
-    } catch {
-      setTabError('Failed to load categories.')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  const loadKits = useCallback(async () => {
-    setKitsLoading(true)
-    setTabError(null)
-    try {
-      const response = await api.get<ApiResponse<KitRow[]>>('/items/kits', {
-        params: { include_inactive: showInactive },
-      })
-      // Backend now filters out "Fixed Fees" category automatically
-      const standardKits = response.data.data.filter((kit) => kit.price_type === 'standard')
-      setKits(standardKits)
-    } catch {
-      setTabError('Failed to load catalog items.')
-    } finally {
-      setKitsLoading(false)
-    }
-  }, [showInactive])
-
-  const loadInventoryItems = useCallback(async () => {
-    try {
-      const response = await api.get<ApiResponse<InventoryItemRow[]>>('/items', {
-        params: { item_type: 'product', include_inactive: false },
-      })
-      setInventoryItems(response.data.data)
-    } catch {
-      setTabError('Failed to load inventory items.')
-    }
-  }, [])
-
-  useEffect(() => {
-    loadCategories()
-    loadInventoryItems()
-  }, [loadCategories, loadInventoryItems])
-
-  useEffect(() => {
-    loadKits()
-  }, [loadKits])
 
   const filteredKits = useMemo(() => {
     const term = search.trim().toLowerCase()
@@ -265,63 +232,64 @@ export const CatalogPage = () => {
     setEditingKit(null)
   }
 
+  const displayTabError = validationError ?? tabError
+
   const submitKit = async () => {
     const categoryId =
       typeof kitForm.category_id === 'string'
         ? Number(kitForm.category_id)
         : kitForm.category_id
     if (!categoryId || Number.isNaN(categoryId)) {
-      setTabError('Select a category before saving.')
+      setValidationError('Select a category before saving.')
       return
     }
     if (!kitForm.name.trim()) {
-      setTabError('Enter a name for the item.')
+      setValidationError('Enter a name for the item.')
       return
     }
     const priceValue = kitForm.price === '' ? null : Number(kitForm.price)
     if (priceValue === null || Number.isNaN(priceValue)) {
-      setTabError('Enter a valid price.')
+      setValidationError('Enter a valid price.')
       return
     }
-
     const itemsPayload =
       kitForm.item_type === 'product'
         ? kitForm.items
             .filter((item) => item.item_id)
             .map((item) => ({ item_id: Number(item.item_id), quantity: item.quantity }))
         : []
-
     if (kitForm.item_type === 'product' && !itemsPayload.length) {
-      setTabError('Product items must include at least one component.')
+      setValidationError('Product items must include at least one component.')
       return
     }
-
-    setLoading(true)
-    setTabError(null)
-    try {
-      if (editingKit) {
-        await api.patch(`/items/kits/${editingKit.id}`, {
-          category_id: categoryId,
-          name: kitForm.name.trim(),
-          price: priceValue,
-          items: kitForm.item_type === 'product' ? itemsPayload : undefined,
-        })
-      } else {
-        await api.post('/items/kits', {
-          category_id: categoryId,
-          name: kitForm.name.trim(),
-          item_type: kitForm.item_type,
-          price_type: 'standard',
-          price: priceValue,
-          items: kitForm.item_type === 'product' ? itemsPayload : [],
-        })
-      }
+    setValidationError(null)
+    kitMutation.reset()
+    const ok = editingKit
+      ? await kitMutation.execute(() =>
+          api
+            .patch(`/items/kits/${editingKit.id}`, {
+              category_id: categoryId,
+              name: kitForm.name.trim(),
+              price: priceValue,
+              items: kitForm.item_type === 'product' ? itemsPayload : undefined,
+            })
+            .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+        )
+      : await kitMutation.execute(() =>
+          api
+            .post('/items/kits', {
+              category_id: categoryId,
+              name: kitForm.name.trim(),
+              item_type: kitForm.item_type,
+              price_type: 'standard',
+              price: priceValue,
+              items: kitForm.item_type === 'product' ? itemsPayload : [],
+            })
+            .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+        )
+    if (ok != null) {
       resetKitDialog()
-      await loadKits()
-    } catch {
-      setTabError('Failed to save catalog item.')
-    } finally {
-      setLoading(false)
+      kitsApi.refetch()
     }
   }
 
@@ -349,31 +317,30 @@ export const CatalogPage = () => {
 
   const submitCategory = async () => {
     if (!categoryForm.name.trim()) {
-      setTabError('Enter a category name.')
+      setValidationError('Enter a category name.')
       return
     }
-    setLoading(true)
-    setTabError(null)
-    try {
-      if (editingCategory) {
-        await api.patch(`/items/categories/${editingCategory.id}`, {
-          name: categoryForm.name.trim(),
-        })
-      } else {
-        const response = await api.post<ApiResponse<CategoryRow>>('/items/categories', {
-          name: categoryForm.name.trim(),
-        })
-        setKitForm((prev) => ({
-          ...prev,
-          category_id: String(response.data.data.id),
-        }))
+    setValidationError(null)
+    categoryMutation.reset()
+    const result = editingCategory
+      ? await categoryMutation.execute(() =>
+          api
+            .patch(`/items/categories/${editingCategory.id}`, {
+              name: categoryForm.name.trim(),
+            })
+            .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+        )
+      : await categoryMutation.execute(() =>
+          api
+            .post('/items/categories', { name: categoryForm.name.trim() })
+            .then((r) => ({ data: { data: (r.data as { data: CategoryRow }).data } }))
+        )
+    if (result != null) {
+      if (!editingCategory && typeof result === 'object' && 'id' in result) {
+        setKitForm((prev) => ({ ...prev, category_id: String((result as CategoryRow).id) }))
       }
       resetCategoryDialog()
-      await loadCategories()
-    } catch {
-      setTabError('Failed to save category.')
-    } finally {
-      setLoading(false)
+      categoriesApi.refetch()
     }
   }
 
@@ -384,33 +351,26 @@ export const CatalogPage = () => {
   const confirmToggleActive = async () => {
     if (confirmState.kit) {
       setConfirmState({ open: false })
-      setLoading(true)
-      try {
-        await api.patch(`/items/kits/${confirmState.kit.id}`, {
-          is_active: confirmState.nextActive,
-        })
-        await loadKits()
-      } catch {
-        setTabError('Failed to update item status.')
-      } finally {
-        setLoading(false)
-      }
+      toggleMutation.reset()
+      const ok = await toggleMutation.execute(() =>
+        api
+          .patch(`/items/kits/${confirmState.kit!.id}`, { is_active: confirmState.nextActive })
+          .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+      )
+      if (ok != null) kitsApi.refetch()
       return
     }
-
     if (confirmState.category) {
       setConfirmState({ open: false })
-      setLoading(true)
-      try {
-        await api.patch(`/items/categories/${confirmState.category.id}`, {
-          is_active: confirmState.nextActive,
-        })
-        await loadCategories()
-      } catch {
-        setTabError('Failed to update category status.')
-      } finally {
-        setLoading(false)
-      }
+      toggleMutation.reset()
+      const ok = await toggleMutation.execute(() =>
+        api
+          .patch(`/items/categories/${confirmState.category!.id}`, {
+            is_active: confirmState.nextActive,
+          })
+          .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+      )
+      if (ok != null) categoriesApi.refetch()
     }
   }
 
@@ -463,9 +423,9 @@ export const CatalogPage = () => {
         ))}
       </Tabs>
 
-      {tabError ? (
+      {displayTabError ? (
         <Alert severity="error" sx={{ mt: 2 }}>
-          {tabError}
+          {displayTabError}
         </Alert>
       ) : null}
 

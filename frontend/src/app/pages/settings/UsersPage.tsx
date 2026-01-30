@@ -47,11 +47,6 @@ interface PaginatedResponse<T> {
   pages: number
 }
 
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
-
 const roleOptions: UserRole[] = ['SuperAdmin', 'Admin', 'User', 'Accountant']
 
 const emptyForm = {
@@ -64,7 +59,7 @@ const emptyForm = {
 
 export const UsersPage = () => {
   const [page, setPage] = useState(0)
-  const [limit, setLimit] = useState(20)
+  const [limit, setLimit] = useState(25)
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
@@ -92,6 +87,7 @@ export const UsersPage = () => {
   const { data, loading, error, refetch } = useApi<PaginatedResponse<UserRow>>(url)
   const { execute: saveUser, loading: saving, error: saveError } = useApiMutation()
   const { execute: toggleUser, loading: toggling, error: toggleError } = useApiMutation()
+  const busy = saving || toggling
 
   const rows = data?.items || []
   const total = data?.total || 0
@@ -318,7 +314,7 @@ export const UsersPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={submitForm} disabled={loading}>
+          <Button variant="contained" onClick={submitForm} disabled={loading || busy}>
             Save
           </Button>
         </DialogActions>

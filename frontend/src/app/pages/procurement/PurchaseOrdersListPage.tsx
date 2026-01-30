@@ -21,11 +21,6 @@ import { useNavigate } from 'react-router-dom'
 import { useApi } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
 
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
-
 interface PaginatedResponse<T> {
   items: T[]
   total: number

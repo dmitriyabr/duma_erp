@@ -17,11 +17,6 @@ import { useApi, useApiMutation } from '../../hooks/useApi'
 import { openAttachmentInNewTab } from '../../utils/attachments'
 import { formatDate, formatMoney } from '../../utils/format'
 
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
-
 interface PaymentResponse {
   id: number
   payment_number: string
@@ -49,6 +44,7 @@ export const ProcurementPaymentDetailPage = () => {
     resolvedId ? `/procurement/payments/${resolvedId}` : null
   )
   const { execute: cancelPayment, loading: cancelling, error: cancelError } = useApiMutation()
+  const cancelBusy = cancelling
 
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
@@ -211,7 +207,7 @@ export const ProcurementPaymentDetailPage = () => {
             variant="contained"
             color="error"
             onClick={handleCancel}
-            disabled={!cancelReason.trim() || loading}
+            disabled={!cancelReason.trim() || loading || cancelBusy}
           >
             Cancel payment
           </Button>

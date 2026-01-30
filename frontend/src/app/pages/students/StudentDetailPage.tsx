@@ -99,7 +99,6 @@ export const StudentDetailPage = () => {
     loadStudent()
     loadBalance()
     refreshDebt()
-    loadReferenceData()
   }, [resolvedId, loadStudent, loadBalance, refreshDebt])
 
   useEffect(() => {
@@ -147,8 +146,8 @@ export const StudentDetailPage = () => {
           student={student}
           balance={balance}
           debt={debt}
-          grades={grades}
-          transportZones={transportZones}
+          grades={grades ?? []}
+          transportZones={transportZones ?? []}
           onStudentUpdate={loadStudent}
           onError={handleError}
         />

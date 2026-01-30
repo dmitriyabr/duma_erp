@@ -23,7 +23,6 @@ import { api } from '../../../services/api'
 import { useApi, useApiMutation } from '../../../hooks/useApi'
 import { formatDate, formatMoney } from '../../../utils/format'
 import type {
-  ApiResponse,
   DiscountValueType,
   PaginatedResponse,
   StudentDiscountResponse,
@@ -45,6 +44,7 @@ export const OverviewTab = ({ student, studentId, onError }: OverviewTabProps) =
   const { data: discountsData, refetch } = useApi<PaginatedResponse<StudentDiscountResponse>>(discountsUrl)
   const { execute: saveDiscount, loading, error: saveError } = useApiMutation()
   const { execute: toggleDiscount, loading: toggling, error: toggleError } = useApiMutation()
+  const busy = loading || toggling
 
   const [studentDiscountDialogOpen, setStudentDiscountDialogOpen] = useState(false)
   const [editingStudentDiscount, setEditingStudentDiscount] =
@@ -240,7 +240,7 @@ export const OverviewTab = ({ student, studentId, onError }: OverviewTabProps) =
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setStudentDiscountDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={submitStudentDiscount} disabled={loading}>
+          <Button variant="contained" onClick={submitStudentDiscount} disabled={busy}>
             Save
           </Button>
         </DialogActions>

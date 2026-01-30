@@ -19,11 +19,6 @@ import { useState } from 'react'
 import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
-
 interface PurposeRow {
   id: number
   name: string

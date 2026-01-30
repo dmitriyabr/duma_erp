@@ -6,6 +6,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormHelperText,
   Table,
   TableBody,
   TableCell,
@@ -41,11 +42,6 @@ interface ReservationRow {
   items: ReservationItem[]
 }
 
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
-
 interface PaginatedResponse<T> {
   items: T[]
   total: number
@@ -76,6 +72,7 @@ export const ReservationsPage = () => {
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
   const [notes, setNotes] = useState('')
+  const [issueLineErrors, setIssueLineErrors] = useState<Record<number, string>>({})
 
   const reservationsUrl = useMemo(() => {
     const params = { page: page + 1, limit }
@@ -88,7 +85,7 @@ export const ReservationsPage = () => {
 
   const { data: reservationsData, loading, error, refetch } = useApi<PaginatedResponse<ReservationRow>>(reservationsUrl)
   const { data: studentsData } = useApi<PaginatedResponse<StudentOption>>('/students?page=1&limit=500')
-  const { execute: issueReservation, loading: issuing, error: issueError } = useApiMutation()
+  const { execute: issueReservation, loading: issuing, error: issueError, reset: resetIssueMutation } = useApiMutation()
   const { execute: cancelReservation, loading: cancelling, error: cancelError } = useApiMutation()
 
   const rows = reservationsData?.items || []
@@ -104,6 +101,16 @@ export const ReservationsPage = () => {
     setPage(0)
   }, [statusFilter])
 
+  useEffect(() => {
+    if (issueError && issueDialogOpen) {
+      const match = issueError.match(/reservation_item (\d+)/i)
+      if (match) {
+        setIssueLineErrors((prev) => ({ ...prev, [Number(match[1])]: issueError }))
+        resetIssueMutation()
+      }
+    }
+  }, [issueError, issueDialogOpen, resetIssueMutation])
+
   const openIssueDialog = (reservation: ReservationRow) => {
     setSelected(reservation)
     setIssueLines(
@@ -113,13 +120,14 @@ export const ReservationsPage = () => {
       }))
     )
     setNotes('')
+    setIssueLineErrors({})
     setIssueDialogOpen(true)
   }
 
   const submitIssue = async () => {
-    if (!selected) {
-      return
-    }
+    if (!selected) return
+    setIssueLineErrors({})
+    resetIssueMutation()
     const result = await issueReservation(() =>
       api.post(`/reservations/${selected.id}/issue`, {
         items: issueLines.map((line) => ({
@@ -268,6 +276,7 @@ export const ReservationsPage = () => {
               {selected?.items.map((item) => {
                 const line = issueLines.find((entry) => entry.reservation_item_id === item.id)
                 const remaining = Math.max(0, item.quantity_required - item.quantity_issued)
+                const lineError = issueLineErrors[item.id]
                 return (
                   <TableRow key={item.id}>
                     <TableCell>{item.item_name ?? '—'}</TableCell>
@@ -287,9 +296,22 @@ export const ReservationsPage = () => {
                                 : entry
                             )
                           )
+                          if (issueLineErrors[item.id]) {
+                            setIssueLineErrors((prev) => {
+                              const next = { ...prev }
+                              delete next[item.id]
+                              return next
+                            })
+                          }
                         }}
                         inputProps={{ min: 0, max: remaining }}
+                        error={Boolean(lineError)}
                       />
+                      {lineError ? (
+                        <FormHelperText error sx={{ mt: 0.5 }}>
+                          {lineError}
+                        </FormHelperText>
+                      ) : null}
                     </TableCell>
                   </TableRow>
                 )

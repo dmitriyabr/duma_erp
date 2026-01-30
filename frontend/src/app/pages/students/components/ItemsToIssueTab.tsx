@@ -1,9 +1,8 @@
 import { Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material'
 import { useMemo } from 'react'
-import { api } from '../../../services/api'
 import { useApi } from '../../../hooks/useApi'
 import { formatDateTime } from '../../../utils/format'
-import type { ApiResponse, PaginatedResponse, ReservationResponse } from '../types'
+import type { PaginatedResponse, ReservationResponse } from '../types'
 
 interface ItemsToIssueTabProps {
   studentId: number

@@ -125,6 +125,9 @@ export const StudentHeader = ({
     }
   }
 
+  const credit = balance != null ? parseNumber(balance.available_balance) : 0
+  const netBalance = credit - debt
+
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
       <Box>
@@ -141,10 +144,9 @@ export const StudentHeader = ({
           color={student.status === 'active' ? 'success' : 'default'}
         />
         <Chip
-          label={`Balance ${balance != null ? formatMoney(parseNumber(balance.available_balance)) : '—'}`}
-          color={
-            balance != null && parseNumber(balance.available_balance) < 0 ? 'warning' : 'success'
-          }
+          label={`Balance ${formatMoney(netBalance)}`}
+          color={netBalance > 0 ? 'success' : netBalance < 0 ? 'error' : 'default'}
+          variant={netBalance !== 0 ? 'filled' : 'outlined'}
         />
         <Button variant="outlined" onClick={openEdit}>
           Edit

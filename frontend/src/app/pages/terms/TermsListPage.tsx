@@ -11,14 +11,8 @@ import {
   Typography,
 } from '@mui/material'
 import { useNavigate } from 'react-router-dom'
-import { api } from '../../services/api'
 import { useApi } from '../../hooks/useApi'
 import { formatDate } from '../../utils/format'
-
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
 
 interface TermRow {
   id: number

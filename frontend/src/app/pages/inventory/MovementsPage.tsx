@@ -15,7 +15,6 @@ import {
   Typography,
 } from '@mui/material'
 import { useMemo, useState } from 'react'
-import { api } from '../../services/api'
 import { useApi } from '../../hooks/useApi'
 import { formatDateTime, formatMoney } from '../../utils/format'
 
@@ -40,10 +39,6 @@ interface ItemOption {
   sku_code: string
 }
 
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
 
 interface PaginatedResponse<T> {
   items: T[]

@@ -20,6 +20,7 @@ import {
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf'
 import React, { useEffect, useState } from 'react'
 import { useAuth } from '../../../auth/AuthContext'
+import { useApi, useApiMutation } from '../../../hooks/useApi'
 import { api } from '../../../services/api'
 import { formatDate, formatMoney } from '../../../utils/format'
 import { openAttachmentInNewTab } from '../../../utils/attachments'
@@ -47,8 +48,6 @@ export const PaymentsTab = ({
   onAllocationResult,
 }: PaymentsTabProps) => {
   const { user } = useAuth()
-  const [loading, setLoading] = useState(false)
-  const [payments, setPayments] = useState<PaymentResponse[]>([])
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
   const [paymentForm, setPaymentForm] = useState({
     amount: '',
@@ -60,7 +59,6 @@ export const PaymentsTab = ({
   const [selectedPayment, setSelectedPayment] = useState<PaymentResponse | null>(null)
   const [confirmationAttachmentId, setConfirmationAttachmentId] = useState<number | null>(null)
   const [confirmationFileName, setConfirmationFileName] = useState<string | null>(null)
-  const [uploadingFile, setUploadingFile] = useState(false)
   const confirmationFileInputRef = React.useRef<HTMLInputElement>(null)
   const [allocationDialogOpen, setAllocationDialogOpen] = useState(false)
   const [allocationForm, setAllocationForm] = useState({
@@ -68,35 +66,31 @@ export const PaymentsTab = ({
     invoice_line_id: '',
     amount: '',
   })
-  const [invoices, setInvoices] = useState<InvoiceSummary[]>([])
   const [allocationLines, setAllocationLines] = useState<InvoiceLine[]>([])
   const [downloadingReceiptId, setDownloadingReceiptId] = useState<number | null>(null)
 
-  const loadPayments = async () => {
-    try {
-      const response = await api.get<ApiResponse<PaginatedResponse<PaymentResponse>>>('/payments', {
-        params: { student_id: studentId, limit: 100, page: 1 },
-      })
-      setPayments(response.data.data.items)
-    } catch {
-      onError('Failed to load payments.')
-    }
-  }
+  const paymentsApi = useApi<PaginatedResponse<PaymentResponse>>('/payments', {
+    params: { student_id: studentId, limit: 100, page: 1 },
+  }, [studentId])
+  const invoicesApi = useApi<PaginatedResponse<InvoiceSummary>>('/invoices', {
+    params: { student_id: studentId, limit: 200, page: 1 },
+  }, [studentId])
+  const submitPaymentMutation = useApiMutation<PaymentResponse>()
+  const uploadAttachmentMutation = useApiMutation<{ id: number; file_name: string }>()
+  const allocationMutation = useApiMutation<unknown>()
+  const cancelPaymentMutation = useApiMutation<unknown>()
 
-  const loadInvoices = async () => {
-    try {
-      const response = await api.get<ApiResponse<PaginatedResponse<InvoiceSummary>>>('/invoices', {
-        params: { student_id: studentId, limit: 200, page: 1 },
-      })
-      setInvoices(response.data.data.items)
-    } catch {
-      onError('Failed to load invoices.')
-    }
-  }
+  const payments = paymentsApi.data?.items ?? []
+  const invoices = invoicesApi.data?.items ?? []
+  const loading = submitPaymentMutation.loading || allocationMutation.loading || cancelPaymentMutation.loading
+  const uploadingFile = uploadAttachmentMutation.loading
 
   useEffect(() => {
-    loadPayments()
-  }, [studentId])
+    if (paymentsApi.error) onError(paymentsApi.error)
+  }, [paymentsApi.error, onError])
+  useEffect(() => {
+    if (invoicesApi.error) onError(invoicesApi.error)
+  }, [invoicesApi.error, onError])
 
   const openPaymentDialog = () => {
     setPaymentForm({
@@ -115,22 +109,21 @@ export const PaymentsTab = ({
   const handleConfirmationFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
-    setUploadingFile(true)
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-      const response = await api.post<ApiResponse<{ id: number; file_name: string }>>(
-        '/attachments',
-        formData,
-        { headers: { 'Content-Type': 'multipart/form-data' } }
-      )
-      setConfirmationAttachmentId(response.data.data.id)
+    uploadAttachmentMutation.reset()
+    const formData = new FormData()
+    formData.append('file', file)
+    const result = await uploadAttachmentMutation.execute(() =>
+      api
+        .post('/attachments', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+        .then((r) => ({ data: { data: (r.data as { data: { id: number; file_name: string } }).data } }))
+    )
+    if (result != null) {
+      setConfirmationAttachmentId(result.id)
       setConfirmationFileName(file.name)
-    } catch {
-      onError('Failed to upload confirmation file.')
-    } finally {
-      setUploadingFile(false)
+    } else if (uploadAttachmentMutation.error) {
+      onError(uploadAttachmentMutation.error)
     }
+    event.target.value = ''
   }
 
   const submitPayment = async () => {
@@ -140,9 +133,9 @@ export const PaymentsTab = ({
       onError('Reference or confirmation file is required.')
       return
     }
-    setLoading(true)
-    try {
-      const createResponse = await api.post<ApiResponse<PaymentResponse>>('/payments', {
+    submitPaymentMutation.reset()
+    const created = await submitPaymentMutation.execute(async () => {
+      const createRes = await api.post('/payments', {
         student_id: studentId,
         amount: Number(paymentForm.amount),
         payment_method: paymentForm.payment_method,
@@ -151,20 +144,22 @@ export const PaymentsTab = ({
         confirmation_attachment_id: confirmationAttachmentId ?? undefined,
         notes: paymentForm.notes.trim() || null,
       })
-      await api.post(`/payments/${createResponse.data.data.id}/complete`)
+      const payment = (createRes.data as { data: PaymentResponse }).data
+      await api.post(`/payments/${payment.id}/complete`)
+      return { data: { data: payment } }
+    })
+    if (created != null) {
       onAllocationResult('Payment completed. Balance has been allocated to invoices.')
       setPaymentDialogOpen(false)
-      await loadPayments()
+      paymentsApi.refetch()
       onBalanceChange()
-    } catch {
-      onError('Failed to record payment.')
-    } finally {
-      setLoading(false)
+    } else if (submitPaymentMutation.error) {
+      onError(submitPaymentMutation.error)
     }
   }
 
-  const openManualAllocation = async () => {
-    await loadInvoices()
+  const openManualAllocation = () => {
+    invoicesApi.refetch()
     setAllocationLines([])
     setAllocationForm({ invoice_id: '', invoice_line_id: '', amount: '' })
     setAllocationDialogOpen(true)
@@ -184,35 +179,39 @@ export const PaymentsTab = ({
   }
 
   const submitManualAllocation = async () => {
-    setLoading(true)
-    try {
-      await api.post('/payments/allocations/manual', {
-        student_id: studentId,
-        invoice_id: Number(allocationForm.invoice_id),
-        invoice_line_id: allocationForm.invoice_line_id
-          ? Number(allocationForm.invoice_line_id)
-          : null,
-        amount: Number(allocationForm.amount),
-      })
+    allocationMutation.reset()
+    const ok = await allocationMutation.execute(() =>
+      api
+        .post('/payments/allocations/manual', {
+          student_id: studentId,
+          invoice_id: Number(allocationForm.invoice_id),
+          invoice_line_id: allocationForm.invoice_line_id
+            ? Number(allocationForm.invoice_line_id)
+            : null,
+          amount: Number(allocationForm.amount),
+        })
+        .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+    )
+    if (ok != null) {
       setAllocationDialogOpen(false)
       onBalanceChange()
-    } catch {
-      onError('Failed to allocate credit.')
-    } finally {
-      setLoading(false)
+    } else if (allocationMutation.error) {
+      onError(allocationMutation.error)
     }
   }
 
   const cancelPayment = async (paymentId: number) => {
-    setLoading(true)
-    try {
-      await api.post(`/payments/${paymentId}/cancel`)
-      await loadPayments()
+    cancelPaymentMutation.reset()
+    const ok = await cancelPaymentMutation.execute(() =>
+      api
+        .post(`/payments/${paymentId}/cancel`)
+        .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+    )
+    if (ok != null) {
+      paymentsApi.refetch()
       onBalanceChange()
-    } catch {
-      onError('Failed to cancel payment.')
-    } finally {
-      setLoading(false)
+    } else if (cancelPaymentMutation.error) {
+      onError(cancelPaymentMutation.error)
     }
   }
 

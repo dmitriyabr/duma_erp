@@ -32,11 +32,6 @@ interface FixedFeeRow {
   is_active: boolean
 }
 
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
-
 const emptyForm = {
   fee_type: '',
   display_name: '',

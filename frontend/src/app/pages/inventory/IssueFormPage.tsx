@@ -19,7 +19,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { api } from '../../services/api'
@@ -176,7 +176,7 @@ export const IssueFormPage = () => {
 
     try {
       const result = await createIssuance(() =>
-        api.post<ApiResponse<{ issuance_number: string; id: number >>>('/inventory/issuances', body)
+        api.post<ApiResponse<{ issuance_number: string; id: number }>>('/inventory/issuances', body)
       )
       if (result) {
         navigate('/inventory/issuances', {
