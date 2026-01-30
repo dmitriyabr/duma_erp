@@ -79,7 +79,7 @@
 - [x] Модель PriceSettings (term_id, grade, school_fee_amount)
 - [x] Модель TransportZone (zone_name, zone_code, is_active)
 - [x] Модель TransportPricing (term_id, zone_id, transport_fee_amount)
-- [x] Модель FixedFees (fee_type, display_name, amount, is_active) — Admission, Interview
+- [x] ~~Модель FixedFees~~ → Refactored: now stored as Kits in "Fixed Fees" category
 - [x] Копирование цен из предыдущего терма (в TermService.create_term)
 - [x] API endpoints (в terms router)
 - [x] Seed данные: 3 зоны транспорта, 2 фиксированных сбора
@@ -507,7 +507,7 @@
 - [x] Модалка результата генерации (school fee invoices, transport invoices, skipped, total)
 - [x] Таблицы цен (read-only, кнопка Edit → переход на edit страницу)
 
-**Fixed Fees `/billing/fixed-fees`:**
+**Fixed Fees `/billing/fixed-fees`:** *(now using Kits from "Fixed Fees" category)*
 - [x] Список (Name, Amount, Active)
 - [x] Редактирование в модалке
 - [x] Добавление нового fee

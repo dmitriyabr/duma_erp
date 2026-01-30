@@ -290,6 +290,7 @@
 - `FixedFeeCreate`: `fee_type`, `display_name`, `amount`
 - `FixedFeeUpdate`: `display_name?`, `amount?`, `is_active?`
 - `FixedFeeResponse`: `id`, `fee_type`, `display_name`, `amount`, `is_active`
+  - Note: Fixed fees are stored as Kits in "Fixed Fees" category. Response fields map: `fee_type`=`sku_code`, `display_name`=`name`, `amount`=`price`
 
 ### 6.4. Items & Kits
 - `CategoryCreate`: `name`
