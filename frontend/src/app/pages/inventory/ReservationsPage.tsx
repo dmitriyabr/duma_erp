@@ -21,6 +21,7 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
+import type { PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDateTime } from '../../utils/format'
 
@@ -40,14 +41,6 @@ interface ReservationRow {
   status: string
   created_at: string
   items: ReservationItem[]
-}
-
-interface PaginatedResponse<T> {
-  items: T[]
-  total: number
-  page: number
-  limit: number
-  pages: number
 }
 
 interface StudentOption {

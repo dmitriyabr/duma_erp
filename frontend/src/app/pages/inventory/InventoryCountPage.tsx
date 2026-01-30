@@ -20,17 +20,13 @@ import {
 import { useRef, useState } from 'react'
 import axios from 'axios'
 import { api } from '../../services/api'
+import type { ApiResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 
 interface ItemOption {
   id: number
   name: string
   sku_code: string
-}
-
-interface ApiResponse<T> {
-  success: boolean
-  data: T
 }
 
 interface CountLine {

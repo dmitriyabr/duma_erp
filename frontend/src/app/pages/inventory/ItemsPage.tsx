@@ -22,6 +22,7 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { api } from '../../services/api'
+import type { ApiResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 
 interface CategoryRow {
@@ -37,10 +38,6 @@ interface ItemRow {
   sku_code: string
   name: string
   is_active: boolean
-}
-
-interface ApiResponse<T> {
-  data: T
 }
 
 const emptyForm = {

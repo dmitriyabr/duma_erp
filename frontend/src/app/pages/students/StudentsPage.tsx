@@ -26,6 +26,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { api } from '../../services/api'
+import type { ApiResponse, PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatMoney } from '../../utils/format'
 
@@ -72,19 +73,6 @@ interface InvoiceSummary {
   id: number
   status: string
   amount_due: number
-}
-
-interface PaginatedResponse<T> {
-  items: T[]
-  total: number
-  page: number
-  limit: number
-}
-
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-  message?: string
 }
 
 type DiscountValueType = 'fixed' | 'percentage'

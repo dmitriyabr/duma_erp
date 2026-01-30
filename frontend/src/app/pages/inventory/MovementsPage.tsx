@@ -15,6 +15,7 @@ import {
   Typography,
 } from '@mui/material'
 import { useMemo, useState } from 'react'
+import type { PaginatedResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
 import { formatDateTime, formatMoney } from '../../utils/format'
 
@@ -39,14 +40,6 @@ interface ItemOption {
   sku_code: string
 }
 
-
-interface PaginatedResponse<T> {
-  items: T[]
-  total: number
-  page: number
-  limit: number
-  pages: number
-}
 
 const movementTypeOptions = [
   { value: 'receipt', label: 'Receipt' },

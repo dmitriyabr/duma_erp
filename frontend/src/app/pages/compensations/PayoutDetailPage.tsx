@@ -14,12 +14,8 @@ import { useParams } from 'react-router-dom'
 import { api } from '../../services/api'
 import { useApi } from '../../hooks/useApi'
 import { openAttachmentInNewTab } from '../../utils/attachments'
+import type { ApiResponse } from '../../types/api'
 import { formatDate, formatMoney } from '../../utils/format'
-
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
 
 interface PayoutAllocation {
   id: number

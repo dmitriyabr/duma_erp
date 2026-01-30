@@ -19,15 +19,9 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { api } from '../../services/api'
+import type { PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
-
-interface PaginatedResponse<T> {
-  items: T[]
-  total: number
-  page: number
-  limit: number
-}
 
 interface POLine {
   id: number

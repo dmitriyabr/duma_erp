@@ -22,6 +22,7 @@ import {
 } from '@mui/material'
 import { useMemo, useState } from 'react'
 import { api } from '../../services/api'
+import type { PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { formatDateTime } from '../../utils/format'
@@ -37,14 +38,6 @@ interface UserRow {
   is_active: boolean
   can_login: boolean
   last_login_at?: string | null
-}
-
-interface PaginatedResponse<T> {
-  items: T[]
-  total: number
-  page: number
-  limit: number
-  pages: number
 }
 
 const roleOptions: UserRole[] = ['SuperAdmin', 'Admin', 'User', 'Accountant']

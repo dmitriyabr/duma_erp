@@ -22,21 +22,9 @@ import {
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
+import type { ApiResponse, PaginatedResponse } from '../../types/api'
 import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
-
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
-
-interface PaginatedResponse<T> {
-  items: T[]
-  total: number
-  page: number
-  limit: number
-  pages: number
-}
 
 interface ItemOption {
   id: number

@@ -27,6 +27,7 @@ import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
+import type { ApiResponse, PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatMoney } from '../../utils/format'
 
@@ -51,19 +52,6 @@ interface ItemOption {
   category_id: number
   name: string
   sku_code: string
-}
-
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
-
-interface PaginatedResponse<T> {
-  items: T[]
-  total: number
-  page: number
-  limit: number
-  pages: number
 }
 
 type WriteOffReason = 'damage' | 'expired' | 'lost' | 'other'

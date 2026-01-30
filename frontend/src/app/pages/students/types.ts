@@ -141,18 +141,7 @@ export interface TransportZoneOption {
   zone_name: string
 }
 
-export interface ApiResponse<T> {
-  success: boolean
-  data: T
-  message?: string
-}
-
-export interface PaginatedResponse<T> {
-  items: T[]
-  total: number
-  page: number
-  limit: number
-}
+export type { ApiResponse, PaginatedResponse } from '../../types/api'
 
 export const parseNumber = (value: unknown): number => {
   if (typeof value === 'number') {

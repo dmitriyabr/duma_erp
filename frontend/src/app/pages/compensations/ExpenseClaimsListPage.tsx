@@ -19,15 +19,9 @@ import {
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
+import type { PaginatedResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
-
-interface PaginatedResponse<T> {
-  items: T[]
-  total: number
-  page: number
-  limit: number
-}
 
 interface ClaimRow {
   id: number

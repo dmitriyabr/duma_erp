@@ -23,13 +23,9 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../../services/api'
+import type { ApiResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatMoney } from '../../utils/format'
-
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-}
 
 interface PurposeRow {
   id: number
