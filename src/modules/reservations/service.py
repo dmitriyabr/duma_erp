@@ -201,7 +201,8 @@ class ReservationService:
                 available = await self._get_available_stock(reservation_item.item_id)
                 if additional > available:
                     raise ValidationError(
-                        f"Insufficient stock to reserve. Available: {available}, requested: {additional}"
+                        f"Insufficient stock for reservation_item {reservation_item.id}. "
+                        f"Available: {available}, requested: {additional}"
                     )
                 await self.inventory.reserve_stock(
                     item_id=reservation_item.item_id,

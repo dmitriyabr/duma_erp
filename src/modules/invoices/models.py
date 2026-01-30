@@ -137,18 +137,25 @@ class Invoice(Base):
             InvoiceStatus.PARTIALLY_PAID.value,
         ) and self.paid_total > Decimal("0.00")
 
+    # SKUs that always require full payment (Admission/Interview); used even if kit flag was false
+    _REQUIRES_FULL_SKUS = frozenset({"ADMISSION-FEE", "INTERVIEW-FEE"})
+
     @property
     def requires_full_payment(self) -> bool:
         """
         Check if invoice must be paid in full to be useful.
 
         Returns True if any line has a kit that requires full payment
-        (e.g., products, admission fee). Services can be paid partially.
+        (e.g., products, admission fee), or kit sku is Admission/Interview.
 
         Note: lines must be loaded for this to work correctly.
         """
         for line in self.lines:
-            if line.kit and line.kit.requires_full_payment:
+            if not line.kit:
+                continue
+            if line.kit.sku_code in self._REQUIRES_FULL_SKUS:
+                return True
+            if line.kit.requires_full_payment:
                 return True
         return False
 
