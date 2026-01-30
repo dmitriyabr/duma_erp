@@ -152,20 +152,7 @@ export const PaymentsTab = ({
         notes: paymentForm.notes.trim() || null,
       })
       await api.post(`/payments/${createResponse.data.data.id}/complete`)
-      const allocationResponse = await api.post<
-        ApiResponse<{
-          total_allocated: number
-          invoices_fully_paid: number
-          invoices_partially_paid: number
-          remaining_balance: number
-        }>
-      >('/payments/allocations/auto', { student_id: studentId })
-      const result = allocationResponse.data.data
-      onAllocationResult(
-        `Auto-allocated ${formatMoney(parseNumber(result.total_allocated))}. Remaining balance: ${formatMoney(
-          parseNumber(result.remaining_balance)
-        )}.`
-      )
+      onAllocationResult('Payment completed. Balance has been allocated to invoices.')
       setPaymentDialogOpen(false)
       await loadPayments()
       onBalanceChange()
