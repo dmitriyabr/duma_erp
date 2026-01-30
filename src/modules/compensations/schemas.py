@@ -93,3 +93,15 @@ class EmployeeBalanceResponse(BaseModel):
     balance: Decimal
 
     model_config = {"from_attributes": True}
+
+
+class EmployeeBalancesBatchRequest(BaseModel):
+    """Request for batch employee balances."""
+
+    employee_ids: list[int]
+
+
+class EmployeeBalancesBatchResponse(BaseModel):
+    """Response with list of employee balances."""
+
+    balances: list[EmployeeBalanceResponse]

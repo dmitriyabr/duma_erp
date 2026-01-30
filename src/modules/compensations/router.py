@@ -13,6 +13,8 @@ from src.modules.compensations.schemas import (
     CompensationPayoutCreate,
     CompensationPayoutResponse,
     EmployeeBalanceResponse,
+    EmployeeBalancesBatchRequest,
+    EmployeeBalancesBatchResponse,
     ExpenseClaimResponse,
 )
 from src.modules.compensations.service import ExpenseClaimService, PayoutService
@@ -171,6 +173,24 @@ async def get_payout(
     service = PayoutService(db)
     payout = await service.get_payout_by_id(payout_id)
     return ApiResponse(success=True, data=_payout_to_response(payout))
+
+
+@payouts_router.post(
+    "/employee-balances-batch",
+    response_model=ApiResponse[EmployeeBalancesBatchResponse],
+)
+async def get_employee_balances_batch(
+    payload: EmployeeBalancesBatchRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(*UserRole)),
+):
+    """Get balances for multiple employees in one request. USER role gets only own balance."""
+    employee_ids = payload.employee_ids
+    if current_user.role == UserRole.USER:
+        employee_ids = [current_user.id] if current_user.id in employee_ids else []
+    service = PayoutService(db)
+    balances = await service.get_employee_balances_batch(employee_ids)
+    return ApiResponse(success=True, data=EmployeeBalancesBatchResponse(balances=balances))
 
 
 @payouts_router.get(

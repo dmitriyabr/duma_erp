@@ -8,6 +8,7 @@ export interface ApiResponse<T> {
   message?: string
 }
 
+
 export interface PaginatedResponse<T> {
   items: T[]
   total: number

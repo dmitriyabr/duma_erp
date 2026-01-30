@@ -163,15 +163,20 @@ async def list_invoices(
     response_model=ApiResponse[OutstandingTotalsResponse],
 )
 async def get_outstanding_totals(
-    student_ids: list[int] = Query(..., description="Comma-separated student IDs"),
+    student_ids: str = Query(..., description="Comma-separated student IDs, e.g. 1,2,3"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
         require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.USER)
     ),
 ):
     """Get sum of amount_due per student for non-paid/cancelled/void invoices."""
+    id_list: list[int] = []
+    for part in student_ids.split(","):
+        part = part.strip()
+        if part and part.isdigit():
+            id_list.append(int(part))
     service = InvoiceService(db)
-    totals = await service.get_outstanding_totals(student_ids)
+    totals = await service.get_outstanding_totals(id_list)
     return ApiResponse(success=True, data=OutstandingTotalsResponse(totals=totals))
 
 

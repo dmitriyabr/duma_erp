@@ -155,7 +155,7 @@
 ### 5.6. Invoices
 - `POST /invoices`
 - `GET /invoices` — filters: `student_id`, `term_id`, `invoice_type`, `status`, `search`, `page`, `limit`
-- `GET /invoices/outstanding-totals` — query: `student_ids` (list of int). Ответ: `{ totals: [{ student_id, total_due }] }` — сумма amount_due по неоплаченным/не отменённым счетам по студентам.
+- `GET /invoices/outstanding-totals` — query: `student_ids` (строка, comma-separated, напр. `1,2,3`). Ответ: `{ totals: [{ student_id, total_due }] }` — сумма amount_due по неоплаченным/не отменённым счетам по студентам.
 - `GET /invoices/{invoice_id}`
 - `POST /invoices/{invoice_id}/lines`
 - `DELETE /invoices/{invoice_id}/lines/{line_id}`

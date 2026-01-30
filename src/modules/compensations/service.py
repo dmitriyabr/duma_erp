@@ -16,7 +16,11 @@ from src.modules.compensations.models import (
     ExpenseClaimStatus,
     PayoutAllocation,
 )
-from src.modules.compensations.schemas import CompensationPayoutCreate
+from src.modules.compensations.schemas import (
+    CompensationPayoutCreate,
+    EmployeeBalanceResponse,
+)
+from src.shared.utils.money import round_money
 from src.modules.procurement.models import ProcurementPayment
 
 
@@ -255,3 +259,50 @@ class PayoutService:
         await self.db.commit()
         await self.db.refresh(employee_balance)
         return employee_balance
+
+    async def get_employee_balances_batch(
+        self, employee_ids: list[int]
+    ) -> list[EmployeeBalanceResponse]:
+        """Return balances for multiple employees in one go (no DB persist, computed only)."""
+        if not employee_ids:
+            return []
+
+        approved_statuses = [
+            ExpenseClaimStatus.APPROVED.value,
+            ExpenseClaimStatus.PARTIALLY_PAID.value,
+            ExpenseClaimStatus.PAID.value,
+        ]
+        approved_result = await self.db.execute(
+            select(
+                ExpenseClaim.employee_id,
+                func.coalesce(func.sum(ExpenseClaim.amount), 0),
+            )
+            .where(
+                ExpenseClaim.employee_id.in_(employee_ids),
+                ExpenseClaim.status.in_(approved_statuses),
+            )
+            .group_by(ExpenseClaim.employee_id)
+        )
+        approved_by_emp = {row[0]: Decimal(str(row[1])) for row in approved_result.all()}
+
+        paid_result = await self.db.execute(
+            select(
+                CompensationPayout.employee_id,
+                func.coalesce(func.sum(CompensationPayout.amount), 0),
+            )
+            .where(CompensationPayout.employee_id.in_(employee_ids))
+            .group_by(CompensationPayout.employee_id)
+        )
+        paid_by_emp = {row[0]: Decimal(str(row[1])) for row in paid_result.all()}
+
+        return [
+            EmployeeBalanceResponse(
+                employee_id=eid,
+                total_approved=round_money(approved_by_emp.get(eid, Decimal("0"))),
+                total_paid=round_money(paid_by_emp.get(eid, Decimal("0"))),
+                balance=round_money(
+                    approved_by_emp.get(eid, Decimal("0")) - paid_by_emp.get(eid, Decimal("0"))
+                ),
+            )
+            for eid in employee_ids
+        ]
