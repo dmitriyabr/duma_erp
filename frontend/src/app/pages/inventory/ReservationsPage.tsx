@@ -37,15 +37,11 @@ interface ReservationItem {
 interface ReservationRow {
   id: number
   student_id: number
+  student_name?: string | null
   invoice_id: number
   status: string
   created_at: string
   items: ReservationItem[]
-}
-
-interface StudentOption {
-  id: number
-  full_name: string
 }
 
 interface IssueLine {
@@ -77,18 +73,11 @@ export const ReservationsPage = () => {
   }, [page, limit])
 
   const { data: reservationsData, loading, error, refetch } = useApi<PaginatedResponse<ReservationRow>>(reservationsUrl)
-  const { data: studentsData } = useApi<PaginatedResponse<StudentOption>>('/students?page=1&limit=500')
   const { execute: issueReservation, loading: issuing, error: issueError, reset: resetIssueMutation } = useApiMutation()
   const { execute: cancelReservation, loading: cancelling, error: cancelError } = useApiMutation()
 
   const rows = reservationsData?.items || []
   const total = reservationsData?.total || 0
-  const students = useMemo(() => {
-    return (studentsData?.items || []).reduce<Record<number, string>>((acc, student) => {
-      acc[student.id] = student.full_name
-      return acc
-    }, {})
-  }, [studentsData])
 
   useEffect(() => {
     setPage(0)
@@ -205,7 +194,7 @@ export const ReservationsPage = () => {
             .map((row) => (
             <TableRow key={row.id}>
               <TableCell>{row.id}</TableCell>
-              <TableCell>{students[row.student_id] ?? `Student #${row.student_id}`}</TableCell>
+              <TableCell>{row.student_name ?? `Student #${row.student_id}`}</TableCell>
               <TableCell>{row.status}</TableCell>
               <TableCell>{row.items.length}</TableCell>
               <TableCell>{formatDateTime(row.created_at)}</TableCell>
@@ -233,7 +222,7 @@ export const ReservationsPage = () => {
           ))}
           {!rows.length && !loading ? (
             <TableRow>
-              <TableCell colSpan={5} align="center">
+              <TableCell colSpan={6} align="center">
                 No reservations found
               </TableCell>
             </TableRow>
