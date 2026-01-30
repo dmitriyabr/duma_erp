@@ -70,12 +70,6 @@ interface StudentBalance {
   available_balance: number
 }
 
-interface InvoiceSummary {
-  id: number
-  status: string
-  amount_due: number
-}
-
 type DiscountValueType = 'fixed' | 'percentage'
 
 const emptyForm = {
@@ -166,55 +160,38 @@ export const StudentsPage = () => {
       setDebtMap({})
       return
     }
+    const ids = students.map((s) => s.id)
     try {
-      const balanceResults = await Promise.all(
-        students.map(async (student) => {
-          const response = await api.get<ApiResponse<StudentBalance>>(
-            `/payments/students/${student.id}/balance`
-          )
-          return [student.id, parseNumber(response.data.data.available_balance)] as const
-        })
+      const [balanceRes, totalsRes] = await Promise.all([
+        api.post<ApiResponse<{ balances: StudentBalance[] }>>('/payments/students/balances-batch', {
+          student_ids: ids,
+        }),
+        api.get<ApiResponse<{ totals: Array<{ student_id: number; total_due: number }> }>>(
+          '/invoices/outstanding-totals',
+          { params: { student_ids: ids } }
+        ),
+      ])
+      const balances = (balanceRes.data.data.balances || []).reduce<Record<number, number>>(
+        (acc, b) => {
+          acc[b.student_id] = parseNumber(b.available_balance)
+          return acc
+        },
+        {}
       )
-      const balances = balanceResults.reduce<Record<number, number>>((acc, [id, value]) => {
-        acc[id] = value
-        return acc
-      }, {})
       setBalanceMap(balances)
-    } catch (err) {
-      // Ignore 401 - handled by interceptor
-      if (axios.isAxiosError(err) && err.response?.status === 401) {
-        return
-      }
-      console.error('Failed to load balances:', err)
-    }
-
-    try {
-      const debtResults = await Promise.all(
-        students.map(async (student) => {
-          const response = await api.get<ApiResponse<PaginatedResponse<InvoiceSummary>>>('/invoices', {
-            params: { student_id: student.id, limit: 500, page: 1 },
-          })
-          const totalDue = response.data.data.items.reduce((sum, invoice) => {
-            const status = invoice.status?.toLowerCase()
-            if (status === 'paid' || status === 'cancelled' || status === 'void') {
-              return sum
-            }
-            return sum + parseNumber(invoice.amount_due)
-          }, 0)
-          return [student.id, totalDue] as const
-        })
+      const debts = (totalsRes.data.data.totals || []).reduce<Record<number, number>>(
+        (acc, t) => {
+          acc[t.student_id] = parseNumber(t.total_due)
+          return acc
+        },
+        {}
       )
-      const debts = debtResults.reduce<Record<number, number>>((acc, [id, value]) => {
-        acc[id] = value
-        return acc
-      }, {})
       setDebtMap(debts)
     } catch (err) {
-      // Ignore 401 - handled by interceptor
       if (axios.isAxiosError(err) && err.response?.status === 401) {
         return
       }
-      console.error('Failed to load outstanding balances:', err)
+      console.error('Failed to load balances/debts:', err)
     }
   }
 
