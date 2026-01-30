@@ -241,7 +241,7 @@ export const SchoolPage = () => {
             School info (for invoices & receipts)
           </Typography>
           <Grid container spacing={2}>
-            <Grid item xs={12} md={6}>
+            <Grid size={{ xs: 12, md: 6 }}>
               <TextField
                 fullWidth
                 label="School name"
@@ -249,7 +249,7 @@ export const SchoolPage = () => {
                 onChange={handleChange('school_name')}
               />
             </Grid>
-            <Grid item xs={12} md={6}>
+            <Grid size={{ xs: 12, md: 6 }}>
               <TextField
                 fullWidth
                 label="Phone"
@@ -257,7 +257,7 @@ export const SchoolPage = () => {
                 onChange={handleChange('school_phone')}
               />
             </Grid>
-            <Grid item xs={12}>
+            <Grid size={12}>
               <TextField
                 fullWidth
                 label="Address"
@@ -265,7 +265,7 @@ export const SchoolPage = () => {
                 onChange={handleChange('school_address')}
               />
             </Grid>
-            <Grid item xs={12} md={6}>
+            <Grid size={{ xs: 12, md: 6 }}>
               <TextField
                 fullWidth
                 label="Email"
@@ -282,7 +282,7 @@ export const SchoolPage = () => {
             M-Pesa
           </Typography>
           <Grid container spacing={2}>
-            <Grid item xs={12}>
+            <Grid size={12}>
               <FormControlLabel
                 control={
                   <Checkbox
@@ -293,7 +293,7 @@ export const SchoolPage = () => {
                 label="Use M-Pesa on invoices"
               />
             </Grid>
-            <Grid item xs={12} md={6}>
+            <Grid size={{ xs: 12, md: 6 }}>
               <TextField
                 fullWidth
                 label="Paybill"
@@ -313,7 +313,7 @@ export const SchoolPage = () => {
             Bank transfer
           </Typography>
           <Grid container spacing={2}>
-            <Grid item xs={12}>
+            <Grid size={12}>
               <FormControlLabel
                 control={
                   <Checkbox
@@ -324,7 +324,7 @@ export const SchoolPage = () => {
                 label="Use bank transfer on invoices"
               />
             </Grid>
-            <Grid item xs={12} md={6}>
+            <Grid size={{ xs: 12, md: 6 }}>
               <TextField
                 fullWidth
                 label="Bank name"
@@ -332,7 +332,7 @@ export const SchoolPage = () => {
                 onChange={handleChange('bank_name')}
               />
             </Grid>
-            <Grid item xs={12} md={6}>
+            <Grid size={{ xs: 12, md: 6 }}>
               <TextField
                 fullWidth
                 label="Account name"
@@ -340,7 +340,7 @@ export const SchoolPage = () => {
                 onChange={handleChange('bank_account_name')}
               />
             </Grid>
-            <Grid item xs={12} md={6}>
+            <Grid size={{ xs: 12, md: 6 }}>
               <TextField
                 fullWidth
                 label="Account number"
@@ -348,7 +348,7 @@ export const SchoolPage = () => {
                 onChange={handleChange('bank_account_number')}
               />
             </Grid>
-            <Grid item xs={12} md={6}>
+            <Grid size={{ xs: 12, md: 6 }}>
               <TextField
                 fullWidth
                 label="Branch"
@@ -356,7 +356,7 @@ export const SchoolPage = () => {
                 onChange={handleChange('bank_branch')}
               />
             </Grid>
-            <Grid item xs={12} md={6}>
+            <Grid size={{ xs: 12, md: 6 }}>
               <TextField
                 fullWidth
                 label="Swift code"
@@ -372,7 +372,7 @@ export const SchoolPage = () => {
             Logo & stamp (for PDF)
           </Typography>
           <Grid container spacing={3}>
-            <Grid item xs={12} md={6}>
+            <Grid size={{ xs: 12, md: 6 }}>
               <Typography variant="body2" color="text.secondary" gutterBottom>
                 Logo (invoices & receipts)
               </Typography>
@@ -394,7 +394,7 @@ export const SchoolPage = () => {
                 <input type="file" hidden accept="image/*" onChange={handleLogoUpload} />
               </Button>
             </Grid>
-            <Grid item xs={12} md={6}>
+            <Grid size={{ xs: 12, md: 6 }}>
               <Typography variant="body2" color="text.secondary" gutterBottom>
                 Stamp (receipts)
               </Typography>
