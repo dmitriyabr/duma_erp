@@ -4,6 +4,18 @@
 
 ---
 
+## Прогресс (ветка feature/frontend-refactoring)
+
+- **1.1 Студенты:** сделано — batch-эндпоинты `POST /payments/students/balances-batch` и `GET /invoices/outstanding-totals?student_ids=…`; StudentsPage использует их (1+2N → 3 запроса).
+- **1.3 Резервации:** сделано — в `ReservationResponse` добавлено поле `student_name`; ReservationsPage убран запрос `/students?limit=500`.
+- **4. Поиск:** сделано — хук `useDebouncedValue(400ms)` на StudentsPage, UsersPage, StockPage.
+- **5.1 Типы:** сделано — общие `ApiResponse` и `PaginatedResponse` в `frontend/src/app/types/api.ts`.
+- **8.1 Мелкое:** сделано — удалён `ProcurementPaymentsListPage.tsx.bak`.
+
+Остаётся: 1.2 (Payouts batch), 1.4 (форма выдачи), 2.x, 3, 5.2–5.3, 6, 7, 8.2–8.5.
+
+---
+
 ## 1. Критичные проблемы производительности (N+1 и лавина запросов)
 
 ### 1.1 Страница студентов (StudentsPage) — запрос на каждого студента

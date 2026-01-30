@@ -155,6 +155,7 @@
 ### 5.6. Invoices
 - `POST /invoices`
 - `GET /invoices` — filters: `student_id`, `term_id`, `invoice_type`, `status`, `search`, `page`, `limit`
+- `GET /invoices/outstanding-totals` — query: `student_ids` (list of int). Ответ: `{ totals: [{ student_id, total_due }] }` — сумма amount_due по неоплаченным/не отменённым счетам по студентам.
 - `GET /invoices/{invoice_id}`
 - `POST /invoices/{invoice_id}/lines`
 - `DELETE /invoices/{invoice_id}/lines/{line_id}`
@@ -190,6 +191,7 @@
 - `PATCH /payments/{payment_id}`
 - `POST /payments/{payment_id}/complete`
 - `POST /payments/{payment_id}/cancel`
+- `POST /payments/students/balances-batch` — body: `{ student_ids: number[] }`. Ответ: `{ balances: StudentBalance[] }` — кредитные балансы по списку студентов (один запрос вместо N).
 - `GET /payments/students/{student_id}/balance`
 - `GET /payments/students/{student_id}/statement` — `date_from`, `date_to`
 - `POST /payments/allocations/auto`
