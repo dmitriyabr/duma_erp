@@ -16,7 +16,7 @@ from src.core.attachments.models import Attachment
 from src.core.school_settings.models import SchoolSettings
 from src.core.audit.models import AuditLog
 from src.core.documents.models import DocumentSequence
-from src.modules.terms.models import Term, PriceSetting, TransportZone, TransportPricing, FixedFee
+from src.modules.terms.models import Term, PriceSetting, TransportZone, TransportPricing
 from src.modules.items.models import Category, Item, ItemPriceHistory, Kit, KitItem, KitPriceHistory
 from src.modules.inventory.models import Stock, StockMovement, Issuance, IssuanceItem
 from src.modules.students.models import Grade, Student
