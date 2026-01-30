@@ -66,3 +66,14 @@ class DuplicateError(AppException):
     def __init__(self, resource: str, field: str, value: Any):
         message = f"{resource} with {field}={value} already exists"
         super().__init__(message=message, status_code=409, details={"field": field, "value": value})
+
+
+class PdfGenerationUnavailableError(AppException):
+    """WeasyPrint/system libraries not available (e.g. pango on macOS)."""
+
+    def __init__(self, message: str | None = None):
+        msg = message or (
+            "PDF generation is not available on this system. "
+            "On macOS install: brew install pango glib."
+        )
+        super().__init__(message=msg, status_code=503)

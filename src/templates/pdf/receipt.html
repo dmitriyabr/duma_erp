@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Receipt {{ payment.receipt_number }}</title>
+    <style>
+        @page { size: A5; margin: 12mm 10mm; }
+        body { font-family: Arial, sans-serif; font-size: 9pt; line-height: 1.35; color: #000; }
+        .header { display: flex; justify-content: space-between; margin-bottom: 10px; border-bottom: 2px solid #059669; padding-bottom: 6px; }
+        .logo { width: 100px; max-height: 55px; object-fit: contain; }
+        .receipt-info { text-align: right; }
+        .receipt-title { font-size: 16pt; font-weight: bold; color: #059669; }
+        .section { margin: 8px 0; padding: 6px 8px; border: 1px solid #E5E7EB; }
+        .received-from { display: flex; gap: 15px; }
+        .received-from-col { flex: 1; }
+        .amount-received { font-size: 16pt; font-weight: bold; color: #059669; text-align: center; margin: 12px 0; }
+        .amount-words { text-align: center; font-style: italic; margin-bottom: 8px; font-size: 8pt; }
+        .amount { text-align: right; font-family: 'Courier New', monospace; }
+        .stamp-wrap { text-align: right; margin-top: 10px; }
+        .stamp { width: 90px; opacity: 0.8; }
+        .footer { margin-top: 12px; font-size: 8pt; color: #6B7280; border-top: 1px solid #E5E7EB; padding-top: 8px; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            {% if logo_data_uri %}<img src="{{ logo_data_uri }}" alt="School Logo" class="logo">{% endif %}
+            <div style="margin-top: 10px;">
+                {% if school_info.name %}<strong>{{ school_info.name }}</strong><br>{% endif %}
+                {% if school_info.address %}{{ school_info.address }}<br>{% endif %}
+                {% if school_info.phone %}Tel: {{ school_info.phone }}{% endif %}
+            </div>
+        </div>
+        <div class="receipt-info">
+            <div class="receipt-title">OFFICIAL RECEIPT</div>
+            <div style="font-size: 12pt; font-weight: bold;">#{{ payment.receipt_number }}</div>
+            <div>Date: {{ payment.created_at.strftime('%d %b %Y') }}</div>
+            <div>Time: {{ payment.created_at.strftime('%H:%M') }}</div>
+        </div>
+    </div>
+
+    <div class="section">
+        <strong>RECEIVED FROM:</strong><br>
+        <div class="received-from">
+            <div class="received-from-col">
+                Student: {{ payment.student.full_name }}<br>
+                Admission #: {{ payment.student.student_number }}
+            </div>
+            <div class="received-from-col">
+                {% if payment.student.grade %}Class: {{ payment.student.grade }}<br>{% endif %}
+                Parent: {{ payment.student.guardian_name }}<br>
+                Phone: {{ payment.student.guardian_phone }}
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <strong>PAYMENT DETAILS:</strong><br>
+        Payment Method: {{ payment.payment_method | upper }}<br>
+        {% if payment.reference %}Transaction ID: {{ payment.reference }}<br>{% endif %}
+    </div>
+
+    <div class="section" style="background-color: #F0FDF4; border: 2px solid #059669;">
+        <div style="text-align: center;"><strong style="font-size: 12pt;">AMOUNT RECEIVED</strong></div>
+        <div class="amount-received">{{ "{:,.0f}".format(payment.amount) }} KES</div>
+        <div class="amount-words">{{ amount_in_words }}</div>
+    </div>
+
+    {% if stamp_data_uri %}
+    <div class="stamp-wrap">
+        <img src="{{ stamp_data_uri }}" alt="School Stamp" class="stamp">
+    </div>
+    {% endif %}
+
+    <div class="footer">
+        This is a computer-generated receipt and is valid without signature if stamped.<br>
+        {% if school_info.email %}For queries, contact: {{ school_info.email }}<br>{% endif %}
+        <br>
+        Page 1 of 1 | Generated: {{ generated_at.strftime('%d %b %Y %H:%M') if generated_at else '' }}
+    </div>
+</body>
+</html>

@@ -608,10 +608,14 @@
 - [x] Подтверждения к платежам: студенческие платежи (reference или confirmation_attachment_id), procurement (proof_text или proof_attachment_id), payouts — то же. Просмотр: «View confirmation file».
 
 ### 10.2 Генерация PDF
-- [ ] **[ОБСУДИТЬ]** Шаблоны документов, логотип, реквизиты школы
-- [ ] PDF счёта
-- [ ] PDF квитанции
-- [ ] Тесты генерации
+> Решения: Реквизиты школы, логотип и штамп — в одном месте: Settings → School (таблица school_settings). В UI: галочки «Use M-Pesa» / «Use bank transfer» — показывать в PDF счёта только выбранные способы оплаты. В разделе M-Pesa поле номера называем Paybill (не Business number).
+
+- [x] Настройки школы в UI (реквизиты, логотип, штамп) — одна страница Settings → School, хранение в school_settings
+- [x] Тесты school-settings (API GET/PUT, сервис get/update, роли Admin/SuperAdmin vs User/Accountant)
+- [ ] **[ОБСУДИТЬ]** Шаблоны документов (остальное по DOCUMENT_GENERATION.md)
+- [x] PDF счёта (WeasyPrint + Jinja2, GET /invoices/{id}/pdf, данные из school_settings)
+- [x] PDF квитанции (GET /payments/{id}/receipt/pdf, только completed)
+- [x] Тесты генерации (tests/core/test_pdf.py — эндпоинты с моком WeasyPrint)
 
 ---
 

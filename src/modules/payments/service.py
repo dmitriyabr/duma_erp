@@ -86,11 +86,14 @@ class PaymentService:
         return await self.get_payment_by_id(payment.id)
 
     async def get_payment_by_id(self, payment_id: int) -> Payment:
-        """Get payment by ID."""
+        """Get payment by ID with student (grade) and received_by loaded."""
         result = await self.db.execute(
             select(Payment)
             .where(Payment.id == payment_id)
-            .options(selectinload(Payment.student))
+            .options(
+                selectinload(Payment.student).selectinload(Student.grade),
+                selectinload(Payment.received_by),
+            )
         )
         payment = result.scalar_one_or_none()
         if not payment:

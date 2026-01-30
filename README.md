@@ -165,7 +165,8 @@ claude_duma_erp/
 
 - Фазы 0-7: Backend готов (160 тестов)
 - Фаза 9: UI частично готов (Students, Inventory, Settings)
-- Фазы 8, 10-11: Не начаты (Отчёты, PDF, CRM)
+- Фаза 10.2: PDF счёта и квитанции готовы (GET /invoices/{id}/pdf, GET /payments/{id}/receipt/pdf)
+- Фазы 8, 11: Не начаты (Отчёты, CRM)
 
 ## Команды
 
@@ -196,6 +197,13 @@ uv run alembic upgrade head
 # Откатить миграцию
 uv run alembic downgrade -1
 ```
+
+**PDF (счета и квитанции):** Генерация через WeasyPrint. Python-зависимости (weasyprint, jinja2, num2words) ставятся через `uv sync`. На macOS дополнительно нужны системные библиотеки: `brew install pango glib`. После установки при запуске бэкенда задайте путь к ним, иначе WeasyPrint не найдёт библиотеки:
+```bash
+export DYLD_LIBRARY_PATH=/opt/homebrew/opt/glib/lib:/opt/homebrew/opt/pango/lib:/opt/homebrew/lib
+uv run uvicorn src.main:app --reload
+```
+В Docker и на Linux зависимости уже добавлены в Dockerfile. Тесты PDF работают без WeasyPrint (мок).
 
 ### Frontend
 

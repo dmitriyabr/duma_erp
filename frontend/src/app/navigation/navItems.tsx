@@ -105,6 +105,7 @@ export const navItems: NavItem[] = [
     children: [
       { label: 'Users', path: '/settings/users', roles: ['SuperAdmin'] },
       { label: 'Grades', path: '/settings/grades', roles: adminRoles },
+      { label: 'School', path: '/settings/school', roles: adminRoles },
       { label: 'Transport Zones', path: '/settings/transport-zones', roles: ['SuperAdmin'] },
       { label: 'Payment Purposes', path: '/settings/payment-purposes', roles: ['SuperAdmin'] },
     ],

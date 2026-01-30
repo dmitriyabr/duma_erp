@@ -30,6 +30,39 @@ class Settings(BaseSettings):
     s3_bucket: str | None = None
     s3_region: str = "auto"
 
+    # School & payment details (for PDF: invoices, receipts). Set in .env — one block.
+    school_name: str = "Your School Name"
+    school_address: str = ""
+    school_phone: str = ""
+    school_email: str = ""
+    mpesa_business_number: str = ""
+    bank_name: str = ""
+    bank_account_name: str = ""
+    bank_account_number: str = ""
+    bank_branch: str = ""
+    bank_swift_code: str = ""
+
+    @property
+    def school_info(self) -> dict[str, str]:
+        """One dict for PDF templates: school name, address, phone, email."""
+        return {
+            "name": self.school_name,
+            "address": self.school_address,
+            "phone": self.school_phone,
+            "email": self.school_email,
+        }
+
+    @property
+    def bank_info(self) -> dict[str, str]:
+        """One dict for PDF invoice: bank details."""
+        return {
+            "bank_name": self.bank_name,
+            "account_name": self.bank_account_name,
+            "account_number": self.bank_account_number,
+            "branch": self.bank_branch,
+            "swift_code": self.bank_swift_code,
+        }
+
     @property
     def use_s3(self) -> bool:
         """True when S3/R2 is configured (prod)."""

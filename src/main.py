@@ -1,5 +1,13 @@
+"""School ERP FastAPI application."""
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+# macOS: so WeasyPrint finds pango/glib when generating PDFs (only if not already set)
+if os.name == "posix" and os.environ.get("DYLD_LIBRARY_PATH") in (None, ""):
+    _brew_lib = "/opt/homebrew/opt/glib/lib:/opt/homebrew/opt/pango/lib:/opt/homebrew/lib"
+    if os.path.exists("/opt/homebrew/opt/glib/lib"):
+        os.environ["DYLD_LIBRARY_PATH"] = _brew_lib
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -9,6 +17,7 @@ from fastapi.responses import FileResponse
 
 from src.core.auth.router import router as auth_router
 from src.core.attachments.router import router as attachments_router
+from src.core.school_settings.router import router as school_settings_router
 from src.modules.users.router import router as users_router
 from src.modules.terms.router import router as terms_router
 from src.modules.items.router import router as items_router
@@ -73,6 +82,7 @@ def create_app() -> FastAPI:
     # Routers
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(attachments_router, prefix="/api/v1")
+    app.include_router(school_settings_router, prefix="/api/v1")
     app.include_router(users_router, prefix="/api/v1")
     app.include_router(terms_router, prefix="/api/v1")
     app.include_router(items_router, prefix="/api/v1")

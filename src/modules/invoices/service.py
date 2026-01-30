@@ -465,13 +465,13 @@ class InvoiceService:
         return invoice
 
     async def get_invoice_by_id(self, invoice_id: int) -> Invoice:
-        """Get invoice by ID with lines loaded."""
+        """Get invoice by ID with lines, student (with grade), term loaded."""
         result = await self.db.execute(
             select(Invoice)
             .where(Invoice.id == invoice_id)
             .options(
                 selectinload(Invoice.lines),
-                selectinload(Invoice.student),
+                selectinload(Invoice.student).selectinload(Student.grade),
                 selectinload(Invoice.term),
             )
         )

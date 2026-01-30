@@ -2,10 +2,14 @@
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.attachments.service import get_attachment, get_attachment_content
 from src.core.auth.dependencies import require_roles
+from src.core.pdf import build_receipt_context, image_to_data_uri, pdf_service
+from src.core.school_settings.service import get_school_settings
 from src.core.auth.models import User, UserRole
 from src.core.database.session import get_db
 from src.modules.payments.models import PaymentMethod, PaymentStatus
@@ -105,6 +109,55 @@ async def get_payment(
     service = PaymentService(db)
     payment = await service.get_payment_by_id(payment_id)
     return ApiResponse(data=PaymentResponse.model_validate(payment))
+
+
+@router.get("/{payment_id}/receipt/pdf")
+async def download_receipt_pdf(
+    payment_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.USER)
+    ),
+):
+    """Download payment receipt as PDF (completed payments only)."""
+    service = PaymentService(db)
+    payment = await service.get_payment_by_id(payment_id)
+    if payment.status != "completed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Receipt is only available for completed payments",
+        )
+    school_settings = await get_school_settings(db)
+    logo_data_uri = None
+    stamp_data_uri = None
+    if school_settings.logo_attachment_id:
+        att = await get_attachment(db, school_settings.logo_attachment_id)
+        if att:
+            try:
+                content = await get_attachment_content(att)
+                logo_data_uri = image_to_data_uri(content, att.content_type)
+            except Exception:
+                pass
+    if school_settings.stamp_attachment_id:
+        att = await get_attachment(db, school_settings.stamp_attachment_id)
+        if att:
+            try:
+                content = await get_attachment_content(att)
+                stamp_data_uri = image_to_data_uri(content, att.content_type)
+            except Exception:
+                pass
+
+    context = build_receipt_context(
+        payment, school_settings,
+        logo_data_uri, stamp_data_uri,
+    )
+    pdf_bytes = pdf_service.generate_receipt_pdf(context)
+    filename = f"receipt_{payment.receipt_number or payment.payment_number}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.patch(

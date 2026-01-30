@@ -15,6 +15,7 @@ import { TermsListPage } from './pages/terms/TermsListPage'
 import { TermFormPage } from './pages/terms/TermFormPage'
 import { TermDetailPage } from './pages/terms/TermDetailPage'
 import { PaymentPurposesPage } from './pages/settings/PaymentPurposesPage'
+import { SchoolPage } from './pages/settings/SchoolPage'
 import { PurchaseOrdersListPage } from './pages/procurement/PurchaseOrdersListPage'
 import { PurchaseOrderFormPage } from './pages/procurement/PurchaseOrderFormPage'
 import { PurchaseOrderDetailPage } from './pages/procurement/PurchaseOrderDetailPage'
@@ -113,6 +114,7 @@ export const AppRoutes = () => {
           <Route path="settings" element={<PlaceholderPage title="Settings" />} />
           <Route path="settings/users" element={<UsersPage />} />
           <Route path="settings/grades" element={<GradesPage />} />
+          <Route path="settings/school" element={<SchoolPage />} />
           <Route path="settings/transport-zones" element={<TransportZonesPage />} />
           <Route path="settings/payment-purposes" element={<PaymentPurposesPage />} />
         </Route>

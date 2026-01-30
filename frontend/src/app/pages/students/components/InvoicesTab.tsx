@@ -20,6 +20,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf'
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../../auth/AuthContext'
@@ -74,6 +75,7 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
   const [discountLineId, setDiscountLineId] = useState<number | null>(null)
   const [items, setItems] = useState<ItemOption[]>([])
   const [kits, setKits] = useState<KitOption[]>([])
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
 
   const loadInvoices = useCallback(async () => {
     try {
@@ -322,6 +324,32 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
     }
   }
 
+  const downloadInvoicePdf = async () => {
+    if (!selectedInvoice) return
+    setDownloadingPdf(true)
+    try {
+      const response = await api.get(`/invoices/${selectedInvoice.id}/pdf`, {
+        responseType: 'blob',
+      })
+      const url = URL.createObjectURL(response.data as Blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `invoice_${selectedInvoice.invoice_number}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      onError('Failed to download invoice PDF.')
+    } finally {
+      setDownloadingPdf(false)
+    }
+  }
+
+  const canDownloadInvoicePdf =
+    selectedInvoice &&
+    selectedInvoice.status !== 'draft' &&
+    selectedInvoice.status !== 'cancelled' &&
+    selectedInvoice.status !== 'void'
+
   return (
     <Box>
       {termInvoiceMessage ? (
@@ -463,6 +491,15 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
           </Table>
         </DialogContent>
         <DialogActions>
+          {canDownloadInvoicePdf ? (
+            <Button
+              startIcon={<PictureAsPdfIcon />}
+              onClick={downloadInvoicePdf}
+              disabled={downloadingPdf}
+            >
+              {downloadingPdf ? 'Downloading…' : 'Download PDF'}
+            </Button>
+          ) : null}
           {selectedInvoice?.status === 'draft' ? <Button onClick={openAddLine}>Add line</Button> : null}
           {selectedInvoice?.status === 'draft' ? <Button onClick={openIssueInvoice}>Issue</Button> : null}
           {selectedInvoice && selectedInvoice.status !== 'paid' ? (

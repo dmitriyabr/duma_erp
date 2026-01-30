@@ -6,6 +6,7 @@ from src.core.exceptions.base import (
     AuthorizationError,
     InsufficientStockError,
     DuplicateError,
+    PdfGenerationUnavailableError,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "AuthorizationError",
     "InsufficientStockError",
     "DuplicateError",
+    "PdfGenerationUnavailableError",
 ]

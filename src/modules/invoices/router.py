@@ -4,9 +4,13 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query, status
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.attachments.service import get_attachment, get_attachment_content
 from src.core.auth.dependencies import require_roles
+from src.core.pdf import build_invoice_context, image_to_data_uri, pdf_service
+from src.core.school_settings.service import get_school_settings
 from src.core.auth.models import User, UserRole
 from src.core.database.session import get_db
 from src.modules.invoices.models import InvoiceStatus, InvoiceType
@@ -170,6 +174,40 @@ async def get_invoice(
     return ApiResponse(
         success=True,
         data=_invoice_to_response(invoice),
+    )
+
+
+@router.get("/{invoice_id}/pdf")
+async def download_invoice_pdf(
+    invoice_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.USER)
+    ),
+):
+    """Download invoice as PDF."""
+    service = InvoiceService(db)
+    invoice = await service.get_invoice_by_id(invoice_id)
+    school_settings = await get_school_settings(db)
+
+    logo_data_uri = None
+    if school_settings.logo_attachment_id:
+        attachment = await get_attachment(db, school_settings.logo_attachment_id)
+        if attachment:
+            try:
+                content = await get_attachment_content(attachment)
+                logo_data_uri = image_to_data_uri(content, attachment.content_type)
+            except Exception:
+                pass
+
+    context = build_invoice_context(invoice, school_settings, logo_data_uri)
+    pdf_bytes = pdf_service.generate_invoice_pdf(context)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="invoice_{invoice.invoice_number}.pdf"'
+        },
     )
 
 

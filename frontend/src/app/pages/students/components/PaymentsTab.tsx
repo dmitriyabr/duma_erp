@@ -17,6 +17,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf'
 import React, { useEffect, useState } from 'react'
 import { useAuth } from '../../../auth/AuthContext'
 import { api } from '../../../services/api'
@@ -69,6 +70,7 @@ export const PaymentsTab = ({
   })
   const [invoices, setInvoices] = useState<InvoiceSummary[]>([])
   const [allocationLines, setAllocationLines] = useState<InvoiceLine[]>([])
+  const [downloadingReceiptId, setDownloadingReceiptId] = useState<number | null>(null)
 
   const loadPayments = async () => {
     try {
@@ -232,6 +234,26 @@ export const PaymentsTab = ({
     return status !== 'paid' && status !== 'cancelled' && status !== 'void'
   })
 
+  const downloadReceiptPdf = async (payment: PaymentResponse) => {
+    if (payment.status !== 'completed') return
+    setDownloadingReceiptId(payment.id)
+    try {
+      const response = await api.get(`/payments/${payment.id}/receipt/pdf`, {
+        responseType: 'blob',
+      })
+      const url = URL.createObjectURL(response.data as Blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `receipt_${payment.receipt_number ?? payment.payment_number}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      onError('Failed to download receipt PDF.')
+    } finally {
+      setDownloadingReceiptId(null)
+    }
+  }
+
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
@@ -270,6 +292,16 @@ export const PaymentsTab = ({
                 <Button size="small" onClick={() => setSelectedPayment(payment)}>
                   View
                 </Button>
+                {payment.status === 'completed' ? (
+                  <Button
+                    size="small"
+                    startIcon={<PictureAsPdfIcon />}
+                    onClick={() => downloadReceiptPdf(payment)}
+                    disabled={downloadingReceiptId === payment.id}
+                  >
+                    {downloadingReceiptId === payment.id ? '…' : 'Receipt PDF'}
+                  </Button>
+                ) : null}
                 {user?.role === 'SuperAdmin' && payment.status === 'pending' ? (
                   <Button size="small" onClick={() => cancelPayment(payment.id)}>
                     Cancel
@@ -393,6 +425,17 @@ export const PaymentsTab = ({
               onClick={() => openAttachmentInNewTab(selectedPayment!.confirmation_attachment_id!)}
             >
               View confirmation file
+            </Button>
+          ) : null}
+          {selectedPayment?.status === 'completed' ? (
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<PictureAsPdfIcon />}
+              onClick={() => selectedPayment && downloadReceiptPdf(selectedPayment)}
+              disabled={downloadingReceiptId === selectedPayment?.id}
+            >
+              {downloadingReceiptId === selectedPayment?.id ? 'Downloading…' : 'Download receipt PDF'}
             </Button>
           ) : null}
           <Typography variant="body2">Notes: {selectedPayment?.notes ?? '—'}</Typography>

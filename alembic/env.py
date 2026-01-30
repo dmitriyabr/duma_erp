@@ -13,6 +13,7 @@ from src.core.database.base import Base
 # Import all models here so they are registered with Base.metadata
 from src.core.auth.models import User
 from src.core.attachments.models import Attachment
+from src.core.school_settings.models import SchoolSettings
 from src.core.audit.models import AuditLog
 from src.core.documents.models import DocumentSequence
 from src.modules.terms.models import Term, PriceSetting, TransportZone, TransportPricing, FixedFee

@@ -9,9 +9,15 @@ RUN npm run build
 # Backend runtime
 FROM python:3.11-slim
 
-# Install system dependencies
+# Install system dependencies (postgresql-client + WeasyPrint PDF)
 RUN apt-get update && apt-get install -y \
     postgresql-client \
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
+    libharfbuzz0b \
+    libffi-dev \
+    libjpeg-dev \
+    libopenjp2-7 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv globally
@@ -34,7 +40,7 @@ USER appuser
 # Install Python dependencies as appuser
 RUN uv sync --frozen --no-dev
 
-# Copy application code
+# Copy application code and PDF templates
 COPY --chown=appuser:appuser src/ ./src/
 COPY --chown=appuser:appuser alembic/ ./alembic/
 COPY --chown=appuser:appuser alembic.ini ./
