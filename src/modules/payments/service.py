@@ -207,6 +207,11 @@ class PaymentService:
         )
 
         await self.db.commit()
+        # Auto-allocate new balance to invoices (backend trigger)
+        await self.allocate_auto(
+            AutoAllocateRequest(student_id=payment.student_id),
+            completed_by_id,
+        )
         return await self.get_payment_by_id(payment_id)
 
     async def cancel_payment(
@@ -346,15 +351,11 @@ class PaymentService:
         """
         Auto-allocate credit to invoices.
 
-        Algorithm prioritizes full payment of invoices with products/special fees:
-        1. Get all unpaid invoices with their lines (to check requires_full_payment)
-        2. Split into two groups:
-           - requires_full: invoices with products or admission fee (must be paid in full)
-           - can_be_partial: regular service invoices (can be paid partially)
-        3. First, process requires_full invoices (smallest first):
-           - Only pay if we can pay in FULL (skip if not enough balance)
-        4. Then, process can_be_partial invoices (smallest first):
-           - Pay fully if possible, otherwise partial
+        Algorithm:
+        1. requires_full invoices first (by amount_due asc) — can be paid partially
+           (uniform/fulfillment won't trigger until full; we just prioritize these).
+        2. partial_ok invoices — distribute remaining balance proportionally by
+           each invoice's amount_due (amount_i = remaining * (amount_due_i / total_due)).
         """
         # Validate student
         await self._get_student(data.student_id)
@@ -435,34 +436,51 @@ class PaymentService:
                 created_at=allocation.created_at,
             )
 
-        # Step 1: Process requires_full invoices (only pay if can pay in full)
+        # Step 1: Process requires_full invoices (allow partial; priority order only)
         for invoice in requires_full_invoices:
             if remaining <= 0:
                 break
-
-            # Only allocate if we can pay in full
-            if invoice.amount_due <= remaining:
-                alloc_response = await create_allocation(invoice, invoice.amount_due)
-                allocations.append(alloc_response)
-                fully_paid += 1
-                remaining -= invoice.amount_due
-            # Skip if can't pay in full - don't partially pay products/admission
-
-        # Step 2: Process partial_ok invoices (can pay partially)
-        for invoice in partial_ok_invoices:
-            if remaining <= 0:
-                break
-
             amount_to_allocate = min(remaining, invoice.amount_due)
             alloc_response = await create_allocation(invoice, amount_to_allocate)
             allocations.append(alloc_response)
-
             if amount_to_allocate >= invoice.amount_due:
                 fully_paid += 1
             else:
                 partially_paid += 1
-
             remaining -= amount_to_allocate
+
+        # Step 2: Process partial_ok invoices — proportional by amount_due
+        if partial_ok_invoices and remaining > 0:
+            total_partial_due = sum(inv.amount_due for inv in partial_ok_invoices)
+            if total_partial_due > 0:
+                # Allocate proportionally; use Decimal for precision
+                amounts_per_invoice: list[tuple[Invoice, Decimal]] = []
+                for inv in partial_ok_invoices:
+                    share = (inv.amount_due / total_partial_due) * remaining
+                    amount = min(inv.amount_due, round_money(share))
+                    amounts_per_invoice.append((inv, amount))
+                # Ensure we don't over-allocate due to rounding: cap total at remaining
+                total_alloc = sum(amt for _, amt in amounts_per_invoice)
+                if total_alloc > remaining:
+                    # Reduce largest allocation(s) to fit
+                    diff = total_alloc - remaining
+                    for i in range(len(amounts_per_invoice) - 1, -1, -1):
+                        inv, amt = amounts_per_invoice[i]
+                        reduce_by = min(diff, amt)
+                        amounts_per_invoice[i] = (inv, amt - reduce_by)
+                        diff -= reduce_by
+                        if diff <= 0:
+                            break
+                for invoice, amount in amounts_per_invoice:
+                    if amount <= 0:
+                        continue
+                    alloc_response = await create_allocation(invoice, amount)
+                    allocations.append(alloc_response)
+                    if amount >= invoice.amount_due:
+                        fully_paid += 1
+                    else:
+                        partially_paid += 1
+                    remaining -= amount
 
         total_allocated = max_to_allocate - remaining
 
@@ -705,6 +723,8 @@ class PaymentService:
             invoice.status = InvoiceStatus.PAID.value
         elif total_paid > 0:
             invoice.status = InvoiceStatus.PARTIALLY_PAID.value
+        else:
+            invoice.status = InvoiceStatus.ISSUED.value  # reverted to unpaid
 
         # Also update line paid amounts if we have line-level allocations
         for line in invoice.lines:
