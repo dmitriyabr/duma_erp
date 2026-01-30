@@ -18,6 +18,7 @@ import { ConfirmDialog } from '../../../components/ConfirmDialog'
 import { api } from '../../../services/api'
 import { formatMoney } from '../../../utils/format'
 import type { Gender, GradeOption, StudentBalance, StudentResponse, TransportZoneOption } from '../types'
+import { parseNumber } from '../types'
 
 interface StudentHeaderProps {
   student: StudentResponse
@@ -137,8 +138,10 @@ export const StudentHeader = ({
           color={student.status === 'active' ? 'success' : 'default'}
         />
         <Chip
-          label={`Balance ${formatMoney(balance?.available_balance ?? 0)}`}
-          color={(balance?.available_balance ?? 0) < 0 ? 'warning' : 'success'}
+          label={`Balance ${balance != null ? formatMoney(parseNumber(balance.available_balance)) : '—'}`}
+          color={
+            balance != null && parseNumber(balance.available_balance) < 0 ? 'warning' : 'success'
+          }
         />
         <Button variant="outlined" onClick={openEdit}>
           Edit
