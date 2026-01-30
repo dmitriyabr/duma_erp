@@ -28,6 +28,7 @@ import axios from 'axios'
 import { api } from '../../services/api'
 import type { ApiResponse, PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
+import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { formatMoney } from '../../utils/format'
 
 type Gender = 'male' | 'female'
@@ -117,6 +118,7 @@ export const StudentsPage = () => {
   const [gradeFilter, setGradeFilter] = useState<number | 'all'>('all')
   const [transportFilter, setTransportFilter] = useState<number | 'all'>('all')
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebouncedValue(search, 400)
   const [balanceMap, setBalanceMap] = useState<Record<number, number>>({})
   const [debtMap, setDebtMap] = useState<Record<number, number>>({})
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -142,11 +144,11 @@ export const StudentsPage = () => {
     if (transportFilter !== 'all') {
       params.transport_zone_id = transportFilter
     }
-    if (search.trim()) {
-      params.search = search.trim()
+    if (debouncedSearch.trim()) {
+      params.search = debouncedSearch.trim()
     }
     return params
-  }, [page, limit, statusFilter, gradeFilter, transportFilter, search])
+  }, [page, limit, statusFilter, gradeFilter, transportFilter, debouncedSearch])
 
   const {
     data: studentsData,

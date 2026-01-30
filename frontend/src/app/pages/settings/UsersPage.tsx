@@ -24,6 +24,7 @@ import { useMemo, useState } from 'react'
 import { api } from '../../services/api'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
+import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { formatDateTime } from '../../utils/format'
 
@@ -54,6 +55,7 @@ export const UsersPage = () => {
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(25)
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebouncedValue(search, 400)
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
 
@@ -68,14 +70,14 @@ export const UsersPage = () => {
 
   const url = useMemo(() => {
     const params: Record<string, string | number | boolean> = { page: page + 1, limit }
-    if (search.trim()) params.search = search.trim()
+    if (debouncedSearch.trim()) params.search = debouncedSearch.trim()
     if (roleFilter !== 'all') params.role = roleFilter
     if (statusFilter !== 'all') params.is_active = statusFilter === 'active'
 
     const sp = new URLSearchParams()
     Object.entries(params).forEach(([k, v]) => sp.append(k, String(v)))
     return `/users?${sp.toString()}`
-  }, [page, limit, search, roleFilter, statusFilter])
+  }, [page, limit, debouncedSearch, roleFilter, statusFilter])
 
   const { data, loading, error, refetch } = useApi<PaginatedResponse<UserRow>>(url)
   const { execute: saveUser, loading: saving, error: saveError } = useApiMutation()

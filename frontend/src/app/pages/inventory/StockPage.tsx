@@ -29,6 +29,7 @@ import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import type { ApiResponse, PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
+import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { formatMoney } from '../../utils/format'
 
 interface StockRow {
@@ -87,6 +88,7 @@ export const StockPage = () => {
   const [includeZero, setIncludeZero] = useState(false)
   const [lowStockOnly, setLowStockOnly] = useState(false)
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebouncedValue(search, 400)
   const [categoryFilter, setCategoryFilter] = useState<number | 'all'>('all')
   const [error, setError] = useState<string | null>(null)
   const [receiveDialog, setReceiveDialog] = useState<StockRow | null>(null)
@@ -113,14 +115,14 @@ export const StockPage = () => {
   const stockParams = useMemo(() => {
     const params: Record<string, string | number | boolean> = {
       page: page + 1,
-      limit: lowStockOnly || search.trim() ? 500 : limit,
+      limit: lowStockOnly || debouncedSearch.trim() ? 500 : limit,
       include_zero: includeZero,
     }
     if (categoryFilter !== 'all') {
       params.category_id = categoryFilter
     }
     return params
-  }, [page, limit, includeZero, categoryFilter, lowStockOnly, search])
+  }, [page, limit, includeZero, categoryFilter, lowStockOnly, debouncedSearch])
 
   const {
     data: stockData,
