@@ -1,54 +1,51 @@
 #!/bin/bash
-# Wrapper для запуска reset_invoices.py на Railway с проверками
+# Запуск скрипта локально с подключением к Railway БД
 
-set -e  # Exit on error
+set -e
 
 echo "════════════════════════════════════════════════════════════════"
-echo "  RAILWAY: Скрипт удаления счетов (Reset Invoices)"
+echo "  Запуск локально с подключением к Railway БД"
 echo "════════════════════════════════════════════════════════════════"
 echo ""
 
 # Проверка Railway CLI
 if ! command -v railway &> /dev/null; then
     echo "❌ ОШИБКА: Railway CLI не установлен"
-    echo ""
-    echo "Установи Railway CLI:"
-    echo "  npm install -g @railway/cli"
-    echo "  или"
-    echo "  brew install railway"
     exit 1
 fi
 
-# Проверка что проект подключен
-if ! railway status &> /dev/null; then
-    echo "❌ ОШИБКА: Проект не подключен к Railway"
-    echo ""
-    echo "Выполни: railway link"
-    exit 1
-fi
-
-echo "✅ Railway CLI найден"
-echo "✅ Проект подключен"
+# Получаем DATABASE_URL из Railway
+echo "🔗 Получаем DATABASE_URL из Railway..."
+echo ""
+echo "Выполняем: railway run env | grep DATABASE_URL"
+echo "Скопируй DATABASE_URL и вставь ниже когда попросит"
 echo ""
 
-# Показываем текущий проект
-echo "📦 Текущий проект:"
-railway status
+railway run env | grep DATABASE_URL
+
+echo ""
+read -p "❓ Введи DATABASE_URL (или нажми Ctrl+C для отмены): " DATABASE_URL
+
+if [ -z "$DATABASE_URL" ]; then
+    echo "❌ DATABASE_URL не может быть пустым"
+    exit 1
+fi
+
+export DATABASE_URL
+
+echo "✅ DATABASE_URL получен"
 echo ""
 
 # Предупреждение о backup
 echo "⚠️  ⚠️  ⚠️  ВАЖНО! ⚠️  ⚠️  ⚠️"
 echo ""
-echo "Перед продолжением убедись, что:"
-echo "  1. ✅ Создан backup в Railway Dashboard"
-echo "     (Database → Backups → Create Backup)"
-echo "  2. ✅ Backup успешно завершен"
+echo "Создан backup в Railway Dashboard?"
+echo "  (Database → Backups → Create Backup)"
 echo ""
 read -p "❓ Backup создан? (yes/no): " backup_confirm
 
 if [ "$backup_confirm" != "yes" ]; then
-    echo ""
-    echo "❌ Отменено. Создай backup и запусти скрипт снова."
+    echo "❌ Отменено. Создай backup и запусти снова."
     exit 0
 fi
 
@@ -58,7 +55,7 @@ echo "  ШАГ 1: DRY-RUN (просмотр без изменений)"
 echo "════════════════════════════════════════════════════════════════"
 echo ""
 
-railway run python3.11 scripts/reset_invoices.py --dry-run
+python3.11 scripts/reset_invoices.py --dry-run
 
 echo ""
 echo "════════════════════════════════════════════════════════════════"
@@ -68,8 +65,7 @@ echo ""
 read -p "❓ Продолжить с реальным удалением? (yes/no): " exec_confirm
 
 if [ "$exec_confirm" != "yes" ]; then
-    echo ""
-    echo "❌ Отменено пользователем"
+    echo "❌ Отменено"
     exit 0
 fi
 
@@ -79,19 +75,7 @@ echo "  ШАГ 3: РЕАЛЬНОЕ ВЫПОЛНЕНИЕ"
 echo "════════════════════════════════════════════════════════════════"
 echo ""
 
-railway run python3.11 scripts/reset_invoices.py --confirm
+python3.11 scripts/reset_invoices.py --confirm
 
 echo ""
-echo "════════════════════════════════════════════════════════════════"
-echo "  ✅ ГОТОВО!"
-echo "════════════════════════════════════════════════════════════════"
-echo ""
-echo "Что произошло:"
-echo "  ✅ Все invoices удалены"
-echo "  ✅ Все payments сохранены (на балансе студентов)"
-echo ""
-echo "Если нужно откатить изменения:"
-echo "  1. Зайди в Railway Dashboard → Database → Backups"
-echo "  2. Найди backup созданный до запуска"
-echo "  3. Нажми Restore"
-echo ""
+echo "✅ ГОТОВО!"

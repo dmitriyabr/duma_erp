@@ -20,10 +20,10 @@
 railway link
 
 # 3. Сначала dry-run
-railway run python scripts/reset_invoices.py --dry-run
+railway run python3 scripts/reset_invoices.py --dry-run
 
 # 4. Если все ок - выполни
-railway run python scripts/reset_invoices.py --confirm
+railway run python3 scripts/reset_invoices.py --confirm
 # Введи "DELETE ALL INVOICES" когда попросит
 
 # 5. Готово! Все счета удалены, платежи на балансе студентов
@@ -50,10 +50,10 @@ railway run python scripts/reset_invoices.py --confirm
 railway link
 
 # 2. Сначала dry-run для просмотра
-railway run python scripts/reset_invoices.py --dry-run
+railway run python3 scripts/reset_invoices.py --dry-run
 
 # 3. Если все ОК - реальное выполнение
-railway run python scripts/reset_invoices.py --confirm
+railway run python3 scripts/reset_invoices.py --confirm
 ```
 
 #### Вариант 2: Запуск локально с подключением к проду
@@ -66,8 +66,8 @@ railway variables
 export DATABASE_URL="postgresql+asyncpg://..."
 
 # 3. Запусти скрипт локально
-python scripts/reset_invoices.py --dry-run
-python scripts/reset_invoices.py --confirm
+python3 scripts/reset_invoices.py --dry-run
+python3 scripts/reset_invoices.py --confirm
 ```
 
 #### Вариант 3: Через Railway Shell (интерактивно)
@@ -77,8 +77,8 @@ python scripts/reset_invoices.py --confirm
 railway shell
 
 # Внутри shell запусти скрипт
-python scripts/reset_invoices.py --dry-run
-python scripts/reset_invoices.py --confirm
+python3 scripts/reset_invoices.py --dry-run
+python3 scripts/reset_invoices.py --confirm
 ```
 
 ### ⚠️ ВАЖНО
