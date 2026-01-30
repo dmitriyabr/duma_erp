@@ -30,7 +30,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { useApi, useApiMutation } from '../../hooks/useApi'
-import { api } from '../../services/api'
+import { api, unwrapResponse } from '../../services/api'
 import { formatMoney } from '../../utils/format'
 
 type CatalogTab = 'items' | 'categories'
@@ -273,7 +273,7 @@ export const CatalogPage = () => {
               price: priceValue,
               items: kitForm.item_type === 'product' ? itemsPayload : undefined,
             })
-            .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+            .then((r) => ({ data: { data: unwrapResponse(r) } }))
         )
       : await kitMutation.execute(() =>
           api
@@ -285,7 +285,7 @@ export const CatalogPage = () => {
               price: priceValue,
               items: kitForm.item_type === 'product' ? itemsPayload : [],
             })
-            .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+            .then((r) => ({ data: { data: unwrapResponse(r) } }))
         )
     if (ok != null) {
       resetKitDialog()
@@ -328,12 +328,12 @@ export const CatalogPage = () => {
             .patch(`/items/categories/${editingCategory.id}`, {
               name: categoryForm.name.trim(),
             })
-            .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+            .then((r) => ({ data: { data: unwrapResponse(r) } }))
         )
       : await categoryMutation.execute(() =>
           api
             .post('/items/categories', { name: categoryForm.name.trim() })
-            .then((r) => ({ data: { data: (r.data as { data: CategoryRow }).data } }))
+            .then((r) => ({ data: { data: unwrapResponse<CategoryRow>(r) } }))
         )
     if (result != null) {
       if (!editingCategory && typeof result === 'object' && 'id' in result) {
@@ -355,7 +355,7 @@ export const CatalogPage = () => {
       const ok = await toggleMutation.execute(() =>
         api
           .patch(`/items/kits/${confirmState.kit!.id}`, { is_active: confirmState.nextActive })
-          .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+          .then((r) => ({ data: { data: unwrapResponse(r) } }))
       )
       if (ok != null) kitsApi.refetch()
       return
@@ -368,7 +368,7 @@ export const CatalogPage = () => {
           .patch(`/items/categories/${confirmState.category!.id}`, {
             is_active: confirmState.nextActive,
           })
-          .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+          .then((r) => ({ data: { data: unwrapResponse(r) } }))
       )
       if (ok != null) categoriesApi.refetch()
     }

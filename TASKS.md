@@ -387,9 +387,9 @@
 - [ ] **Дублирование запросов:** общие данные студента (invoices, balance) на уровне StudentDetailPage/контекста; справочники (grades, transport-zones) — единый кэш/контекст.
 - [ ] **Кэш запросов:** TanStack Query или кэш в useApi для снижения повторных запросов при навигации.
 - [x] **Поиск:** debounce для полей поиска (Students, Users, Stock; Items/Movements/Catalog — фильтр клиентский).
-- [x] **Типы:** общие ApiResponse/PaginatedResponse в app/types/api.ts. InvoicesTab: форма «Add line» только Kit (контракт API).
-- [x] **UX (частично):** индикаторы загрузки «Loading…» во всех списковых таблицах; Error Boundary и пагинация — в плане.
-- [x] **Мелкое:** удалён ProcurementPaymentsListPage.tsx.bak. Константы лимитов в app/constants/pagination.ts (DEFAULT_PAGE_SIZE, MAX_DROPDOWN_SIZE, INVOICE_LIST_LIMIT и др.); хелперы прав — в плане.
+- [x] **Типы:** общие ApiResponse/PaginatedResponse в app/types/api.ts. InvoicesTab: форма «Add line» только Kit (контракт API). Хелпер unwrapResponse в services/api.ts для единого разбора ответов.
+- [x] **UX (частично):** индикаторы загрузки «Loading…» во всех списковых таблицах; Error Boundary добавлен (оборачивает AppLayout); пагинация — в плане.
+- [x] **Мелкое:** удалён ProcurementPaymentsListPage.tsx.bak. Константы лимитов в app/constants/pagination.ts. Хелперы прав в app/utils/permissions.ts (canCancelPayment, canApproveClaim, canApproveGRN, canManageReservations, canManageStock, canCreateItem, canCancelIssuance, canInvoiceTerm, isSuperAdmin).
 
 ### 9.1 Общее
 > Решения: React + Vite + TypeScript + MUI, формат DD/MM/YYYY, валюта KES

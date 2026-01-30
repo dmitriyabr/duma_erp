@@ -1,4 +1,5 @@
 import axios, { AxiosError } from 'axios'
+import type { AxiosResponse } from 'axios'
 import type { InternalAxiosRequestConfig } from 'axios'
 import {
   clearAuth,
@@ -6,10 +7,20 @@ import {
   getRefreshToken,
   updateTokens,
 } from '../auth/authStorage'
+import type { ApiResponse } from '../types/api'
 
 const baseURL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
 export const api = axios.create({ baseURL })
+
+/**
+ * Unwrap API response: get response.data.data. Use in mutation callbacks instead of
+ * (r.data as { data: T }).data. For void/empty responses returns true.
+ */
+export function unwrapResponse<T>(response: AxiosResponse<ApiResponse<T>>): T {
+  const body = response.data
+  return body?.data !== undefined ? body.data : (true as unknown as T)
+}
 
 api.interceptors.request.use((config) => {
   const token = getAccessToken()

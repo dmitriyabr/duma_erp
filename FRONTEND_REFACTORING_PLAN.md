@@ -17,7 +17,11 @@
 - **7.1 Загрузка таблиц:** сделано — во всех списковых таблицах при `loading === true` показывается строка «Loading…».
 - **8.4 Константы лимитов:** сделано — `frontend/src/app/constants/pagination.ts`: `DEFAULT_PAGE_SIZE`, `MAX_DROPDOWN_SIZE`, `INVOICE_LIST_LIMIT`, `PAYMENTS_LIST_LIMIT`, `SECONDARY_LIST_LIMIT`; использованы в IssueFormPage, InvoicesTab, PaymentsTab, ItemsToIssueTab, StudentDetailPage.
 
-Остаётся: 2.x, 3, 5.3, 6, 7.2, 8.2–8.3, 8.5.
+- **5.3 Единый разбор ответа API:** сделано — `unwrapResponse<T>(response)` в `services/api.ts`; использован в InvoicesTab, PaymentsTab, CatalogPage, TermDetailPage, SchoolPage, CreateInvoicePage.
+- **7.2 Error Boundary:** сделано — компонент `ErrorBoundary` в `components/ErrorBoundary.tsx`, оборачивает `AppLayout` в роутах; при ошибке показывается сообщение и кнопки «Go back» / «Try again».
+- **8.5 Роли и доступ:** сделано — модуль `utils/permissions.ts`: `isSuperAdmin`, `canCancelPayment`, `canApproveClaim`, `canApproveGRN`, `canManageReservations`, `canManageStock`, `canCreateItem`, `canCancelIssuance`, `canInvoiceTerm`; использованы в InvoicesTab, PaymentsTab, ReservationsPage, StockPage, ExpenseClaimsListPage, ExpenseClaimDetailPage, IssuancesPage, GRNDetailPage.
+
+Остаётся: 2.x, 3, 6, 8.2–8.3.
 
 ---
 

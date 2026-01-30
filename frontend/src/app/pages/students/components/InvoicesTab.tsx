@@ -25,8 +25,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../../auth/AuthContext'
 import { useApi, useApiMutation } from '../../../hooks/useApi'
-import { api } from '../../../services/api'
+import { api, unwrapResponse } from '../../../services/api'
 import { INVOICE_LIST_LIMIT } from '../../../constants/pagination'
+import { canInvoiceTerm } from '../../../utils/permissions'
 import { formatDate, formatMoney } from '../../../utils/format'
 import type {
   DiscountValueType,
@@ -148,7 +149,7 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
           term_id: activeTermId,
           student_id: studentId,
         })
-        .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+        .then((r) => ({ data: { data: unwrapResponse(r) } }))
     )
     if (ok != null) {
       setTermInvoiceMessage('Term invoices generated.')
@@ -192,7 +193,7 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
       api
         .post(`/invoices/${selectedInvoice.id}/lines`, payload)
         .then(() => api.get(`/invoices/${selectedInvoice.id}`))
-        .then((r) => ({ data: { data: (r.data as { data: InvoiceDetail }).data } }))
+        .then((r) => ({ data: { data: unwrapResponse<InvoiceDetail>(r) } }))
     )
     if (refreshed != null) {
       setLineDialogOpen(false)
@@ -208,7 +209,7 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
     const ok = await removeLineMutation.execute(() =>
       api
         .delete(`/invoices/${selectedInvoice.id}/lines/${lineId}`)
-        .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+        .then((r) => ({ data: { data: unwrapResponse(r) } }))
     )
     if (ok != null) {
       invoiceDetailApi.refetch()
@@ -228,7 +229,7 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
     const ok = await issueMutation.execute(() =>
       api
         .post(`/invoices/${selectedInvoice.id}/issue`, { due_date: issueDueDate || null })
-        .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+        .then((r) => ({ data: { data: unwrapResponse(r) } }))
     )
     if (ok != null) {
       setIssueDialogOpen(false)
@@ -244,7 +245,7 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
     const ok = await cancelMutation.execute(() =>
       api
         .post(`/invoices/${selectedInvoice.id}/cancel`)
-        .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+        .then((r) => ({ data: { data: unwrapResponse(r) } }))
     )
     if (ok != null) {
       invoiceDetailApi.refetch()
@@ -270,7 +271,7 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
           value: Number(discountForm.value),
           reason_text: discountForm.reason_text.trim() || null,
         })
-        .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+        .then((r) => ({ data: { data: unwrapResponse(r) } }))
     )
     if (ok != null) {
       setDiscountDialogOpen(false)
@@ -334,7 +335,7 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
           />
         </Box>
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          {user?.role === 'SuperAdmin' ? (
+          {canInvoiceTerm(user) ? (
             <Button
               variant="outlined"
               onClick={generateTermInvoices}

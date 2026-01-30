@@ -22,6 +22,7 @@ import { useAuth } from '../../auth/AuthContext'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
+import { isSuperAdmin } from '../../utils/permissions'
 
 interface ClaimRow {
   id: number
@@ -67,7 +68,7 @@ const statusColor = (status: string) => {
 export const ExpenseClaimsListPage = () => {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const isSuperAdmin = user?.role === 'SuperAdmin'
+  const userIsSuperAdmin = isSuperAdmin(user)
 
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
@@ -79,22 +80,22 @@ export const ExpenseClaimsListPage = () => {
   const claimsUrl = useMemo(() => {
     const params: Record<string, string | number> = { page: page + 1, limit }
     if (statusFilter !== 'all') params.status = statusFilter
-    if (!isSuperAdmin && user?.id) params.employee_id = user.id
-    else if (isSuperAdmin && employeeFilter) params.employee_id = Number(employeeFilter)
+    if (!userIsSuperAdmin && user?.id) params.employee_id = user.id
+    else if (userIsSuperAdmin && employeeFilter) params.employee_id = Number(employeeFilter)
     if (dateFrom) params.date_from = dateFrom
     if (dateTo) params.date_to = dateTo
 
     const sp = new URLSearchParams()
     Object.entries(params).forEach(([k, v]) => sp.append(k, String(v)))
     return `/compensations/claims?${sp.toString()}`
-  }, [page, limit, statusFilter, employeeFilter, dateFrom, dateTo, isSuperAdmin, user?.id])
+  }, [page, limit, statusFilter, employeeFilter, dateFrom, dateTo, userIsSuperAdmin, user?.id])
 
   const { data: claimsData, loading, error } = useApi<PaginatedResponse<ClaimRow>>(claimsUrl)
   const { data: employeesData } = useApi<{ items: UserRow[] }>(
-    isSuperAdmin ? '/users?limit=100' : null
+    userIsSuperAdmin ? '/users?limit=100' : null
   )
   const { data: myBalance } = useApi<BalanceResponse>(
-    user?.id && !isSuperAdmin ? `/compensations/payouts/employees/${user.id}/balance` : null
+    user?.id && !userIsSuperAdmin ? `/compensations/payouts/employees/${user.id}/balance` : null
   )
 
   const claims = claimsData?.items || []
@@ -107,7 +108,7 @@ export const ExpenseClaimsListPage = () => {
         Expense Claims
       </Typography>
 
-      {!isSuperAdmin && myBalance ? (
+      {!userIsSuperAdmin && myBalance ? (
         <Box sx={{ mb: 3, p: 2, bgcolor: 'background.paper', borderRadius: 1, boxShadow: 1 }}>
           <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
             My Balance
@@ -138,7 +139,7 @@ export const ExpenseClaimsListPage = () => {
       ) : null}
 
       <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-        {isSuperAdmin ? (
+        {userIsSuperAdmin ? (
           <FormControl size="small" sx={{ minWidth: 200 }}>
             <InputLabel>Employee</InputLabel>
             <Select
@@ -200,7 +201,7 @@ export const ExpenseClaimsListPage = () => {
         <TableHead>
           <TableRow>
             <TableCell>Claim Number</TableCell>
-            {isSuperAdmin ? <TableCell>Employee</TableCell> : null}
+            {userIsSuperAdmin ? <TableCell>Employee</TableCell> : null}
             <TableCell>Description</TableCell>
             <TableCell>Date</TableCell>
             <TableCell align="right">Amount</TableCell>
@@ -214,7 +215,7 @@ export const ExpenseClaimsListPage = () => {
           {claims.map((claim) => (
             <TableRow key={claim.id}>
               <TableCell>{claim.claim_number}</TableCell>
-              {isSuperAdmin ? (
+              {userIsSuperAdmin ? (
                 <TableCell>
                   {employees.find((e) => e.id === claim.employee_id)?.full_name ?? '—'}
                 </TableCell>
@@ -236,14 +237,14 @@ export const ExpenseClaimsListPage = () => {
           ))}
           {loading ? (
             <TableRow>
-              <TableCell colSpan={isSuperAdmin ? 9 : 8} align="center">
+              <TableCell colSpan={userIsSuperAdmin ? 9 : 8} align="center">
                 Loading…
               </TableCell>
             </TableRow>
           ) : null}
           {!claims.length && !loading ? (
             <TableRow>
-              <TableCell colSpan={isSuperAdmin ? 9 : 8} align="center">
+              <TableCell colSpan={userIsSuperAdmin ? 9 : 8} align="center">
                 No expense claims found
               </TableCell>
             </TableRow>

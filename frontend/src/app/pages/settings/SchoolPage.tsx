@@ -15,7 +15,7 @@ import {
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import { useEffect, useState } from 'react'
 import { useApi, useApiMutation } from '../../hooks/useApi'
-import { api } from '../../services/api'
+import { api, unwrapResponse } from '../../services/api'
 
 interface SchoolSettingsData {
   id: number
@@ -119,7 +119,7 @@ export const SchoolPage = () => {
     fd.append('file', file)
     const id = await logoUploadMutation.execute(() =>
       api.post('/attachments', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => ({
-        data: { data: (r.data as { data: { id: number } }).data },
+        data: { data: unwrapResponse<{ id: number }>(r) },
       }))
     )
     if (id != null) {
@@ -138,7 +138,7 @@ export const SchoolPage = () => {
     fd.append('file', file)
     const id = await stampUploadMutation.execute(() =>
       api.post('/attachments', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => ({
-        data: { data: (r.data as { data: { id: number } }).data },
+        data: { data: unwrapResponse<{ id: number }>(r) },
       }))
     )
     if (id != null) {
@@ -169,7 +169,7 @@ export const SchoolPage = () => {
           logo_attachment_id: form.logo_attachment_id,
           stamp_attachment_id: form.stamp_attachment_id,
         })
-        .then((res) => ({ data: { data: (res.data as { data?: unknown })?.data ?? true } }))
+        .then((res) => ({ data: { data: unwrapResponse(res) } }))
     )
     if (ok != null) {
       setSuccess(true)

@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useAuth } from './auth/AuthContext'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { AppLayout } from './layout/AppLayout'
 import { AccessDeniedPage } from './pages/AccessDeniedPage'
 import { DashboardPage } from './pages/DashboardPage'
@@ -61,7 +62,9 @@ export const AppRoutes = () => {
           path="/"
           element={
             <ProtectedRoute>
-              <AppLayout />
+              <ErrorBoundary>
+                <AppLayout />
+              </ErrorBoundary>
             </ProtectedRoute>
           }
         >

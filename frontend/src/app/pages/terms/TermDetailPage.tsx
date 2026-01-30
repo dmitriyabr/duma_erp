@@ -20,7 +20,7 @@ import {
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApi, useApiMutation } from '../../hooks/useApi'
-import { api } from '../../services/api'
+import { api, unwrapResponse } from '../../services/api'
 import { formatDate, formatMoney } from '../../utils/format'
 
 interface PriceSettingRow {
@@ -119,7 +119,7 @@ export const TermDetailPage = () => {
   const handleActivate = async () => {
     if (!resolvedId) return
     const ok = await activateMutation.execute(() =>
-      api.post(`/terms/${resolvedId}/activate`).then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+      api.post(`/terms/${resolvedId}/activate`).then((r) => ({ data: { data: unwrapResponse(r) } }))
     )
     if (ok != null) termApi.refetch()
   }
@@ -127,7 +127,7 @@ export const TermDetailPage = () => {
   const handleClose = async () => {
     if (!resolvedId) return
     const ok = await closeMutation.execute(() =>
-      api.post(`/terms/${resolvedId}/close`).then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+      api.post(`/terms/${resolvedId}/close`).then((r) => ({ data: { data: unwrapResponse(r) } }))
     )
     if (ok != null) termApi.refetch()
   }
@@ -150,7 +150,7 @@ export const TermDetailPage = () => {
     const data = await generateAllMutation.execute(() =>
       api
         .post('/invoices/generate-term-invoices', { term_id: resolvedId })
-        .then((r) => ({ data: { data: (r.data as { data: GenerationResult }).data } }))
+        .then((r) => ({ data: { data: unwrapResponse<GenerationResult>(r) } }))
     )
     if (data != null) {
       showResult(data)
@@ -172,7 +172,7 @@ export const TermDetailPage = () => {
           term_id: resolvedId,
           student_id: studentIdValue,
         })
-        .then((r) => ({ data: { data: (r.data as { data: GenerationResult }).data } }))
+        .then((r) => ({ data: { data: unwrapResponse<GenerationResult>(r) } }))
     )
     if (data != null) {
       showResult(data)

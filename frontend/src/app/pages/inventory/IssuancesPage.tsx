@@ -24,6 +24,7 @@ import { api } from '../../services/api'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDateTime } from '../../utils/format'
+import { canCancelIssuance } from '../../utils/permissions'
 
 interface IssuanceItem {
   id: number
@@ -47,7 +48,7 @@ interface IssuanceRow {
 
 export const IssuancesPage = () => {
   const { user } = useAuth()
-  const canCancel = user?.role === 'SuperAdmin'
+  const canCancel = canCancelIssuance(user)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
   const [typeFilter, setTypeFilter] = useState<string | 'all'>('all')

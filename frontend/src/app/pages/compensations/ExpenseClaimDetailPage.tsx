@@ -16,6 +16,7 @@ import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
+import { isSuperAdmin } from '../../utils/permissions'
 
 interface ClaimResponse {
   id: number
@@ -42,7 +43,7 @@ const statusColor = (status: string) => {
 export const ExpenseClaimDetailPage = () => {
   const { claimId } = useParams()
   const { user } = useAuth()
-  const isSuperAdmin = user?.role === 'SuperAdmin'
+  const userIsSuperAdmin = isSuperAdmin(user)
   const resolvedId = claimId ? Number(claimId) : null
 
   const { data: claim, loading, error, refetch } = useApi<ClaimResponse>(
@@ -103,8 +104,8 @@ export const ExpenseClaimDetailPage = () => {
     )
   }
 
-  const canApprove = isSuperAdmin && (claim.status === 'pending_approval' || claim.status === 'draft')
-  const canReject = isSuperAdmin && (claim.status === 'pending_approval' || claim.status === 'draft')
+  const canApprove = userIsSuperAdmin && (claim.status === 'pending_approval' || claim.status === 'draft')
+  const canReject = userIsSuperAdmin && (claim.status === 'pending_approval' || claim.status === 'draft')
 
   return (
     <Box>

@@ -24,6 +24,7 @@ import { api } from '../../services/api'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDateTime } from '../../utils/format'
+import { canManageReservations } from '../../utils/permissions'
 
 interface ReservationItem {
   id: number
@@ -51,7 +52,7 @@ interface IssueLine {
 
 export const ReservationsPage = () => {
   const { user } = useAuth()
-  const canManage = user?.role === 'SuperAdmin' || user?.role === 'Admin'
+  const canManage = canManageReservations(user)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
   const [statusFilter, setStatusFilter] = useState<'active' | 'all'>('active')

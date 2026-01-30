@@ -22,7 +22,8 @@ import React, { useEffect, useState } from 'react'
 import { useAuth } from '../../../auth/AuthContext'
 import { INVOICE_LIST_LIMIT, PAYMENTS_LIST_LIMIT } from '../../../constants/pagination'
 import { useApi, useApiMutation } from '../../../hooks/useApi'
-import { api } from '../../../services/api'
+import { api, unwrapResponse } from '../../../services/api'
+import { canCancelPayment } from '../../../utils/permissions'
 import { formatDate, formatMoney } from '../../../utils/format'
 import { openAttachmentInNewTab } from '../../../utils/attachments'
 import type {
@@ -116,7 +117,7 @@ export const PaymentsTab = ({
     const result = await uploadAttachmentMutation.execute(() =>
       api
         .post('/attachments', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
-        .then((r) => ({ data: { data: (r.data as { data: { id: number; file_name: string } }).data } }))
+        .then((r) => ({ data: { data: unwrapResponse<{ id: number; file_name: string }>(r) } }))
     )
     if (result != null) {
       setConfirmationAttachmentId(result.id)
@@ -145,7 +146,7 @@ export const PaymentsTab = ({
         confirmation_attachment_id: confirmationAttachmentId ?? undefined,
         notes: paymentForm.notes.trim() || null,
       })
-      const payment = (createRes.data as { data: PaymentResponse }).data
+      const payment = unwrapResponse<PaymentResponse>(createRes)
       await api.post(`/payments/${payment.id}/complete`)
       return { data: { data: payment } }
     })
@@ -191,7 +192,7 @@ export const PaymentsTab = ({
             : null,
           amount: Number(allocationForm.amount),
         })
-        .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+        .then((r) => ({ data: { data: unwrapResponse(r) } }))
     )
     if (ok != null) {
       setAllocationDialogOpen(false)
@@ -206,7 +207,7 @@ export const PaymentsTab = ({
     const ok = await cancelPaymentMutation.execute(() =>
       api
         .post(`/payments/${paymentId}/cancel`)
-        .then((r) => ({ data: { data: (r.data as { data?: unknown })?.data ?? true } }))
+        .then((r) => ({ data: { data: unwrapResponse(r) } }))
     )
     if (ok != null) {
       paymentsApi.refetch()
@@ -289,7 +290,7 @@ export const PaymentsTab = ({
                     {downloadingReceiptId === payment.id ? '…' : 'Receipt PDF'}
                   </Button>
                 ) : null}
-                {user?.role === 'SuperAdmin' && payment.status === 'pending' ? (
+                {canCancelPayment(user) && payment.status === 'pending' ? (
                   <Button size="small" onClick={() => cancelPayment(payment.id)}>
                     Cancel
                   </Button>

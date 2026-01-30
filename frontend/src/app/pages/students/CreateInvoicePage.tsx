@@ -16,7 +16,7 @@ import {
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApi, useApiMutation } from '../../hooks/useApi'
-import { api } from '../../services/api'
+import { api, unwrapResponse } from '../../services/api'
 import { formatMoney } from '../../utils/format'
 
 interface KitOption {
@@ -158,7 +158,7 @@ export const CreateInvoicePage = () => {
             discount_amount: discountAmountForLine(line),
           })),
         })
-        .then((r) => ({ data: { data: (r.data as { data: InvoiceDetail }).data } }))
+        .then((r) => ({ data: { data: unwrapResponse<InvoiceDetail>(r) } }))
     )
     if (result != null) navigate(`/students/${resolvedId}?tab=invoices`)
   }

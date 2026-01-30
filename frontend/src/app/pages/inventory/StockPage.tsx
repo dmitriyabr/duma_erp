@@ -31,6 +31,7 @@ import type { ApiResponse, PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { formatMoney } from '../../utils/format'
+import { canCreateItem, canManageStock } from '../../utils/permissions'
 
 interface StockRow {
   id: number
@@ -81,8 +82,8 @@ const nextSkuForCategory = (categoryName: string, items: ItemOption[]) => {
 export const StockPage = () => {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const canManage = user?.role === 'SuperAdmin' || user?.role === 'Admin'
-  const canCreateItem = user?.role === 'SuperAdmin'
+  const canManage = canManageStock(user)
+  const allowCreateItem = canCreateItem(user)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
   const [includeZero, setIncludeZero] = useState(false)
@@ -295,7 +296,7 @@ export const StockPage = () => {
               Issue
             </Button>
           ) : null}
-          {canCreateItem ? (
+          {allowCreateItem ? (
             <Button
               variant="contained"
               onClick={() => {
