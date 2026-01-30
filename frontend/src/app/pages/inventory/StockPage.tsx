@@ -408,6 +408,13 @@ export const StockPage = () => {
               </TableCell>
             </TableRow>
           ))}
+          {loading ? (
+            <TableRow>
+              <TableCell colSpan={7} align="center">
+                Loading…
+              </TableCell>
+            </TableRow>
+          ) : null}
           {!filteredRows.length && !loading ? (
             <TableRow>
               <TableCell colSpan={7} align="center">

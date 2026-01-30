@@ -202,6 +202,13 @@ export const PurchaseOrdersListPage = () => {
               </TableCell>
             </TableRow>
           ))}
+          {loading ? (
+            <TableRow>
+              <TableCell colSpan={9} align="center">
+                Loading…
+              </TableCell>
+            </TableRow>
+          ) : null}
           {!orders.length && !loading ? (
             <TableRow>
               <TableCell colSpan={9} align="center">

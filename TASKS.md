@@ -383,13 +383,13 @@
 ### 9.0 Рефакторинг фронтенда (архитектура и производительность)
 > План исправлений: см. **FRONTEND_REFACTORING_PLAN.md** (отдельный документ). Ниже — краткий список направлений.
 
-- [x] **Производительность (частично):** N+1 на странице студентов устранён (batch: POST /payments/students/balances-batch, GET /invoices/outstanding-totals). ReservationsPage — student_name из API, убран запрос 500 студентов. PayoutsPage (balance на каждого сотрудника) — в плане, не сделано.
+- [x] **Производительность (частично):** N+1 на странице студентов устранён (batch). ReservationsPage — student_name из API. PayoutsPage — batch-эндпоинт для балансов сотрудников. IssueFormPage — лимиты 500→200 (MAX_DROPDOWN_SIZE).
 - [ ] **Дублирование запросов:** общие данные студента (invoices, balance) на уровне StudentDetailPage/контекста; справочники (grades, transport-zones) — единый кэш/контекст.
 - [ ] **Кэш запросов:** TanStack Query или кэш в useApi для снижения повторных запросов при навигации.
 - [x] **Поиск:** debounce для полей поиска (Students, Users, Stock; Items/Movements/Catalog — фильтр клиентский).
-- [x] **Типы:** общие ApiResponse/PaginatedResponse в app/types/api.ts.
-- [ ] **UX:** индикаторы загрузки в таблицах; Error Boundary; пагинация там, где списки большие.
-- [x] **Мелкое:** удалён ProcurementPaymentsListPage.tsx.bak; константы лимитов и хелперы прав — в плане.
+- [x] **Типы:** общие ApiResponse/PaginatedResponse в app/types/api.ts. InvoicesTab: форма «Add line» только Kit (контракт API).
+- [x] **UX (частично):** индикаторы загрузки «Loading…» во всех списковых таблицах; Error Boundary и пагинация — в плане.
+- [x] **Мелкое:** удалён ProcurementPaymentsListPage.tsx.bak. Константы лимитов в app/constants/pagination.ts (DEFAULT_PAGE_SIZE, MAX_DROPDOWN_SIZE, INVOICE_LIST_LIMIT и др.); хелперы прав — в плане.
 
 ### 9.1 Общее
 > Решения: React + Vite + TypeScript + MUI, формат DD/MM/YYYY, валюта KES

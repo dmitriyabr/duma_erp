@@ -318,6 +318,13 @@ export const ItemsPage = () => {
               </TableCell>
             </TableRow>
           ))}
+          {loading ? (
+            <TableRow>
+              <TableCell colSpan={5} align="center">
+                Loading…
+              </TableCell>
+            </TableRow>
+          ) : null}
           {!filteredItems.length && !loading ? (
             <TableRow>
               <TableCell colSpan={5} align="center">

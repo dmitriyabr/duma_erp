@@ -235,6 +235,13 @@ export const UsersPage = () => {
               </TableCell>
             </TableRow>
           ))}
+          {loading ? (
+            <TableRow>
+              <TableCell colSpan={7} align="center">
+                Loading…
+              </TableCell>
+            </TableRow>
+          ) : null}
           {!rows.length && !loading ? (
             <TableRow>
               <TableCell colSpan={7} align="center">

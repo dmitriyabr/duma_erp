@@ -11,8 +11,13 @@
 - **4. Поиск:** сделано — хук `useDebouncedValue(400ms)` на StudentsPage, UsersPage, StockPage.
 - **5.1 Типы:** сделано — общие `ApiResponse` и `PaginatedResponse` в `frontend/src/app/types/api.ts`.
 - **8.1 Мелкое:** сделано — удалён `ProcurementPaymentsListPage.tsx.bak`.
+- **1.2 Payouts:** сделано — batch-эндпоинт для балансов сотрудников; PayoutsPage использует один запрос.
+- **1.4 Форма выдачи:** сделано — лимиты студентов/пользователей 500→200 через константу `MAX_DROPDOWN_SIZE`.
+- **5.2 InvoicesTab:** сделано — форма «Add line» только для Kit (убрана опция Item, приведено к контракту API).
+- **7.1 Загрузка таблиц:** сделано — во всех списковых таблицах при `loading === true` показывается строка «Loading…».
+- **8.4 Константы лимитов:** сделано — `frontend/src/app/constants/pagination.ts`: `DEFAULT_PAGE_SIZE`, `MAX_DROPDOWN_SIZE`, `INVOICE_LIST_LIMIT`, `PAYMENTS_LIST_LIMIT`, `SECONDARY_LIST_LIMIT`; использованы в IssueFormPage, InvoicesTab, PaymentsTab, ItemsToIssueTab, StudentDetailPage.
 
-Остаётся: 1.2 (Payouts batch), 1.4 (форма выдачи), 2.x, 3, 5.2–5.3, 6, 7, 8.2–8.5.
+Остаётся: 2.x, 3, 5.3, 6, 7.2, 8.2–8.3, 8.5.
 
 ---
 

@@ -23,6 +23,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import type { ApiResponse, PaginatedResponse } from '../../types/api'
+import { MAX_DROPDOWN_SIZE } from '../../constants/pagination'
 import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 
@@ -73,10 +74,10 @@ export const IssueFormPage = () => {
     params: { item_type: 'product', include_inactive: false },
   })
   const { data: studentsData } = useApi<PaginatedResponse<StudentOption>>('/students', {
-    params: { limit: 500 },
+    params: { limit: MAX_DROPDOWN_SIZE },
   })
   const { data: usersData } = useApi<PaginatedResponse<UserOption>>('/users', {
-    params: { limit: 500 },
+    params: { limit: MAX_DROPDOWN_SIZE },
   })
 
   const students = studentsData?.items || []

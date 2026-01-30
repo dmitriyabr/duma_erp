@@ -147,6 +147,13 @@ export const GRNListPage = () => {
               </TableCell>
             </TableRow>
           ))}
+          {loading ? (
+            <TableRow>
+              <TableCell colSpan={5} align="center">
+                Loading…
+              </TableCell>
+            </TableRow>
+          ) : null}
           {!grns.length && !loading ? (
             <TableRow>
               <TableCell colSpan={5} align="center">

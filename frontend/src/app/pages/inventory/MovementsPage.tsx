@@ -169,6 +169,13 @@ export const MovementsPage = () => {
               <TableCell>{formatDateTime(row.created_at)}</TableCell>
             </TableRow>
           ))}
+          {loading ? (
+            <TableRow>
+              <TableCell colSpan={9} align="center">
+                Loading…
+              </TableCell>
+            </TableRow>
+          ) : null}
           {!filteredRows.length && !loading ? (
             <TableRow>
               <TableCell colSpan={9} align="center">

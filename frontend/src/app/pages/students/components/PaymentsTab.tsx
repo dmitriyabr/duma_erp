@@ -20,6 +20,7 @@ import {
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf'
 import React, { useEffect, useState } from 'react'
 import { useAuth } from '../../../auth/AuthContext'
+import { INVOICE_LIST_LIMIT, PAYMENTS_LIST_LIMIT } from '../../../constants/pagination'
 import { useApi, useApiMutation } from '../../../hooks/useApi'
 import { api } from '../../../services/api'
 import { formatDate, formatMoney } from '../../../utils/format'
@@ -70,10 +71,10 @@ export const PaymentsTab = ({
   const [downloadingReceiptId, setDownloadingReceiptId] = useState<number | null>(null)
 
   const paymentsApi = useApi<PaginatedResponse<PaymentResponse>>('/payments', {
-    params: { student_id: studentId, limit: 100, page: 1 },
+    params: { student_id: studentId, limit: PAYMENTS_LIST_LIMIT, page: 1 },
   }, [studentId])
   const invoicesApi = useApi<PaginatedResponse<InvoiceSummary>>('/invoices', {
-    params: { student_id: studentId, limit: 200, page: 1 },
+    params: { student_id: studentId, limit: INVOICE_LIST_LIMIT, page: 1 },
   }, [studentId])
   const submitPaymentMutation = useApiMutation<PaymentResponse>()
   const uploadAttachmentMutation = useApiMutation<{ id: number; file_name: string }>()

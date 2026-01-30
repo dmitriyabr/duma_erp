@@ -80,6 +80,13 @@ export const TermsListPage = () => {
               </TableCell>
             </TableRow>
           ))}
+          {loading ? (
+            <TableRow>
+              <TableCell colSpan={4} align="center">
+                Loading…
+              </TableCell>
+            </TableRow>
+          ) : null}
           {!(terms || []).length && !loading ? (
             <TableRow>
               <TableCell colSpan={4} align="center">

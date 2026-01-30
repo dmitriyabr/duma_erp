@@ -113,6 +113,13 @@ export const PaymentPurposesPage = () => {
               </TableCell>
             </TableRow>
           ))}
+          {loading ? (
+            <TableRow>
+              <TableCell colSpan={3} align="center">
+                Loading…
+              </TableCell>
+            </TableRow>
+          ) : null}
           {!(rows || []).length && !loading ? (
             <TableRow>
               <TableCell colSpan={3} align="center">

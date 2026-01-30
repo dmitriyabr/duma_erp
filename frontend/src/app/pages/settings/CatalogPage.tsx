@@ -575,6 +575,13 @@ export const CatalogPage = () => {
                 </TableCell>
               </TableRow>
             ))}
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={3} align="center">
+                  Loading…
+                </TableCell>
+              </TableRow>
+            ) : null}
             {!categories.length && !loading ? (
               <TableRow>
                 <TableCell colSpan={3} align="center">

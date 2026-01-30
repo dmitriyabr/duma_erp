@@ -1,6 +1,7 @@
 import { Alert, Box, Button, Tab, Tabs } from '@mui/material'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { INVOICE_LIST_LIMIT } from '../../constants/pagination'
 import { api } from '../../services/api'
 import { useApi } from '../../hooks/useApi'
 import { InvoicesTab } from './components/InvoicesTab'
@@ -74,7 +75,7 @@ export const StudentDetailPage = () => {
       if (!resolvedId) return
       try {
         const response = await api.get<ApiResponse<PaginatedResponse<InvoiceSummary>>>('/invoices', {
-          params: { student_id: resolvedId, limit: 200, page: 1 },
+          params: { student_id: resolvedId, limit: INVOICE_LIST_LIMIT, page: 1 },
         })
         const totalDue = response.data.data.items.reduce((sum, invoice) => {
           const status = invoice.status?.toLowerCase()

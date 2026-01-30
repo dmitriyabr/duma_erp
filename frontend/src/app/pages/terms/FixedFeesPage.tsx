@@ -157,6 +157,13 @@ export const FixedFeesPage = () => {
               </TableCell>
             </TableRow>
           ))}
+          {loading ? (
+            <TableRow>
+              <TableCell colSpan={5} align="center">
+                Loading…
+              </TableCell>
+            </TableRow>
+          ) : null}
           {!filteredRows.length && !loading ? (
             <TableRow>
               <TableCell colSpan={5} align="center">

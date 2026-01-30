@@ -168,7 +168,7 @@ export const StudentsPage = () => {
         }),
         api.get<ApiResponse<{ totals: Array<{ student_id: number; total_due: number }> }>>(
           '/invoices/outstanding-totals',
-          { params: { student_ids: ids } }
+          { params: { student_ids: ids.join(',') } }
         ),
       ])
       const balances = (balanceRes.data.data.balances || []).reduce<Record<number, number>>(
@@ -365,6 +365,13 @@ export const StudentsPage = () => {
               </TableCell>
             </TableRow>
           ))}
+          {loading ? (
+            <TableRow>
+              <TableCell colSpan={9} align="center">
+                Loading…
+              </TableCell>
+            </TableRow>
+          ) : null}
           {!rows.length && !loading ? (
             <TableRow>
               <TableCell colSpan={9} align="center">

@@ -26,13 +26,13 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../../auth/AuthContext'
 import { useApi, useApiMutation } from '../../../hooks/useApi'
 import { api } from '../../../services/api'
+import { INVOICE_LIST_LIMIT } from '../../../constants/pagination'
 import { formatDate, formatMoney } from '../../../utils/format'
 import type {
   DiscountValueType,
   InvoiceDetail,
   InvoiceLine,
   InvoiceSummary,
-  ItemOption,
   KitOption,
   PaginatedResponse,
 } from '../types'
@@ -52,8 +52,6 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
   const [termInvoiceMessage, setTermInvoiceMessage] = useState<string | null>(null)
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null)
   const [lineForm, setLineForm] = useState({
-    line_type: 'item',
-    item_id: '',
     kit_id: '',
     quantity: 1,
     discount_amount: '',
@@ -75,7 +73,7 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
     {
       params: {
         student_id: studentId,
-        limit: 200,
+        limit: INVOICE_LIST_LIMIT,
         page: 1,
         ...(invoiceSearch.trim() && { search: invoiceSearch.trim() }),
       },
@@ -90,13 +88,12 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
       params: {
         student_id: studentId,
         term_id: activeTermIdForApi,
-        limit: 200,
+        limit: INVOICE_LIST_LIMIT,
         page: 1,
       },
     },
     [studentId, activeTermIdForApi]
   )
-  const itemsApi = useApi<ItemOption[]>('/items', { params: { include_inactive: true } })
   const kitsApi = useApi<KitOption[]>('/items/kits', { params: { include_inactive: true } })
   const invoiceDetailApi = useApi<InvoiceDetail>(
     selectedInvoiceId ? `/invoices/${selectedInvoiceId}` : null,
@@ -122,7 +119,6 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
     })
   }, [termInvoicesApi.data])
   const termInvoiceLoading = generateTermMutation.loading
-  const items = itemsApi.data ?? []
   const kits = kitsApi.data ?? []
   const selectedInvoice = invoiceDetailApi.data ?? null
   const loading =
@@ -175,30 +171,21 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
 
   const openAddLine = () => {
     if (!selectedInvoice) return
-    setLineForm({ line_type: 'item', item_id: '', kit_id: '', quantity: 1, discount_amount: '' })
+    setLineForm({ kit_id: '', quantity: 1, discount_amount: '' })
     setLineDialogOpen(true)
   }
 
   const submitLine = async () => {
     if (!selectedInvoice) return
-    if (lineForm.line_type === 'item' && !lineForm.item_id) {
-      onError('Select an item to add to the invoice.')
-      return
-    }
-    if (lineForm.line_type === 'kit' && !lineForm.kit_id) {
+    if (!lineForm.kit_id) {
       onError('Select a kit to add to the invoice.')
       return
     }
-    const payload: Record<string, number | null> = {
-      item_id: null,
-      kit_id: null,
+    const payload = {
+      item_id: null as number | null,
+      kit_id: Number(lineForm.kit_id),
       quantity: Number(lineForm.quantity),
       discount_amount: lineForm.discount_amount ? Number(lineForm.discount_amount) : 0,
-    }
-    if (lineForm.line_type === 'item') {
-      payload.item_id = Number(lineForm.item_id)
-    } else {
-      payload.kit_id = Number(lineForm.kit_id)
     }
     addLineMutation.reset()
     const refreshed = await addLineMutation.execute(() =>
@@ -480,52 +467,24 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
         </DialogActions>
       </Dialog>
 
-      {/* Add Line Dialog */}
+      {/* Add Line Dialog — API supports only kit_id for invoice lines */}
       <Dialog open={lineDialogOpen} onClose={() => setLineDialogOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>Add invoice line</DialogTitle>
         <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
           <FormControl>
-            <InputLabel>Line type</InputLabel>
+            <InputLabel>Kit</InputLabel>
             <Select
-              value={lineForm.line_type}
-              label="Line type"
-              onChange={(event) => setLineForm({ ...lineForm, line_type: event.target.value })}
+              value={lineForm.kit_id}
+              label="Kit"
+              onChange={(event) => setLineForm({ ...lineForm, kit_id: event.target.value })}
             >
-              <MenuItem value="item">Item</MenuItem>
-              <MenuItem value="kit">Kit</MenuItem>
+              {kits.map((kit) => (
+                <MenuItem key={kit.id} value={String(kit.id)}>
+                  {kit.name}
+                </MenuItem>
+              ))}
             </Select>
           </FormControl>
-          {lineForm.line_type === 'item' ? (
-            <FormControl>
-              <InputLabel>Item</InputLabel>
-              <Select
-                value={lineForm.item_id}
-                label="Item"
-                onChange={(event) => setLineForm({ ...lineForm, item_id: event.target.value })}
-              >
-                {items.map((item) => (
-                  <MenuItem key={item.id} value={String(item.id)}>
-                    {item.name} ({item.sku_code})
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          ) : (
-            <FormControl>
-              <InputLabel>Kit</InputLabel>
-              <Select
-                value={lineForm.kit_id}
-                label="Kit"
-                onChange={(event) => setLineForm({ ...lineForm, kit_id: event.target.value })}
-              >
-                {kits.map((kit) => (
-                  <MenuItem key={kit.id} value={String(kit.id)}>
-                    {kit.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
           <TextField
             label="Quantity"
             type="number"

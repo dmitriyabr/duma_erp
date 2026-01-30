@@ -148,6 +148,13 @@ export const TransportZonesPage = () => {
               </TableCell>
             </TableRow>
           ))}
+          {loading ? (
+            <TableRow>
+              <TableCell colSpan={4} align="center">
+                Loading…
+              </TableCell>
+            </TableRow>
+          ) : null}
           {!filteredRows.length && !loading ? (
             <TableRow>
               <TableCell colSpan={4} align="center">

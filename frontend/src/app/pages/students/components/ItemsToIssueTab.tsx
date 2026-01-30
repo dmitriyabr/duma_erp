@@ -1,5 +1,6 @@
 import { Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material'
 import { useMemo } from 'react'
+import { SECONDARY_LIST_LIMIT } from '../../../constants/pagination'
 import { useApi } from '../../../hooks/useApi'
 import { formatDateTime } from '../../../utils/format'
 import type { PaginatedResponse, ReservationResponse } from '../types'
@@ -10,7 +11,10 @@ interface ItemsToIssueTabProps {
 }
 
 export const ItemsToIssueTab = ({ studentId, onError }: ItemsToIssueTabProps) => {
-  const url = useMemo(() => `/reservations?student_id=${studentId}&limit=200&page=1`, [studentId])
+  const url = useMemo(
+    () => `/reservations?student_id=${studentId}&limit=${SECONDARY_LIST_LIMIT}&page=1`,
+    [studentId]
+  )
   const { data, error } = useApi<PaginatedResponse<ReservationResponse>>(url)
 
   const reservations = data?.items || []

@@ -83,30 +83,18 @@ export const PayoutsPage = () => {
   const loadBalances = useCallback(async () => {
     if (!employees.length) return
     try {
-      const balancesPromises = employees.map(async (emp) => {
-        try {
-          const balanceResponse = await api.get<ApiResponse<{ employee_id: number; total_approved: number; total_paid: number; balance: number }>>(
-            `/compensations/payouts/employees/${emp.id}/balance`
-          )
-          const balanceData = balanceResponse.data.data
-          return {
-            ...balanceData,
-            employee_id: emp.id,
-            employee_name: emp.full_name,
-          }
-        } catch {
-          return {
-            employee_id: emp.id,
-            employee_name: emp.full_name,
-            total_approved: 0,
-            total_paid: 0,
-            balance: 0,
-          }
-        }
-      })
-
-      const balances = await Promise.all(balancesPromises)
-      const withBalance = balances.filter((b) => b.balance > 0 || b.total_paid > 0)
+      const ids = employees.map((e) => e.id)
+      const response = await api.post<ApiResponse<{ balances: Array<{ employee_id: number; total_approved: number; total_paid: number; balance: number }> }>>(
+        '/compensations/payouts/employee-balances-batch',
+        { employee_ids: ids }
+      )
+      const balancesList = response.data.data?.balances ?? []
+      const byId = Object.fromEntries(employees.map((e) => [e.id, e.full_name]))
+      const withNames = balancesList.map((b) => ({
+        ...b,
+        employee_name: byId[b.employee_id] ?? '',
+      }))
+      const withBalance = withNames.filter((b) => b.balance > 0 || b.total_paid > 0)
       setEmployeeBalances(withBalance)
     } catch {
       // Ignore
@@ -267,6 +255,13 @@ export const PayoutsPage = () => {
               </TableCell>
             </TableRow>
           ))}
+          {loading ? (
+            <TableRow>
+              <TableCell colSpan={6} align="center">
+                Loading…
+              </TableCell>
+            </TableRow>
+          ) : null}
           {!payouts.length && !loading ? (
             <TableRow>
               <TableCell colSpan={6} align="center">

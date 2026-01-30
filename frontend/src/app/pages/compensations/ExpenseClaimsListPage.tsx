@@ -234,6 +234,13 @@ export const ExpenseClaimsListPage = () => {
               </TableCell>
             </TableRow>
           ))}
+          {loading ? (
+            <TableRow>
+              <TableCell colSpan={isSuperAdmin ? 9 : 8} align="center">
+                Loading…
+              </TableCell>
+            </TableRow>
+          ) : null}
           {!claims.length && !loading ? (
             <TableRow>
               <TableCell colSpan={isSuperAdmin ? 9 : 8} align="center">
