@@ -43,9 +43,18 @@ interface InvoicesTabProps {
   studentId: number
   onError: (message: string) => void
   onDebtChange: () => void
+  /** When provided, use instead of own fetch — avoids duplicate GET /invoices from parent (StudentDetailPage). */
+  initialInvoices?: InvoiceSummary[] | null
+  invoicesLoading?: boolean
 }
 
-export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabProps) => {
+export const InvoicesTab = ({
+  studentId,
+  onError,
+  onDebtChange,
+  initialInvoices,
+  invoicesLoading: parentInvoicesLoading,
+}: InvoicesTabProps) => {
   const navigate = useNavigate()
   const { user } = useAuth()
   const [invoiceSearch, setInvoiceSearch] = useState('')
@@ -70,16 +79,18 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
   const [downloadingPdf, setDownloadingPdf] = useState(false)
 
   const invoicesApi = useApi<PaginatedResponse<InvoiceSummary>>(
-    '/invoices',
-    {
-      params: {
-        student_id: studentId,
-        limit: INVOICE_LIST_LIMIT,
-        page: 1,
-        ...(invoiceSearch.trim() && { search: invoiceSearch.trim() }),
-      },
-    },
-    [studentId, invoiceSearch]
+    initialInvoices === undefined ? '/invoices' : null,
+    initialInvoices === undefined
+      ? {
+          params: {
+            student_id: studentId,
+            limit: INVOICE_LIST_LIMIT,
+            page: 1,
+            ...(invoiceSearch.trim() && { search: invoiceSearch.trim() }),
+          },
+        }
+      : undefined,
+    initialInvoices === undefined ? [studentId, invoiceSearch] : []
   )
   const activeTermApi = useApi<{ id: number } | null>('/terms/active')
   const activeTermIdForApi = activeTermApi.data?.id ?? null
@@ -109,7 +120,9 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
   const cancelMutation = useApiMutation<unknown>()
   const discountMutation = useApiMutation<unknown>()
 
-  const invoices = invoicesApi.data?.items ?? []
+  const invoicesFromApi = invoicesApi.data?.items ?? []
+  const invoices = initialInvoices !== undefined ? (initialInvoices ?? []) : invoicesFromApi
+  const invoicesLoading = parentInvoicesLoading ?? invoicesApi.loading
   const activeTermId = activeTermApi.data?.id ?? null
   const termInvoiceExists = useMemo(() => {
     const items = termInvoicesApi.data?.items ?? []
@@ -133,12 +146,18 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
     if (invoicesApi.error) onError(invoicesApi.error)
   }, [invoicesApi.error, onError])
 
-  const visibleInvoices = showCancelledInvoices
+  const byStatus = showCancelledInvoices
     ? invoices
     : invoices.filter((invoice) => {
         const status = invoice.status?.toLowerCase()
         return status !== 'cancelled' && status !== 'void'
       })
+  const visibleInvoices =
+    initialInvoices !== undefined && invoiceSearch.trim()
+      ? byStatus.filter((inv) =>
+          inv.invoice_number?.toLowerCase().includes(invoiceSearch.trim().toLowerCase())
+        )
+      : byStatus
 
   const generateTermInvoices = async () => {
     if (!activeTermId) return
@@ -377,7 +396,14 @@ export const InvoicesTab = ({ studentId, onError, onDebtChange }: InvoicesTabPro
               </TableCell>
             </TableRow>
           ))}
-          {!visibleInvoices.length ? (
+          {invoicesLoading ? (
+            <TableRow>
+              <TableCell colSpan={7} align="center">
+                Loading…
+              </TableCell>
+            </TableRow>
+          ) : null}
+          {!invoicesLoading && !visibleInvoices.length ? (
             <TableRow>
               <TableCell colSpan={7} align="center">
                 No invoices yet

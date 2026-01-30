@@ -21,7 +21,10 @@
 - **7.2 Error Boundary:** сделано — компонент `ErrorBoundary` в `components/ErrorBoundary.tsx`, оборачивает `AppLayout` в роутах; при ошибке показывается сообщение и кнопки «Go back» / «Try again».
 - **8.5 Роли и доступ:** сделано — модуль `utils/permissions.ts`: `isSuperAdmin`, `canCancelPayment`, `canApproveClaim`, `canApproveGRN`, `canManageReservations`, `canManageStock`, `canCreateItem`, `canCancelIssuance`, `canInvoiceTerm`; использованы в InvoicesTab, PaymentsTab, ReservationsPage, StockPage, ExpenseClaimsListPage, ExpenseClaimDetailPage, IssuancesPage, GRNDetailPage.
 
-Остаётся: 2.x, 3, 6, 8.2–8.3.
+- **2.1 Карточка студента и вкладки:** сделано — список счетов загружается один раз в StudentDetailPage (useApi /invoices), долг считается из него (useMemo); InvoicesTab и PaymentsTab получают initialInvoices и invoicesLoading; при мутациях вызывается onDebtChange → refetch в родителе. InvoicesTab при initialInvoices фильтрует по поиску на клиенте.
+- **8.3 useApi:** сделано — в JSDoc зафиксировано: запрос ключится по url + JSON.stringify(options), передавать стабильные options (useMemo).
+
+Остаётся: 2.2 (справочники), 3, 6, 8.2.
 
 ---
 

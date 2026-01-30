@@ -19,6 +19,9 @@ interface UseApiResult<T> extends UseApiState<T> {
  * so they are NOT treated as errors in the component - loading continues
  * until the retry succeeds or fails with a different error.
  *
+ * Request is keyed by url + JSON.stringify(options). Pass stable options
+ * (e.g. via useMemo) so that the same params do not trigger extra refetches.
+ *
  * @example
  * const { data, loading, error, refetch } = useApi<MyData[]>('/api/endpoint')
  */

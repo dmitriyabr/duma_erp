@@ -41,6 +41,9 @@ interface PaymentsTabProps {
   onError: (message: string) => void
   onBalanceChange: () => void
   onAllocationResult: (message: string) => void
+  /** When provided, use instead of own fetch — avoids duplicate GET /invoices from parent (StudentDetailPage). */
+  initialInvoices?: InvoiceSummary[] | null
+  invoicesLoading?: boolean
 }
 
 export const PaymentsTab = ({
@@ -48,6 +51,8 @@ export const PaymentsTab = ({
   onError,
   onBalanceChange,
   onAllocationResult,
+  initialInvoices,
+  invoicesLoading: _invoicesLoading,
 }: PaymentsTabProps) => {
   const { user } = useAuth()
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
@@ -74,16 +79,20 @@ export const PaymentsTab = ({
   const paymentsApi = useApi<PaginatedResponse<PaymentResponse>>('/payments', {
     params: { student_id: studentId, limit: PAYMENTS_LIST_LIMIT, page: 1 },
   }, [studentId])
-  const invoicesApi = useApi<PaginatedResponse<InvoiceSummary>>('/invoices', {
-    params: { student_id: studentId, limit: INVOICE_LIST_LIMIT, page: 1 },
-  }, [studentId])
+  const invoicesApi = useApi<PaginatedResponse<InvoiceSummary>>(
+    initialInvoices === undefined ? '/invoices' : null,
+    initialInvoices === undefined
+      ? { params: { student_id: studentId, limit: INVOICE_LIST_LIMIT, page: 1 } }
+      : undefined,
+    initialInvoices === undefined ? [studentId] : []
+  )
   const submitPaymentMutation = useApiMutation<PaymentResponse>()
   const uploadAttachmentMutation = useApiMutation<{ id: number; file_name: string }>()
   const allocationMutation = useApiMutation<unknown>()
   const cancelPaymentMutation = useApiMutation<unknown>()
 
   const payments = paymentsApi.data?.items ?? []
-  const invoices = invoicesApi.data?.items ?? []
+  const invoices = initialInvoices !== undefined ? (initialInvoices ?? []) : (invoicesApi.data?.items ?? [])
   const loading = submitPaymentMutation.loading || allocationMutation.loading || cancelPaymentMutation.loading
   const uploadingFile = uploadAttachmentMutation.loading
 
@@ -91,8 +100,8 @@ export const PaymentsTab = ({
     if (paymentsApi.error) onError(paymentsApi.error)
   }, [paymentsApi.error, onError])
   useEffect(() => {
-    if (invoicesApi.error) onError(invoicesApi.error)
-  }, [invoicesApi.error, onError])
+    if (initialInvoices === undefined && invoicesApi.error) onError(invoicesApi.error)
+  }, [initialInvoices, invoicesApi.error, onError])
 
   const openPaymentDialog = () => {
     setPaymentForm({

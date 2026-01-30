@@ -384,12 +384,12 @@
 > План исправлений: см. **FRONTEND_REFACTORING_PLAN.md** (отдельный документ). Ниже — краткий список направлений.
 
 - [x] **Производительность (частично):** N+1 на странице студентов устранён (batch). ReservationsPage — student_name из API. PayoutsPage — batch-эндпоинт для балансов сотрудников. IssueFormPage — лимиты 500→200 (MAX_DROPDOWN_SIZE).
-- [ ] **Дублирование запросов:** общие данные студента (invoices, balance) на уровне StudentDetailPage/контекста; справочники (grades, transport-zones) — единый кэш/контекст.
+- [x] **Дублирование запросов (частично):** список счетов студента загружается один раз в StudentDetailPage, передаётся в InvoicesTab и PaymentsTab (initialInvoices); долг считается из того же списка. Справочники (grades, transport-zones) — единый кэш/контекст в плане.
 - [ ] **Кэш запросов:** TanStack Query или кэш в useApi для снижения повторных запросов при навигации.
 - [x] **Поиск:** debounce для полей поиска (Students, Users, Stock; Items/Movements/Catalog — фильтр клиентский).
 - [x] **Типы:** общие ApiResponse/PaginatedResponse в app/types/api.ts. InvoicesTab: форма «Add line» только Kit (контракт API). Хелпер unwrapResponse в services/api.ts для единого разбора ответов.
 - [x] **UX (частично):** индикаторы загрузки «Loading…» во всех списковых таблицах; Error Boundary добавлен (оборачивает AppLayout); пагинация — в плане.
-- [x] **Мелкое:** удалён ProcurementPaymentsListPage.tsx.bak. Константы лимитов в app/constants/pagination.ts. Хелперы прав в app/utils/permissions.ts (canCancelPayment, canApproveClaim, canApproveGRN, canManageReservations, canManageStock, canCreateItem, canCancelIssuance, canInvoiceTerm, isSuperAdmin).
+- [x] **Мелкое:** удалён ProcurementPaymentsListPage.tsx.bak. Константы лимитов в app/constants/pagination.ts. Хелперы прав в app/utils/permissions.ts. В useApi зафиксировано в JSDoc: стабильные options (useMemo).
 
 ### 9.1 Общее
 > Решения: React + Vite + TypeScript + MUI, формат DD/MM/YYYY, валюта KES

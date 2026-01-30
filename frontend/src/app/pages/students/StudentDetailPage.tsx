@@ -2,7 +2,6 @@ import { Alert, Box, Button, Tab, Tabs } from '@mui/material'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { INVOICE_LIST_LIMIT } from '../../constants/pagination'
-import { api } from '../../services/api'
 import { useApi } from '../../hooks/useApi'
 import { InvoicesTab } from './components/InvoicesTab'
 import { ItemsToIssueTab } from './components/ItemsToIssueTab'
@@ -11,7 +10,6 @@ import { PaymentsTab } from './components/PaymentsTab'
 import { StatementTab } from './components/StatementTab'
 import { StudentHeader } from './components/StudentHeader'
 import type {
-  ApiResponse,
   GradeOption,
   InvoiceSummary,
   PaginatedResponse,
@@ -51,7 +49,25 @@ export const StudentDetailPage = () => {
   const { data: grades } = useApi<GradeOption[]>('/students/grades?include_inactive=true')
   const { data: transportZones } = useApi<TransportZoneOption[]>('/terms/transport-zones?include_inactive=true')
 
-  const [debt, setDebt] = useState(0)
+  const invoicesApi = useApi<PaginatedResponse<InvoiceSummary>>(
+    resolvedId ? '/invoices' : null,
+    {
+      params: { student_id: resolvedId, limit: INVOICE_LIST_LIMIT, page: 1 },
+    },
+    [resolvedId]
+  )
+
+  const debt = useMemo(() => {
+    const items = invoicesApi.data?.items ?? []
+    return items.reduce((sum, invoice) => {
+      const status = invoice.status?.toLowerCase()
+      if (status === 'paid' || status === 'cancelled' || status === 'void') {
+        return sum
+      }
+      return sum + parseNumber(invoice.amount_due)
+    }, 0)
+  }, [invoicesApi.data?.items])
+
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState('overview')
   const [allocationResult, setAllocationResult] = useState<string | null>(null)
@@ -70,37 +86,15 @@ export const StudentDetailPage = () => {
     }
   }, [studentError])
 
-  const refreshDebt = useMemo(() => {
-    return async () => {
-      if (!resolvedId) return
-      try {
-        const response = await api.get<ApiResponse<PaginatedResponse<InvoiceSummary>>>('/invoices', {
-          params: { student_id: resolvedId, limit: INVOICE_LIST_LIMIT, page: 1 },
-        })
-        const totalDue = response.data.data.items.reduce((sum, invoice) => {
-          const status = invoice.status?.toLowerCase()
-          if (status === 'paid' || status === 'cancelled' || status === 'void') {
-            return sum
-          }
-          return sum + parseNumber(invoice.amount_due)
-        }, 0)
-        setDebt(totalDue)
-      } catch {
-        setDebt(0)
-      }
-    }
-  }, [resolvedId])
-
   const handleBalanceChange = useCallback(() => {
     loadBalance()
-    refreshDebt()
-  }, [loadBalance, refreshDebt])
+    invoicesApi.refetch()
+  }, [loadBalance, invoicesApi.refetch])
 
   useEffect(() => {
     loadStudent()
     loadBalance()
-    refreshDebt()
-  }, [resolvedId, loadStudent, loadBalance, refreshDebt])
+  }, [resolvedId, loadStudent, loadBalance])
 
   useEffect(() => {
     const nextTab = searchParams.get('tab') ?? 'overview'
@@ -175,7 +169,13 @@ export const StudentDetailPage = () => {
       </TabPanel>
 
       <TabPanel active={tab} name="invoices">
-        <InvoicesTab studentId={resolvedId} onError={handleError} onDebtChange={handleBalanceChange} />
+        <InvoicesTab
+          studentId={resolvedId}
+          onError={handleError}
+          onDebtChange={handleBalanceChange}
+          initialInvoices={invoicesApi.data?.items ?? null}
+          invoicesLoading={invoicesApi.loading}
+        />
       </TabPanel>
 
       <TabPanel active={tab} name="payments">
@@ -184,6 +184,8 @@ export const StudentDetailPage = () => {
           onError={handleError}
           onBalanceChange={handleBalanceChange}
           onAllocationResult={setAllocationResult}
+          initialInvoices={invoicesApi.data?.items ?? null}
+          invoicesLoading={invoicesApi.loading}
         />
       </TabPanel>
 
