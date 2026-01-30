@@ -16,6 +16,7 @@ import {
 import { useState } from 'react'
 import { ConfirmDialog } from '../../../components/ConfirmDialog'
 import { api } from '../../../services/api'
+import { useApiMutation } from '../../../hooks/useApi'
 import { formatMoney } from '../../../utils/format'
 import type { Gender, GradeOption, StudentBalance, StudentResponse, TransportZoneOption } from '../types'
 import { parseNumber } from '../types'
@@ -39,7 +40,9 @@ export const StudentHeader = ({
   onStudentUpdate,
   onError,
 }: StudentHeaderProps) => {
-  const [loading, setLoading] = useState(false)
+  const { execute: updateStudent, loading, error: updateError } = useApiMutation()
+  const { execute: toggleStatus, loading: toggling, error: toggleError } = useApiMutation()
+
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editForm, setEditForm] = useState({
     first_name: student.first_name,
@@ -77,9 +80,8 @@ export const StudentHeader = ({
   }
 
   const saveStudent = async () => {
-    setLoading(true)
-    try {
-      await api.patch(`/students/${student.id}`, {
+    const result = await updateStudent(() =>
+      api.patch(`/students/${student.id}`, {
         first_name: editForm.first_name.trim(),
         last_name: editForm.last_name.trim(),
         date_of_birth: editForm.date_of_birth || null,
@@ -92,12 +94,13 @@ export const StudentHeader = ({
         enrollment_date: editForm.enrollment_date || null,
         notes: editForm.notes.trim() || null,
       })
+    )
+
+    if (result) {
       setEditDialogOpen(false)
       onStudentUpdate()
-    } catch {
+    } else if (updateError) {
       onError('Failed to update student.')
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -106,19 +109,19 @@ export const StudentHeader = ({
   }
 
   const confirmToggleActive = async () => {
+    const nextActive = confirmState.nextActive
     setConfirmState({ open: false })
-    setLoading(true)
-    try {
-      if (confirmState.nextActive) {
-        await api.post(`/students/${student.id}/activate`)
-      } else {
-        await api.post(`/students/${student.id}/deactivate`)
-      }
+
+    const result = await toggleStatus(() =>
+      nextActive
+        ? api.post(`/students/${student.id}/activate`)
+        : api.post(`/students/${student.id}/deactivate`)
+    )
+
+    if (result) {
       onStudentUpdate()
-    } catch {
-      onError(`Failed to ${confirmState.nextActive ? 'activate' : 'deactivate'} student.`)
-    } finally {
-      setLoading(false)
+    } else if (toggleError) {
+      onError(`Failed to ${nextActive ? 'activate' : 'deactivate'} student.`)
     }
   }
 
@@ -252,7 +255,7 @@ export const StudentHeader = ({
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setEditDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={saveStudent} disabled={loading}>
+          <Button variant="contained" onClick={saveStudent} disabled={loading || toggling}>
             Save
           </Button>
         </DialogActions>

@@ -11,6 +11,7 @@ import {
 } from '@mui/material'
 import { useEffect, useState } from 'react'
 import { api } from '../../../services/api'
+import { useApiMutation } from '../../../hooks/useApi'
 import { formatDateTime, formatMoney } from '../../../utils/format'
 import type { ApiResponse, StatementResponse } from '../types'
 import { getMonthToDateRange, parseNumber } from '../types'
@@ -21,7 +22,7 @@ interface StatementTabProps {
 }
 
 export const StatementTab = ({ studentId, onError }: StatementTabProps) => {
-  const [loading, setLoading] = useState(false)
+  const { execute: loadStatement, loading, error } = useApiMutation<StatementResponse>()
   const [statementForm, setStatementForm] = useState({ date_from: '', date_to: '' })
   const [statement, setStatement] = useState<StatementResponse | null>(null)
   const [initialized, setInitialized] = useState(false)
@@ -35,17 +36,17 @@ export const StatementTab = ({ studentId, onError }: StatementTabProps) => {
 
   const fetchStatement = async () => {
     if (!statementForm.date_from || !statementForm.date_to) return
-    setLoading(true)
-    try {
-      const response = await api.get<ApiResponse<StatementResponse>>(
+    const result = await loadStatement(() =>
+      api.get<ApiResponse<StatementResponse>>(
         `/payments/students/${studentId}/statement`,
         { params: { date_from: statementForm.date_from, date_to: statementForm.date_to } }
       )
-      setStatement(response.data.data)
-    } catch {
+    )
+
+    if (result) {
+      setStatement(result)
+    } else if (error) {
       onError('Failed to load statement.')
-    } finally {
-      setLoading(false)
     }
   }
 

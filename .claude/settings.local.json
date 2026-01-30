@@ -30,7 +30,24 @@
       "Bash(CORS_ALLOWED_ORIGINS=\"https://example.com,https://app.railway.app\" python3:*)",
       "Bash(DATABASE_URL=\"postgres://user:pass@host:5432/db\" python3:*)",
       "Bash(DATABASE_URL=\"postgres://postgres:pass@containers-us-west-100.railway.app:7654/railway\" python3:*)",
-      "Bash(DATABASE_URL=\"postgresql://user:pass@host:5432/db\" python3:*)"
+      "Bash(DATABASE_URL=\"postgresql://user:pass@host:5432/db\" python3:*)",
+      "Bash(chmod:*)",
+      "Bash(railway variables:*)",
+      "Bash(railway run:*)",
+      "Bash(railway status:*)",
+      "Bash(railway service)",
+      "Bash(railway connect:*)",
+      "Bash(python3.11:*)",
+      "Bash(lsof:*)",
+      "Bash(railway service:*)",
+      "Bash(export DATABASE_URL=\"postgresql+asyncpg://postgres:vWSOsRjZwKZTBDiMGswbdOURxHQgyoeO@maglev.proxy.rlwy.net:48711/railway\")",
+      "Bash(PGPASSWORD=\"vWSOsRjZwKZTBDiMGswbdOURxHQgyoeO\" psql:*)",
+      "Bash(uv run alembic revision:*)",
+      "Bash(uv run alembic:*)",
+      "Bash(PGPASSWORD=erp_password psql:*)",
+      "Bash(done)",
+      "Bash(grep:*)",
+      "Bash(sort:*)"
     ]
   }
 }

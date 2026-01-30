@@ -10,9 +10,10 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../../services/api'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 import { openAttachmentInNewTab } from '../../utils/attachments'
 import { formatDate, formatMoney } from '../../utils/format'
 
@@ -43,57 +44,42 @@ export const ProcurementPaymentDetailPage = () => {
   const { paymentId } = useParams()
   const navigate = useNavigate()
   const resolvedId = paymentId ? Number(paymentId) : null
-  const [payment, setPayment] = useState<PaymentResponse | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+
+  const { data: payment, loading, error, refetch } = useApi<PaymentResponse>(
+    resolvedId ? `/procurement/payments/${resolvedId}` : null
+  )
+  const { execute: cancelPayment, loading: cancelling, error: cancelError } = useApiMutation()
+
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
-
-  const loadPayment = useCallback(async () => {
-    if (!resolvedId) return
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<PaymentResponse>>(
-        `/procurement/payments/${resolvedId}`
-      )
-      setPayment(response.data.data)
-    } catch {
-      setError('Failed to load payment.')
-    } finally {
-      setLoading(false)
-    }
-  }, [resolvedId])
-
-  useEffect(() => {
-    loadPayment()
-  }, [loadPayment])
+  const [validationError, setValidationError] = useState<string | null>(null)
 
   const handleCancel = async () => {
     if (!resolvedId || !cancelReason.trim()) {
-      setError('Enter cancellation reason.')
+      setValidationError('Enter cancellation reason.')
       return
     }
-    setLoading(true)
-    setError(null)
-    try {
-      await api.post(`/procurement/payments/${resolvedId}/cancel`, {
+    setValidationError(null)
+
+    const result = await cancelPayment(() =>
+      api.post(`/procurement/payments/${resolvedId}/cancel`, {
         reason: cancelReason.trim(),
       })
-      await loadPayment()
+    )
+
+    if (result) {
+      refetch()
       setCancelDialogOpen(false)
       setCancelReason('')
-    } catch {
-      setError('Failed to cancel payment.')
-    } finally {
-      setLoading(false)
     }
   }
 
   if (!payment) {
     return (
       <Box>
-        {error ? <Alert severity="error">{error}</Alert> : null}
+        {error || cancelError || validationError ? (
+          <Alert severity="error">{error || cancelError || validationError}</Alert>
+        ) : null}
       </Box>
     )
   }

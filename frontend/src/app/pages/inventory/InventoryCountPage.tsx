@@ -17,8 +17,10 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
+import axios from 'axios'
 import { api } from '../../services/api'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 
 interface ItemOption {
   id: number
@@ -52,31 +54,20 @@ interface BulkUploadResult {
 }
 
 export const InventoryCountPage = () => {
-  const [items, setItems] = useState<ItemOption[]>([])
   const [lines, setLines] = useState<CountLine[]>([emptyLine()])
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [bulkMode, setBulkMode] = useState<BulkMode>('update')
-  const [bulkLoading, setBulkLoading] = useState(false)
   const [bulkResult, setBulkResult] = useState<BulkUploadResult | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const fetchItems = async () => {
-    try {
-      const response = await api.get<ApiResponse<ItemOption[]>>('/items', {
-        params: { include_inactive: true, item_type: 'product' },
-      })
-      setItems(response.data.data)
-    } catch {
-      setItems([])
-    }
-  }
+  const { data: items } = useApi<ItemOption[]>('/items', {
+    params: { include_inactive: true, item_type: 'product' },
+  })
 
-  useEffect(() => {
-    fetchItems()
-  }, [])
+  const { execute: submitCountMutation, loading } = useApiMutation<void>()
+  const { execute: uploadBulkMutation, loading: bulkLoading } = useApiMutation<BulkUploadResult>()
 
   const updateLine = (lineId: string, updates: Partial<CountLine>) => {
     setLines((prev) => prev.map((line) => (line.id === lineId ? { ...line, ...updates } : line)))
@@ -87,28 +78,27 @@ export const InventoryCountPage = () => {
   }
 
   const submitCount = async () => {
-    setLoading(true)
     setError(null)
     setSuccess(null)
-    try {
-      const validLines = lines.filter((line) => line.item_id !== null)
-      if (!validLines.length) {
-        setError('Add at least one item.')
-        setLoading(false)
-        return
-      }
-      await api.post('/inventory/inventory-count', {
+
+    const validLines = lines.filter((line) => line.item_id !== null)
+    if (!validLines.length) {
+      setError('Add at least one item.')
+      return
+    }
+
+    const result = await submitCountMutation(() =>
+      api.post('/inventory/inventory-count', {
         items: validLines.map((line) => ({
           item_id: line.item_id,
           actual_quantity: line.actual_quantity,
         })),
       })
+    )
+
+    if (result !== null) {
       setSuccess('Inventory count submitted.')
       setLines([emptyLine()])
-    } catch {
-      setError('Failed to submit inventory count.')
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -124,7 +114,10 @@ export const InventoryCountPage = () => {
       a.download = 'stock_export.csv'
       a.click()
       window.URL.revokeObjectURL(url)
-    } catch {
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 401) {
+        return
+      }
       setError('Failed to download stock export.')
     }
   }
@@ -135,32 +128,39 @@ export const InventoryCountPage = () => {
       setError('Select a CSV file.')
       return
     }
-    setBulkLoading(true)
+
     setError(null)
     setBulkResult(null)
     setSuccess(null)
+
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('mode', bulkMode)
+
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('mode', bulkMode)
-      const response = await api.post<ApiResponse<BulkUploadResult>>(
-        '/inventory/bulk-upload',
-        formData,
-        { headers: { 'Content-Type': 'multipart/form-data' } }
+      const result = await uploadBulkMutation(() =>
+        api.post<ApiResponse<BulkUploadResult>>('/inventory/bulk-upload', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
       )
-      setBulkResult(response.data.data)
-      setSuccess(
-        `Processed ${response.data.data.rows_processed} rows, created ${response.data.data.items_created} new items.`
-      )
-      setSelectedFile(null)
-      if (fileInputRef.current) fileInputRef.current.value = ''
+
+      if (result) {
+        setBulkResult(result)
+        setSuccess(
+          `Processed ${result.rows_processed} rows, created ${result.items_created} new items.`
+        )
+        setSelectedFile(null)
+        if (fileInputRef.current) fileInputRef.current.value = ''
+      }
     } catch (e: unknown) {
-      const msg = e && typeof e === 'object' && 'response' in e
-        ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail
-        : null
+      if (axios.isAxiosError(e) && e.response?.status === 401) {
+        return
+      }
+      const msg =
+        e && typeof e === 'object' && 'response' in e
+          ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail
+          : null
       setError(msg ?? 'Failed to upload CSV.')
-    } finally {
-      setBulkLoading(false)
     }
   }
 
@@ -206,7 +206,7 @@ export const InventoryCountPage = () => {
                     displayEmpty
                   >
                     <MenuItem value="">Select item</MenuItem>
-                    {items.map((item) => (
+                    {(items || []).map((item) => (
                       <MenuItem key={item.id} value={String(item.id)}>
                         {item.name} ({item.sku_code})
                       </MenuItem>

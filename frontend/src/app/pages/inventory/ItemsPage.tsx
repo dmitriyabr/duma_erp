@@ -19,9 +19,10 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { api } from '../../services/api'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 
 interface ApiResponse<T> {
   success: boolean
@@ -71,10 +72,11 @@ const nextSkuForCategory = (categoryName: string, items: ItemRow[]) => {
 }
 
 export const ItemsPage = () => {
-  const [items, setItems] = useState<ItemRow[]>([])
-  const [categories, setCategories] = useState<CategoryRow[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { data: items, loading, error, refetch } = useApi<ItemRow[]>('/items?item_type=product&include_inactive=true')
+  const { data: categories } = useApi<CategoryRow[]>('/items/categories?include_inactive=true')
+  const { execute: saveItem, loading: saving, error: saveError } = useApiMutation<{ id: number }>()
+  const { execute: toggleActive, loading: toggling, error: toggleError } = useApiMutation()
+
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<number | 'all'>('all')
   const [showInactive, setShowInactive] = useState(false)
@@ -82,6 +84,7 @@ export const ItemsPage = () => {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<ItemRow | null>(null)
   const [form, setForm] = useState({ ...emptyForm })
+  const [validationError, setValidationError] = useState<string | null>(null)
 
   const [confirmState, setConfirmState] = useState<{
     open: boolean
@@ -89,39 +92,8 @@ export const ItemsPage = () => {
     nextActive?: boolean
   }>({ open: false })
 
-  const loadItems = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<ItemRow[]>>('/items', {
-        params: { item_type: 'product', include_inactive: true },
-      })
-      setItems(response.data.data)
-    } catch {
-      setError('Failed to load items.')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  const loadCategories = useCallback(async () => {
-    try {
-      const response = await api.get<ApiResponse<CategoryRow[]>>('/items/categories', {
-        params: { include_inactive: true },
-      })
-      setCategories(response.data.data)
-    } catch {
-      setCategories([])
-    }
-  }, [])
-
   useEffect(() => {
-    loadItems()
-    loadCategories()
-  }, [loadItems, loadCategories])
-
-  useEffect(() => {
-    if (!dialogOpen || editingItem) {
+    if (!dialogOpen || editingItem || !categories || !items) {
       return
     }
     const categoryId =
@@ -141,7 +113,7 @@ export const ItemsPage = () => {
 
   const filteredItems = useMemo(() => {
     const term = search.trim().toLowerCase()
-    return items.filter((item) => {
+    return (items || []).filter((item) => {
       if (!showInactive && !item.is_active) {
         return false
       }
@@ -187,31 +159,31 @@ export const ItemsPage = () => {
     const categoryId =
       typeof form.category_id === 'string' ? Number(form.category_id) : form.category_id
     if (!categoryId || Number.isNaN(categoryId)) {
-      setError('Select a category.')
+      setValidationError('Select a category.')
       return
     }
     if (!form.name.trim()) {
-      setError('Enter item name.')
+      setValidationError('Enter item name.')
       return
     }
 
     if (!editingItem && !form.sku_code.trim()) {
-      setError('SKU was not generated. Try selecting category again.')
+      setValidationError('SKU was not generated. Try selecting category again.')
       return
     }
 
     const openingQuantity = form.opening_quantity ? Number(form.opening_quantity) : 0
     const unitCost = form.unit_cost ? Number(form.unit_cost) : 0
     if (!editingItem && openingQuantity && !unitCost) {
-      setError('Provide unit cost for opening quantity.')
+      setValidationError('Provide unit cost for opening quantity.')
       return
     }
 
-    setLoading(true)
-    setError(null)
-    try {
+    setValidationError(null)
+
+    const result = await saveItem(async () => {
       if (editingItem) {
-        await api.patch(`/items/${editingItem.id}`, {
+        return api.patch(`/items/${editingItem.id}`, {
           category_id: categoryId,
           name: form.name.trim(),
         })
@@ -232,13 +204,13 @@ export const ItemsPage = () => {
             notes: 'Initial stock',
           })
         }
+        return response
       }
-      await loadItems()
+    })
+
+    if (result) {
       resetDialog()
-    } catch {
-      setError('Failed to save item.')
-    } finally {
-      setLoading(false)
+      refetch()
     }
   }
 
@@ -250,17 +222,18 @@ export const ItemsPage = () => {
     if (!confirmState.item) {
       return
     }
+    const item = confirmState.item
+    const nextActive = confirmState.nextActive
     setConfirmState({ open: false })
-    setLoading(true)
-    try {
-      await api.patch(`/items/${confirmState.item.id}`, {
-        is_active: confirmState.nextActive,
+
+    const result = await toggleActive(() =>
+      api.patch(`/items/${item.id}`, {
+        is_active: nextActive,
       })
-      await loadItems()
-    } catch {
-      setError('Failed to update item status.')
-    } finally {
-      setLoading(false)
+    )
+
+    if (result) {
+      refetch()
     }
   }
 
@@ -290,7 +263,7 @@ export const ItemsPage = () => {
             onChange={(event) => setCategoryFilter(event.target.value as number | 'all')}
           >
             <MenuItem value="all">All</MenuItem>
-            {categories.map((category) => (
+            {(categories || []).map((category) => (
               <MenuItem key={category.id} value={category.id}>
                 {category.name}
               </MenuItem>
@@ -310,9 +283,9 @@ export const ItemsPage = () => {
         </FormControl>
       </Box>
 
-      {error ? (
+      {error || saveError || toggleError || validationError ? (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {error || saveError || toggleError || validationError}
         </Alert>
       ) : null}
 
@@ -371,7 +344,7 @@ export const ItemsPage = () => {
               displayEmpty
             >
               <MenuItem value="">Select category</MenuItem>
-              {categories.map((category) => (
+              {(categories || []).map((category) => (
                 <MenuItem key={category.id} value={category.id}>
                   {category.name}
                 </MenuItem>
@@ -404,7 +377,7 @@ export const ItemsPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={resetDialog}>Cancel</Button>
-          <Button variant="contained" onClick={handleSubmit} disabled={loading}>
+          <Button variant="contained" onClick={handleSubmit} disabled={saving}>
             Save
           </Button>
         </DialogActions>

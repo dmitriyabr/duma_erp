@@ -18,8 +18,9 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { api } from '../../../services/api'
+import { useApi, useApiMutation } from '../../../hooks/useApi'
 import { formatDate, formatMoney } from '../../../utils/format'
 import type {
   ApiResponse,
@@ -37,8 +38,14 @@ interface OverviewTabProps {
 }
 
 export const OverviewTab = ({ student, studentId, onError }: OverviewTabProps) => {
-  const [loading, setLoading] = useState(false)
-  const [studentDiscounts, setStudentDiscounts] = useState<StudentDiscountResponse[]>([])
+  const discountsUrl = useMemo(
+    () => `/discounts/student?student_id=${studentId}&include_inactive=true&limit=200&page=1`,
+    [studentId]
+  )
+  const { data: discountsData, refetch } = useApi<PaginatedResponse<StudentDiscountResponse>>(discountsUrl)
+  const { execute: saveDiscount, loading, error: saveError } = useApiMutation()
+  const { execute: toggleDiscount, loading: toggling, error: toggleError } = useApiMutation()
+
   const [studentDiscountDialogOpen, setStudentDiscountDialogOpen] = useState(false)
   const [editingStudentDiscount, setEditingStudentDiscount] =
     useState<StudentDiscountResponse | null>(null)
@@ -47,23 +54,11 @@ export const OverviewTab = ({ student, studentId, onError }: OverviewTabProps) =
     value: '',
     reason_text: '',
   })
-  const [loaded, setLoaded] = useState(false)
 
-  const loadStudentDiscounts = async () => {
-    try {
-      const response = await api.get<ApiResponse<PaginatedResponse<StudentDiscountResponse>>>(
-        '/discounts/student',
-        { params: { student_id: studentId, include_inactive: true, limit: 200, page: 1 } }
-      )
-      setStudentDiscounts(response.data.data.items)
-    } catch {
-      onError('Failed to load student discounts.')
-    }
-  }
+  const studentDiscounts = discountsData?.items || []
 
-  if (!loaded) {
-    setLoaded(true)
-    loadStudentDiscounts()
+  if (saveError || toggleError) {
+    onError(saveError || toggleError || 'Failed to update student discount.')
   }
 
   const openStudentDiscountDialog = (discount?: StudentDiscountResponse) => {
@@ -77,42 +72,36 @@ export const OverviewTab = ({ student, studentId, onError }: OverviewTabProps) =
   }
 
   const submitStudentDiscount = async () => {
-    setLoading(true)
-    try {
-      if (editingStudentDiscount) {
-        await api.patch(`/discounts/student/${editingStudentDiscount.id}`, {
-          value_type: studentDiscountForm.value_type,
-          value: Number(studentDiscountForm.value),
-          reason_text: studentDiscountForm.reason_text.trim() || null,
-        })
-      } else {
-        await api.post('/discounts/student', {
-          student_id: studentId,
-          value_type: studentDiscountForm.value_type,
-          value: Number(studentDiscountForm.value),
-          reason_text: studentDiscountForm.reason_text.trim() || null,
-        })
-      }
+    const result = await saveDiscount(() =>
+      editingStudentDiscount
+        ? api.patch(`/discounts/student/${editingStudentDiscount.id}`, {
+            value_type: studentDiscountForm.value_type,
+            value: Number(studentDiscountForm.value),
+            reason_text: studentDiscountForm.reason_text.trim() || null,
+          })
+        : api.post('/discounts/student', {
+            student_id: studentId,
+            value_type: studentDiscountForm.value_type,
+            value: Number(studentDiscountForm.value),
+            reason_text: studentDiscountForm.reason_text.trim() || null,
+          })
+    )
+
+    if (result) {
       setStudentDiscountDialogOpen(false)
-      await loadStudentDiscounts()
-    } catch {
-      onError('Failed to save student discount.')
-    } finally {
-      setLoading(false)
+      refetch()
     }
   }
 
-  const toggleStudentDiscount = async (discount: StudentDiscountResponse) => {
-    setLoading(true)
-    try {
-      await api.patch(`/discounts/student/${discount.id}`, {
+  const toggleStudentDiscountStatus = async (discount: StudentDiscountResponse) => {
+    const result = await toggleDiscount(() =>
+      api.patch(`/discounts/student/${discount.id}`, {
         is_active: !discount.is_active,
       })
-      await loadStudentDiscounts()
-    } catch {
-      onError('Failed to update student discount.')
-    } finally {
-      setLoading(false)
+    )
+
+    if (result) {
+      refetch()
     }
   }
 
@@ -194,7 +183,7 @@ export const OverviewTab = ({ student, studentId, onError }: OverviewTabProps) =
                     <Button size="small" onClick={() => openStudentDiscountDialog(discount)}>
                       Edit
                     </Button>
-                    <Button size="small" onClick={() => toggleStudentDiscount(discount)}>
+                    <Button size="small" onClick={() => toggleStudentDiscountStatus(discount)}>
                       {discount.is_active ? 'Deactivate' : 'Activate'}
                     </Button>
                   </TableCell>

@@ -17,9 +17,10 @@ import {
   ToggleButtonGroup,
   Typography,
 } from '@mui/material'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDateTime } from '../../utils/format'
 
 interface ReservationItem {
@@ -66,14 +67,9 @@ interface IssueLine {
 export const ReservationsPage = () => {
   const { user } = useAuth()
   const canManage = user?.role === 'SuperAdmin' || user?.role === 'Admin'
-  const [rows, setRows] = useState<ReservationRow[]>([])
-  const [students, setStudents] = useState<Record<number, string>>({})
-  const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
   const [statusFilter, setStatusFilter] = useState<'active' | 'all'>('active')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<ReservationRow | null>(null)
   const [issueLines, setIssueLines] = useState<IssueLine[]>([])
   const [issueDialogOpen, setIssueDialogOpen] = useState(false)
@@ -81,51 +77,32 @@ export const ReservationsPage = () => {
   const [cancelReason, setCancelReason] = useState('')
   const [notes, setNotes] = useState('')
 
-  const fetchReservations = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const params: Record<string, string | number> = { page: page + 1, limit }
-      // active uses client-side filtering (pending + partial)
-      const response = await api.get<ApiResponse<PaginatedResponse<ReservationRow>>>(
-        '/reservations',
-        { params }
-      )
-      setRows(response.data.data.items)
-      setTotal(response.data.data.total)
-    } catch {
-      setError('Failed to load reservations.')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const reservationsUrl = useMemo(() => {
+    const params = { page: page + 1, limit }
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      searchParams.append(key, String(value))
+    })
+    return `/reservations?${searchParams.toString()}`
+  }, [page, limit])
 
-  const fetchStudents = async () => {
-    try {
-      const response = await api.get<ApiResponse<PaginatedResponse<StudentOption>>>('/students', {
-        params: { page: 1, limit: 500 },
-      })
-      const map = response.data.data.items.reduce<Record<number, string>>((acc, student) => {
-        acc[student.id] = student.full_name
-        return acc
-      }, {})
-      setStudents(map)
-    } catch {
-      setStudents({})
-    }
-  }
+  const { data: reservationsData, loading, error, refetch } = useApi<PaginatedResponse<ReservationRow>>(reservationsUrl)
+  const { data: studentsData } = useApi<PaginatedResponse<StudentOption>>('/students?page=1&limit=500')
+  const { execute: issueReservation, loading: issuing, error: issueError } = useApiMutation()
+  const { execute: cancelReservation, loading: cancelling, error: cancelError } = useApiMutation()
 
-  useEffect(() => {
-    fetchReservations()
-  }, [page, limit, statusFilter])
+  const rows = reservationsData?.items || []
+  const total = reservationsData?.total || 0
+  const students = useMemo(() => {
+    return (studentsData?.items || []).reduce<Record<number, string>>((acc, student) => {
+      acc[student.id] = student.full_name
+      return acc
+    }, {})
+  }, [studentsData])
 
   useEffect(() => {
     setPage(0)
   }, [statusFilter])
-
-  useEffect(() => {
-    fetchStudents()
-  }, [])
 
   const openIssueDialog = (reservation: ReservationRow) => {
     setSelected(reservation)
@@ -143,22 +120,19 @@ export const ReservationsPage = () => {
     if (!selected) {
       return
     }
-    setLoading(true)
-    setError(null)
-    try {
-      await api.post(`/reservations/${selected.id}/issue`, {
+    const result = await issueReservation(() =>
+      api.post(`/reservations/${selected.id}/issue`, {
         items: issueLines.map((line) => ({
           reservation_item_id: line.reservation_item_id,
           quantity: line.quantity,
         })),
         notes: notes.trim() || null,
       })
+    )
+
+    if (result) {
       setIssueDialogOpen(false)
-      await fetchReservations()
-    } catch {
-      setError('Failed to issue reservation items.')
-    } finally {
-      setLoading(false)
+      refetch()
     }
   }
 
@@ -172,18 +146,15 @@ export const ReservationsPage = () => {
     if (!selected) {
       return
     }
-    setLoading(true)
-    setError(null)
-    try {
-      await api.post(`/reservations/${selected.id}/cancel`, {
+    const result = await cancelReservation(() =>
+      api.post(`/reservations/${selected.id}/cancel`, {
         reason: cancelReason.trim() || null,
       })
+    )
+
+    if (result) {
       setCancelDialogOpen(false)
-      await fetchReservations()
-    } catch {
-      setError('Failed to cancel reservation.')
-    } finally {
-      setLoading(false)
+      refetch()
     }
   }
 
@@ -205,9 +176,9 @@ export const ReservationsPage = () => {
         </ToggleButtonGroup>
       </Box>
 
-      {error ? (
+      {error || issueError || cancelError ? (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {error || issueError || cancelError}
         </Alert>
       ) : null}
 
@@ -335,7 +306,7 @@ export const ReservationsPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setIssueDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={submitIssue} disabled={loading}>
+          <Button variant="contained" onClick={submitIssue} disabled={issuing}>
             Issue
           </Button>
         </DialogActions>
@@ -354,7 +325,7 @@ export const ReservationsPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCancelDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={submitCancel} disabled={loading}>
+          <Button variant="contained" onClick={submitCancel} disabled={cancelling}>
             Cancel reservation
           </Button>
         </DialogActions>

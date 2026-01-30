@@ -15,8 +15,9 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { api } from '../../services/api'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 
 interface GradeRow {
   id: number
@@ -38,32 +39,14 @@ const emptyForm = {
 }
 
 export const GradesPage = () => {
-  const [rows, setRows] = useState<GradeRow[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { data, loading, error, refetch } = useApi<GradeRow[]>('/students/grades')
+  const { execute: saveGrade, loading: saving, error: saveError } = useApiMutation<GradeRow>()
+
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingGrade, setEditingGrade] = useState<GradeRow | null>(null)
   const [form, setForm] = useState({ ...emptyForm })
 
-  const fetchGrades = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<GradeRow[]>>('/students/grades')
-      const sorted = [...response.data.data].sort(
-        (a, b) => a.display_order - b.display_order
-      )
-      setRows(sorted)
-    } catch (err) {
-      setError('Failed to load grades.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    fetchGrades()
-  }, [])
+  const rows = (data || []).sort((a, b) => a.display_order - b.display_order)
 
   const openCreate = () => {
     setEditingGrade(null)
@@ -82,27 +65,22 @@ export const GradesPage = () => {
   }
 
   const submitForm = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      if (editingGrade) {
-        await api.patch(`/students/grades/${editingGrade.id}`, {
-          code: form.code,
-          name: form.name,
-        })
-      } else {
-        await api.post('/students/grades', {
-          code: form.code,
-          name: form.name,
-          display_order: Number(form.display_order),
-        })
-      }
+    const result = await saveGrade(() =>
+      editingGrade
+        ? api.patch(`/students/grades/${editingGrade.id}`, {
+            code: form.code,
+            name: form.name,
+          })
+        : api.post('/students/grades', {
+            code: form.code,
+            name: form.name,
+            display_order: Number(form.display_order),
+          })
+    )
+
+    if (result) {
       setDialogOpen(false)
-      await fetchGrades()
-    } catch (err) {
-      setError('Failed to save grade.')
-    } finally {
-      setLoading(false)
+      refetch()
     }
   }
 
@@ -117,9 +95,9 @@ export const GradesPage = () => {
         </Button>
       </Box>
 
-      {error ? (
+      {error || saveError ? (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {error || saveError}
         </Alert>
       ) : null}
 
@@ -190,7 +168,7 @@ export const GradesPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={submitForm} disabled={loading}>
+          <Button variant="contained" onClick={submitForm} disabled={saving}>
             Save
           </Button>
         </DialogActions>

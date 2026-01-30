@@ -15,10 +15,11 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { api } from '../../services/api'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
 
 interface ApiResponse<T> {
@@ -90,10 +91,6 @@ export const PurchaseOrderDetailPage = () => {
   const { orderId } = useParams()
   const navigate = useNavigate()
   const resolvedId = orderId ? Number(orderId) : null
-  const [po, setPo] = useState<POResponse | null>(null)
-  const [grns, setGrns] = useState<GRNRow[]>([])
-  const [payments, setPayments] = useState<PaymentRow[]>([])
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [receiveDialogOpen, setReceiveDialogOpen] = useState(false)
@@ -107,94 +104,63 @@ export const PurchaseOrderDetailPage = () => {
     reason?: string
   }>({ open: false })
 
-  const loadOrder = useCallback(async () => {
-    if (!resolvedId) return
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<POResponse>>(`/procurement/purchase-orders/${resolvedId}`)
-      setPo(response.data.data)
-    } catch {
-      setError('Failed to load purchase order.')
-    } finally {
-      setLoading(false)
-    }
-  }, [resolvedId])
+  const { data: po, refetch: refetchPO } = useApi<POResponse>(
+    resolvedId ? `/procurement/purchase-orders/${resolvedId}` : null
+  )
+  const { data: grnsData } = useApi<PaginatedResponse<GRNRow>>(
+    resolvedId ? '/procurement/grns' : null,
+    { params: { po_id: resolvedId, limit: 100 } },
+    [resolvedId]
+  )
+  const { data: paymentsData } = useApi<PaginatedResponse<PaymentRow>>(
+    resolvedId ? '/procurement/payments' : null,
+    { params: { po_id: resolvedId, limit: 100 } },
+    [resolvedId]
+  )
+  const { execute: submitPO, loading: submitting } = useApiMutation()
+  const { execute: closePO, loading: closing } = useApiMutation()
+  const { execute: cancelPO, loading: cancelling } = useApiMutation()
+  const { execute: createGRN, loading: creatingGRN } = useApiMutation()
 
-  const loadGRNs = useCallback(async () => {
-    if (!resolvedId) return
-    try {
-      const response = await api.get<ApiResponse<PaginatedResponse<GRNRow>>>('/procurement/grns', {
-        params: { po_id: resolvedId, limit: 100 },
-      })
-      setGrns(response.data.data.items)
-    } catch {
-      // Ignore
-    }
-  }, [resolvedId])
-
-  const loadPayments = useCallback(async () => {
-    if (!resolvedId) return
-    try {
-      const response = await api.get<ApiResponse<PaginatedResponse<PaymentRow>>>('/procurement/payments', {
-        params: { po_id: resolvedId, limit: 100 },
-      })
-      setPayments(response.data.data.items)
-    } catch {
-      // Ignore
-    }
-  }, [resolvedId])
-
-  useEffect(() => {
-    loadOrder()
-    loadGRNs()
-    loadPayments()
-  }, [resolvedId, loadOrder, loadGRNs, loadPayments])
+  const grns = grnsData?.items || []
+  const payments = paymentsData?.items || []
+  const loading = submitting || closing || cancelling || creatingGRN
 
   const handleSubmit = async () => {
     if (!resolvedId) return
-    setLoading(true)
     setError(null)
-    try {
-      await api.post(`/procurement/purchase-orders/${resolvedId}/submit`)
-      await loadOrder()
+    const result = await submitPO(() => api.post(`/procurement/purchase-orders/${resolvedId}/submit`))
+    if (result) {
+      await refetchPO()
       setConfirmState({ open: false })
-    } catch {
+    } else {
       setError('Failed to submit order.')
-    } finally {
-      setLoading(false)
     }
   }
 
   const handleClose = async () => {
     if (!resolvedId) return
-    setLoading(true)
     setError(null)
-    try {
-      await api.post(`/procurement/purchase-orders/${resolvedId}/close`)
-      await loadOrder()
+    const result = await closePO(() => api.post(`/procurement/purchase-orders/${resolvedId}/close`))
+    if (result) {
+      await refetchPO()
       setConfirmState({ open: false })
-    } catch {
+    } else {
       setError('Failed to close order.')
-    } finally {
-      setLoading(false)
     }
   }
 
   const handleCancel = async () => {
     if (!resolvedId || !confirmState.reason) return
-    setLoading(true)
     setError(null)
-    try {
-      await api.post(`/procurement/purchase-orders/${resolvedId}/cancel`, {
-        reason: confirmState.reason,
-      })
-      await loadOrder()
+    const result = await cancelPO(() => api.post(`/procurement/purchase-orders/${resolvedId}/cancel`, {
+      reason: confirmState.reason,
+    }))
+    if (result) {
+      await refetchPO()
       setConfirmState({ open: false })
-    } catch {
+    } else {
       setError('Failed to cancel order.')
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -221,25 +187,21 @@ export const PurchaseOrderDetailPage = () => {
       setError('Add at least one line to receive.')
       return
     }
-    setLoading(true)
     setError(null)
-    try {
-      await api.post('/procurement/grns', {
-        po_id: resolvedId,
-        received_date: receiveDate || null,
-        notes: receiveNotes.trim() || null,
-        lines: grnLines.map((line) => ({
-          po_line_id: line.po_line_id,
-          quantity_received: line.quantity_received,
-        })),
-      })
+    const result = await createGRN(() => api.post('/procurement/grns', {
+      po_id: resolvedId,
+      received_date: receiveDate || null,
+      notes: receiveNotes.trim() || null,
+      lines: grnLines.map((line) => ({
+        po_line_id: line.po_line_id,
+        quantity_received: line.quantity_received,
+      })),
+    }))
+    if (result) {
       setReceiveDialogOpen(false)
-      await loadOrder()
-      await loadGRNs()
-    } catch {
+      await refetchPO()
+    } else {
       setError('Failed to create GRN.')
-    } finally {
-      setLoading(false)
     }
   }
 

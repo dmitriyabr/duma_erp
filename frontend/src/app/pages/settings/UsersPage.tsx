@@ -20,8 +20,9 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { api } from '../../services/api'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { formatDateTime } from '../../utils/format'
 
@@ -62,15 +63,12 @@ const emptyForm = {
 }
 
 export const UsersPage = () => {
-  const [rows, setRows] = useState<UserRow[]>([])
-  const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(20)
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<UserRow | null>(null)
   const [form, setForm] = useState({ ...emptyForm })
@@ -80,42 +78,23 @@ export const UsersPage = () => {
     nextActive?: boolean
   }>({ open: false })
 
-  const requestParams = useMemo(() => {
-    const params: Record<string, string | number | boolean> = {
-      page: page + 1,
-      limit,
-    }
-    if (search.trim()) {
-      params.search = search.trim()
-    }
-    if (roleFilter !== 'all') {
-      params.role = roleFilter
-    }
-    if (statusFilter !== 'all') {
-      params.is_active = statusFilter === 'active'
-    }
-    return params
+  const url = useMemo(() => {
+    const params: Record<string, string | number | boolean> = { page: page + 1, limit }
+    if (search.trim()) params.search = search.trim()
+    if (roleFilter !== 'all') params.role = roleFilter
+    if (statusFilter !== 'all') params.is_active = statusFilter === 'active'
+
+    const sp = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => sp.append(k, String(v)))
+    return `/users?${sp.toString()}`
   }, [page, limit, search, roleFilter, statusFilter])
 
-  const fetchUsers = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<PaginatedResponse<UserRow>>>('/users', {
-        params: requestParams,
-      })
-      setRows(response.data.data.items)
-      setTotal(response.data.data.total)
-    } catch (err) {
-      setError('Failed to load users.')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const { data, loading, error, refetch } = useApi<PaginatedResponse<UserRow>>(url)
+  const { execute: saveUser, loading: saving, error: saveError } = useApiMutation()
+  const { execute: toggleUser, loading: toggling, error: toggleError } = useApiMutation()
 
-  useEffect(() => {
-    fetchUsers()
-  }, [requestParams])
+  const rows = data?.items || []
+  const total = data?.total || 0
 
   const openCreate = () => {
     setEditingUser(null)
@@ -136,31 +115,26 @@ export const UsersPage = () => {
   }
 
   const submitForm = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      if (editingUser) {
-        await api.put(`/users/${editingUser.id}`, {
-          email: form.email,
-          full_name: form.full_name,
-          phone: form.phone || null,
-          role: form.role,
-        })
-      } else {
-        await api.post('/users', {
-          email: form.email,
-          password: form.password || null,
-          full_name: form.full_name,
-          phone: form.phone || null,
-          role: form.role,
-        })
-      }
+    const result = await saveUser(() =>
+      editingUser
+        ? api.put(`/users/${editingUser.id}`, {
+            email: form.email,
+            full_name: form.full_name,
+            phone: form.phone || null,
+            role: form.role,
+          })
+        : api.post('/users', {
+            email: form.email,
+            password: form.password || null,
+            full_name: form.full_name,
+            phone: form.phone || null,
+            role: form.role,
+          })
+    )
+
+    if (result) {
       setDialogOpen(false)
-      await fetchUsers()
-    } catch (err) {
-      setError('Failed to save user.')
-    } finally {
-      setLoading(false)
+      refetch()
     }
   }
 
@@ -169,19 +143,14 @@ export const UsersPage = () => {
   }
 
   const confirmToggleActive = async () => {
-    if (!confirmState.user) {
-      return
-    }
+    if (!confirmState.user) return
+    const endpoint = confirmState.nextActive ? 'activate' : 'deactivate'
+    const userId = confirmState.user.id
     setConfirmState({ open: false })
-    setLoading(true)
-    try {
-      const endpoint = confirmState.nextActive ? 'activate' : 'deactivate'
-      await api.post(`/users/${confirmState.user.id}/${endpoint}`)
-      await fetchUsers()
-    } catch (err) {
-      setError('Failed to update user status.')
-    } finally {
-      setLoading(false)
+
+    const result = await toggleUser(() => api.post(`/users/${userId}/${endpoint}`))
+    if (result) {
+      refetch()
     }
   }
 
@@ -232,9 +201,9 @@ export const UsersPage = () => {
         </FormControl>
       </Box>
 
-      {error ? (
+      {error || saveError || toggleError ? (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {error || saveError || toggleError}
         </Alert>
       ) : null}
 

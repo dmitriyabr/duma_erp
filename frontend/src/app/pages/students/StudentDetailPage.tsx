@@ -2,6 +2,7 @@ import { Alert, Box, Button, Tab, Tabs } from '@mui/material'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../../services/api'
+import { useApi } from '../../hooks/useApi'
 import { InvoicesTab } from './components/InvoicesTab'
 import { ItemsToIssueTab } from './components/ItemsToIssueTab'
 import { OverviewTab } from './components/OverviewTab'
@@ -40,56 +41,33 @@ export const StudentDetailPage = () => {
   const [searchParams, setSearchParams] = useSearchParams()
   const resolvedId = Number(studentId)
 
-  const [student, setStudent] = useState<StudentResponse | null>(null)
-  const [balance, setBalance] = useState<StudentBalance | null>(null)
+  const { data: student, error: studentError, refetch: refetchStudent } = useApi<StudentResponse>(
+    resolvedId ? `/students/${resolvedId}` : null
+  )
+  const { data: balance, refetch: refetchBalance } = useApi<StudentBalance>(
+    resolvedId ? `/payments/students/${resolvedId}/balance` : null
+  )
+  const { data: grades } = useApi<GradeOption[]>('/students/grades?include_inactive=true')
+  const { data: transportZones } = useApi<TransportZoneOption[]>('/terms/transport-zones?include_inactive=true')
+
   const [debt, setDebt] = useState(0)
-  const [_loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState('overview')
-  const [grades, setGrades] = useState<GradeOption[]>([])
-  const [transportZones, setTransportZones] = useState<TransportZoneOption[]>([])
   const [allocationResult, setAllocationResult] = useState<string | null>(null)
 
   const loadStudent = useCallback(async () => {
-    if (!resolvedId) return
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<StudentResponse>>(`/students/${resolvedId}`)
-      setStudent(response.data.data)
-    } catch {
-      setError('Failed to load student.')
-    } finally {
-      setLoading(false)
-    }
-  }, [resolvedId])
-
-  const loadReferenceData = async () => {
-    try {
-      const [gradeResponse, zoneResponse] = await Promise.all([
-        api.get<ApiResponse<GradeOption[]>>('/students/grades', { params: { include_inactive: true } }),
-        api.get<ApiResponse<TransportZoneOption[]>>('/terms/transport-zones', {
-          params: { include_inactive: true },
-        }),
-      ])
-      setGrades(gradeResponse.data.data)
-      setTransportZones(zoneResponse.data.data)
-    } catch {
-      setError('Failed to load reference data.')
-    }
-  }
+    refetchStudent()
+  }, [refetchStudent])
 
   const loadBalance = useCallback(async () => {
-    if (!resolvedId) return
-    try {
-      const response = await api.get<ApiResponse<StudentBalance>>(
-        `/payments/students/${resolvedId}/balance`
-      )
-      setBalance(response.data.data)
-    } catch {
-      setError('Failed to load balance.')
+    refetchBalance()
+  }, [refetchBalance])
+
+  useEffect(() => {
+    if (studentError) {
+      setError('Failed to load student.')
     }
-  }, [resolvedId])
+  }, [studentError])
 
   const refreshDebt = useMemo(() => {
     return async () => {

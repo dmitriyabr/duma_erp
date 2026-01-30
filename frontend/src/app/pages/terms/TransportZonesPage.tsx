@@ -19,8 +19,9 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { api } from '../../services/api'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 
 interface TransportZoneRow {
   id: number
@@ -41,32 +42,15 @@ const emptyForm = {
 }
 
 export const TransportZonesPage = () => {
-  const [rows, setRows] = useState<TransportZoneRow[]>([])
+  const { data: rows, loading, error, refetch } = useApi<TransportZoneRow[]>('/terms/transport-zones')
+  const { execute: saveZone, loading: saving, error: saveError } = useApiMutation<TransportZoneRow>()
+
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingZone, setEditingZone] = useState<TransportZoneRow | null>(null)
   const [form, setForm] = useState({ ...emptyForm })
 
-  const fetchZones = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<TransportZoneRow[]>>('/terms/transport-zones')
-      setRows(response.data.data)
-    } catch (err) {
-      setError('Failed to load transport zones.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    fetchZones()
-  }, [])
-
-  const filteredRows = rows.filter((row) => {
+  const filteredRows = (rows || []).filter((row) => {
     if (statusFilter === 'all') {
       return true
     }
@@ -90,27 +74,22 @@ export const TransportZonesPage = () => {
   }
 
   const submitForm = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      if (editingZone) {
-        await api.put(`/terms/transport-zones/${editingZone.id}`, {
-          zone_name: form.zone_name,
-          zone_code: form.zone_code,
-          is_active: form.is_active,
-        })
-      } else {
-        await api.post('/terms/transport-zones', {
-          zone_name: form.zone_name,
-          zone_code: form.zone_code,
-        })
-      }
+    const result = await saveZone(() =>
+      editingZone
+        ? api.put(`/terms/transport-zones/${editingZone.id}`, {
+            zone_name: form.zone_name,
+            zone_code: form.zone_code,
+            is_active: form.is_active,
+          })
+        : api.post('/terms/transport-zones', {
+            zone_name: form.zone_name,
+            zone_code: form.zone_code,
+          })
+    )
+
+    if (result) {
       setDialogOpen(false)
-      await fetchZones()
-    } catch (err) {
-      setError('Failed to save transport zone.')
-    } finally {
-      setLoading(false)
+      refetch()
     }
   }
 
@@ -140,9 +119,9 @@ export const TransportZonesPage = () => {
         </FormControl>
       </Box>
 
-      {error ? (
+      {error || saveError ? (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {error || saveError}
         </Alert>
       ) : null}
 
@@ -219,7 +198,7 @@ export const TransportZonesPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={submitForm} disabled={loading}>
+          <Button variant="contained" onClick={submitForm} disabled={saving}>
             Save
           </Button>
         </DialogActions>

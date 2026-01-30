@@ -18,7 +18,9 @@ import {
 } from '@mui/material'
 import React, { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import axios from 'axios'
 import { api } from '../../services/api'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatMoney } from '../../utils/format'
 
 interface ApiResponse<T> {
@@ -73,29 +75,25 @@ export const ProcurementPaymentFormPage = () => {
   const [companyPaid, setCompanyPaid] = useState(true)
   const [employeePaidId, setEmployeePaidId] = useState<number | ''>('')
 
-  const [purposes, setPurposes] = useState<PurposeRow[]>([])
-  const [users, setUsers] = useState<UserRow[]>([])
-  const [loading, setLoading] = useState(false)
   const [loadingPOs, setLoadingPOs] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [newPurposeDialogOpen, setNewPurposeDialogOpen] = useState(false)
   const [newPurposeName, setNewPurposeName] = useState('')
 
-  const loadReferenceData = useCallback(async () => {
-    try {
-      const [purposesResponse, usersResponse] = await Promise.all([
-        api.get<ApiResponse<PurposeRow[]>>('/procurement/payment-purposes', {
-          params: { include_inactive: true },
-        }),
-        api.get<ApiResponse<{ items: UserRow[] }>>('/users', { params: { limit: 100 } }),
-      ])
-      setPurposes(purposesResponse.data.data)
-      setUsers(usersResponse.data.data.items)
-    } catch {
-      setError('Failed to load reference data.')
-    }
-  }, [])
+  const { data: purposesData, refetch: refetchPurposes } = useApi<PurposeRow[]>(
+    '/procurement/payment-purposes',
+    { params: { include_inactive: true } }
+  )
+  const { data: usersData } = useApi<{ items: UserRow[] }>('/users', { params: { limit: 100 } })
+
+  const purposes = purposesData || []
+  const users = usersData?.items || []
+
+  const { execute: createPurpose, loading: creatingPurpose, error: createPurposeError } =
+    useApiMutation<PurposeRow>()
+  const { execute: createPayment, loading: creatingPayment, error: createPaymentError } =
+    useApiMutation<void>()
 
   const loadPOs = useCallback(async (search: string = '') => {
     setLoadingPOs(true)
@@ -115,15 +113,17 @@ export const ProcurementPaymentFormPage = () => {
         (po) => po.status !== 'cancelled' && po.status !== 'closed'
       )
       setPoOptions(activePOs)
-    } catch {
-      // Ignore
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 401) {
+        return
+      }
+      // Ignore other errors
     } finally {
       setLoadingPOs(false)
     }
   }, [])
 
   useEffect(() => {
-    loadReferenceData()
     // Если передан po_id в query параметрах, загружаем его сначала
     const poIdParam = searchParams.get('po_id')
     if (poIdParam) {
@@ -139,15 +139,18 @@ export const ProcurementPaymentFormPage = () => {
           // Добавляем PO в список опций
           setPoOptions([po])
         })
-        .catch(() => {
-          // Ignore
+        .catch((err) => {
+          if (axios.isAxiosError(err) && err.response?.status === 401) {
+            return
+          }
+          // Ignore other errors
         })
     } else {
       // Загружаем список PO только если нет выбранного PO
       loadPOs()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadReferenceData, searchParams])
+  }, [searchParams, loadPOs])
 
   const handlePurposeSelect = (value: number | string) => {
     if (value === 'create') {
@@ -163,22 +166,20 @@ export const ProcurementPaymentFormPage = () => {
       setError('Enter purpose name.')
       return
     }
-    setLoading(true)
+
     setError(null)
-    try {
-      const response = await api.post<ApiResponse<PurposeRow>>('/procurement/payment-purposes', {
+    const newPurpose = await createPurpose(() =>
+      api.post<ApiResponse<PurposeRow>>('/procurement/payment-purposes', {
         name: newPurposeName.trim(),
       })
+    )
+
+    if (newPurpose) {
       // Перезагружаем весь список, чтобы получить актуальные данные
-      await loadReferenceData()
-      const newPurpose = response.data.data
+      refetchPurposes()
       setPurposeId(newPurpose.id)
       setNewPurposeDialogOpen(false)
       setNewPurposeName('')
-    } catch {
-      setError('Failed to create purpose.')
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -199,36 +200,30 @@ export const ProcurementPaymentFormPage = () => {
       return
     }
 
-    setLoading(true)
-    setError(null)
-    try {
-      const payload: Record<string, unknown> = {
-        po_id: poId ? Number(poId) : null,
-        purpose_id: Number(purposeId),
-        payee_name: payeeName.trim() || null,
-        payment_date: paymentDate,
-        amount: amountValue,
-        payment_method: paymentMethod,
-        reference_number: referenceNumber.trim() || null,
-        proof_text: proofText.trim() || null,
-        proof_attachment_id: proofAttachmentId ?? null,
-        company_paid: companyPaid,
-        employee_paid_id: employeePaidId ? Number(employeePaidId) : null,
-      }
+    if (isEdit && resolvedId) {
+      // Payments are typically not editable after creation, but handle if needed
+      setError('Payments cannot be edited after creation.')
+      return
+    }
 
-      if (isEdit && resolvedId) {
-        // Payments are typically not editable after creation, but handle if needed
-        setError('Payments cannot be edited after creation.')
-        setLoading(false)
-        return
-      } else {
-        await api.post('/procurement/payments', payload)
-      }
+    setError(null)
+    const payload: Record<string, unknown> = {
+      po_id: poId ? Number(poId) : null,
+      purpose_id: Number(purposeId),
+      payee_name: payeeName.trim() || null,
+      payment_date: paymentDate,
+      amount: amountValue,
+      payment_method: paymentMethod,
+      reference_number: referenceNumber.trim() || null,
+      proof_text: proofText.trim() || null,
+      proof_attachment_id: proofAttachmentId ?? null,
+      company_paid: companyPaid,
+      employee_paid_id: employeePaidId ? Number(employeePaidId) : null,
+    }
+
+    const result = await createPayment(() => api.post('/procurement/payments', payload))
+    if (result !== null) {
       navigate('/procurement/payments')
-    } catch {
-      setError('Failed to save payment.')
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -238,9 +233,9 @@ export const ProcurementPaymentFormPage = () => {
         {isEdit ? 'Edit payment' : 'New payment'}
       </Typography>
 
-      {error ? (
+      {(error || createPurposeError || createPaymentError) ? (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {error || createPurposeError || createPaymentError}
         </Alert>
       ) : null}
 
@@ -255,11 +250,16 @@ export const ProcurementPaymentFormPage = () => {
             if (newValue) {
               // Загружаем полные данные PO, чтобы получить purpose_id
               try {
-                const response = await api.get<ApiResponse<PORow>>(`/procurement/purchase-orders/${newValue.id}`)
+                const response = await api.get<ApiResponse<PORow>>(
+                  `/procurement/purchase-orders/${newValue.id}`
+                )
                 setPurposeId(response.data.data.purpose_id)
                 // Обновляем selectedPO с полными данными
                 setSelectedPO(response.data.data)
-              } catch {
+              } catch (err) {
+                if (axios.isAxiosError(err) && err.response?.status === 401) {
+                  return
+                }
                 // Если не удалось загрузить, используем purpose_id из списка
                 if (newValue.purpose_id) {
                   setPurposeId(newValue.purpose_id)
@@ -379,7 +379,10 @@ export const ProcurementPaymentFormPage = () => {
                   })
                   setProofAttachmentId(res.data.data.id)
                   setProofFileName(file.name)
-                } catch {
+                } catch (err) {
+                  if (axios.isAxiosError(err) && err.response?.status === 401) {
+                    return
+                  }
                   setError('Failed to upload confirmation file.')
                 } finally {
                   setUploadingProof(false)
@@ -420,7 +423,7 @@ export const ProcurementPaymentFormPage = () => {
 
       <Box sx={{ display: 'flex', gap: 1, mt: 3 }}>
         <Button onClick={() => navigate('/procurement/payments')}>Cancel</Button>
-        <Button variant="contained" onClick={handleSubmit} disabled={loading || isEdit}>
+        <Button variant="contained" onClick={handleSubmit} disabled={creatingPayment || isEdit}>
           {isEdit ? 'Save (not editable)' : 'Create payment'}
         </Button>
       </Box>
@@ -447,7 +450,11 @@ export const ProcurementPaymentFormPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setNewPurposeDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={createNewPurpose} disabled={loading || !newPurposeName.trim()}>
+          <Button
+            variant="contained"
+            onClick={createNewPurpose}
+            disabled={creatingPurpose || !newPurposeName.trim()}
+          >
             Create & select
           </Button>
         </DialogActions>

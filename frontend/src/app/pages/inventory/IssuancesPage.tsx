@@ -18,9 +18,10 @@ import {
   TableRow,
   Typography,
 } from '@mui/material'
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDateTime } from '../../utils/format'
 
 interface IssuanceItem {
@@ -58,55 +59,42 @@ interface PaginatedResponse<T> {
 export const IssuancesPage = () => {
   const { user } = useAuth()
   const canCancel = user?.role === 'SuperAdmin'
-  const [rows, setRows] = useState<IssuanceRow[]>([])
-  const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
   const [typeFilter, setTypeFilter] = useState<string | 'all'>('all')
   const [recipientFilter, setRecipientFilter] = useState<string | 'all'>('all')
   const [selected, setSelected] = useState<IssuanceRow | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
-  const fetchIssuances = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const params: Record<string, string | number> = { page: page + 1, limit }
-      if (typeFilter !== 'all') {
-        params.issuance_type = typeFilter
-      }
-      if (recipientFilter !== 'all') {
-        params.recipient_type = recipientFilter
-      }
-      const response = await api.get<ApiResponse<PaginatedResponse<IssuanceRow>>>(
-        '/inventory/issuances',
-        { params }
-      )
-      setRows(response.data.data.items)
-      setTotal(response.data.data.total)
-    } catch {
-      setError('Failed to load issuances.')
-    } finally {
-      setLoading(false)
+  const params = useMemo(() => {
+    const p: Record<string, string | number> = { page: page + 1, limit }
+    if (typeFilter !== 'all') {
+      p.issuance_type = typeFilter
     }
-  }
-
-  useEffect(() => {
-    fetchIssuances()
+    if (recipientFilter !== 'all') {
+      p.recipient_type = recipientFilter
+    }
+    return p
   }, [page, limit, typeFilter, recipientFilter])
 
+  const url = useMemo(() => {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      searchParams.append(key, String(value))
+    })
+    return `/inventory/issuances?${searchParams.toString()}`
+  }, [params])
+
+  const { data, loading, error, refetch } = useApi<PaginatedResponse<IssuanceRow>>(url)
+  const { execute: cancelIssuanceApi, loading: cancelling, error: cancelError } = useApiMutation()
+
+  const rows = data?.items || []
+  const total = data?.total || 0
+
   const cancelIssuance = async (issuanceId: number) => {
-    setLoading(true)
-    setError(null)
-    try {
-      await api.post(`/inventory/issuances/${issuanceId}/cancel`)
-      await fetchIssuances()
+    const result = await cancelIssuanceApi(() => api.post(`/inventory/issuances/${issuanceId}/cancel`))
+    if (result) {
       setSelected(null)
-    } catch {
-      setError('Failed to cancel issuance.')
-    } finally {
-      setLoading(false)
+      refetch()
     }
   }
 
@@ -144,9 +132,9 @@ export const IssuancesPage = () => {
         </FormControl>
       </Box>
 
-      {error ? (
+      {error || cancelError ? (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {error || cancelError}
         </Alert>
       ) : null}
 

@@ -10,11 +10,12 @@ import {
   TableRow,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { api } from '../../services/api'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDate } from '../../utils/format'
 
 interface ApiResponse<T> {
@@ -54,66 +55,47 @@ export const GRNDetailPage = () => {
   const navigate = useNavigate()
   const { user } = useAuth()
   const resolvedId = grnId ? Number(grnId) : null
-  const [grn, setGrn] = useState<GRNResponse | null>(null)
   const [poLines, setPoLines] = useState<Map<number, POLine>>(new Map())
-  const [_loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmState, setConfirmState] = useState<{ open: boolean; action?: 'approve' | 'cancel' }>({
     open: false,
   })
 
-  const loadGRN = useCallback(async () => {
-    if (!resolvedId) return
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<GRNResponse>>(`/procurement/grns/${resolvedId}`)
-      const grnData = response.data.data
-      setGrn(grnData)
+  const { data: grn, refetch: refetchGRN } = useApi<GRNResponse>(
+    resolvedId ? `/procurement/grns/${resolvedId}` : null
+  )
+  const { data: poData } = useApi<{ lines: POLine[] }>(
+    grn?.po_id ? `/procurement/purchase-orders/${grn.po_id}` : null
+  )
+  const { execute: approveGRN, loading: approving } = useApiMutation()
+  const { execute: cancelGRN, loading: cancelling } = useApiMutation()
 
-      const poResponse = await api.get<ApiResponse<{ lines: POLine[] }>>(
-        `/procurement/purchase-orders/${grnData.po_id}`
-      )
-      const linesMap = new Map(poResponse.data.data.lines.map((line) => [line.id, line]))
-      setPoLines(linesMap)
-    } catch {
-      setError('Failed to load GRN.')
-    } finally {
-      setLoading(false)
-    }
-  }, [resolvedId])
-
-  useEffect(() => {
-    loadGRN()
-  }, [loadGRN])
+  // Update PO lines map when PO data loads
+  if (poData && poData.lines.length > 0 && poLines.size === 0) {
+    setPoLines(new Map(poData.lines.map((line) => [line.id, line])))
+  }
 
   const handleApprove = async () => {
     if (!resolvedId) return
-    setLoading(true)
     setError(null)
-    try {
-      await api.post(`/procurement/grns/${resolvedId}/approve`)
-      await loadGRN()
+    const result = await approveGRN(() => api.post(`/procurement/grns/${resolvedId}/approve`))
+    if (result) {
+      await refetchGRN()
       setConfirmState({ open: false })
-    } catch {
+    } else {
       setError('Failed to approve GRN.')
-    } finally {
-      setLoading(false)
     }
   }
 
   const handleCancel = async () => {
     if (!resolvedId) return
-    setLoading(true)
     setError(null)
-    try {
-      await api.post(`/procurement/grns/${resolvedId}/cancel`)
-      await loadGRN()
+    const result = await cancelGRN(() => api.post(`/procurement/grns/${resolvedId}/cancel`))
+    if (result) {
+      await refetchGRN()
       setConfirmState({ open: false })
-    } catch {
+    } else {
       setError('Failed to cancel GRN.')
-    } finally {
-      setLoading(false)
     }
   }
 

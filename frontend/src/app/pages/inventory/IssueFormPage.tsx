@@ -19,9 +19,11 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import axios from 'axios'
 import { api } from '../../services/api'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 
 interface ApiResponse<T> {
   success: boolean
@@ -76,44 +78,23 @@ export const IssueFormPage = () => {
   const [recipientNameOther, setRecipientNameOther] = useState('')
   const [notes, setNotes] = useState('')
   const [lines, setLines] = useState<IssueLineDraft[]>([emptyLine()])
-
-  const [items, setItems] = useState<ItemOption[]>([])
-  const [students, setStudents] = useState<StudentOption[]>([])
-  const [users, setUsers] = useState<UserOption[]>([])
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lineErrors, setLineErrors] = useState<Record<string, string>>({})
 
-  const loadReferenceData = useCallback(async () => {
-    try {
-      const [itemsRes, studentsRes, usersRes] = await Promise.allSettled([
-        api.get<ApiResponse<ItemOption[]>>('/items', {
-          params: { item_type: 'product', include_inactive: false },
-        }),
-        api.get<ApiResponse<PaginatedResponse<StudentOption>>>('/students', {
-          params: { limit: 500 },
-        }),
-        api.get<ApiResponse<PaginatedResponse<UserOption>>>('/users', {
-          params: { limit: 500 },
-        }),
-      ])
-      if (itemsRes.status === 'fulfilled') {
-        setItems(itemsRes.value.data.data)
-      }
-      if (studentsRes.status === 'fulfilled') {
-        setStudents(studentsRes.value.data.data?.items ?? [])
-      }
-      if (usersRes.status === 'fulfilled') {
-        setUsers(usersRes.value.data.data?.items ?? [])
-      }
-    } catch {
-      setError('Failed to load reference data.')
-    }
-  }, [])
+  const { data: items } = useApi<ItemOption[]>('/items', {
+    params: { item_type: 'product', include_inactive: false },
+  })
+  const { data: studentsData } = useApi<PaginatedResponse<StudentOption>>('/students', {
+    params: { limit: 500 },
+  })
+  const { data: usersData } = useApi<PaginatedResponse<UserOption>>('/users', {
+    params: { limit: 500 },
+  })
 
-  useEffect(() => {
-    loadReferenceData()
-  }, [loadReferenceData])
+  const students = studentsData?.items || []
+  const users = usersData?.items || []
+
+  const { execute: createIssuance, loading, error: saveError } = useApiMutation<{ issuance_number: string; id: number }>()
 
   const updateLine = (lineId: string, updates: Partial<IssueLineDraft>) => {
     setLines((prev) =>
@@ -171,36 +152,41 @@ export const IssueFormPage = () => {
       payloadRecipientId = idNum
     }
 
-    setLoading(true)
     setError(null)
     setLineErrors({})
+
+    const body: {
+      recipient_type: string
+      recipient_id?: number
+      recipient_name: string
+      items: Array<{ item_id: number; quantity: number }>
+      notes?: string
+    } = {
+      recipient_type: recipientType,
+      recipient_name: recipientName,
+      items: validLines.map((l) => ({
+        item_id: l.item_id!,
+        quantity: l.quantity,
+      })),
+      notes: notes.trim() || undefined,
+    }
+    if (recipientType !== 'other' && payloadRecipientId != null) {
+      body.recipient_id = payloadRecipientId
+    }
+
     try {
-      const body: {
-        recipient_type: string
-        recipient_id?: number
-        recipient_name: string
-        items: Array<{ item_id: number; quantity: number }>
-        notes?: string
-      } = {
-        recipient_type: recipientType,
-        recipient_name: recipientName,
-        items: validLines.map((l) => ({
-          item_id: l.item_id!,
-          quantity: l.quantity,
-        })),
-        notes: notes.trim() || undefined,
-      }
-      if (recipientType !== 'other' && payloadRecipientId != null) {
-        body.recipient_id = payloadRecipientId
-      }
-      const response = await api.post<ApiResponse<{ issuance_number: string; id: number }>>(
-        '/inventory/issuances',
-        body
+      const result = await createIssuance(() =>
+        api.post<ApiResponse<{ issuance_number: string; id: number >>>('/inventory/issuances', body)
       )
-      navigate('/inventory/issuances', {
-        state: { message: `Issuance ${response.data.data.issuance_number} created.` },
-      })
+      if (result) {
+        navigate('/inventory/issuances', {
+          state: { message: `Issuance ${result.issuance_number} created.` },
+        })
+      }
     } catch (e: unknown) {
+      if (axios.isAxiosError(e) && e.response?.status === 401) {
+        return
+      }
       const data =
         e && typeof e === 'object' && 'response' in e
           ? (e as { response?: { data?: { message?: string } } }).response?.data
@@ -223,8 +209,6 @@ export const IssueFormPage = () => {
       } else {
         setError(message)
       }
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -237,9 +221,9 @@ export const IssueFormPage = () => {
         Issue multiple items to a recipient in one go. Select recipient and add lines (item + quantity).
       </Typography>
 
-      {error ? (
+      {error || saveError ? (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
-          {error}
+          {error || saveError}
         </Alert>
       ) : null}
 
@@ -272,7 +256,7 @@ export const IssueFormPage = () => {
               displayEmpty
             >
               <MenuItem value="">Select student</MenuItem>
-              {students.map((s) => (
+              {(students || []).map((s) => (
                 <MenuItem key={s.id} value={String(s.id)}>
                   {s.first_name} {s.last_name} ({s.student_number})
                 </MenuItem>
@@ -290,7 +274,7 @@ export const IssueFormPage = () => {
               displayEmpty
             >
               <MenuItem value="">Select employee</MenuItem>
-              {users.map((u) => (
+              {(users || []).map((u) => (
                 <MenuItem key={u.id} value={String(u.id)}>
                   {u.full_name}
                 </MenuItem>
@@ -349,7 +333,7 @@ export const IssueFormPage = () => {
                       displayEmpty
                     >
                       <MenuItem value="">Select item</MenuItem>
-                      {items.map((item) => (
+                      {(items || []).map((item) => (
                         <MenuItem key={item.id} value={String(item.id)}>
                           {item.name} ({item.sku_code})
                         </MenuItem>

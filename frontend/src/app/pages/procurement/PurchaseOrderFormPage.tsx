@@ -20,9 +20,10 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../../services/api'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatMoney } from '../../utils/format'
 
 interface ApiResponse<T> {
@@ -109,10 +110,6 @@ export const PurchaseOrderFormPage = () => {
   const [notes, setNotes] = useState('')
   const [lines, setLines] = useState<POLineDraft[]>([emptyLine()])
 
-  const [purposes, setPurposes] = useState<PurposeRow[]>([])
-  const [inventoryItems, setInventoryItems] = useState<InventoryItemRow[]>([])
-  const [categories, setCategories] = useState<CategoryRow[]>([])
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [newItemDialogOpen, setNewItemDialogOpen] = useState(false)
@@ -128,42 +125,37 @@ export const PurchaseOrderFormPage = () => {
   const [bulkCsvErrors, setBulkCsvErrors] = useState<Array<{ row: number; message: string }>>([])
   const bulkCsvInputRef = useRef<HTMLInputElement>(null)
 
-  const loadReferenceData = useCallback(async () => {
-    try {
-      const [purposesResponse, itemsResponse, categoriesResponse] = await Promise.all([
-        api.get<ApiResponse<PurposeRow[]>>('/procurement/payment-purposes', {
-          params: { include_inactive: true },
-        }),
-        api.get<ApiResponse<InventoryItemRow[]>>('/items', {
-          params: { item_type: 'product', include_inactive: false },
-        }),
-        api.get<ApiResponse<CategoryRow[]>>('/items/categories', {
-          params: { include_inactive: true },
-        }),
-      ])
-      setPurposes(purposesResponse.data.data)
-      setInventoryItems(itemsResponse.data.data)
-      setCategories(categoriesResponse.data.data)
-    } catch {
-      setError('Failed to load reference data.')
-    }
-  }, [])
+  const { data: purposesData } = useApi<PurposeRow[]>(
+    '/procurement/payment-purposes',
+    { params: { include_inactive: true } }
+  )
+  const { data: itemsData } = useApi<InventoryItemRow[]>(
+    '/items',
+    { params: { item_type: 'product', include_inactive: false } }
+  )
+  const { data: categoriesData } = useApi<CategoryRow[]>(
+    '/items/categories',
+    { params: { include_inactive: true } }
+  )
+  const { data: poData, loading: poLoading } = useApi<POResponse>(
+    resolvedId ? `/procurement/purchase-orders/${resolvedId}` : null
+  )
+  const { execute: savePO, loading: saving } = useApiMutation<POResponse>()
 
-  const loadOrder = useCallback(async () => {
-    if (!resolvedId) return
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<POResponse>>(`/procurement/purchase-orders/${resolvedId}`)
-      const po = response.data.data
-      setSupplierName(po.supplier_name)
-      setSupplierContact(po.supplier_contact ?? '')
-      setPurposeId(po.purpose_id)
-      setOrderDate(po.order_date)
-      setExpectedDeliveryDate(po.expected_delivery_date ?? '')
-      setNotes(po.notes ?? '')
+  const purposes = purposesData || []
+  const inventoryItems = itemsData || []
+  const categories = categoriesData || []
+
+  useEffect(() => {
+    if (poData && isEdit) {
+      setSupplierName(poData.supplier_name)
+      setSupplierContact(poData.supplier_contact ?? '')
+      setPurposeId(poData.purpose_id)
+      setOrderDate(poData.order_date)
+      setExpectedDeliveryDate(poData.expected_delivery_date ?? '')
+      setNotes(poData.notes ?? '')
       setLines(
-        po.lines.map((line) => ({
+        poData.lines.map((line) => ({
           id: `${line.id}`,
           item_id: line.item_id,
           description: line.description,
@@ -172,19 +164,8 @@ export const PurchaseOrderFormPage = () => {
           line_type: line.item_id ? 'inventory' : 'custom',
         }))
       )
-    } catch {
-      setError('Failed to load purchase order.')
-    } finally {
-      setLoading(false)
     }
-  }, [resolvedId])
-
-  useEffect(() => {
-    loadReferenceData()
-    if (isEdit) {
-      loadOrder()
-    }
-  }, [isEdit, loadReferenceData, loadOrder])
+  }, [poData, isEdit])
 
   const trackToWarehouse = useMemo(() => {
     return lines.some((line) => line.item_id !== null)
@@ -229,22 +210,17 @@ export const PurchaseOrderFormPage = () => {
       setError('Enter purpose name.')
       return
     }
-    setLoading(true)
     setError(null)
     try {
       const response = await api.post<ApiResponse<PurposeRow>>('/procurement/payment-purposes', {
         name: newPurposeName.trim(),
       })
-      // Перезагружаем весь список, чтобы получить актуальные данные
-      await loadReferenceData()
       const newPurpose = response.data.data
       setPurposeId(newPurpose.id)
       setNewPurposeDialogOpen(false)
       setNewPurposeName('')
     } catch {
       setError('Failed to create purpose.')
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -253,13 +229,11 @@ export const PurchaseOrderFormPage = () => {
       setError('Fill category and name for new item.')
       return
     }
-    setLoading(true)
     setError(null)
     try {
       const category = categories.find((c) => c.id === Number(newItemCategoryId))
       if (!category) {
         setError('Category not found.')
-        setLoading(false)
         return
       }
       const skuPrefix = category.name.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) || 'CAT'
@@ -290,7 +264,6 @@ export const PurchaseOrderFormPage = () => {
         category_id: Number(newItemCategoryId),
         category_name: category.name,
       }
-      setInventoryItems((prev) => [...prev, newItem])
       updateLine(currentLineForNewItem.id, {
         item_id: newItem.id,
         description: newItem.name,
@@ -299,8 +272,6 @@ export const PurchaseOrderFormPage = () => {
       setNewItemDialogOpen(false)
     } catch {
       setError('Failed to create item.')
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -324,35 +295,31 @@ export const PurchaseOrderFormPage = () => {
       return
     }
 
-    setLoading(true)
     setError(null)
-    try {
-      const payload = {
-        supplier_name: supplierName.trim(),
-        supplier_contact: supplierContact.trim() || null,
-        purpose_id: Number(purposeId),
-        order_date: orderDate || null,
-        expected_delivery_date: expectedDeliveryDate || null,
-        track_to_warehouse: trackToWarehouse,
-        notes: notes.trim() || null,
-        lines: lines.map((line) => ({
-          item_id: line.item_id,
-          description: line.description.trim(),
-          quantity_expected: line.quantity_expected,
-          unit_price: line.unit_price,
-        })),
-      }
+    const payload = {
+      supplier_name: supplierName.trim(),
+      supplier_contact: supplierContact.trim() || null,
+      purpose_id: Number(purposeId),
+      order_date: orderDate || null,
+      expected_delivery_date: expectedDeliveryDate || null,
+      track_to_warehouse: trackToWarehouse,
+      notes: notes.trim() || null,
+      lines: lines.map((line) => ({
+        item_id: line.item_id,
+        description: line.description.trim(),
+        quantity_expected: line.quantity_expected,
+        unit_price: line.unit_price,
+      })),
+    }
 
-      if (isEdit && resolvedId) {
-        await api.put(`/procurement/purchase-orders/${resolvedId}`, payload)
-      } else {
-        await api.post('/procurement/purchase-orders', payload)
-      }
+    const result = isEdit && resolvedId
+      ? await savePO(() => api.put(`/procurement/purchase-orders/${resolvedId}`, payload))
+      : await savePO(() => api.post('/procurement/purchase-orders', payload))
+
+    if (result) {
       navigate('/procurement/orders')
-    } catch {
+    } else {
       setError('Failed to save purchase order.')
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -643,7 +610,7 @@ export const PurchaseOrderFormPage = () => {
 
       <Box sx={{ display: 'flex', gap: 1, mt: 3 }}>
         <Button onClick={() => navigate('/procurement/orders')}>Cancel</Button>
-        <Button variant="contained" onClick={handleSubmit} disabled={loading}>
+        <Button variant="contained" onClick={handleSubmit} disabled={saving || poLoading}>
           Save order
         </Button>
       </Box>

@@ -24,8 +24,10 @@ import {
 } from '@mui/material'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import axios from 'axios'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatMoney } from '../../utils/format'
 
 interface StockRow {
@@ -92,17 +94,12 @@ export const StockPage = () => {
   const { user } = useAuth()
   const canManage = user?.role === 'SuperAdmin' || user?.role === 'Admin'
   const canCreateItem = user?.role === 'SuperAdmin'
-  const [rows, setRows] = useState<StockRow[]>([])
-  const [items, setItems] = useState<ItemOption[]>([])
-  const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
   const [includeZero, setIncludeZero] = useState(false)
   const [lowStockOnly, setLowStockOnly] = useState(false)
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<number | 'all'>('all')
-  const [categories, setCategories] = useState<CategoryOption[]>([])
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [receiveDialog, setReceiveDialog] = useState<StockRow | null>(null)
   const [receiveOpen, setReceiveOpen] = useState(false)
@@ -120,57 +117,39 @@ export const StockPage = () => {
   const [reasonCategory, setReasonCategory] = useState<WriteOffReason>('damage')
   const [reasonDetail, setReasonDetail] = useState('')
 
-  const fetchCategories = async () => {
-    try {
-      const response = await api.get<ApiResponse<CategoryOption[]>>('/items/categories')
-      setCategories(response.data.data)
-    } catch {
-      setCategories([])
-    }
-  }
+  const { data: categories, refetch: refetchCategories } = useApi<CategoryOption[]>('/items/categories')
+  const { data: items, refetch: refetchItems } = useApi<ItemOption[]>('/items', {
+    params: { include_inactive: true, item_type: 'product' },
+  })
 
-  const fetchItems = async () => {
-    try {
-      const response = await api.get<ApiResponse<ItemOption[]>>('/items', {
-        params: { include_inactive: true, item_type: 'product' },
-      })
-      setItems(response.data.data)
-    } catch {
-      setItems([])
+  const stockParams = useMemo(() => {
+    const params: Record<string, string | number | boolean> = {
+      page: page + 1,
+      limit: lowStockOnly || search.trim() ? 500 : limit,
+      include_zero: includeZero,
     }
-  }
+    if (categoryFilter !== 'all') {
+      params.category_id = categoryFilter
+    }
+    return params
+  }, [page, limit, includeZero, categoryFilter, lowStockOnly, search])
 
-  const fetchStock = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const params: Record<string, string | number | boolean> = {
-        page: page + 1,
-        limit: lowStockOnly || search.trim() ? 500 : limit,
-        include_zero: includeZero,
-      }
-      if (categoryFilter !== 'all') {
-        params.category_id = categoryFilter
-      }
-      const response = await api.get<ApiResponse<PaginatedResponse<StockRow>>>('/inventory/stock', {
-        params,
-      })
-      setRows(response.data.data.items)
-      setTotal(response.data.data.total)
-    } catch {
-      setError('Failed to load stock.')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const {
+    data: stockData,
+    loading,
+    error: stockError,
+    refetch: refetchStock,
+  } = useApi<PaginatedResponse<StockRow>>('/inventory/stock', { params: stockParams }, [stockParams])
+
+  const rows = stockData?.items || []
+  const total = stockData?.total || 0
+
+  const { execute: receiveStock, loading: receivingStock, error: receiveError } = useApiMutation<void>()
+  const { execute: writeoffStock, loading: writingOff, error: writeoffError } = useApiMutation<void>()
+  const { execute: createItem, loading: creatingItem, error: createError } = useApiMutation<{ id: number }>()
 
   useEffect(() => {
-    fetchCategories()
-    fetchItems()
-  }, [])
-
-  useEffect(() => {
-    if (!createItemOpen || !newItemCategoryId) {
+    if (!createItemOpen || !newItemCategoryId || !categories || !items) {
       return
     }
     const category = categories.find((entry) => entry.id === Number(newItemCategoryId))
@@ -179,10 +158,6 @@ export const StockPage = () => {
     }
     setNewItemSku(nextSkuForCategory(category.name, items))
   }, [createItemOpen, newItemCategoryId, categories, items])
-
-  useEffect(() => {
-    fetchStock()
-  }, [page, limit, includeZero, categoryFilter, lowStockOnly])
 
   const filteredRows = useMemo(() => {
     let data = rows
@@ -201,6 +176,7 @@ export const StockPage = () => {
   }, [rows, search, lowStockOnly])
 
   const productCategories = useMemo(() => {
+    if (!items || !categories) return []
     const categoryIds = new Set(items.map((item) => item.category_id))
     return categories.filter((category) => categoryIds.has(category.id))
   }, [categories, items])
@@ -228,24 +204,23 @@ export const StockPage = () => {
       setError('Select an item to receive.')
       return
     }
-    setLoading(true)
+
     setError(null)
-    try {
-      await api.post('/inventory/receive', {
+    const result = await receiveStock(() =>
+      api.post('/inventory/receive', {
         item_id: itemId,
         quantity: Number(quantity),
         unit_cost: Number(unitCost),
         notes: notes.trim() || null,
       })
+    )
+
+    if (result !== null) {
       setReceiveOpen(false)
       setReceiveDialog(null)
       resetDialogState()
-      await fetchStock()
-      await fetchItems()
-    } catch {
-      setError('Failed to receive stock.')
-    } finally {
-      setLoading(false)
+      refetchStock()
+      refetchItems()
     }
   }
 
@@ -253,10 +228,10 @@ export const StockPage = () => {
     if (!writeoffDialog) {
       return
     }
-    setLoading(true)
+
     setError(null)
-    try {
-      await api.post('/inventory/writeoff', {
+    const result = await writeoffStock(() =>
+      api.post('/inventory/writeoff', {
         items: [
           {
             item_id: writeoffDialog.item_id,
@@ -266,23 +241,17 @@ export const StockPage = () => {
           },
         ],
       })
+    )
+
+    if (result !== null) {
       setWriteoffDialog(null)
       resetDialogState()
-      await fetchStock()
-    } catch {
-      setError('Failed to write off stock.')
-    } finally {
-      setLoading(false)
+      refetchStock()
     }
   }
 
   const handleCreateItem = async () => {
-    if (
-      !newItemCategoryId ||
-      !newItemName.trim() ||
-      !newItemQuantity ||
-      !newItemUnitCost
-    ) {
+    if (!newItemCategoryId || !newItemName.trim() || !newItemQuantity || !newItemUnitCost) {
       setError('Fill category, name, quantity, and unit cost.')
       return
     }
@@ -290,10 +259,10 @@ export const StockPage = () => {
       setError('SKU was not generated. Re-select category.')
       return
     }
-    setLoading(true)
+
     setError(null)
-    try {
-      const response = await api.post<ApiResponse<{ id: number }>>('/items', {
+    const item = await createItem(() =>
+      api.post<ApiResponse<{ id: number }>>('/items', {
         category_id: Number(newItemCategoryId),
         sku_code: newItemSku.trim(),
         name: newItemName.trim(),
@@ -301,20 +270,26 @@ export const StockPage = () => {
         price_type: 'standard',
         price: 0,
       })
+    )
+
+    if (!item) return
+
+    try {
       await api.post('/inventory/receive', {
-        item_id: response.data.data.id,
+        item_id: item.id,
         quantity: Number(newItemQuantity),
         unit_cost: Number(newItemUnitCost),
         notes: 'Initial stock',
       })
-      await fetchStock()
-      await fetchItems()
+      refetchStock()
+      refetchItems()
       setCreateItemOpen(false)
       resetNewItemForm()
-    } catch {
-      setError('Failed to create item.')
-    } finally {
-      setLoading(false)
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 401) {
+        return
+      }
+      setError('Failed to receive initial stock.')
     }
   }
 
@@ -388,9 +363,9 @@ export const StockPage = () => {
         />
       </Box>
 
-      {error ? (
+      {(error || stockError || receiveError || writeoffError || createError) ? (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {error || stockError || receiveError || writeoffError || createError}
         </Alert>
       ) : null}
 
@@ -488,7 +463,7 @@ export const StockPage = () => {
                 displayEmpty
               >
                 <MenuItem value="">Select item</MenuItem>
-                {items.map((item) => (
+                {(items || []).map((item) => (
                   <MenuItem key={item.id} value={item.id}>
                     {item.name} ({item.sku_code})
                   </MenuItem>
@@ -518,7 +493,7 @@ export const StockPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setReceiveDialog(null)}>Cancel</Button>
-          <Button variant="contained" onClick={handleReceive} disabled={loading}>
+          <Button variant="contained" onClick={handleReceive} disabled={receivingStock}>
             Receive
           </Button>
         </DialogActions>
@@ -536,7 +511,7 @@ export const StockPage = () => {
               displayEmpty
             >
               <MenuItem value="">Select category</MenuItem>
-              {categories.map((category) => (
+              {(categories || []).map((category) => (
                 <MenuItem key={category.id} value={category.id}>
                   {category.name}
                 </MenuItem>
@@ -568,7 +543,7 @@ export const StockPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCreateItemOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleCreateItem} disabled={loading}>
+          <Button variant="contained" onClick={handleCreateItem} disabled={creatingItem}>
             Create item
           </Button>
         </DialogActions>
@@ -607,7 +582,7 @@ export const StockPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setWriteoffDialog(null)}>Cancel</Button>
-          <Button variant="contained" onClick={handleWriteOff} disabled={loading}>
+          <Button variant="contained" onClick={handleWriteOff} disabled={writingOff}>
             Write-off
           </Button>
         </DialogActions>

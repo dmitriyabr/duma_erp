@@ -10,10 +10,11 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
 
 interface ApiResponse<T> {
@@ -49,76 +50,60 @@ export const ExpenseClaimDetailPage = () => {
   const isSuperAdmin = user?.role === 'SuperAdmin'
   const resolvedId = claimId ? Number(claimId) : null
 
-  const [claim, setClaim] = useState<ClaimResponse | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { data: claim, loading, error, refetch } = useApi<ClaimResponse>(
+    resolvedId ? `/compensations/claims/${resolvedId}` : null
+  )
+  const { execute: approveClaim, loading: approving, error: approveError } = useApiMutation()
+  const { execute: rejectClaim, loading: rejecting, error: rejectError } = useApiMutation()
+
   const [approveDialogOpen, setApproveDialogOpen] = useState(false)
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false)
   const [reason, setReason] = useState('')
-
-  const loadClaim = useCallback(async () => {
-    if (!resolvedId) return
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<ClaimResponse>>(`/compensations/claims/${resolvedId}`)
-      setClaim(response.data.data)
-    } catch {
-      setError('Failed to load expense claim.')
-    } finally {
-      setLoading(false)
-    }
-  }, [resolvedId])
-
-  useEffect(() => {
-    loadClaim()
-  }, [loadClaim])
+  const [validationError, setValidationError] = useState<string | null>(null)
 
   const handleApprove = async () => {
     if (!resolvedId) return
-    setLoading(true)
-    setError(null)
-    try {
-      await api.post(`/compensations/claims/${resolvedId}/approve`, {
+    const result = await approveClaim(() =>
+      api.post(`/compensations/claims/${resolvedId}/approve`, {
         approve: true,
         reason: reason.trim() || null,
       })
+    )
+
+    if (result) {
       setApproveDialogOpen(false)
       setReason('')
-      await loadClaim()
-    } catch {
-      setError('Failed to approve claim.')
-    } finally {
-      setLoading(false)
+      refetch()
     }
   }
 
   const handleReject = async () => {
     if (!resolvedId || !reason.trim()) {
-      setError('Enter rejection reason.')
+      setValidationError('Enter rejection reason.')
       return
     }
-    setLoading(true)
-    setError(null)
-    try {
-      await api.post(`/compensations/claims/${resolvedId}/approve`, {
+    setValidationError(null)
+
+    const result = await rejectClaim(() =>
+      api.post(`/compensations/claims/${resolvedId}/approve`, {
         approve: false,
         reason: reason.trim(),
       })
+    )
+
+    if (result) {
       setRejectDialogOpen(false)
       setReason('')
-      await loadClaim()
-    } catch {
-      setError('Failed to reject claim.')
-    } finally {
-      setLoading(false)
+      refetch()
     }
   }
 
   if (!claim) {
     return (
       <Box>
-        {error ? <Alert severity="error">{error}</Alert> : null}
+        {error || approveError || rejectError || validationError ? (
+          <Alert severity="error">{error || approveError || rejectError || validationError}</Alert>
+        ) : null}
       </Box>
     )
   }
@@ -207,7 +192,7 @@ export const ExpenseClaimDetailPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setApproveDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" color="success" onClick={handleApprove} disabled={loading}>
+          <Button variant="contained" color="success" onClick={handleApprove} disabled={approving}>
             Approve
           </Button>
         </DialogActions>

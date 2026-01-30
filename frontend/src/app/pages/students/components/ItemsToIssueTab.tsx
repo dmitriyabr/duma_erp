@@ -1,6 +1,7 @@
 import { Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material'
-import { useEffect, useState } from 'react'
+import { useMemo } from 'react'
 import { api } from '../../../services/api'
+import { useApi } from '../../../hooks/useApi'
 import { formatDateTime } from '../../../utils/format'
 import type { ApiResponse, PaginatedResponse, ReservationResponse } from '../types'
 
@@ -10,23 +11,14 @@ interface ItemsToIssueTabProps {
 }
 
 export const ItemsToIssueTab = ({ studentId, onError }: ItemsToIssueTabProps) => {
-  const [reservations, setReservations] = useState<ReservationResponse[]>([])
+  const url = useMemo(() => `/reservations?student_id=${studentId}&limit=200&page=1`, [studentId])
+  const { data, error } = useApi<PaginatedResponse<ReservationResponse>>(url)
 
-  const loadReservations = async () => {
-    try {
-      const response = await api.get<ApiResponse<PaginatedResponse<ReservationResponse>>>(
-        '/reservations',
-        { params: { student_id: studentId, limit: 200, page: 1 } }
-      )
-      setReservations(response.data.data.items)
-    } catch {
-      onError('Failed to load items to issue.')
-    }
+  const reservations = data?.items || []
+
+  if (error) {
+    onError('Failed to load items to issue.')
   }
-
-  useEffect(() => {
-    loadReservations()
-  }, [studentId])
 
   return (
     <Table>

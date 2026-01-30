@@ -24,7 +24,9 @@ import {
 } from '@mui/material'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import axios from 'axios'
 import { api } from '../../services/api'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatMoney } from '../../utils/format'
 
 type Gender = 'male' | 'female'
@@ -121,23 +123,22 @@ const parseNumber = (value: unknown) => {
 
 export const StudentsPage = () => {
   const navigate = useNavigate()
-  const [rows, setRows] = useState<StudentRow[]>([])
-  const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(20)
   const [statusFilter, setStatusFilter] = useState<'all' | StudentStatus>('all')
   const [gradeFilter, setGradeFilter] = useState<number | 'all'>('all')
   const [transportFilter, setTransportFilter] = useState<number | 'all'>('all')
   const [search, setSearch] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [grades, setGrades] = useState<GradeOption[]>([])
-  const [transportZones, setTransportZones] = useState<TransportZoneOption[]>([])
   const [balanceMap, setBalanceMap] = useState<Record<number, number>>({})
   const [debtMap, setDebtMap] = useState<Record<number, number>>({})
   const [dialogOpen, setDialogOpen] = useState(false)
   const [form, setForm] = useState({ ...emptyForm })
   const [discountForm, setDiscountForm] = useState({ ...emptyDiscountForm })
+
+  const { data: grades } = useApi<GradeOption[]>('/students/grades', { params: { include_inactive: true } })
+  const { data: transportZones } = useApi<TransportZoneOption[]>('/terms/transport-zones', {
+    params: { include_inactive: true },
+  })
 
   const requestParams = useMemo(() => {
     const params: Record<string, string | number> = {
@@ -159,36 +160,14 @@ export const StudentsPage = () => {
     return params
   }, [page, limit, statusFilter, gradeFilter, transportFilter, search])
 
-  const fetchFilters = async () => {
-    try {
-      const [gradeResponse, zoneResponse] = await Promise.all([
-        api.get<ApiResponse<GradeOption[]>>('/students/grades', { params: { include_inactive: true } }),
-        api.get<ApiResponse<TransportZoneOption[]>>('/terms/transport-zones', {
-          params: { include_inactive: true },
-        }),
-      ])
-      setGrades(gradeResponse.data.data)
-      setTransportZones(zoneResponse.data.data)
-    } catch (err) {
-      setError('Failed to load filters.')
-    }
-  }
+  const {
+    data: studentsData,
+    loading,
+    error,
+  } = useApi<PaginatedResponse<StudentRow>>('/students', { params: requestParams }, [requestParams])
 
-  const fetchStudents = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<PaginatedResponse<StudentRow>>>('/students', {
-        params: requestParams,
-      })
-      setRows(response.data.data.items)
-      setTotal(response.data.data.total)
-    } catch (err) {
-      setError('Failed to load students.')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const rows = studentsData?.items || []
+  const total = studentsData?.total || 0
 
   const fetchBalancesAndDebts = async (students: StudentRow[]) => {
     if (!students.length) {
@@ -211,7 +190,11 @@ export const StudentsPage = () => {
       }, {})
       setBalanceMap(balances)
     } catch (err) {
-      setError('Failed to load balances.')
+      // Ignore 401 - handled by interceptor
+      if (axios.isAxiosError(err) && err.response?.status === 401) {
+        return
+      }
+      console.error('Failed to load balances:', err)
     }
 
     try {
@@ -236,21 +219,19 @@ export const StudentsPage = () => {
       }, {})
       setDebtMap(debts)
     } catch (err) {
-      setError('Failed to load outstanding balances.')
+      // Ignore 401 - handled by interceptor
+      if (axios.isAxiosError(err) && err.response?.status === 401) {
+        return
+      }
+      console.error('Failed to load outstanding balances:', err)
     }
   }
 
   useEffect(() => {
-    fetchFilters()
-  }, [])
-
-  useEffect(() => {
-    fetchStudents()
-  }, [requestParams])
-
-  useEffect(() => {
     fetchBalancesAndDebts(rows)
   }, [rows])
+
+  const { execute: createStudent, loading: saving, error: saveError } = useApiMutation<StudentRow>()
 
   const openCreate = () => {
     setForm({ ...emptyForm })
@@ -259,39 +240,40 @@ export const StudentsPage = () => {
   }
 
   const submitCreate = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const payload = {
-        first_name: form.first_name.trim(),
-        last_name: form.last_name.trim(),
-        date_of_birth: form.date_of_birth || null,
-        gender: form.gender,
-        grade_id: Number(form.grade_id),
-        transport_zone_id: form.transport_zone_id ? Number(form.transport_zone_id) : null,
-        guardian_name: form.guardian_name.trim(),
-        guardian_phone: form.guardian_phone.trim(),
-        guardian_email: form.guardian_email.trim() || null,
-        enrollment_date: form.enrollment_date || null,
-        notes: form.notes.trim() || null,
-      }
-      const response = await api.post<ApiResponse<StudentRow>>('/students', payload)
-      const student = response.data.data
-      if (discountForm.enabled && discountForm.value) {
+    const payload = {
+      first_name: form.first_name.trim(),
+      last_name: form.last_name.trim(),
+      date_of_birth: form.date_of_birth || null,
+      gender: form.gender,
+      grade_id: Number(form.grade_id),
+      transport_zone_id: form.transport_zone_id ? Number(form.transport_zone_id) : null,
+      guardian_name: form.guardian_name.trim(),
+      guardian_phone: form.guardian_phone.trim(),
+      guardian_email: form.guardian_email.trim() || null,
+      enrollment_date: form.enrollment_date || null,
+      notes: form.notes.trim() || null,
+    }
+
+    const student = await createStudent(() => api.post<ApiResponse<StudentRow>>('/students', payload))
+    if (!student) return
+
+    if (discountForm.enabled && discountForm.value) {
+      try {
         await api.post('/discounts/student', {
           student_id: student.id,
           value_type: discountForm.value_type,
           value: Number(discountForm.value),
           reason_text: discountForm.reason_text.trim() || null,
         })
+      } catch (err) {
+        if (axios.isAxiosError(err) && err.response?.status === 401) {
+          return
+        }
+        console.error('Failed to create student discount:', err)
       }
-      setDialogOpen(false)
-      await fetchStudents()
-    } catch (err) {
-      setError('Failed to create student.')
-    } finally {
-      setLoading(false)
     }
+
+    setDialogOpen(false)
   }
 
   return (
@@ -334,7 +316,7 @@ export const StudentsPage = () => {
             onChange={(event) => setGradeFilter(event.target.value as number | 'all')}
           >
             <MenuItem value="all">All</MenuItem>
-            {grades.map((grade) => (
+            {(grades || []).map((grade) => (
               <MenuItem key={grade.id} value={grade.id}>
                 {grade.name}
               </MenuItem>
@@ -349,7 +331,7 @@ export const StudentsPage = () => {
             onChange={(event) => setTransportFilter(event.target.value as number | 'all')}
           >
             <MenuItem value="all">All</MenuItem>
-            {transportZones.map((zone) => (
+            {(transportZones || []).map((zone) => (
               <MenuItem key={zone.id} value={zone.id}>
                 {zone.zone_name}
               </MenuItem>
@@ -358,9 +340,9 @@ export const StudentsPage = () => {
         </FormControl>
       </Box>
 
-      {error ? (
+      {error || saveError ? (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {error || saveError}
         </Alert>
       ) : null}
 
@@ -471,7 +453,7 @@ export const StudentsPage = () => {
                 label="Grade"
                 onChange={(event) => setForm({ ...form, grade_id: event.target.value as string })}
               >
-                {grades.map((grade) => (
+                {(grades || []).map((grade) => (
                   <MenuItem key={grade.id} value={String(grade.id)}>
                     {grade.name}
                   </MenuItem>
@@ -486,7 +468,7 @@ export const StudentsPage = () => {
                 onChange={(event) => setForm({ ...form, transport_zone_id: event.target.value as string })}
               >
                 <MenuItem value="">None</MenuItem>
-                {transportZones.map((zone) => (
+                {(transportZones || []).map((zone) => (
                   <MenuItem key={zone.id} value={String(zone.id)}>
                     {zone.zone_name}
                   </MenuItem>
@@ -588,7 +570,7 @@ export const StudentsPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={submitCreate} disabled={loading}>
+          <Button variant="contained" onClick={submitCreate} disabled={saving}>
             Save
           </Button>
         </DialogActions>

@@ -393,6 +393,26 @@
 - [x] Современный Sidebar (тёмный gradient, логотип)
 - [x] TopBar с аватаром и dropdown меню
 
+**Рефакторинг обработки 401 (token refresh):**
+> Проблема: При истечении токена страницы показывали ошибку, даже если interceptor успешно обновлял токен
+> Решение: Создали хуки useApi и useApiMutation, которые игнорируют 401 (обработку делает interceptor)
+
+- [x] Создан `frontend/src/app/hooks/useApi.ts` с двумя хуками:
+  - `useApi<T>` для GET-запросов (авто-загрузка при монтировании)
+  - `useApiMutation<T>` для POST/PUT/DELETE (ручной вызов через execute)
+- [~] Рефакторинг страниц для использования хуков (5 из ~11 завершено):
+  - [x] StudentsPage.tsx
+  - [x] IssueFormPage.tsx
+  - [x] InventoryCountPage.tsx
+  - [x] StockPage.tsx
+  - [x] ProcurementPaymentFormPage.tsx
+  - [ ] SchoolPage.tsx
+  - [ ] InvoicesTab.tsx
+  - [ ] PaymentsTab.tsx
+  - [ ] CreateInvoicePage.tsx
+  - [ ] TermDetailPage.tsx
+  - [ ] TermFormPage.tsx
+
 ### 9.2 Справочники UI
 > Решения: Settings содержит Users и Grades, Users только SuperAdmin
 

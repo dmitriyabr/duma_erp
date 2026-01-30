@@ -16,9 +16,10 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../services/api'
+import { useApi } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
 
 interface ApiResponse<T> {
@@ -52,57 +53,29 @@ const statusOptions = [
 
 export const ProcurementPaymentsListPage = () => {
   const navigate = useNavigate()
-  const [payments, setPayments] = useState<PaymentRow[]>([])
-  const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [poIdFilter, setPoIdFilter] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
-  const requestParams = useMemo(() => {
-    const params: Record<string, string | number> = {
-      page: page + 1,
-      limit,
-    }
-    if (statusFilter !== 'all') {
-      params.status = statusFilter
-    }
-    if (poIdFilter.trim()) {
-      params.po_id = Number(poIdFilter)
-    }
-    if (dateFrom) {
-      params.date_from = dateFrom
-    }
-    if (dateTo) {
-      params.date_to = dateTo
-    }
-    return params
+  const url = useMemo(() => {
+    const params: Record<string, string | number> = { page: page + 1, limit }
+    if (statusFilter !== 'all') params.status = statusFilter
+    if (poIdFilter.trim()) params.po_id = Number(poIdFilter)
+    if (dateFrom) params.date_from = dateFrom
+    if (dateTo) params.date_to = dateTo
+
+    const sp = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => sp.append(k, String(v)))
+    return `/procurement/payments?${sp.toString()}`
   }, [page, limit, statusFilter, poIdFilter, dateFrom, dateTo])
 
-  const loadPayments = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<PaginatedResponse<PaymentRow>>>(
-        '/procurement/payments',
-        { params: requestParams }
-      )
-      setPayments(response.data.data.items)
-      setTotal(response.data.data.total)
-    } catch {
-      setError('Failed to load payments.')
-    } finally {
-      setLoading(false)
-    }
-  }, [requestParams])
+  const { data, loading, error } = useApi<PaginatedResponse<PaymentRow>>(url)
 
-  useEffect(() => {
-    loadPayments()
-  }, [loadPayments])
+  const payments = data?.items || []
+  const total = data?.total || 0
 
   return (
     <Box>

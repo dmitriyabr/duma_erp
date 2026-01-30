@@ -14,8 +14,9 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { api } from '../../services/api'
+import { useApi } from '../../hooks/useApi'
 import { formatDateTime, formatMoney } from '../../utils/format'
 
 interface MovementRow {
@@ -61,62 +62,33 @@ const movementTypeOptions = [
 ]
 
 export const MovementsPage = () => {
-  const [rows, setRows] = useState<MovementRow[]>([])
-  const [items, setItems] = useState<ItemOption[]>([])
   const [itemFilter, setItemFilter] = useState<number | 'all'>('all')
   const [typeFilter, setTypeFilter] = useState<string | 'all'>('all')
   const [search, setSearch] = useState('')
-  const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
-  const fetchItems = async () => {
-    try {
-      const response = await api.get<ApiResponse<ItemOption[]>>('/items', {
-        params: { include_inactive: true, item_type: 'product' },
-      })
-      setItems(response.data.data)
-    } catch {
-      setItems([])
+  const { data: items } = useApi<ItemOption[]>('/items?include_inactive=true&item_type=product')
+
+  const movementsUrl = useMemo(() => {
+    const params: Record<string, string | number> = { page: page + 1, limit }
+    if (itemFilter !== 'all') {
+      params.item_id = itemFilter
     }
-  }
-
-  const fetchMovements = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const params: Record<string, string | number> = {
-        page: page + 1,
-        limit,
-      }
-      if (itemFilter !== 'all') {
-        params.item_id = itemFilter
-      }
-      if (typeFilter !== 'all') {
-        params.movement_type = typeFilter
-      }
-      const response = await api.get<ApiResponse<PaginatedResponse<MovementRow>>>(
-        '/inventory/movements',
-        { params }
-      )
-      setRows(response.data.data.items)
-      setTotal(response.data.data.total)
-    } catch {
-      setError('Failed to load movements.')
-    } finally {
-      setLoading(false)
+    if (typeFilter !== 'all') {
+      params.movement_type = typeFilter
     }
-  }
-
-  useEffect(() => {
-    fetchItems()
-  }, [])
-
-  useEffect(() => {
-    fetchMovements()
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      searchParams.append(key, String(value))
+    })
+    return `/inventory/movements?${searchParams.toString()}`
   }, [page, limit, itemFilter, typeFilter])
+
+  const { data: movementsData, loading, error } = useApi<PaginatedResponse<MovementRow>>(movementsUrl)
+
+  const rows = movementsData?.items || []
+  const total = movementsData?.total || 0
 
   const filteredRows = useMemo(() => {
     if (!search.trim()) {
@@ -151,7 +123,7 @@ export const MovementsPage = () => {
             onChange={(event) => setItemFilter(event.target.value as number | 'all')}
           >
             <MenuItem value="all">All</MenuItem>
-            {items.map((item) => (
+            {(items || []).map((item) => (
               <MenuItem key={item.id} value={item.id}>
                 {item.name} ({item.sku_code})
               </MenuItem>

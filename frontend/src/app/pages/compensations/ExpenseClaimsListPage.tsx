@@ -16,10 +16,11 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
+import { useApi } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
 
 interface ApiResponse<T> {
@@ -80,95 +81,37 @@ export const ExpenseClaimsListPage = () => {
   const { user } = useAuth()
   const isSuperAdmin = user?.role === 'SuperAdmin'
 
-  const [claims, setClaims] = useState<ClaimRow[]>([])
-  const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [employeeFilter, setEmployeeFilter] = useState<number | ''>('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
-  const [employees, setEmployees] = useState<UserRow[]>([])
-  const [myBalance, setMyBalance] = useState<BalanceResponse | null>(null)
+  const claimsUrl = useMemo(() => {
+    const params: Record<string, string | number> = { page: page + 1, limit }
+    if (statusFilter !== 'all') params.status = statusFilter
+    if (!isSuperAdmin && user?.id) params.employee_id = user.id
+    else if (isSuperAdmin && employeeFilter) params.employee_id = Number(employeeFilter)
+    if (dateFrom) params.date_from = dateFrom
+    if (dateTo) params.date_to = dateTo
 
-  const requestParams = useMemo(() => {
-    const params: Record<string, string | number> = {
-      page: page + 1,
-      limit,
-    }
-    if (statusFilter !== 'all') {
-      params.status = statusFilter
-    }
-    // Для обычного сотрудника всегда фильтруем по его ID
-    if (!isSuperAdmin && user?.id) {
-      params.employee_id = user.id
-    } else if (isSuperAdmin && employeeFilter) {
-      params.employee_id = Number(employeeFilter)
-    }
-    if (dateFrom) {
-      params.date_from = dateFrom
-    }
-    if (dateTo) {
-      params.date_to = dateTo
-    }
-    return params
+    const sp = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => sp.append(k, String(v)))
+    return `/compensations/claims?${sp.toString()}`
   }, [page, limit, statusFilter, employeeFilter, dateFrom, dateTo, isSuperAdmin, user?.id])
 
-  const loadClaims = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<PaginatedResponse<ClaimRow>>>(
-        '/compensations/claims',
-        { params: requestParams }
-      )
-      setClaims(response.data.data.items)
-      setTotal(response.data.data.total)
-    } catch {
-      setError('Failed to load expense claims.')
-    } finally {
-      setLoading(false)
-    }
-  }, [requestParams])
+  const { data: claimsData, loading, error } = useApi<PaginatedResponse<ClaimRow>>(claimsUrl)
+  const { data: employeesData } = useApi<{ items: UserRow[] }>(
+    isSuperAdmin ? '/users?limit=100' : null
+  )
+  const { data: myBalance } = useApi<BalanceResponse>(
+    user?.id && !isSuperAdmin ? `/compensations/payouts/employees/${user.id}/balance` : null
+  )
 
-  const loadEmployees = useCallback(async () => {
-    if (!isSuperAdmin) return
-    try {
-      const response = await api.get<ApiResponse<{ items: UserRow[] }>>('/users', {
-        params: { limit: 100 },
-      })
-      setEmployees(response.data.data.items)
-    } catch {
-      // Ignore
-    }
-  }, [isSuperAdmin])
-
-  const loadMyBalance = useCallback(async () => {
-    if (!user?.id || isSuperAdmin) return
-    try {
-      // Пробуем получить баланс, но endpoint может требовать SuperAdmin
-      // В таком случае просто не показываем баланс
-      const response = await api.get<ApiResponse<BalanceResponse>>(
-        `/compensations/payouts/employees/${user.id}/balance`
-      )
-      setMyBalance(response.data.data)
-    } catch {
-      // Endpoint может быть недоступен для обычных пользователей
-      // В таком случае просто не показываем баланс
-    }
-  }, [user?.id, isSuperAdmin])
-
-  useEffect(() => {
-    loadClaims()
-  }, [loadClaims])
-
-  useEffect(() => {
-    loadEmployees()
-    loadMyBalance()
-  }, [loadEmployees, loadMyBalance])
+  const claims = claimsData?.items || []
+  const total = claimsData?.total || 0
+  const employees = employeesData?.items || []
 
   return (
     <Box>

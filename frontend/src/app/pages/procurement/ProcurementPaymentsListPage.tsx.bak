@@ -19,8 +19,7 @@ import {
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../services/api'
-import { useApi } from '../../hooks/useApi'
-import { formatDate } from '../../utils/format'
+import { formatDate, formatMoney } from '../../utils/format'
 
 interface ApiResponse<T> {
   success: boolean
@@ -34,58 +33,87 @@ interface PaginatedResponse<T> {
   limit: number
 }
 
-interface GRNRow {
+interface PaymentRow {
   id: number
-  grn_number: string
-  po_id: number
+  payment_number: string
+  po_id: number | null
+  payee_name: string | null
+  payment_date: string
+  amount: number
+  payment_method: string
   status: string
-  received_date: string
 }
 
 const statusOptions = [
   { value: 'all', label: 'All' },
-  { value: 'draft', label: 'Draft' },
-  { value: 'approved', label: 'Approved' },
+  { value: 'posted', label: 'Posted' },
   { value: 'cancelled', label: 'Cancelled' },
 ]
 
-export const GRNListPage = () => {
+export const ProcurementPaymentsListPage = () => {
   const navigate = useNavigate()
+  const [payments, setPayments] = useState<PaymentRow[]>([])
+  const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [poIdFilter, setPoIdFilter] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const url = useMemo(() => {
-    const params: Record<string, string | number> = { page: page + 1, limit }
-    if (statusFilter !== 'all') params.status = statusFilter
-    if (poIdFilter.trim()) params.po_id = Number(poIdFilter)
-    if (dateFrom) params.date_from = dateFrom
-    if (dateTo) params.date_to = dateTo
-
-    const sp = new URLSearchParams()
-    Object.entries(params).forEach(([k, v]) => sp.append(k, String(v)))
-    return `/procurement/grns?${sp.toString()}`
+  const requestParams = useMemo(() => {
+    const params: Record<string, string | number> = {
+      page: page + 1,
+      limit,
+    }
+    if (statusFilter !== 'all') {
+      params.status = statusFilter
+    }
+    if (poIdFilter.trim()) {
+      params.po_id = Number(poIdFilter)
+    }
+    if (dateFrom) {
+      params.date_from = dateFrom
+    }
+    if (dateTo) {
+      params.date_to = dateTo
+    }
+    return params
   }, [page, limit, statusFilter, poIdFilter, dateFrom, dateTo])
 
-  const { data, loading, error } = useApi<PaginatedResponse<GRNRow>>(url)
+  const loadPayments = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await api.get<ApiResponse<PaginatedResponse<PaymentRow>>>(
+        '/procurement/payments',
+        { params: requestParams }
+      )
+      setPayments(response.data.data.items)
+      setTotal(response.data.data.total)
+    } catch {
+      setError('Failed to load payments.')
+    } finally {
+      setLoading(false)
+    }
+  }, [requestParams])
 
-  const grns = data?.items || []
-  const total = data?.total || 0
-
-  const statusColor = (status: string) => {
-    if (status === 'approved') return 'success'
-    if (status === 'cancelled') return 'default'
-    return 'warning'
-  }
+  useEffect(() => {
+    loadPayments()
+  }, [loadPayments])
 
   return (
     <Box>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
-        Goods Received
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
+        <Typography variant="h4" sx={{ fontWeight: 700 }}>
+          Procurement payments
+        </Typography>
+        <Button variant="contained" onClick={() => navigate('/procurement/payments/new')}>
+          New payment
+        </Button>
+      </Box>
 
       <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
         <TextField
@@ -136,33 +164,43 @@ export const GRNListPage = () => {
       <Table>
         <TableHead>
           <TableRow>
-            <TableCell>GRN Number</TableCell>
+            <TableCell>Payment Number</TableCell>
             <TableCell>PO ID</TableCell>
+            <TableCell>Payee</TableCell>
+            <TableCell>Date</TableCell>
+            <TableCell align="right">Amount</TableCell>
+            <TableCell>Method</TableCell>
             <TableCell>Status</TableCell>
-            <TableCell>Received date</TableCell>
             <TableCell align="right">Actions</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
-          {grns.map((grn) => (
-            <TableRow key={grn.id}>
-              <TableCell>{grn.grn_number}</TableCell>
-              <TableCell>{grn.po_id}</TableCell>
+          {payments.map((payment) => (
+            <TableRow key={payment.id}>
+              <TableCell>{payment.payment_number}</TableCell>
+              <TableCell>{payment.po_id ?? '—'}</TableCell>
+              <TableCell>{payment.payee_name ?? '—'}</TableCell>
+              <TableCell>{formatDate(payment.payment_date)}</TableCell>
+              <TableCell align="right">{formatMoney(payment.amount)}</TableCell>
+              <TableCell>{payment.payment_method}</TableCell>
               <TableCell>
-                <Chip size="small" label={grn.status} color={statusColor(grn.status)} />
+                <Chip
+                  size="small"
+                  label={payment.status}
+                  color={payment.status === 'posted' ? 'success' : 'default'}
+                />
               </TableCell>
-              <TableCell>{formatDate(grn.received_date)}</TableCell>
               <TableCell align="right">
-                <Button size="small" onClick={() => navigate(`/procurement/grn/${grn.id}`)}>
+                <Button size="small" onClick={() => navigate(`/procurement/payments/${payment.id}`)}>
                   View
                 </Button>
               </TableCell>
             </TableRow>
           ))}
-          {!grns.length && !loading ? (
+          {!payments.length && !loading ? (
             <TableRow>
-              <TableCell colSpan={5} align="center">
-                No GRNs found
+              <TableCell colSpan={8} align="center">
+                No payments found
               </TableCell>
             </TableRow>
           ) : null}

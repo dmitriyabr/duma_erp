@@ -9,9 +9,10 @@ import {
   TableRow,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../../services/api'
+import { useApi } from '../../hooks/useApi'
 import { openAttachmentInNewTab } from '../../utils/attachments'
 import { formatDate, formatMoney } from '../../utils/format'
 
@@ -47,24 +48,16 @@ interface ClaimRow {
 export const PayoutDetailPage = () => {
   const { payoutId } = useParams()
   const resolvedId = payoutId ? Number(payoutId) : null
-  const [payout, setPayout] = useState<PayoutResponse | null>(null)
+  const { data: payout, error } = useApi<PayoutResponse>(
+    resolvedId ? `/compensations/payouts/${resolvedId}` : null
+  )
   const [claims, setClaims] = useState<Map<number, ClaimRow>>(new Map())
-  const [_loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
-  const loadPayout = useCallback(async () => {
-    if (!resolvedId) return
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<PayoutResponse>>(
-        `/compensations/payouts/${resolvedId}`
-      )
-      const payoutData = response.data.data
-      setPayout(payoutData)
-
-      // Загружаем данные claims для отображения
-      const claimIds = payoutData.allocations.map((a) => a.claim_id)
+  useEffect(() => {
+    if (!payout) return
+    // Load claims data for display
+    const loadClaims = async () => {
+      const claimIds = payout.allocations.map((a) => a.claim_id)
       const claimsMap = new Map<number, ClaimRow>()
       for (const claimId of claimIds) {
         try {
@@ -80,16 +73,9 @@ export const PayoutDetailPage = () => {
         }
       }
       setClaims(claimsMap)
-    } catch {
-      setError('Failed to load payout.')
-    } finally {
-      setLoading(false)
     }
-  }, [resolvedId])
-
-  useEffect(() => {
-    loadPayout()
-  }, [loadPayout])
+    loadClaims()
+  }, [payout])
 
   if (!payout) {
     return (

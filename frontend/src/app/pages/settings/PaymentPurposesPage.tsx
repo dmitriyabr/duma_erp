@@ -15,8 +15,9 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { api } from '../../services/api'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 
 interface ApiResponse<T> {
   success: boolean
@@ -32,31 +33,13 @@ interface PurposeRow {
 const emptyForm = { name: '' }
 
 export const PaymentPurposesPage = () => {
-  const [rows, setRows] = useState<PurposeRow[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { data: rows, loading, error, refetch } = useApi<PurposeRow[]>('/procurement/payment-purposes?include_inactive=true')
+  const { execute: savePurpose, loading: saving, error: saveError } = useApiMutation<PurposeRow>()
+
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingPurpose, setEditingPurpose] = useState<PurposeRow | null>(null)
   const [form, setForm] = useState({ ...emptyForm })
-
-  const fetchPurposes = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<PurposeRow[]>>('/procurement/payment-purposes', {
-        params: { include_inactive: true },
-      })
-      setRows(response.data.data)
-    } catch {
-      setError('Failed to load payment purposes.')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    fetchPurposes()
-  }, [fetchPurposes])
+  const [validationError, setValidationError] = useState<string | null>(null)
 
   const openCreate = () => {
     setEditingPurpose(null)
@@ -72,27 +55,23 @@ export const PaymentPurposesPage = () => {
 
   const submitForm = async () => {
     if (!form.name.trim()) {
-      setError('Enter purpose name.')
+      setValidationError('Enter purpose name.')
       return
     }
-    setLoading(true)
-    setError(null)
-    try {
-      if (editingPurpose) {
-        await api.put(`/procurement/payment-purposes/${editingPurpose.id}`, {
-          name: form.name.trim(),
-        })
-      } else {
-        await api.post('/procurement/payment-purposes', {
-          name: form.name.trim(),
-        })
-      }
+    const result = await savePurpose(() =>
+      editingPurpose
+        ? api.put(`/procurement/payment-purposes/${editingPurpose.id}`, {
+            name: form.name.trim(),
+          })
+        : api.post('/procurement/payment-purposes', {
+            name: form.name.trim(),
+          })
+    )
+
+    if (result) {
       setDialogOpen(false)
-      await fetchPurposes()
-    } catch {
-      setError('Failed to save payment purpose.')
-    } finally {
-      setLoading(false)
+      setValidationError(null)
+      refetch()
     }
   }
 
@@ -107,9 +86,9 @@ export const PaymentPurposesPage = () => {
         </Button>
       </Box>
 
-      {error ? (
+      {error || saveError || validationError ? (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {error || saveError || validationError}
         </Alert>
       ) : null}
 
@@ -122,7 +101,7 @@ export const PaymentPurposesPage = () => {
           </TableRow>
         </TableHead>
         <TableBody>
-          {rows.map((row) => (
+          {(rows || []).map((row) => (
             <TableRow key={row.id}>
               <TableCell>{row.name}</TableCell>
               <TableCell>
@@ -139,7 +118,7 @@ export const PaymentPurposesPage = () => {
               </TableCell>
             </TableRow>
           ))}
-          {!rows.length && !loading ? (
+          {!(rows || []).length && !loading ? (
             <TableRow>
               <TableCell colSpan={3} align="center">
                 No payment purposes found
@@ -162,7 +141,7 @@ export const PaymentPurposesPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={submitForm} disabled={loading}>
+          <Button variant="contained" onClick={submitForm} disabled={saving}>
             Save
           </Button>
         </DialogActions>

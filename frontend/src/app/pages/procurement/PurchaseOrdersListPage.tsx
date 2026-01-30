@@ -16,9 +16,9 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api } from '../../services/api'
+import { useApi } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
 
 interface ApiResponse<T> {
@@ -58,18 +58,12 @@ const statusOptions = [
 
 export const PurchaseOrdersListPage = () => {
   const navigate = useNavigate()
-  const [orders, setOrders] = useState<PORow[]>([])
-  const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [supplierFilter, setSupplierFilter] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [pendingGrnCount, setPendingGrnCount] = useState(0)
-  const [totalDebt, setTotalDebt] = useState(0)
 
   const requestParams = useMemo(() => {
     const params: Record<string, string | number> = {
@@ -91,39 +85,20 @@ export const PurchaseOrdersListPage = () => {
     return params
   }, [page, limit, statusFilter, supplierFilter, dateFrom, dateTo])
 
-  const loadOrders = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<PaginatedResponse<PORow>>>(
-        '/procurement/purchase-orders',
-        { params: requestParams }
-      )
-      setOrders(response.data.data.items)
-      setTotal(response.data.data.total)
-    } catch {
-      setError('Failed to load purchase orders.')
-    } finally {
-      setLoading(false)
-    }
-  }, [requestParams])
+  const { data: ordersData, loading, error } = useApi<PaginatedResponse<PORow>>(
+    '/procurement/purchase-orders',
+    { params: requestParams },
+    [requestParams]
+  )
 
-  const loadDashboard = useCallback(async () => {
-    try {
-      const response = await api.get<ApiResponse<{ total_supplier_debt: number; pending_grn_count: number }>>(
-        '/procurement/dashboard'
-      )
-      setTotalDebt(response.data.data.total_supplier_debt)
-      setPendingGrnCount(response.data.data.pending_grn_count)
-    } catch {
-      // Ignore dashboard errors
-    }
-  }, [])
+  const { data: dashboardData } = useApi<{ total_supplier_debt: number; pending_grn_count: number }>(
+    '/procurement/dashboard'
+  )
 
-  useEffect(() => {
-    loadOrders()
-    loadDashboard()
-  }, [loadOrders, loadDashboard])
+  const orders = ordersData?.items || []
+  const total = ordersData?.total || 0
+  const pendingGrnCount = dashboardData?.pending_grn_count || 0
+  const totalDebt = dashboardData?.total_supplier_debt || 0
 
   const statusColor = (status: string) => {
     if (status === 'received' || status === 'closed') return 'success'

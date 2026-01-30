@@ -19,8 +19,9 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { api } from '../../services/api'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatMoney } from '../../utils/format'
 
 interface FixedFeeRow {
@@ -44,32 +45,15 @@ const emptyForm = {
 }
 
 export const FixedFeesPage = () => {
-  const [rows, setRows] = useState<FixedFeeRow[]>([])
+  const { data: rows, loading, error, refetch } = useApi<FixedFeeRow[]>('/terms/fixed-fees')
+  const { execute: saveFee, loading: saving, error: saveError } = useApiMutation<FixedFeeRow>()
+
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingFee, setEditingFee] = useState<FixedFeeRow | null>(null)
   const [form, setForm] = useState({ ...emptyForm })
 
-  const fetchFees = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<FixedFeeRow[]>>('/terms/fixed-fees')
-      setRows(response.data.data)
-    } catch (err) {
-      setError('Failed to load fixed fees.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    fetchFees()
-  }, [])
-
-  const filteredRows = rows.filter((row) => {
+  const filteredRows = (rows || []).filter((row) => {
     if (statusFilter === 'all') {
       return true
     }
@@ -94,29 +78,25 @@ export const FixedFeesPage = () => {
   }
 
   const submitForm = async () => {
-    setLoading(true)
-    setError(null)
     const amountValue = Number(form.amount)
-    try {
-      if (editingFee) {
-        await api.put(`/terms/fixed-fees/${editingFee.id}`, {
-          display_name: form.display_name,
-          amount: amountValue,
-          is_active: form.is_active,
-        })
-      } else {
-        await api.post('/terms/fixed-fees', {
-          fee_type: form.fee_type,
-          display_name: form.display_name,
-          amount: amountValue,
-        })
-      }
+
+    const result = await saveFee(() =>
+      editingFee
+        ? api.put(`/terms/fixed-fees/${editingFee.id}`, {
+            display_name: form.display_name,
+            amount: amountValue,
+            is_active: form.is_active,
+          })
+        : api.post('/terms/fixed-fees', {
+            fee_type: form.fee_type,
+            display_name: form.display_name,
+            amount: amountValue,
+          })
+    )
+
+    if (result) {
       setDialogOpen(false)
-      await fetchFees()
-    } catch (err) {
-      setError('Failed to save fixed fee.')
-    } finally {
-      setLoading(false)
+      refetch()
     }
   }
 
@@ -146,9 +126,9 @@ export const FixedFeesPage = () => {
         </FormControl>
       </Box>
 
-      {error ? (
+      {error || saveError ? (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {error || saveError}
         </Alert>
       ) : null}
 
@@ -236,7 +216,7 @@ export const FixedFeesPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={submitForm} disabled={loading}>
+          <Button variant="contained" onClick={submitForm} disabled={saving}>
             Save
           </Button>
         </DialogActions>

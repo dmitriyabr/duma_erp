@@ -19,9 +19,10 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../services/api'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
 
 interface ApiResponse<T> {
@@ -64,13 +65,19 @@ const getDefaultPayoutDate = () => {
 
 export const PayoutsPage = () => {
   const navigate = useNavigate()
-  const [employeeBalances, setEmployeeBalances] = useState<EmployeeBalanceRow[]>([])
-  const [payouts, setPayouts] = useState<PayoutRow[]>([])
-  const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [employeeBalances, setEmployeeBalances] = useState<EmployeeBalanceRow[]>([])
+  const [validationError, setValidationError] = useState<string | null>(null)
+
+  const payoutsUrl = useMemo(() => `/compensations/payouts?page=${page + 1}&limit=${limit}`, [page, limit])
+  const { data: payoutsData, loading, error, refetch } = useApi<PaginatedResponse<PayoutRow>>(payoutsUrl)
+  const { data: employeesData } = useApi<{ items: UserRow[] }>('/users?limit=100')
+  const { execute: createPayout, loading: creating, error: createError } = useApiMutation()
+
+  const payouts = payoutsData?.items || []
+  const total = payoutsData?.total || 0
+  const employees = employeesData?.items || []
 
   const [payoutDialogOpen, setPayoutDialogOpen] = useState(false)
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | ''>('')
@@ -84,28 +91,10 @@ export const PayoutsPage = () => {
   const [uploadingProof, setUploadingProof] = useState(false)
   const proofFileInputRef = React.useRef<HTMLInputElement>(null)
 
-  const [employees, setEmployees] = useState<UserRow[]>([])
-
-  const loadEmployees = useCallback(async () => {
-    try {
-      const response = await api.get<ApiResponse<{ items: UserRow[] }>>('/users', {
-        params: { limit: 100 },
-      })
-      setEmployees(response.data.data.items)
-    } catch {
-      setError('Failed to load employees.')
-    }
-  }, [])
-
   const loadBalances = useCallback(async () => {
+    if (!employees.length) return
     try {
-      // Загружаем всех сотрудников и для каждого получаем баланс
-      const employeesResponse = await api.get<ApiResponse<{ items: UserRow[] }>>('/users', {
-        params: { limit: 100 },
-      })
-      const allEmployees = employeesResponse.data.data.items
-
-      const balancesPromises = allEmployees.map(async (emp) => {
+      const balancesPromises = employees.map(async (emp) => {
         try {
           const balanceResponse = await api.get<ApiResponse<{ employee_id: number; total_approved: number; total_paid: number; balance: number }>>(
             `/compensations/payouts/employees/${emp.id}/balance`
@@ -128,39 +117,16 @@ export const PayoutsPage = () => {
       })
 
       const balances = await Promise.all(balancesPromises)
-      // Фильтруем только тех, у кого есть баланс > 0 или были выплаты
       const withBalance = balances.filter((b) => b.balance > 0 || b.total_paid > 0)
       setEmployeeBalances(withBalance)
     } catch {
-      setError('Failed to load employee balances.')
+      // Ignore
     }
-  }, [])
-
-  const loadPayouts = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<PaginatedResponse<PayoutRow>>>(
-        '/compensations/payouts',
-        { params: { page: page + 1, limit } }
-      )
-      setPayouts(response.data.data.items)
-      setTotal(response.data.data.total)
-    } catch {
-      setError('Failed to load payouts.')
-    } finally {
-      setLoading(false)
-    }
-  }, [page, limit])
+  }, [employees])
 
   useEffect(() => {
-    loadEmployees()
     loadBalances()
-  }, [loadEmployees, loadBalances])
-
-  useEffect(() => {
-    loadPayouts()
-  }, [loadPayouts])
+  }, [loadBalances])
 
   const openPayoutDialog = (employeeId: number) => {
     setSelectedEmployeeId(employeeId)
@@ -182,25 +148,24 @@ export const PayoutsPage = () => {
 
   const handleCreatePayout = async () => {
     if (!selectedEmployeeId || !amount || !payoutDate) {
-      setError('Fill required fields: employee, amount, date.')
+      setValidationError('Fill required fields: employee, amount, date.')
       return
     }
     const amountValue = Number(amount)
     if (amountValue <= 0) {
-      setError('Amount must be greater than 0.')
+      setValidationError('Amount must be greater than 0.')
       return
     }
     const hasProofText = Boolean(proofText.trim())
     const hasProofFile = proofAttachmentId != null
     if (!hasProofText && !hasProofFile) {
-      setError('Reference / proof (text) or confirmation file is required.')
+      setValidationError('Reference / proof (text) or confirmation file is required.')
       return
     }
 
-    setLoading(true)
-    setError(null)
-    try {
-      await api.post('/compensations/payouts', {
+    setValidationError(null)
+    const result = await createPayout(() =>
+      api.post('/compensations/payouts', {
         employee_id: Number(selectedEmployeeId),
         payout_date: payoutDate,
         amount: amountValue,
@@ -209,13 +174,12 @@ export const PayoutsPage = () => {
         proof_text: proofText.trim() || null,
         proof_attachment_id: proofAttachmentId ?? null,
       })
+    )
+
+    if (result) {
       setPayoutDialogOpen(false)
+      refetch()
       await loadBalances()
-      await loadPayouts()
-    } catch {
-      setError('Failed to create payout.')
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -280,9 +244,9 @@ export const PayoutsPage = () => {
         </Typography>
       </Box>
 
-      {error ? (
+      {error || createError || validationError ? (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {error || createError || validationError}
         </Alert>
       ) : null}
 

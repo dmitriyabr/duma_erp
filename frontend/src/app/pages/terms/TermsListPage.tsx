@@ -10,9 +10,9 @@ import {
   TableRow,
   Typography,
 } from '@mui/material'
-import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../services/api'
+import { useApi } from '../../hooks/useApi'
 import { formatDate } from '../../utils/format'
 
 interface ApiResponse<T> {
@@ -38,26 +38,7 @@ const statusColor = (status: TermRow['status']) => {
 
 export const TermsListPage = () => {
   const navigate = useNavigate()
-  const [terms, setTerms] = useState<TermRow[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const loadTerms = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await api.get<ApiResponse<TermRow[]>>('/terms')
-      setTerms(response.data.data)
-    } catch {
-      setError('Failed to load terms.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    loadTerms()
-  }, [])
+  const { data: terms, loading, error } = useApi<TermRow[]>('/terms')
 
   return (
     <Box>
@@ -86,7 +67,7 @@ export const TermsListPage = () => {
           </TableRow>
         </TableHead>
         <TableBody>
-          {terms.map((term) => (
+          {(terms || []).map((term) => (
             <TableRow key={term.id}>
               <TableCell>{term.display_name}</TableCell>
               <TableCell>
@@ -105,7 +86,7 @@ export const TermsListPage = () => {
               </TableCell>
             </TableRow>
           ))}
-          {!terms.length && !loading ? (
+          {!(terms || []).length && !loading ? (
             <TableRow>
               <TableCell colSpan={4} align="center">
                 No terms found
