@@ -47,7 +47,8 @@
       "Bash(PGPASSWORD=erp_password psql:*)",
       "Bash(done)",
       "Bash(grep:*)",
-      "Bash(sort:*)"
+      "Bash(sort:*)",
+      "Bash(git show:*)"
     ]
   }
 }
