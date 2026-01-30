@@ -1,10 +1,14 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from pydantic import field_validator
 
 from src.modules.terms.models import TermStatus
 from src.shared.schemas import BaseSchema
+
+if TYPE_CHECKING:
+    from src.modules.items.models import Kit
 
 
 # --- Term Schemas ---
@@ -178,10 +182,21 @@ class FixedFeeUpdate(BaseSchema):
 
 
 class FixedFeeResponse(BaseSchema):
-    """Schema for fixed fee response."""
+    """Schema for fixed fee response (maps to Kit model)."""
 
     id: int
-    fee_type: str
-    display_name: str
-    amount: Decimal
-    is_active: bool
+    fee_type: str  # Maps to Kit.sku_code
+    display_name: str  # Maps to Kit.name
+    amount: Decimal  # Maps to Kit.price
+    is_active: bool  # Maps to Kit.is_active
+
+    @classmethod
+    def from_kit(cls, kit: "Kit") -> "FixedFeeResponse":
+        """Create FixedFeeResponse from Kit model."""
+        return cls(
+            id=kit.id,
+            fee_type=kit.sku_code,
+            display_name=kit.name,
+            amount=kit.price or Decimal("0.00"),
+            is_active=kit.is_active,
+        )

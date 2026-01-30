@@ -7,13 +7,13 @@ from sqlalchemy.orm import selectinload
 from src.core.audit import AuditAction, create_audit_log
 from src.core.exceptions import DuplicateError, NotFoundError, ValidationError
 from src.modules.terms.models import (
-    FixedFee,
     PriceSetting,
     Term,
     TermStatus,
     TransportPricing,
     TransportZone,
 )
+from src.modules.items.models import Kit, Category
 from src.modules.students.models import Grade
 from src.modules.terms.schemas import (
     FixedFeeCreate,
@@ -447,80 +447,97 @@ class TermService:
 
         return new_pricings
 
-    # --- Fixed Fee Methods ---
+    # --- Fixed Fee Methods (using Kits from "Fixed Fees" category) ---
 
-    async def list_fixed_fees(self, include_inactive: bool = False) -> list[FixedFee]:
-        """List all fixed fees."""
-        stmt = select(FixedFee).order_by(FixedFee.fee_type)
+    async def _get_fixed_fees_category_id(self) -> int:
+        """Get the ID of the 'Fixed Fees' category."""
+        stmt = select(Category.id).where(Category.name == "Fixed Fees")
+        result = await self.session.execute(stmt)
+        category_id = result.scalar_one_or_none()
+        if not category_id:
+            raise ValidationError("'Fixed Fees' category not found in database")
+        return category_id
+
+    async def list_fixed_fees(self, include_inactive: bool = False) -> list[Kit]:
+        """List all fixed fees (kits from 'Fixed Fees' category)."""
+        category_id = await self._get_fixed_fees_category_id()
+        stmt = select(Kit).where(Kit.category_id == category_id).order_by(Kit.name)
         if not include_inactive:
-            stmt = stmt.where(FixedFee.is_active == True)
+            stmt = stmt.where(Kit.is_active == True)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_fixed_fee(self, fee_type: str) -> FixedFee | None:
-        """Get a fixed fee by type."""
-        stmt = select(FixedFee).where(FixedFee.fee_type == fee_type)
+    async def get_fixed_fee(self, kit_id: int) -> Kit | None:
+        """Get a fixed fee kit by ID."""
+        category_id = await self._get_fixed_fees_category_id()
+        stmt = select(Kit).where(Kit.id == kit_id, Kit.category_id == category_id)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def create_fixed_fee(self, data: FixedFeeCreate, created_by_id: int) -> FixedFee:
-        """Create a new fixed fee."""
-        existing = await self.get_fixed_fee(data.fee_type)
-        if existing:
-            raise DuplicateError("FixedFee", "fee_type", data.fee_type)
+    async def create_fixed_fee(self, data: FixedFeeCreate, created_by_id: int) -> Kit:
+        """Create a new fixed fee (as a kit in 'Fixed Fees' category)."""
+        category_id = await self._get_fixed_fees_category_id()
 
-        fee = FixedFee(
-            fee_type=data.fee_type,
-            display_name=data.display_name,
-            amount=data.amount,
+        # Check if sku_code already exists
+        stmt = select(Kit).where(Kit.sku_code == data.fee_type)
+        result = await self.session.execute(stmt)
+        existing = result.scalar_one_or_none()
+        if existing:
+            raise DuplicateError("Kit", "sku_code", data.fee_type)
+
+        kit = Kit(
+            category_id=category_id,
+            sku_code=data.fee_type,
+            name=data.display_name,
+            item_type="service",
+            price_type="standard",
+            price=data.amount,
+            requires_full_payment=True,
             is_active=True,
         )
-        self.session.add(fee)
+        self.session.add(kit)
         await self.session.flush()
 
         await create_audit_log(
             session=self.session,
             action=AuditAction.CREATE,
-            entity_type="FixedFee",
-            entity_id=fee.id,
+            entity_type="Kit",
+            entity_id=kit.id,
             user_id=created_by_id,
-            entity_identifier=fee.fee_type,
-            new_values={"amount": str(fee.amount)},
+            entity_identifier=kit.sku_code,
+            new_values={"name": kit.name, "price": str(kit.price)},
         )
 
-        return fee
+        return kit
 
     async def update_fixed_fee(
         self, fee_id: int, data: FixedFeeUpdate, updated_by_id: int
-    ) -> FixedFee:
-        """Update a fixed fee."""
-        stmt = select(FixedFee).where(FixedFee.id == fee_id)
-        result = await self.session.execute(stmt)
-        fee = result.scalar_one_or_none()
+    ) -> Kit:
+        """Update a fixed fee (kit in 'Fixed Fees' category)."""
+        kit = await self.get_fixed_fee(fee_id)
+        if not kit:
+            raise NotFoundError("Kit", fee_id)
 
-        if not fee:
-            raise NotFoundError("FixedFee", fee_id)
-
-        old_amount = fee.amount
+        old_values = {"name": kit.name, "price": str(kit.price), "is_active": kit.is_active}
 
         if data.display_name is not None:
-            fee.display_name = data.display_name
+            kit.name = data.display_name
         if data.amount is not None:
-            fee.amount = data.amount
+            kit.price = data.amount
         if data.is_active is not None:
-            fee.is_active = data.is_active
+            kit.is_active = data.is_active
 
         await self.session.flush()
 
         await create_audit_log(
             session=self.session,
             action=AuditAction.UPDATE,
-            entity_type="FixedFee",
-            entity_id=fee.id,
+            entity_type="Kit",
+            entity_id=kit.id,
             user_id=updated_by_id,
-            entity_identifier=fee.fee_type,
-            old_values={"amount": str(old_amount)},
-            new_values={"amount": str(fee.amount)},
+            entity_identifier=kit.sku_code,
+            old_values=old_values,
+            new_values={"name": kit.name, "price": str(kit.price), "is_active": kit.is_active},
         )
 
-        return fee
+        return kit

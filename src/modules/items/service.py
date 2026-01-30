@@ -559,8 +559,14 @@ class ItemService:
             raise NotFoundError(f"Kit with id {kit_id} not found")
         return kit
 
-    async def list_kits(self, include_inactive: bool = False) -> list[Kit]:
-        """List all kits."""
+    async def list_kits(self, include_inactive: bool = False, exclude_fixed_fees: bool = True) -> list[Kit]:
+        """
+        List all kits.
+
+        Args:
+            include_inactive: Include inactive kits
+            exclude_fixed_fees: Exclude kits from "Fixed Fees" category (default True)
+        """
         query = (
             select(Kit)
             .options(
@@ -571,6 +577,16 @@ class ItemService:
         )
         if not include_inactive:
             query = query.where(Kit.is_active == True)
+
+        # Exclude "Fixed Fees" category from regular catalog
+        if exclude_fixed_fees:
+            fixed_fees_category = await self.db.execute(
+                select(Category.id).where(Category.name == "Fixed Fees")
+            )
+            fixed_fees_cat_id = fixed_fees_category.scalar_one_or_none()
+            if fixed_fees_cat_id:
+                query = query.where(Kit.category_id != fixed_fees_cat_id)
+
         result = await self.db.execute(query)
         return list(result.scalars().all())
 

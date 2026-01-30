@@ -251,12 +251,12 @@ async def list_fixed_fees(
     include_inactive: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all fixed fees."""
+    """List all fixed fees (kits from 'Fixed Fees' category)."""
     service = TermService(db)
-    fees = await service.list_fixed_fees(include_inactive=include_inactive)
+    kits = await service.list_fixed_fees(include_inactive=include_inactive)
 
     return SuccessResponse(
-        data=[FixedFeeResponse.model_validate(f) for f in fees],
+        data=[FixedFeeResponse.from_kit(kit) for kit in kits],
         message="Fixed fees retrieved",
     )
 
@@ -267,12 +267,12 @@ async def create_fixed_fee(
     current_user: SuperAdminUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new fixed fee."""
+    """Create a new fixed fee (kit in 'Fixed Fees' category)."""
     service = TermService(db)
-    fee = await service.create_fixed_fee(data, created_by_id=current_user.id)
+    kit = await service.create_fixed_fee(data, created_by_id=current_user.id)
 
     return SuccessResponse(
-        data=FixedFeeResponse.model_validate(fee),
+        data=FixedFeeResponse.from_kit(kit),
         message="Fixed fee created",
     )
 
@@ -284,12 +284,12 @@ async def update_fixed_fee(
     current_user: SuperAdminUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Update a fixed fee."""
+    """Update a fixed fee (kit in 'Fixed Fees' category)."""
     service = TermService(db)
-    fee = await service.update_fixed_fee(fee_id, data, updated_by_id=current_user.id)
+    kit = await service.update_fixed_fee(fee_id, data, updated_by_id=current_user.id)
 
     return SuccessResponse(
-        data=FixedFeeResponse.model_validate(fee),
+        data=FixedFeeResponse.from_kit(kit),
         message="Fixed fee updated",
     )
 

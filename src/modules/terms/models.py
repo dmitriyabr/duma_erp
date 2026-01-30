@@ -122,14 +122,4 @@ class TransportPricing(BaseModel):
     )
 
 
-class FixedFee(BaseModel):
-    """
-    Fixed fees that don't change per term (admission, interview, diary, etc.).
-    """
-
-    __tablename__ = "fixed_fees"
-
-    fee_type: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
-    display_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+# FixedFee model removed - fixed fees are now stored as Kits in "Fixed Fees" category

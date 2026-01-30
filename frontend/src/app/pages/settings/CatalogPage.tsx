@@ -185,12 +185,8 @@ export const CatalogPage = () => {
       const response = await api.get<ApiResponse<KitRow[]>>('/items/kits', {
         params: { include_inactive: showInactive },
       })
-      const standardKits = response.data.data.filter((kit) => {
-        if (kit.price_type !== 'standard') return false
-        const nameLower = kit.name.toLowerCase()
-        if (nameLower.includes('admission') || nameLower.includes('interview')) return false
-        return true
-      })
+      // Backend now filters out "Fixed Fees" category automatically
+      const standardKits = response.data.data.filter((kit) => kit.price_type === 'standard')
       setKits(standardKits)
     } catch {
       setTabError('Failed to load catalog items.')
