@@ -156,3 +156,19 @@ class InvoiceFilters(BaseModel):
     search: str | None = None  # Search by invoice_number or student name
     page: int = Field(1, ge=1)
     limit: int = Field(100, ge=1, le=500)
+
+
+# --- Outstanding totals (batch for students list) ---
+
+
+class OutstandingTotalItem(BaseModel):
+    """Outstanding amount due for one student."""
+
+    student_id: int
+    total_due: Decimal
+
+
+class OutstandingTotalsResponse(BaseModel):
+    """Response with outstanding totals per student."""
+
+    totals: list[OutstandingTotalItem]

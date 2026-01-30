@@ -126,6 +126,18 @@ class StudentBalance(BaseSchema):
     available_balance: Decimal
 
 
+class StudentBalancesBatchRequest(BaseSchema):
+    """Request for batch student balances."""
+
+    student_ids: list[int] = Field(..., min_length=0, max_length=500)
+
+
+class StudentBalancesBatchResponse(BaseSchema):
+    """Response with list of student balances."""
+
+    balances: list[StudentBalance]
+
+
 class StatementEntry(BaseSchema):
     """Single entry in a statement."""
 

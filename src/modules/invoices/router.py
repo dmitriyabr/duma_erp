@@ -22,6 +22,7 @@ from src.modules.invoices.schemas import (
     InvoiceResponse,
     InvoiceSummary,
     IssueInvoiceRequest,
+    OutstandingTotalsResponse,
     TermInvoiceGenerationRequest,
     TermInvoiceGenerationForStudentRequest,
     TermInvoiceGenerationResult,
@@ -155,6 +156,23 @@ async def list_invoices(
             limit=limit,
         ),
     )
+
+
+@router.get(
+    "/outstanding-totals",
+    response_model=ApiResponse[OutstandingTotalsResponse],
+)
+async def get_outstanding_totals(
+    student_ids: list[int] = Query(..., description="Comma-separated student IDs"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.USER)
+    ),
+):
+    """Get sum of amount_due per student for non-paid/cancelled/void invoices."""
+    service = InvoiceService(db)
+    totals = await service.get_outstanding_totals(student_ids)
+    return ApiResponse(success=True, data=OutstandingTotalsResponse(totals=totals))
 
 
 @router.get(

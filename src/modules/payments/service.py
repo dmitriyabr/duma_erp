@@ -269,6 +269,42 @@ class PaymentService:
             available_balance=round_money(total_payments - total_allocated),
         )
 
+    async def get_student_balances_batch(
+        self, student_ids: list[int]
+    ) -> list[StudentBalance]:
+        """Get credit balances for multiple students in one go."""
+        if not student_ids:
+            return []
+
+        # Total completed payments per student
+        payments_result = await self.db.execute(
+            select(Payment.student_id, func.coalesce(func.sum(Payment.amount), 0)).where(
+                Payment.student_id.in_(student_ids),
+                Payment.status == PaymentStatus.COMPLETED.value,
+            ).group_by(Payment.student_id)
+        )
+        payments_by_student = {row[0]: Decimal(str(row[1])) for row in payments_result.all()}
+
+        # Total allocations per student
+        allocations_result = await self.db.execute(
+            select(CreditAllocation.student_id, func.coalesce(func.sum(CreditAllocation.amount), 0)).where(
+                CreditAllocation.student_id.in_(student_ids)
+            ).group_by(CreditAllocation.student_id)
+        )
+        allocations_by_student = {row[0]: Decimal(str(row[1])) for row in allocations_result.all()}
+
+        return [
+            StudentBalance(
+                student_id=sid,
+                total_payments=round_money(payments_by_student.get(sid, Decimal("0"))),
+                total_allocated=round_money(allocations_by_student.get(sid, Decimal("0"))),
+                available_balance=round_money(
+                    payments_by_student.get(sid, Decimal("0")) - allocations_by_student.get(sid, Decimal("0"))
+                ),
+            )
+            for sid in student_ids
+        ]
+
     # --- Allocation Methods ---
 
     async def allocate_manual(

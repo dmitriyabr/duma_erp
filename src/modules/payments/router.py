@@ -24,6 +24,8 @@ from src.modules.payments.schemas import (
     PaymentUpdate,
     StatementResponse,
     StudentBalance,
+    StudentBalancesBatchRequest,
+    StudentBalancesBatchResponse,
 )
 from src.modules.payments.service import PaymentService
 from src.shared.schemas.base import ApiResponse, PaginatedResponse
@@ -223,6 +225,23 @@ async def cancel_payment(
 
 
 # --- Balance & Statement Endpoints ---
+
+
+@router.post(
+    "/students/balances-batch",
+    response_model=ApiResponse[StudentBalancesBatchResponse],
+)
+async def get_student_balances_batch(
+    payload: StudentBalancesBatchRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.USER)
+    ),
+):
+    """Get credit balances for multiple students in one request."""
+    service = PaymentService(db)
+    balances = await service.get_student_balances_batch(payload.student_ids)
+    return ApiResponse(data=StudentBalancesBatchResponse(balances=balances))
 
 
 @router.get(

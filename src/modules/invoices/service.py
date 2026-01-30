@@ -17,6 +17,7 @@ from src.modules.invoices.schemas import (
     InvoiceFilters,
     InvoiceLineCreate,
     InvoiceUpdate,
+    OutstandingTotalItem,
     TermInvoiceGenerationResult,
 )
 from src.modules.items.models import Kit, PriceType
@@ -542,6 +543,30 @@ class InvoiceService:
         invoices = list(result.scalars().all())
 
         return invoices, total
+
+    async def get_outstanding_totals(
+        self, student_ids: list[int]
+    ) -> list[OutstandingTotalItem]:
+        """Get sum of amount_due per student for non-paid/cancelled/void invoices."""
+        if not student_ids:
+            return []
+
+        excluded = (
+            InvoiceStatus.PAID.value,
+            InvoiceStatus.CANCELLED.value,
+            InvoiceStatus.VOID.value,
+        )
+        result = await self.db.execute(
+            select(Invoice.student_id, func.coalesce(func.sum(Invoice.amount_due), 0)).where(
+                Invoice.student_id.in_(student_ids),
+                Invoice.status.notin_(excluded),
+            ).group_by(Invoice.student_id)
+        )
+        by_student = {row[0]: round_money(Decimal(str(row[1]))) for row in result.all()}
+        return [
+            OutstandingTotalItem(student_id=sid, total_due=by_student.get(sid, Decimal("0.00")))
+            for sid in student_ids
+        ]
 
     # --- Term Invoice Generation ---
 
