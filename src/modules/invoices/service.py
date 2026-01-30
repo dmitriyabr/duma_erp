@@ -587,6 +587,7 @@ class InvoiceService:
         school_fee_created = 0
         transport_created = 0
         skipped = 0
+        affected_student_ids: set[int] = set()
 
         for student in students:
             has_initial_fees = await self._student_has_fee_lines(
@@ -601,6 +602,7 @@ class InvoiceService:
                     generated_by_id,
                     number_gen,
                 )
+                affected_student_ids.add(student.id)
 
             # Check if student already has school_fee invoice for this term
             existing_school_fee = await self._check_existing_invoice(
@@ -661,6 +663,7 @@ class InvoiceService:
 
             self._recalculate_invoice(school_fee_invoice)
             school_fee_created += 1
+            affected_student_ids.add(student.id)
 
             # Create Transport invoice if student has transport zone
             if student.transport_zone_id and transport_fee_kit:
@@ -708,6 +711,7 @@ class InvoiceService:
                     transport_invoice.lines.append(transport_line)
                     self._recalculate_invoice(transport_invoice)
                     transport_created += 1
+                    affected_student_ids.add(student.id)
 
         await self.audit.log(
             action="invoice.generate_term",
@@ -728,6 +732,7 @@ class InvoiceService:
             transport_invoices_created=transport_created,
             students_skipped=skipped,
             total_students_processed=len(students),
+            affected_student_ids=list(affected_student_ids),
         )
 
     async def generate_term_invoices_for_student(
@@ -775,6 +780,7 @@ class InvoiceService:
         school_fee_created = 0
         transport_created = 0
         skipped = 0
+        created_any_invoice = False
 
         has_initial_fees = await self._student_has_fee_lines(
             student.id, self.INITIAL_FEE_SKUS
@@ -788,6 +794,7 @@ class InvoiceService:
                 generated_by_id,
                 number_gen,
             )
+            created_any_invoice = True
 
         existing_school_fee = await self._check_existing_invoice(
             student.id, term_id, InvoiceType.SCHOOL_FEE.value
@@ -879,11 +886,13 @@ class InvoiceService:
                 transport_created += 1
 
         await self.db.commit()
+        affected = [student_id] if (created_any_invoice or school_fee_created > 0 or transport_created > 0) else []
         return TermInvoiceGenerationResult(
             school_fee_invoices_created=school_fee_created,
             transport_invoices_created=transport_created,
             students_skipped=skipped,
             total_students_processed=1,
+            affected_student_ids=affected,
         )
 
     async def _get_kit_by_price_type(self, price_type: str) -> Kit | None:

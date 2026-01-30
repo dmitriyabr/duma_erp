@@ -360,6 +360,13 @@ async def generate_term_invoices(
     """
     service = InvoiceService(db)
     result = await service.generate_term_invoices(data.term_id, current_user.id)
+    # Auto-allocate balance for students who got new Issued invoices
+    payment_service = PaymentService(db)
+    for student_id in result.affected_student_ids:
+        await payment_service.allocate_auto(
+            AutoAllocateRequest(student_id=student_id),
+            current_user.id,
+        )
     return ApiResponse(
         success=True,
         message=f"Generated {result.school_fee_invoices_created} school fee and {result.transport_invoices_created} transport invoices",
@@ -383,6 +390,14 @@ async def generate_term_invoices_for_student(
     result = await service.generate_term_invoices_for_student(
         data.term_id, data.student_id, current_user.id
     )
+    # Auto-allocate balance for student who got new Issued invoices
+    if result.affected_student_ids:
+        payment_service = PaymentService(db)
+        for student_id in result.affected_student_ids:
+            await payment_service.allocate_auto(
+                AutoAllocateRequest(student_id=student_id),
+                current_user.id,
+            )
     return ApiResponse(
         success=True,
         message=(

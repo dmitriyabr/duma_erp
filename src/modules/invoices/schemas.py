@@ -131,6 +131,7 @@ class TermInvoiceGenerationResult(BaseModel):
     transport_invoices_created: int
     students_skipped: int  # Already had invoice for this term
     total_students_processed: int
+    affected_student_ids: list[int] = []  # Students who got new Issued invoices (for auto-allocation)
 
 
 # --- Issue Invoice ---
