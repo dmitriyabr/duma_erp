@@ -625,6 +625,11 @@
 ### 9.11 Интерфейс для бухгалтера (Accountant)
 > ТЗ: **ACCOUNTANT_REPORTS.md**. Роль Accountant — read-only: первичные документы, экспорт данных, audit trail. Без создания/редактирования.
 
+**Прогресс 9.11 (как отслеживать):**
+- Ищи в этом блоке строки с `[ ]` — это оставшиеся задачи.
+- Backend: экспорт student-payments и procurement-payments готовы; по желанию: transactions, vat, wht.
+- Frontend: меню, страницы Receipts/Export/Audit, скрытие кнопок создания — готово; Settings для Accountant не показываем (минимальное меню без Settings).
+
 **Навигация для роли Accountant (минимальная):**
 - Documents: Payment Receipts, Student Invoices, Purchase Orders, GRN, Procurement Payments, Employee Expenses
 - Data Export: All Transactions, Student Payments, Procurement Payments, VAT, WHT
@@ -635,17 +640,22 @@
 - [x] Роутер `/api/v1/accountant/` с проверкой роли Accountant (Admin/SuperAdmin тоже допущены)
 - [x] Документы: существующие GET (payments, invoices, procurement, compensations) уже допускают Accountant
 - [x] GET export/student-payments (CSV)
+- [x] GET export/procurement-payments (CSV)
 - [x] GET audit-trail с фильтрами (date_from, date_to, user_id, entity_type, action, page, limit)
-- [x] Тесты API (tests/modules/accountant/test_accountant.py — audit-trail и export, роль User — 403)
-- [ ] GET export: transactions, procurement-payments, vat, wht (остальные экспорты)
+- [x] Тесты API (tests/modules/accountant/test_accountant.py — audit-trail и оба export, роль User — 403)
+- [ ] GET export: transactions, vat, wht (по желанию)
 
 **Frontend (интерфейс для бухгалтера):**
 - [x] Для роли Accountant: отдельное меню (accountantNavItems: Dashboard, Documents, Data Export, Audit Trail)
 - [x] Documents: Payment Receipts (/payments), PO, GRN, Procurement Payments, Expense Claims — ссылки на существующие страницы; страница Payment Receipts (список)
-- [x] Страница Data Export (/accountant/export): Student Payments CSV, период, кнопка Download
+- [x] Страница Data Export (/accountant/export): Student Payments и Procurement Payments CSV, период, кнопки Download
 - [x] Страница Audit Trail (/audit): таблица с фильтрами (дата, entity_type, action), пагинация
 - [x] Скрыть кнопки создания для Accountant (PaymentReceiptsPage, ProcurementPaymentsListPage); isAccountant в permissions
-- [ ] Settings для Accountant: в минимальном меню Settings не показываем (при необходимости — только My Profile)
+- [x] Settings для Accountant: в минимальном меню Settings не показываем (решение принято)
+
+**Осталось по 9.11 (опционально):**
+- [ ] GET export/transactions (общий экспорт транзакций)
+- [ ] GET export/vat, GET export/wht (для налоговых отчётов)
 
 ---
 

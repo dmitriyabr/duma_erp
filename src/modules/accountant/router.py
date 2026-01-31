@@ -12,7 +12,9 @@ from src.core.auth.models import User, UserRole
 from src.core.database.session import get_db
 from src.modules.accountant.schemas import AuditTrailEntryResponse
 from src.modules.accountant.service import (
+    build_procurement_payments_csv,
     build_student_payments_csv,
+    list_procurement_payments_for_export,
     list_student_payments_for_export,
 )
 from src.shared.schemas.base import ApiResponse, PaginatedResponse
@@ -94,6 +96,34 @@ async def export_student_payments(
     )
     content = build_student_payments_csv(rows)
     filename = f"student_payments_{start_date}_{end_date}.csv"
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/export/procurement-payments")
+async def export_procurement_payments(
+    start_date: date = Query(..., description="Start date (inclusive)"),
+    end_date: date = Query(..., description="End date (inclusive)"),
+    format: str = Query("csv", description="Format: csv"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = AccountantOrAdmin,
+):
+    """Export procurement payments for date range as CSV."""
+    if format.lower() != "csv":
+        return Response(
+            content="Only CSV format is supported",
+            status_code=400,
+        )
+    rows = await list_procurement_payments_for_export(
+        db,
+        date_from=start_date,
+        date_to=end_date,
+    )
+    content = build_procurement_payments_csv(rows)
+    filename = f"procurement_payments_{start_date}_{end_date}.csv"
     return Response(
         content=content,
         media_type="text/csv",

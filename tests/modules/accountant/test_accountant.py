@@ -126,3 +126,21 @@ class TestAccountantExportStudentPayments:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 403
+
+    async def test_export_procurement_payments_accountant_ok(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Accountant can export procurement payments as CSV."""
+        token = await _get_token(client, db_session, UserRole.ACCOUNTANT)
+        response = await client.get(
+            "/api/v1/accountant/export/procurement-payments"
+            "?start_date=2026-01-01&end_date=2026-01-31&format=csv",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert response.headers.get("content-type", "").startswith("text/csv")
+        text = response.text
+        assert "Payment Date" in text
+        assert "Payment#" in text
+        assert "Supplier" in text
+        assert "PO#" in text
