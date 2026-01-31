@@ -47,10 +47,10 @@ async def create_payment(
     data: PaymentCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
     ),
 ):
-    """Create a new payment (credit top-up)."""
+    """Create a new payment (credit top-up). Accountant is read-only."""
     service = PaymentService(db)
     payment = await service.create_payment(data, current_user.id)
     return ApiResponse(
@@ -173,10 +173,10 @@ async def update_payment(
     data: PaymentUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
     ),
 ):
-    """Update a pending payment."""
+    """Update a pending payment. Accountant is read-only."""
     service = PaymentService(db)
     payment = await service.update_payment(payment_id, data, current_user.id)
     return ApiResponse(
@@ -193,10 +193,10 @@ async def complete_payment(
     payment_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
     ),
 ):
-    """Complete a pending payment (generates receipt number)."""
+    """Complete a pending payment (generates receipt number). Accountant is read-only."""
     service = PaymentService(db)
     payment = await service.complete_payment(payment_id, current_user.id)
     return ApiResponse(
@@ -318,10 +318,10 @@ async def auto_allocate(
     data: AutoAllocateRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
     ),
 ):
-    """Auto-allocate credit to invoices."""
+    """Auto-allocate credit to invoices. Accountant is read-only."""
     service = PaymentService(db)
     result = await service.allocate_auto(data, current_user.id)
     return ApiResponse(
@@ -339,10 +339,10 @@ async def manual_allocate(
     data: AllocationCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
     ),
 ):
-    """Manually allocate credit to an invoice."""
+    """Manually allocate credit to an invoice. Accountant is read-only."""
     service = PaymentService(db)
     allocation = await service.allocate_manual(data, current_user.id)
     return ApiResponse(

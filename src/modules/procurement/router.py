@@ -173,7 +173,7 @@ async def list_purchase_orders(
     limit: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
     ),
 ):
     """List purchase orders with filters."""
@@ -264,7 +264,7 @@ async def get_purchase_order(
     po_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
     ),
 ):
     """Get purchase order by ID."""
@@ -391,7 +391,9 @@ async def list_grns(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
 ):
     """List GRNs with filters."""
     service = GoodsReceivedService(db)
@@ -422,7 +424,9 @@ async def list_grns(
 async def get_grn(
     grn_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
 ):
     """Get GRN by ID."""
     service = GoodsReceivedService(db)

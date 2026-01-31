@@ -144,3 +144,69 @@ class TestAccountantExportStudentPayments:
         assert "Payment#" in text
         assert "Supplier" in text
         assert "PO#" in text
+
+
+class TestAccountantReadOnlyAccess:
+    """Accountant can read all document lists/details; cannot create/update."""
+
+    async def test_accountant_can_list_students(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Accountant can GET /students."""
+        token = await _get_token(client, db_session, UserRole.ACCOUNTANT)
+        response = await client.get(
+            "/api/v1/students?page=1&limit=10",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+
+    async def test_accountant_can_list_purchase_orders(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Accountant can GET /procurement/purchase-orders."""
+        token = await _get_token(client, db_session, UserRole.ACCOUNTANT)
+        response = await client.get(
+            "/api/v1/procurement/purchase-orders?page=1&limit=10",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+
+    async def test_accountant_can_list_grns(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Accountant can GET /procurement/grns."""
+        token = await _get_token(client, db_session, UserRole.ACCOUNTANT)
+        response = await client.get(
+            "/api/v1/procurement/grns?page=1&limit=10",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+
+    async def test_accountant_can_list_payouts(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Accountant can GET /compensations/payouts."""
+        token = await _get_token(client, db_session, UserRole.ACCOUNTANT)
+        response = await client.get(
+            "/api/v1/compensations/payouts?page=1&limit=10",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+
+    async def test_accountant_cannot_create_payment(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Accountant gets 403 on POST /payments (read-only)."""
+        token = await _get_token(client, db_session, UserRole.ACCOUNTANT)
+        response = await client.post(
+            "/api/v1/payments",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "student_id": 1,
+                "amount": 100,
+                "payment_method": "mpesa",
+                "payment_date": "2026-01-15",
+                "reference": "test-ref",
+            },
+        )
+        assert response.status_code == 403

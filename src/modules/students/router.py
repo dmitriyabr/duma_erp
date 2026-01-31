@@ -167,7 +167,7 @@ async def list_students(
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)
     ),
 ):
     """List students with optional filters."""
@@ -203,7 +203,7 @@ async def get_student(
     student_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)
     ),
 ):
     """Get student by ID."""

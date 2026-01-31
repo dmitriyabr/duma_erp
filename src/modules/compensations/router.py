@@ -142,9 +142,11 @@ async def list_payouts(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
 ):
-    """List payouts."""
+    """List payouts (read-only for Accountant)."""
     service = PayoutService(db)
     payouts, total = await service.list_payouts(
         employee_id=employee_id, date_from=date_from, date_to=date_to, page=page, limit=limit
@@ -167,9 +169,11 @@ async def list_payouts(
 async def get_payout(
     payout_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
 ):
-    """Get payout by ID."""
+    """Get payout by ID (read-only for Accountant)."""
     service = PayoutService(db)
     payout = await service.get_payout_by_id(payout_id)
     return ApiResponse(success=True, data=_payout_to_response(payout))

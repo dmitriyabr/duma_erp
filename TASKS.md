@@ -638,7 +638,7 @@
 
 **Backend (API для бухгалтера):**
 - [x] Роутер `/api/v1/accountant/` с проверкой роли Accountant (Admin/SuperAdmin тоже допущены)
-- [x] Документы: существующие GET (payments, invoices, procurement, compensations) уже допускают Accountant
+- [x] Документы: все GET для просмотра допускают Accountant (students list/get, grades, transport-zones, payments list/get/receipt/pdf, invoices list/get/pdf, procurement: purchase-orders list/get, grns list/get, payments list/get, payment-purposes, dashboard; compensations: claims list/get, payouts list/get, employee-balances). Запись (POST/PUT/PATCH/DELETE) для Accountant запрещена: create/update/complete payment, allocate, cancel payment, create/update PO/GRN/payout и т.д.
 - [x] GET export/student-payments (CSV)
 - [x] GET export/procurement-payments (CSV)
 - [x] GET audit-trail с фильтрами (date_from, date_to, user_id, entity_type, action, page, limit)
