@@ -86,7 +86,8 @@ export const ExpenseClaimsListPage = () => {
   const claimsUrl = useMemo(() => {
     const params: Record<string, string | number> = { page: page + 1, limit }
     if (statusFilter !== 'all') params.status = statusFilter
-    if (!userIsSuperAdmin && user?.id) params.employee_id = user.id
+    // Only USER role is restricted to own claims; Admin and Accountant see all
+    if (user?.role === 'User' && user?.id) params.employee_id = user.id
     else if (userIsSuperAdmin && employeeFilter) params.employee_id = Number(employeeFilter)
     if (dateFrom) params.date_from = dateFrom
     if (dateTo) params.date_to = dateTo
