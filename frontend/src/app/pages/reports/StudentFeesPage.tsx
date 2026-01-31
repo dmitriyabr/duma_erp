@@ -60,12 +60,19 @@ interface StudentFeesData {
 export const StudentFeesPage = () => {
   const { grades } = useReferencedData()
   const { data: terms, loading: termsLoading } = useApi<TermRow[]>('/terms')
+  const { data: activeTerm } = useApi<{ id: number } | null>('/terms/active')
   const [termId, setTermId] = useState<string>('')
   const [gradeId, setGradeId] = useState<string>('')
   const [report, setReport] = useState<StudentFeesData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [forbidden, setForbidden] = useState(false)
+
+  // Default to current (active) term when terms and active term are loaded
+  useEffect(() => {
+    if (termId !== '' || !activeTerm?.id) return
+    setTermId(String(activeTerm.id))
+  }, [activeTerm?.id, termId])
 
   useEffect(() => {
     if (!termId) return
