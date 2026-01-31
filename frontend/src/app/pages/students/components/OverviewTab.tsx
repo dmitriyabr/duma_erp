@@ -19,7 +19,9 @@ import {
   Typography,
 } from '@mui/material'
 import { useMemo, useState } from 'react'
+import { useAuth } from '../../../auth/AuthContext'
 import { api } from '../../../services/api'
+import { isAccountant } from '../../../utils/permissions'
 import { SECONDARY_LIST_LIMIT } from '../../../constants/pagination'
 import { useApi, useApiMutation } from '../../../hooks/useApi'
 import { formatDate, formatMoney } from '../../../utils/format'
@@ -38,6 +40,8 @@ interface OverviewTabProps {
 }
 
 export const OverviewTab = ({ student, studentId, onError }: OverviewTabProps) => {
+  const { user } = useAuth()
+  const readOnly = isAccountant(user)
   const discountsUrl = useMemo(
     () => `/discounts/student?student_id=${studentId}&include_inactive=true&limit=${SECONDARY_LIST_LIMIT}&page=1`,
     [studentId]
@@ -150,9 +154,11 @@ export const OverviewTab = ({ student, studentId, onError }: OverviewTabProps) =
       >
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="subtitle1">School Fees Discount</Typography>
-          <Button size="small" onClick={() => openStudentDiscountDialog()}>
-            {studentDiscounts.some((discount) => discount.is_active) ? 'Add another' : 'Set discount'}
-          </Button>
+          {!readOnly && (
+            <Button size="small" onClick={() => openStudentDiscountDialog()}>
+              {studentDiscounts.some((discount) => discount.is_active) ? 'Add another' : 'Set discount'}
+            </Button>
+          )}
         </Box>
         {studentDiscounts.length ? (
           <Table size="small" sx={{ mt: 1 }}>
@@ -181,12 +187,16 @@ export const OverviewTab = ({ student, studentId, onError }: OverviewTabProps) =
                     />
                   </TableCell>
                   <TableCell align="right">
-                    <Button size="small" onClick={() => openStudentDiscountDialog(discount)}>
-                      Edit
-                    </Button>
-                    <Button size="small" onClick={() => toggleStudentDiscountStatus(discount)}>
-                      {discount.is_active ? 'Deactivate' : 'Activate'}
-                    </Button>
+                    {!readOnly && (
+                      <>
+                        <Button size="small" onClick={() => openStudentDiscountDialog(discount)}>
+                          Edit
+                        </Button>
+                        <Button size="small" onClick={() => toggleStudentDiscountStatus(discount)}>
+                          {discount.is_active ? 'Deactivate' : 'Activate'}
+                        </Button>
+                      </>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

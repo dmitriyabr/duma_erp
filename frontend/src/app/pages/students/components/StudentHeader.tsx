@@ -14,7 +14,9 @@ import {
   Typography,
 } from '@mui/material'
 import { useState } from 'react'
+import { useAuth } from '../../../auth/AuthContext'
 import { ConfirmDialog } from '../../../components/ConfirmDialog'
+import { isAccountant } from '../../../utils/permissions'
 import { api } from '../../../services/api'
 import { useApiMutation } from '../../../hooks/useApi'
 import { formatMoney } from '../../../utils/format'
@@ -40,6 +42,8 @@ export const StudentHeader = ({
   onStudentUpdate,
   onError,
 }: StudentHeaderProps) => {
+  const { user } = useAuth()
+  const readOnly = isAccountant(user)
   const { execute: updateStudent, loading, error: updateError } = useApiMutation()
   const { execute: toggleStatus, loading: toggling, error: toggleError } = useApiMutation()
 
@@ -147,12 +151,16 @@ export const StudentHeader = ({
           color={netBalance > 0 ? 'success' : netBalance < 0 ? 'error' : 'default'}
           variant={netBalance !== 0 ? 'filled' : 'outlined'}
         />
-        <Button variant="outlined" onClick={openEdit}>
-          Edit
-        </Button>
-        <Button variant="outlined" onClick={requestToggleActive}>
-          {student.status === 'active' ? 'Deactivate' : 'Activate'}
-        </Button>
+        {!readOnly && (
+          <>
+            <Button variant="outlined" onClick={openEdit}>
+              Edit
+            </Button>
+            <Button variant="outlined" onClick={requestToggleActive}>
+              {student.status === 'active' ? 'Deactivate' : 'Activate'}
+            </Button>
+          </>
+        )}
       </Box>
 
       {/* Edit Dialog */}

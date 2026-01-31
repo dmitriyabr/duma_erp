@@ -3,6 +3,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth.dependencies import require_roles, SuperAdminUser
 from src.core.auth.models import User, UserRole
+
+# Read-only for Accountant (list/get terms, fixed fees, transport zones)
+ReadRoles = (UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
 from src.core.database import get_db
 from src.modules.terms.schemas import (
     FixedFeeCreate,
@@ -30,9 +33,9 @@ router = APIRouter(prefix="/terms", tags=["Terms & Pricing"])
 
 @router.get("", response_model=SuccessResponse[list[TermResponse]])
 async def list_terms(
-    current_user: SuperAdminUser,
     year: int | None = Query(None),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(*ReadRoles)),
 ):
     """List all terms."""
     service = TermService(db)
@@ -45,8 +48,8 @@ async def list_terms(
 
 @router.get("/active", response_model=SuccessResponse[TermDetailResponse | None])
 async def get_active_term(
-    current_user: SuperAdminUser,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(*ReadRoles)),
 ):
     """Get the currently active term with pricing."""
     service = TermService(db)
@@ -250,9 +253,9 @@ async def update_transport_pricing(
 
 @router.get("/fixed-fees", response_model=SuccessResponse[list[FixedFeeResponse]])
 async def list_fixed_fees(
-    current_user: SuperAdminUser,
     include_inactive: bool = Query(False),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(*ReadRoles)),
 ):
     """List all fixed fees (kits from 'Fixed Fees' category)."""
     service = TermService(db)
@@ -300,8 +303,8 @@ async def update_fixed_fee(
 @router.get("/{term_id}", response_model=SuccessResponse[TermDetailResponse])
 async def get_term(
     term_id: int,
-    current_user: SuperAdminUser,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(*ReadRoles)),
 ):
     """Get term by ID with pricing."""
     service = TermService(db)

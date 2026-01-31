@@ -9,12 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.audit.service import list_audit_entries
 from src.core.auth.dependencies import require_roles
 from src.core.auth.models import User, UserRole
+from src.core.config import settings
 from src.core.database.session import get_db
 from src.modules.accountant.schemas import AuditTrailEntryResponse
 from src.modules.accountant.service import (
     build_procurement_payments_csv,
+    build_student_balance_changes_csv,
     build_student_payments_csv,
     list_procurement_payments_for_export,
+    list_student_balance_changes_for_export,
     list_student_payments_for_export,
 )
 from src.shared.schemas.base import ApiResponse, PaginatedResponse
@@ -83,7 +86,7 @@ async def export_student_payments(
     db: AsyncSession = Depends(get_db),
     current_user: User = AccountantOrAdmin,
 ):
-    """Export student payments (receipts) for date range as CSV."""
+    """Export student payments (receipts) for date range as CSV, including receipt/attachment links."""
     if format.lower() != "csv":
         return Response(
             content="Only CSV format is supported",
@@ -94,7 +97,8 @@ async def export_student_payments(
         date_from=start_date,
         date_to=end_date,
     )
-    content = build_student_payments_csv(rows)
+    app_base_url = settings.frontend_url.rstrip("/")
+    content = build_student_payments_csv(rows, app_base_url=app_base_url)
     filename = f"student_payments_{start_date}_{end_date}.csv"
     return Response(
         content=content,
@@ -111,7 +115,7 @@ async def export_procurement_payments(
     db: AsyncSession = Depends(get_db),
     current_user: User = AccountantOrAdmin,
 ):
-    """Export procurement payments for date range as CSV."""
+    """Export procurement payments for date range as CSV, including attachment links."""
     if format.lower() != "csv":
         return Response(
             content="Only CSV format is supported",
@@ -122,8 +126,37 @@ async def export_procurement_payments(
         date_from=start_date,
         date_to=end_date,
     )
-    content = build_procurement_payments_csv(rows)
+    app_base_url = settings.frontend_url.rstrip("/")
+    content = build_procurement_payments_csv(rows, app_base_url=app_base_url)
     filename = f"procurement_payments_{start_date}_{end_date}.csv"
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/export/student-balance-changes")
+async def export_student_balance_changes(
+    start_date: date = Query(..., description="Start date (inclusive)"),
+    end_date: date = Query(..., description="End date (inclusive)"),
+    format: str = Query("csv", description="Format: csv"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = AccountantOrAdmin,
+):
+    """Export all student balance changes (payments in, allocations out) for date range as CSV."""
+    if format.lower() != "csv":
+        return Response(
+            content="Only CSV format is supported",
+            status_code=400,
+        )
+    rows = await list_student_balance_changes_for_export(
+        db,
+        date_from=start_date,
+        date_to=end_date,
+    )
+    content = build_student_balance_changes_csv(rows)
+    filename = f"student_balance_changes_{start_date}_{end_date}.csv"
     return Response(
         content=content,
         media_type="text/csv",

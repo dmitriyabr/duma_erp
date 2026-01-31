@@ -25,7 +25,9 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
+import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
+import { isAccountant } from '../../utils/permissions'
 import type { ApiResponse, PaginatedResponse } from '../../types/api'
 import { DEFAULT_PAGE_SIZE } from '../../constants/pagination'
 import { useReferencedData } from '../../contexts/ReferencedDataContext'
@@ -97,6 +99,8 @@ const parseNumber = (value: unknown) => {
 
 export const StudentsPage = () => {
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const readOnly = isAccountant(user)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE)
   const [statusFilter, setStatusFilter] = useState<'all' | StudentStatus>('all')
@@ -226,9 +230,11 @@ export const StudentsPage = () => {
         <Typography variant="h4" sx={{ fontWeight: 700 }}>
           Students
         </Typography>
-        <Button variant="contained" onClick={openCreate}>
-          New student
-        </Button>
+        {!readOnly && (
+          <Button variant="contained" onClick={openCreate}>
+            New student
+          </Button>
+        )}
       </Box>
 
       <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>

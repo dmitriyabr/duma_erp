@@ -2,15 +2,30 @@ import { Alert, Box, Button, TextField, Typography } from '@mui/material'
 import { useState } from 'react'
 import { api } from '../../services/api'
 
-type ExportType = 'student-payments' | 'procurement-payments'
+function getDefaultDateRange(): { start: string; end: string } {
+  const now = new Date()
+  const start = new Date(now.getFullYear(), now.getMonth(), 1)
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10),
+  }
+}
+
+type ExportType = 'student-payments' | 'procurement-payments' | 'student-balance-changes'
 
 export const AccountantExportPage = () => {
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
+  const [datesPayments, setDatesPayments] = useState(getDefaultDateRange)
+  const [datesProcurement, setDatesProcurement] = useState(getDefaultDateRange)
+  const [datesBalanceChanges, setDatesBalanceChanges] = useState(getDefaultDateRange)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const handleExport = async (type: ExportType) => {
+  const handleExport = async (
+    type: ExportType,
+    startDate: string,
+    endDate: string,
+  ) => {
     if (!startDate || !endDate) {
       setError('Please set start date and end date.')
       return
@@ -63,8 +78,8 @@ export const AccountantExportPage = () => {
             <TextField
               label="Start date"
               type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              value={datesPayments.start}
+              onChange={(e) => setDatesPayments((p) => ({ ...p, start: e.target.value }))}
               size="small"
               InputLabelProps={{ shrink: true }}
               sx={{ width: 180 }}
@@ -72,15 +87,17 @@ export const AccountantExportPage = () => {
             <TextField
               label="End date"
               type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+              value={datesPayments.end}
+              onChange={(e) => setDatesPayments((p) => ({ ...p, end: e.target.value }))}
               size="small"
               InputLabelProps={{ shrink: true }}
               sx={{ width: 180 }}
             />
             <Button
               variant="contained"
-              onClick={() => handleExport('student-payments')}
+              onClick={() =>
+                handleExport('student-payments', datesPayments.start, datesPayments.end)
+              }
               disabled={loading}
             >
               {loading ? 'Exporting…' : 'Download CSV'}
@@ -88,7 +105,7 @@ export const AccountantExportPage = () => {
           </Box>
           <Typography variant="caption" color="text.secondary">
             Columns: Receipt Date, Receipt#, Student Name, Admission#, Grade, Parent Name, Payment
-            Method, Amount, Received By
+            Method, Amount, Received By, Receipt PDF link, Attachment link
           </Typography>
         </Box>
 
@@ -100,8 +117,8 @@ export const AccountantExportPage = () => {
             <TextField
               label="Start date"
               type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              value={datesProcurement.start}
+              onChange={(e) => setDatesProcurement((p) => ({ ...p, start: e.target.value }))}
               size="small"
               InputLabelProps={{ shrink: true }}
               sx={{ width: 180 }}
@@ -109,15 +126,17 @@ export const AccountantExportPage = () => {
             <TextField
               label="End date"
               type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+              value={datesProcurement.end}
+              onChange={(e) => setDatesProcurement((p) => ({ ...p, end: e.target.value }))}
               size="small"
               InputLabelProps={{ shrink: true }}
               sx={{ width: 180 }}
             />
             <Button
               variant="outlined"
-              onClick={() => handleExport('procurement-payments')}
+              onClick={() =>
+                handleExport('procurement-payments', datesProcurement.start, datesProcurement.end)
+              }
               disabled={loading}
             >
               {loading ? 'Exporting…' : 'Download CSV'}
@@ -125,7 +144,49 @@ export const AccountantExportPage = () => {
           </Box>
           <Typography variant="caption" color="text.secondary">
             Columns: Payment Date, Payment#, Supplier, PO#, Gross Amount, Net Paid, Payment Method,
-            Reference
+            Reference, Attachment link
+          </Typography>
+        </Box>
+
+        <Box>
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+            Student Balance Changes
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 0.5 }}>
+            <TextField
+              label="Start date"
+              type="date"
+              value={datesBalanceChanges.start}
+              onChange={(e) => setDatesBalanceChanges((p) => ({ ...p, start: e.target.value }))}
+              size="small"
+              InputLabelProps={{ shrink: true }}
+              sx={{ width: 180 }}
+            />
+            <TextField
+              label="End date"
+              type="date"
+              value={datesBalanceChanges.end}
+              onChange={(e) => setDatesBalanceChanges((p) => ({ ...p, end: e.target.value }))}
+              size="small"
+              InputLabelProps={{ shrink: true }}
+              sx={{ width: 180 }}
+            />
+            <Button
+              variant="outlined"
+              onClick={() =>
+                handleExport(
+                  'student-balance-changes',
+                  datesBalanceChanges.start,
+                  datesBalanceChanges.end,
+                )
+              }
+              disabled={loading}
+            >
+              {loading ? 'Exporting…' : 'Download CSV'}
+            </Button>
+          </Box>
+          <Typography variant="caption" color="text.secondary">
+            Columns: Date, Student ID, Student Name, Type, Reference, Amount (+ in / − out)
           </Typography>
         </Box>
       </Box>

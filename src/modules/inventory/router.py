@@ -66,7 +66,7 @@ async def list_stock(
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)
     ),
 ):
     """List all stock items."""
@@ -108,7 +108,7 @@ async def get_stock(
     item_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)
     ),
 ):
     """Get stock for a specific item."""
@@ -293,7 +293,7 @@ async def inventory_count(
 @router.get("/bulk-upload/export")
 async def export_stock_csv(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)),
 ):
     """Export current stock to CSV (for editing and re-upload). Requires ADMIN role."""
     service = InventoryService(db)
@@ -394,7 +394,7 @@ async def list_movements(
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
     ),
 ):
     """List stock movements with optional filters."""
@@ -452,7 +452,7 @@ async def get_item_movements(
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)
     ),
 ):
     """Get stock movements for a specific item."""
@@ -565,7 +565,7 @@ async def list_issuances(
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
     ),
 ):
     """List issuances with optional filters."""
@@ -601,7 +601,7 @@ async def get_issuance(
     issuance_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)
     ),
 ):
     """Get issuance by ID."""

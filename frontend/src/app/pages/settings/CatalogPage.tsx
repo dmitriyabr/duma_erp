@@ -28,8 +28,10 @@ import {
 } from '@mui/material'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { useAuth } from '../../auth/AuthContext'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { useApi, useApiMutation } from '../../hooks/useApi'
+import { isAccountant } from '../../utils/permissions'
 import { api, unwrapResponse } from '../../services/api'
 import { formatMoney } from '../../utils/format'
 
@@ -113,6 +115,8 @@ const TabPanel = ({
 export const CatalogPage = () => {
   const location = useLocation()
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const readOnly = isAccountant(user)
 
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<number | 'all'>('all')
@@ -434,9 +438,11 @@ export const CatalogPage = () => {
           <Typography variant="h6" sx={{ fontWeight: 600 }}>
             Catalog items
           </Typography>
-          <Button variant="contained" onClick={openCreateKit}>
-            New item
-          </Button>
+          {!readOnly && (
+            <Button variant="contained" onClick={openCreateKit}>
+              New item
+            </Button>
+          )}
         </Box>
 
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mt: 2 }}>
@@ -516,12 +522,20 @@ export const CatalogPage = () => {
                   />
                 </TableCell>
                 <TableCell align="right">
-                  <Button size="small" onClick={() => openEditKit(kit)}>
-                    Edit
-                  </Button>
-                  <Button size="small" onClick={() => requestToggleKitActive(kit)}>
-                    {kit.is_active ? 'Deactivate' : 'Activate'}
-                  </Button>
+                  {readOnly ? (
+                    <Button size="small" onClick={() => openEditKit(kit)}>
+                      View
+                    </Button>
+                  ) : (
+                    <>
+                      <Button size="small" onClick={() => openEditKit(kit)}>
+                        Edit
+                      </Button>
+                      <Button size="small" onClick={() => requestToggleKitActive(kit)}>
+                        {kit.is_active ? 'Deactivate' : 'Activate'}
+                      </Button>
+                    </>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
@@ -541,9 +555,11 @@ export const CatalogPage = () => {
           <Typography variant="h6" sx={{ fontWeight: 600 }}>
             Categories
           </Typography>
-          <Button variant="contained" onClick={openCreateCategory}>
-            New category
-          </Button>
+          {!readOnly && (
+            <Button variant="contained" onClick={openCreateCategory}>
+              New category
+            </Button>
+          )}
         </Box>
 
         <Table sx={{ mt: 2 }}>
@@ -566,12 +582,16 @@ export const CatalogPage = () => {
                   />
                 </TableCell>
                 <TableCell align="right">
-                  <Button size="small" onClick={() => openEditCategory(category)}>
-                    Edit
-                  </Button>
-                  <Button size="small" onClick={() => requestToggleCategoryActive(category)}>
-                    {category.is_active ? 'Deactivate' : 'Activate'}
-                  </Button>
+                  {!readOnly && (
+                    <>
+                      <Button size="small" onClick={() => openEditCategory(category)}>
+                        Edit
+                      </Button>
+                      <Button size="small" onClick={() => requestToggleCategoryActive(category)}>
+                        {category.is_active ? 'Deactivate' : 'Activate'}
+                      </Button>
+                    </>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
@@ -595,7 +615,9 @@ export const CatalogPage = () => {
 
 
       <Dialog open={kitDialogOpen} onClose={resetKitDialog} fullWidth maxWidth="md">
-        <DialogTitle>{editingKit ? 'Edit item' : 'Create item'}</DialogTitle>
+        <DialogTitle>
+          {readOnly && editingKit ? 'View item' : editingKit ? 'Edit item' : 'Create item'}
+        </DialogTitle>
         <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
           <TextField
             label="Name"
@@ -603,8 +625,9 @@ export const CatalogPage = () => {
             onChange={(event) => setKitForm({ ...kitForm, name: event.target.value })}
             fullWidth
             required
+            disabled={readOnly}
           />
-          <FormControl fullWidth>
+          <FormControl fullWidth disabled={readOnly}>
             <InputLabel>Category</InputLabel>
             <Select
               value={kitForm.category_id}
@@ -616,15 +639,17 @@ export const CatalogPage = () => {
                   {category.name}
                 </MenuItem>
               ))}
-              <MenuItem value="create">
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <AddIcon fontSize="small" />
-                  Add new category
-                </Box>
-              </MenuItem>
+              {!readOnly && (
+                <MenuItem value="create">
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <AddIcon fontSize="small" />
+                    Add new category
+                  </Box>
+                </MenuItem>
+              )}
             </Select>
           </FormControl>
-          <FormControl fullWidth disabled={!!editingKit}>
+          <FormControl fullWidth disabled={!!editingKit || readOnly}>
             <InputLabel>Type</InputLabel>
             <Select
               value={kitForm.item_type}
@@ -650,6 +675,7 @@ export const CatalogPage = () => {
             onChange={(event) => setKitForm({ ...kitForm, price: event.target.value })}
             fullWidth
             required
+            disabled={readOnly}
             inputProps={{ min: 0, step: 0.01 }}
           />
 
@@ -661,9 +687,9 @@ export const CatalogPage = () => {
               {kitForm.items.map((item, index) => (
                 <Box
                   key={`kit-item-${index}`}
-                  sx={{ display: 'grid', gap: 1, gridTemplateColumns: '1fr 140px auto' }}
+                  sx={{ display: 'grid', gap: 1, gridTemplateColumns: readOnly ? '1fr 140px' : '1fr 140px auto' }}
                 >
-                  <FormControl fullWidth>
+                  <FormControl fullWidth disabled={readOnly}>
                     <InputLabel>Inventory item</InputLabel>
                     <Select
                       value={item.item_id}
@@ -685,24 +711,31 @@ export const CatalogPage = () => {
                     value={item.quantity}
                     onChange={(event) => updateKitItem(index, 'quantity', event.target.value)}
                     onFocus={(event) => event.currentTarget.select()}
+                    disabled={readOnly}
                     inputProps={{ min: 1, step: 1 }}
                   />
-                  <IconButton onClick={() => removeKitItem(index)} aria-label="Remove component">
-                    <DeleteOutlineIcon />
-                  </IconButton>
+                  {!readOnly && (
+                    <IconButton onClick={() => removeKitItem(index)} aria-label="Remove component">
+                      <DeleteOutlineIcon />
+                    </IconButton>
+                  )}
                 </Box>
               ))}
-              <Button variant="outlined" onClick={addKitItem} sx={{ alignSelf: 'flex-start' }}>
-                Add component
-              </Button>
+              {!readOnly && (
+                <Button variant="outlined" onClick={addKitItem} sx={{ alignSelf: 'flex-start' }}>
+                  Add component
+                </Button>
+              )}
             </Box>
           ) : null}
         </DialogContent>
         <DialogActions>
-          <Button onClick={resetKitDialog}>Cancel</Button>
-          <Button variant="contained" onClick={submitKit} disabled={loading}>
-            Save
-          </Button>
+          <Button onClick={resetKitDialog}>{readOnly ? 'Close' : 'Cancel'}</Button>
+          {!readOnly && (
+            <Button variant="contained" onClick={submitKit} disabled={loading}>
+              Save
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
 

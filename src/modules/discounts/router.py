@@ -56,7 +56,7 @@ async def list_reasons(
     include_inactive: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)
     ),
 ):
     """List all discount reasons."""
@@ -76,7 +76,7 @@ async def get_reason(
     reason_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)
     ),
 ):
     """Get discount reason by ID."""
@@ -251,10 +251,10 @@ async def list_student_discounts(
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)
     ),
 ):
-    """List student discounts."""
+    """List student discounts (read-only for Accountant)."""
     service = DiscountService(db)
     discounts, total = await service.list_student_discounts(
         student_id=student_id,
@@ -281,7 +281,7 @@ async def get_student_discount(
     discount_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)
     ),
 ):
     """Get student discount by ID."""

@@ -57,7 +57,7 @@ async def create_category(
 async def list_categories(
     include_inactive: bool = False,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)),
 ):
     """List all categories."""
     service = ItemService(db)
@@ -75,7 +75,7 @@ async def list_categories(
 async def get_category(
     category_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)),
 ):
     """Get category by ID."""
     service = ItemService(db)
@@ -150,7 +150,7 @@ async def list_items(
     item_type: str | None = None,
     include_inactive: bool = False,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)),
 ):
     """List all items with optional filters."""
     service = ItemService(db)
@@ -232,7 +232,7 @@ async def create_kit(
 async def list_kits(
     include_inactive: bool = False,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)),
 ):
     """List all kits."""
     service = ItemService(db)
@@ -274,7 +274,7 @@ async def list_kits(
 async def get_kit(
     kit_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)),
 ):
     """Get kit by ID."""
     service = ItemService(db)
@@ -355,7 +355,7 @@ async def update_kit(
 async def get_kit_price_history(
     kit_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)),
 ):
     """Get price history for a kit."""
     service = ItemService(db)
@@ -382,7 +382,7 @@ async def get_kit_price_history(
 async def get_item(
     item_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)),
 ):
     """Get item by ID."""
     service = ItemService(db)
@@ -443,7 +443,7 @@ async def update_item(
 async def get_item_price_history(
     item_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)),
 ):
     """Get price history for an item."""
     service = ItemService(db)

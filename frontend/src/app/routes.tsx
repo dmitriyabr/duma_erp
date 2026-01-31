@@ -42,7 +42,10 @@ import { PayoutsPage } from './pages/compensations/PayoutsPage'
 import { PayoutDetailPage } from './pages/compensations/PayoutDetailPage'
 import { AuditTrailPage } from './pages/accountant/AuditTrailPage'
 import { AccountantExportPage } from './pages/accountant/AccountantExportPage'
+import { InvoicesListPage } from './pages/accountant/InvoicesListPage'
 import { PaymentReceiptsPage } from './pages/accountant/PaymentReceiptsPage'
+import { AttachmentDownloadPage } from './pages/AttachmentDownloadPage'
+import { PaymentReceiptDownloadPage } from './pages/PaymentReceiptDownloadPage'
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useAuth()
@@ -75,6 +78,8 @@ export const AppRoutes = () => {
           }
         >
           <Route index element={<DashboardPage />} />
+          <Route path="attachment/:id/download" element={<AttachmentDownloadPage />} />
+          <Route path="payment/:id/receipt" element={<PaymentReceiptDownloadPage />} />
           <Route path="students" element={<StudentsPage />} />
           <Route path="students/:studentId" element={<StudentDetailPage />} />
           <Route path="students/:studentId/invoices/new" element={<CreateInvoicePage />} />
@@ -87,7 +92,7 @@ export const AppRoutes = () => {
           <Route path="billing/catalog" element={<CatalogPage />} />
           <Route path="billing/catalog/items" element={<CatalogPage />} />
           <Route path="billing/catalog/categories" element={<CatalogPage />} />
-          <Route path="billing/invoices" element={<PlaceholderPage title="Invoices" />} />
+          <Route path="billing/invoices" element={<InvoicesListPage />} />
           <Route path="billing/payments" element={<PlaceholderPage title="Payments" />} />
           <Route path="billing/allocations" element={<PlaceholderPage title="Allocations" />} />
           <Route path="billing/statement" element={<PlaceholderPage title="Statement" />} />

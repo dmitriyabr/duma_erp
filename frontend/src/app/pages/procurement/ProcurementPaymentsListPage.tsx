@@ -4,6 +4,7 @@ import {
   Button,
   Chip,
   FormControl,
+  IconButton,
   InputLabel,
   MenuItem,
   Select,
@@ -14,12 +15,15 @@ import {
   TablePagination,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material'
+import DownloadIcon from '@mui/icons-material/Download'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
+import { api } from '../../services/api'
 import { useAuth } from '../../auth/AuthContext'
 import { formatDate, formatMoney } from '../../utils/format'
 import { isAccountant } from '../../utils/permissions'
@@ -33,6 +37,7 @@ interface PaymentRow {
   amount: number
   payment_method: string
   status: string
+  proof_attachment_id: number | null
 }
 
 const statusOptions = [
@@ -68,6 +73,20 @@ export const ProcurementPaymentsListPage = () => {
 
   const payments = data?.items || []
   const total = data?.total || 0
+
+  const downloadAttachment = async (attachmentId: number) => {
+    try {
+      const res = await api.get(`/attachments/${attachmentId}/download`, { responseType: 'blob' })
+      const url = URL.createObjectURL(new Blob([res.data]))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `attachment_${attachmentId}`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      // ignore
+    }
+  }
 
   return (
     <Box>
@@ -138,6 +157,7 @@ export const ProcurementPaymentsListPage = () => {
             <TableCell align="right">Amount</TableCell>
             <TableCell>Method</TableCell>
             <TableCell>Status</TableCell>
+            <TableCell align="center">File</TableCell>
             <TableCell align="right">Actions</TableCell>
           </TableRow>
         </TableHead>
@@ -157,6 +177,18 @@ export const ProcurementPaymentsListPage = () => {
                   color={payment.status === 'posted' ? 'success' : 'default'}
                 />
               </TableCell>
+              <TableCell align="center">
+                {payment.proof_attachment_id != null && (
+                  <Tooltip title="Download attachment">
+                    <IconButton
+                      size="small"
+                      onClick={() => downloadAttachment(payment.proof_attachment_id!)}
+                    >
+                      <DownloadIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </TableCell>
               <TableCell align="right">
                 <Button size="small" onClick={() => navigate(`/procurement/payments/${payment.id}`)}>
                   View
@@ -166,14 +198,14 @@ export const ProcurementPaymentsListPage = () => {
           ))}
           {loading ? (
             <TableRow>
-              <TableCell colSpan={8} align="center">
+              <TableCell colSpan={9} align="center">
                 Loading…
               </TableCell>
             </TableRow>
           ) : null}
           {!payments.length && !loading ? (
             <TableRow>
-              <TableCell colSpan={8} align="center">
+              <TableCell colSpan={9} align="center">
                 No payments found
               </TableCell>
             </TableRow>

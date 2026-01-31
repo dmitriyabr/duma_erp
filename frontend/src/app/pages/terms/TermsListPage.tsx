@@ -11,7 +11,9 @@ import {
   Typography,
 } from '@mui/material'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../../auth/AuthContext'
 import { useApi } from '../../hooks/useApi'
+import { isAccountant } from '../../utils/permissions'
 import { formatDate } from '../../utils/format'
 
 interface TermRow {
@@ -32,6 +34,8 @@ const statusColor = (status: TermRow['status']) => {
 
 export const TermsListPage = () => {
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const readOnly = isAccountant(user)
   const { data: terms, loading, error } = useApi<TermRow[]>('/terms')
 
   return (
@@ -40,9 +44,11 @@ export const TermsListPage = () => {
         <Typography variant="h4" sx={{ fontWeight: 700 }}>
           Terms
         </Typography>
-        <Button variant="contained" onClick={() => navigate('/billing/terms/new')}>
-          New term
-        </Button>
+        {!readOnly && (
+          <Button variant="contained" onClick={() => navigate('/billing/terms/new')}>
+            New term
+          </Button>
+        )}
       </Box>
 
       {error ? (
@@ -74,9 +80,11 @@ export const TermsListPage = () => {
                 <Button size="small" onClick={() => navigate(`/billing/terms/${term.id}`)}>
                   View
                 </Button>
-                <Button size="small" onClick={() => navigate(`/billing/terms/${term.id}/edit`)}>
-                  Edit
-                </Button>
+                {!readOnly && (
+                  <Button size="small" onClick={() => navigate(`/billing/terms/${term.id}/edit`)}>
+                    Edit
+                  </Button>
+                )}
               </TableCell>
             </TableRow>
           ))}

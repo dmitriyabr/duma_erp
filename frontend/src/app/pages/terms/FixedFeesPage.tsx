@@ -20,8 +20,10 @@ import {
   Typography,
 } from '@mui/material'
 import { useState } from 'react'
+import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
+import { isAccountant } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
 
 interface FixedFeeRow {
@@ -40,6 +42,8 @@ const emptyForm = {
 }
 
 export const FixedFeesPage = () => {
+  const { user } = useAuth()
+  const readOnly = isAccountant(user)
   const { data: rows, loading, error, refetch } = useApi<FixedFeeRow[]>('/terms/fixed-fees')
   const { execute: saveFee, loading: saving, error: saveError } = useApiMutation<FixedFeeRow>()
 
@@ -101,9 +105,11 @@ export const FixedFeesPage = () => {
         <Typography variant="h4" sx={{ fontWeight: 700 }}>
           Fixed Fees
         </Typography>
-        <Button variant="contained" onClick={openCreate}>
-          New fee
-        </Button>
+        {!readOnly && (
+          <Button variant="contained" onClick={openCreate}>
+            New fee
+          </Button>
+        )}
       </Box>
 
       <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
@@ -151,9 +157,11 @@ export const FixedFeesPage = () => {
                 />
               </TableCell>
               <TableCell align="right">
-                <Button size="small" onClick={() => openEdit(row)}>
-                  Edit
-                </Button>
+                {!readOnly && (
+                  <Button size="small" onClick={() => openEdit(row)}>
+                    Edit
+                  </Button>
+                )}
               </TableCell>
             </TableRow>
           ))}

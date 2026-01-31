@@ -11,6 +11,9 @@ import type { ApiResponse } from '../types/api'
 
 const baseURL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
+/** Minutes before expiry to refresh token proactively */
+const REFRESH_BEFORE_EXPIRY_MIN = 2
+
 export const api = axios.create({ baseURL })
 
 /**
@@ -22,21 +25,81 @@ export function unwrapResponse<T>(response: AxiosResponse<ApiResponse<T>>): T {
   return body?.data !== undefined ? body.data : (true as unknown as T)
 }
 
-api.interceptors.request.use((config) => {
+function getTokenExpiration(token: string): number | null {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return null
+    const payload = JSON.parse(
+      atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'))
+    ) as { exp?: number }
+    return payload.exp ?? null
+  } catch {
+    return null
+  }
+}
+
+function isTokenExpiringSoon(token: string): boolean {
+  const exp = getTokenExpiration(token)
+  if (!exp) return true
+  const marginMs = REFRESH_BEFORE_EXPIRY_MIN * 60 * 1000
+  return exp * 1000 <= Date.now() + marginMs
+}
+
+let refreshPromise: Promise<string | null> | null = null
+
+/**
+ * Refresh access token using refresh_token. Shared by request (proactive) and response (401) interceptors.
+ * Returns new access_token or null (and redirects to login on failure).
+ */
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshPromise) return refreshPromise
+  const refresh = getRefreshToken()
+  if (!refresh) {
+    clearAuth()
+    window.location.assign('/login')
+    return null
+  }
+  refreshPromise = (async () => {
+    try {
+      const response = await axios.post<ApiResponse<{ access_token: string; refresh_token: string; token_type: string }>>(
+        `${baseURL}/auth/refresh`,
+        { refresh_token: refresh }
+      )
+      const data = response.data?.data
+      if (!data) return null
+      const newTokens = {
+        access_token: data.access_token,
+        refresh_token: data.refresh_token,
+        token_type: data.token_type ?? 'bearer',
+      }
+      updateTokens(newTokens)
+      return newTokens.access_token
+    } catch {
+      clearAuth()
+      window.location.assign('/login')
+      return null
+    } finally {
+      refreshPromise = null
+    }
+  })()
+  return refreshPromise
+}
+
+/** Get valid access token, refreshing proactively if expiring within REFRESH_BEFORE_EXPIRY_MIN. */
+async function ensureValidAccessToken(): Promise<string | null> {
   const token = getAccessToken()
+  if (!token) return null
+  if (!isTokenExpiringSoon(token)) return token
+  return refreshAccessToken()
+}
+
+api.interceptors.request.use(async (config) => {
+  const token = await ensureValidAccessToken()
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
   return config
 })
-
-let isRefreshing = false
-let pendingRequests: Array<(token: string | null) => void> = []
-
-const resolvePending = (token: string | null) => {
-  pendingRequests.forEach((callback) => callback(token))
-  pendingRequests = []
-}
 
 api.interceptors.response.use(
   (response) => response,
@@ -50,50 +113,13 @@ api.interceptors.response.use(
       if (originalRequest._retry) {
         return Promise.reject(error)
       }
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => {
-          pendingRequests.push((token) => {
-            if (!token) {
-              reject(error)
-              return
-            }
-            originalRequest.headers.Authorization = `Bearer ${token}`
-            resolve(api(originalRequest))
-          })
-        })
-      }
-
-      const refreshToken = getRefreshToken()
-      if (!refreshToken) {
-        clearAuth()
-        window.location.assign('/login')
+      const token = await refreshAccessToken()
+      if (!token) {
         return Promise.reject(error)
       }
-
-      isRefreshing = true
-      try {
-        const response = await axios.post(`${baseURL}/auth/refresh`, {
-          refresh_token: refreshToken,
-        })
-        const data = response.data?.data
-        const newTokens = {
-          access_token: data.access_token,
-          refresh_token: data.refresh_token,
-          token_type: data.token_type,
-        }
-        updateTokens(newTokens)
-        isRefreshing = false
-        resolvePending(newTokens.access_token)
-        originalRequest._retry = true
-        originalRequest.headers.Authorization = `Bearer ${newTokens.access_token}`
-        return api(originalRequest)
-      } catch (refreshError) {
-        isRefreshing = false
-        resolvePending(null)
-        clearAuth()
-        window.location.assign('/login')
-        return Promise.reject(refreshError)
-      }
+      originalRequest._retry = true
+      originalRequest.headers.Authorization = `Bearer ${token}`
+      return api(originalRequest)
     }
 
     if (status === 403) {

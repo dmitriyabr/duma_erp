@@ -4,6 +4,7 @@ import {
   Button,
   Chip,
   FormControl,
+  IconButton,
   InputLabel,
   MenuItem,
   Select,
@@ -14,11 +15,14 @@ import {
   TablePagination,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material'
+import DownloadIcon from '@mui/icons-material/Download'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
+import { api } from '../../services/api'
 import { USERS_LIST_LIMIT } from '../../constants/pagination'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
@@ -35,6 +39,7 @@ interface ClaimRow {
   status: string
   paid_amount: number
   remaining_amount: number
+  proof_attachment_id: number | null
 }
 
 interface UserRow {
@@ -105,10 +110,24 @@ export const ExpenseClaimsListPage = () => {
   const total = claimsData?.total || 0
   const employees = employeesData?.items || []
 
+  const downloadAttachment = async (attachmentId: number) => {
+    try {
+      const res = await api.get(`/attachments/${attachmentId}/download`, { responseType: 'blob' })
+      const url = URL.createObjectURL(new Blob([res.data]))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `attachment_${attachmentId}`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      // ignore
+    }
+  }
+
   return (
     <Box>
       <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
-        Expense Claims
+        Staff Expenses Claims
       </Typography>
 
       {!userIsSuperAdmin && myBalance ? (
@@ -211,6 +230,7 @@ export const ExpenseClaimsListPage = () => {
             <TableCell align="right">Paid</TableCell>
             <TableCell align="right">Remaining</TableCell>
             <TableCell>Status</TableCell>
+            <TableCell align="center">File</TableCell>
             <TableCell align="right">Actions</TableCell>
           </TableRow>
         </TableHead>
@@ -231,6 +251,18 @@ export const ExpenseClaimsListPage = () => {
               <TableCell>
                 <Chip size="small" label={claim.status} color={statusColor(claim.status)} />
               </TableCell>
+              <TableCell align="center">
+                {claim.proof_attachment_id != null && (
+                  <Tooltip title="Download attachment">
+                    <IconButton
+                      size="small"
+                      onClick={() => downloadAttachment(claim.proof_attachment_id!)}
+                    >
+                      <DownloadIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </TableCell>
               <TableCell align="right">
                 <Button size="small" onClick={() => navigate(`/compensations/claims/${claim.id}`)}>
                   View
@@ -240,14 +272,14 @@ export const ExpenseClaimsListPage = () => {
           ))}
           {loading ? (
             <TableRow>
-              <TableCell colSpan={userIsSuperAdmin ? 9 : 8} align="center">
+              <TableCell colSpan={userIsSuperAdmin ? 10 : 9} align="center">
                 Loading…
               </TableCell>
             </TableRow>
           ) : null}
           {!claims.length && !loading ? (
             <TableRow>
-              <TableCell colSpan={userIsSuperAdmin ? 9 : 8} align="center">
+              <TableCell colSpan={userIsSuperAdmin ? 10 : 9} align="center">
                 No expense claims found
               </TableCell>
             </TableRow>

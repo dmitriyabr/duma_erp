@@ -19,7 +19,9 @@ import {
 } from '@mui/material'
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useAuth } from '../../auth/AuthContext'
 import { useReferencedData } from '../../contexts/ReferencedDataContext'
+import { isAccountant } from '../../utils/permissions'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api, unwrapResponse } from '../../services/api'
 import { formatDate, formatMoney } from '../../utils/format'
@@ -64,6 +66,8 @@ const statusColor = (status: TermDetail['status']) => {
 export const TermDetailPage = () => {
   const { termId } = useParams()
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const readOnly = isAccountant(user)
   const resolvedId = termId ? Number(termId) : null
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
   const [resultDialogOpen, setResultDialogOpen] = useState(false)
@@ -196,22 +200,26 @@ export const TermDetailPage = () => {
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Chip label={term.status} color={statusColor(term.status)} />
-          <Button variant="outlined" onClick={() => navigate(`/billing/terms/${term.id}/edit`)}>
-            Edit
-          </Button>
-          {term.status !== 'Active' && term.status !== 'Closed' ? (
-            <Button variant="contained" onClick={handleActivate} disabled={loading}>
-              Activate
-            </Button>
-          ) : null}
-          {term.status === 'Active' ? (
-            <Button variant="contained" color="warning" onClick={handleClose} disabled={loading}>
-              Close
-            </Button>
-          ) : null}
-          <Button variant="outlined" onClick={openMenu}>
-            Generate invoices
-          </Button>
+          {!readOnly && (
+            <>
+              <Button variant="outlined" onClick={() => navigate(`/billing/terms/${term.id}/edit`)}>
+                Edit
+              </Button>
+              {term.status !== 'Active' && term.status !== 'Closed' ? (
+                <Button variant="contained" onClick={handleActivate} disabled={loading}>
+                  Activate
+                </Button>
+              ) : null}
+              {term.status === 'Active' ? (
+                <Button variant="contained" color="warning" onClick={handleClose} disabled={loading}>
+                  Close
+                </Button>
+              ) : null}
+              <Button variant="outlined" onClick={openMenu}>
+                Generate invoices
+              </Button>
+            </>
+          )}
         </Box>
       </Box>
 

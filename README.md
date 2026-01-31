@@ -78,7 +78,7 @@ Email: admin@school.com
 Password: Admin123!
 ```
 
-**Интерфейс бухгалтера (Accountant):** создайте пользователя с ролью Accountant (Settings → Users, только SuperAdmin). Войдите под этим пользователем — откроется дашборд с минимальным меню: Dashboard, Documents (Payment Receipts, PO, GRN, Procurement Payments, Expense Claims), Data Export, Audit Trail. Бухгалтер не видит Settings, создание/редактирование документов недоступно.
+**Интерфейс бухгалтера (Accountant):** создайте пользователя с ролью Accountant (Settings → Users, только SuperAdmin). Войдите под этим пользователем — откроется дашборд с минимальным меню: Dashboard, Documents (Incoming Payments, Students Invoices, PO, GRN, Procurement Payments, Staff Expenses Claims), Data Export, Audit Trail. Бухгалтер не видит Settings, создание/редактирование документов недоступно.
 
 ## Структура проекта
 

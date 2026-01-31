@@ -3,6 +3,7 @@ import {
   Box,
   Button,
   FormControl,
+  IconButton,
   InputLabel,
   MenuItem,
   Select,
@@ -13,12 +14,16 @@ import {
   TablePagination,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material'
+import DownloadIcon from '@mui/icons-material/Download'
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
+import { api } from '../../services/api'
 import { formatDate, formatMoney } from '../../utils/format'
 import { useAuth } from '../../auth/AuthContext'
 
@@ -31,6 +36,7 @@ interface PaymentRow {
   payment_method: string
   payment_date: string
   status: string
+  confirmation_attachment_id: number | null
 }
 
 export const PaymentReceiptsPage = () => {
@@ -57,11 +63,39 @@ export const PaymentReceiptsPage = () => {
   const payments = data?.items ?? []
   const total = data?.total ?? 0
 
+  const downloadReceiptPdf = async (paymentId: number, receiptNumber: string) => {
+    try {
+      const res = await api.get(`/payments/${paymentId}/receipt/pdf`, { responseType: 'blob' })
+      const url = URL.createObjectURL(new Blob([res.data]))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `receipt_${receiptNumber || paymentId}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      // ignore
+    }
+  }
+
+  const downloadAttachment = async (attachmentId: number) => {
+    try {
+      const res = await api.get(`/attachments/${attachmentId}/download`, { responseType: 'blob' })
+      const url = URL.createObjectURL(new Blob([res.data]))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `attachment_${attachmentId}`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      // ignore
+    }
+  }
+
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
         <Typography variant="h4" sx={{ fontWeight: 700 }}>
-          Payment Receipts
+          Incoming Payments
         </Typography>
         {!isAccountant && (
           <Button variant="contained" onClick={() => navigate('/students')}>
@@ -119,13 +153,14 @@ export const PaymentReceiptsPage = () => {
             <TableCell>Method</TableCell>
             <TableCell align="right">Amount</TableCell>
             <TableCell>Status</TableCell>
+            <TableCell align="center">File</TableCell>
             <TableCell></TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {loading ? (
             <TableRow>
-              <TableCell colSpan={7}>Loading…</TableCell>
+              <TableCell colSpan={8}>Loading…</TableCell>
             </TableRow>
           ) : (
             payments.map((row) => (
@@ -136,6 +171,30 @@ export const PaymentReceiptsPage = () => {
                 <TableCell>{row.payment_method}</TableCell>
                 <TableCell align="right">{formatMoney(Number(row.amount))}</TableCell>
                 <TableCell>{row.status}</TableCell>
+                <TableCell align="center">
+                  {row.status === 'completed' && (
+                    <Tooltip title="Receipt PDF">
+                      <IconButton
+                        size="small"
+                        onClick={() =>
+                          downloadReceiptPdf(row.id, row.receipt_number || row.payment_number)
+                        }
+                      >
+                        <PictureAsPdfIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                  {row.confirmation_attachment_id != null && (
+                    <Tooltip title="Download attachment">
+                      <IconButton
+                        size="small"
+                        onClick={() => downloadAttachment(row.confirmation_attachment_id!)}
+                      >
+                        <DownloadIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                </TableCell>
                 <TableCell>
                   <Button
                     size="small"

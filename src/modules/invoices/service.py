@@ -519,6 +519,13 @@ class InvoiceService:
             query = query.where(Invoice.invoice_type == filters.invoice_type.value)
         if filters.status is not None:
             query = query.where(Invoice.status == filters.status.value)
+        else:
+            # Default: exclude cancelled/void so "all" means "all active"
+            query = query.where(
+                Invoice.status.notin_(
+                    [InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value]
+                )
+            )
         if filters.search:
             search_term = f"%{filters.search}%"
             query = query.join(Student).where(

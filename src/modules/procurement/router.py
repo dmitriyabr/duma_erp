@@ -202,7 +202,7 @@ async def list_purchase_orders(
 async def get_po_bulk_upload_template(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
     ),
 ):
     """Download CSV template for PO lines. One example row + all product items (sku, name only)."""

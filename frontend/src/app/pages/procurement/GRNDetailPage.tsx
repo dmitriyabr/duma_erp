@@ -17,7 +17,7 @@ import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDate } from '../../utils/format'
-import { canApproveGRN } from '../../utils/permissions'
+import { canApproveGRN, isAccountant } from '../../utils/permissions'
 
 interface GRNLine {
   id: number
@@ -104,8 +104,9 @@ export const GRNDetailPage = () => {
     )
   }
 
-  const canApprove = grn.status === 'draft' && canApproveGRN(user)
-  const canCancel = grn.status === 'draft'
+  const readOnly = isAccountant(user)
+  const canApprove = !readOnly && grn.status === 'draft' && canApproveGRN(user)
+  const canCancel = !readOnly && grn.status === 'draft'
 
   return (
     <Box>

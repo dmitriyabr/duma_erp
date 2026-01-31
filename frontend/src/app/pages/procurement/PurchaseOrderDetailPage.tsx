@@ -17,7 +17,9 @@ import {
 } from '@mui/material'
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useAuth } from '../../auth/AuthContext'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { isAccountant } from '../../utils/permissions'
 import { api } from '../../services/api'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
@@ -93,6 +95,8 @@ export const PurchaseOrderDetailPage = () => {
     reason?: string
   }>({ open: false })
 
+  const { user } = useAuth()
+  const readOnly = isAccountant(user)
   const { data: po, refetch: refetchPO } = useApi<POResponse>(
     resolvedId ? `/procurement/purchase-orders/${resolvedId}` : null
   )
@@ -202,8 +206,8 @@ export const PurchaseOrderDetailPage = () => {
     )
   }
 
-  const canEdit = po.status === 'draft' || po.status === 'ordered'
-  const canReceive = po.status === 'ordered' || po.status === 'partially_received'
+  const canEdit = !readOnly && (po.status === 'draft' || po.status === 'ordered')
+  const canReceive = !readOnly && (po.status === 'ordered' || po.status === 'partially_received')
 
   return (
     <Box>
@@ -223,7 +227,7 @@ export const PurchaseOrderDetailPage = () => {
               Edit
             </Button>
           ) : null}
-          {po.status === 'draft' ? (
+          {!readOnly && po.status === 'draft' ? (
             <Button variant="contained" onClick={() => setConfirmState({ open: true, action: 'submit' })}>
               Submit
             </Button>
@@ -233,7 +237,7 @@ export const PurchaseOrderDetailPage = () => {
               Receive
             </Button>
           ) : null}
-          {po.status !== 'cancelled' && po.status !== 'closed' ? (
+          {!readOnly && po.status !== 'cancelled' && po.status !== 'closed' ? (
             <Button
               variant="contained"
               color="success"
@@ -242,7 +246,7 @@ export const PurchaseOrderDetailPage = () => {
               Create Payment
             </Button>
           ) : null}
-          {po.status === 'ordered' || po.status === 'partially_received' ? (
+          {!readOnly && (po.status === 'ordered' || po.status === 'partially_received') ? (
             <Button variant="contained" color="warning" onClick={() => setConfirmState({ open: true, action: 'close' })}>
               Close
             </Button>

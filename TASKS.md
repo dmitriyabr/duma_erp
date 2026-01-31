@@ -631,24 +631,28 @@
 - Frontend: меню, страницы Receipts/Export/Audit, скрытие кнопок создания — готово; Settings для Accountant не показываем (минимальное меню без Settings).
 
 **Навигация для роли Accountant (минимальная):**
-- Documents: Payment Receipts, Student Invoices, Purchase Orders, GRN, Procurement Payments, Employee Expenses
-- Data Export: All Transactions, Student Payments, Procurement Payments, VAT, WHT
+- Documents: Incoming Payments, Students Invoices, Purchase Orders, GRN, Procurement Payments, Staff Expenses Claims
+- Data Export: Student Payments, Procurement Payments, Student Balance Changes (CSV); отдельные периоды по каждому экспорту, предзаполнение дат (текущий месяц)
 - Audit Trail
 - Settings → My Profile (только профиль)
 
 **Backend (API для бухгалтера):**
 - [x] Роутер `/api/v1/accountant/` с проверкой роли Accountant (Admin/SuperAdmin тоже допущены)
 - [x] Документы: все GET для просмотра допускают Accountant (students list/get, grades, transport-zones, payments list/get/receipt/pdf, invoices list/get/pdf, procurement: purchase-orders list/get, grns list/get, payments list/get, payment-purposes, dashboard; compensations: claims list/get, payouts list/get, employee-balances). Запись (POST/PUT/PATCH/DELETE) для Accountant запрещена: create/update/complete payment, allocate, cancel payment, create/update PO/GRN/payout и т.д.
-- [x] GET export/student-payments (CSV)
-- [x] GET export/procurement-payments (CSV)
+- [x] GET export/student-payments (CSV; ссылки на фронт: Receipt PDF → /payment/{id}/receipt, Attachment → /attachment/{id}/download; FRONTEND_URL в .env)
+- [x] GET export/procurement-payments (CSV; ссылка на фронт: Attachment → /attachment/{id}/download)
+- [x] GET export/student-balance-changes (CSV: платежи и аллокации по периоду)
 - [x] GET audit-trail с фильтрами (date_from, date_to, user_id, entity_type, action, page, limit)
 - [x] Тесты API (tests/modules/accountant/test_accountant.py — audit-trail и оба export, роль User — 403)
 - [ ] GET export: transactions, vat, wht
 
 **Frontend (интерфейс для бухгалтера):**
 - [x] Для роли Accountant: отдельное меню (accountantNavItems: Dashboard, Documents, Data Export, Audit Trail)
-- [x] Documents: Payment Receipts (/payments), PO, GRN, Procurement Payments, Expense Claims — ссылки на существующие страницы; страница Payment Receipts (список)
-- [x] Страница Data Export (/accountant/export): Student Payments и Procurement Payments CSV, период, кнопки Download
+- [x] Documents: Incoming Payments (/payments), Students Invoices (/billing/invoices), PO, GRN, Procurement Payments, Staff Expenses Claims — ссылки на существующие страницы
+- [x] Страница Data Export (/accountant/export): Student Payments, Procurement Payments, Student Balance Changes CSV; у каждого экспорта свой период дат; предзаполнение текущим месяцем; ссылки в CSV ведут на фронт (FRONTEND_URL) — /attachment/:id/download и /payment/:id/receipt (JWT при открытии в приложении)
+- [x] Страницы скачивания по ссылке из CSV: /attachment/:id/download, /payment/:id/receipt (проверка JWT, редирект на логин при необходимости)
+- [x] Проактивное обновление JWT (api.ts): за 2 мин до истечения access token — refresh в request interceptor; общая refreshAccessToken() для 401 и проактивного обновления
+- [x] Список счетов (Invoices): по умолчанию «все кроме отменённых»; заголовок «Students Invoices»
 - [x] Страница Audit Trail (/audit): таблица с фильтрами (дата, entity_type, action), пагинация
 - [x] Скрыть кнопки создания для Accountant (PaymentReceiptsPage, ProcurementPaymentsListPage); isAccountant в permissions
 - [x] Settings для Accountant: в минимальном меню Settings не показываем (решение принято)

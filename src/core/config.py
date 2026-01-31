@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     debug: bool = True
     # Can be a comma-separated string or list
     cors_allowed_origins: Union[str, list[str]] = "http://localhost:3000,http://localhost:5173"
+    # Frontend base URL for CSV export links (attachment/receipt). User opens link in app, JWT used to fetch file.
+    frontend_url: str = "http://localhost:5173"
 
     # File storage (attachments: payment confirmations, proofs). Dev: local folder; prod: S3/R2.
     storage_path: str = "uploads"

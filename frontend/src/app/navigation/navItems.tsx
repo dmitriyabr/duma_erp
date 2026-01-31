@@ -24,20 +24,34 @@ const allRoles: UserRole[] = ['SuperAdmin', 'Admin', 'User', 'Accountant']
 const adminRoles: UserRole[] = ['SuperAdmin', 'Admin']
 const viewRoles: UserRole[] = ['SuperAdmin', 'Admin', 'Accountant']
 
-/** Minimal nav for Accountant role (read-only: documents, export, audit). */
+/** Minimal nav for Accountant role (read-only: students, stock, billing, documents, export, audit). */
 export const accountantNavItems: NavItem[] = [
   { label: 'Dashboard', path: '/', icon: <DashboardIcon />, roles: ['Accountant'] },
+  { label: 'Students', path: '/students', icon: <GroupIcon />, roles: ['Accountant'] },
+  { label: 'Stock', path: '/inventory/stock', icon: <ShoppingCartIcon />, roles: ['Accountant'] },
+  {
+    label: 'Billing',
+    path: '/billing',
+    icon: <ReceiptIcon />,
+    roles: ['Accountant'],
+    children: [
+      { label: 'Terms', path: '/billing/terms', roles: ['Accountant'] },
+      { label: 'Fixed Fees', path: '/billing/fixed-fees', roles: ['Accountant'] },
+      { label: 'Catalog', path: '/billing/catalog', roles: ['Accountant'] },
+    ],
+  },
   {
     label: 'Documents',
     path: '/accountant/documents',
     icon: <DescriptionIcon />,
     roles: ['Accountant'],
     children: [
-      { label: 'Payment Receipts', path: '/payments', roles: ['Accountant'] },
+      { label: 'Incoming Payments', path: '/payments', roles: ['Accountant'] },
+      { label: 'Students Invoices', path: '/billing/invoices', roles: ['Accountant'] },
       { label: 'Purchase Orders', path: '/procurement/orders', roles: ['Accountant'] },
       { label: 'Goods Received', path: '/procurement/grn', roles: ['Accountant'] },
       { label: 'Procurement Payments', path: '/procurement/payments', roles: ['Accountant'] },
-      { label: 'Expense Claims', path: '/compensations/claims', roles: ['Accountant'] },
+      { label: 'Staff Expenses Claims', path: '/compensations/claims', roles: ['Accountant'] },
     ],
   },
   { label: 'Data Export', path: '/accountant/export', icon: <FileDownloadIcon />, roles: ['Accountant'] },
@@ -103,7 +117,7 @@ export const navItems: NavItem[] = [
     icon: <PaymentsIcon />,
     roles: allRoles,
     children: [
-      { label: 'Expense Claims', path: '/compensations/claims', roles: allRoles },
+      { label: 'Staff Expenses Claims', path: '/compensations/claims', roles: allRoles },
       { label: 'Payouts', path: '/compensations/payouts', roles: ['SuperAdmin'] },
     ],
   },
