@@ -3,6 +3,7 @@
 from datetime import date
 from decimal import Decimal
 from collections import defaultdict
+from calendar import monthrange
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,7 +11,8 @@ from sqlalchemy.orm import selectinload
 
 from src.core.exceptions import NotFoundError
 from src.modules.compensations.models import CompensationPayout, ExpenseClaim, ExpenseClaimStatus
-from src.modules.invoices.models import Invoice, InvoiceStatus
+from src.modules.discounts.models import Discount, DiscountReason
+from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus
 from src.modules.inventory.models import Stock
 from src.modules.payments.models import CreditAllocation, Payment, PaymentStatus
 from src.modules.procurement.models import (
@@ -34,6 +36,10 @@ from src.modules.reports.schemas import (
     CashFlowOutflowLine,
     BalanceSheetAssetLine,
     BalanceSheetLiabilityLine,
+    CollectionRateMonthRow,
+    DiscountAnalysisRow,
+    DiscountAnalysisSummary,
+    TopDebtorRow,
 )
 
 
@@ -552,4 +558,235 @@ class ReportsService:
             "net_equity": net_equity,
             "debt_to_asset_percent": debt_to_asset_percent,
             "current_ratio": current_ratio,
+        }
+
+    async def collection_rate_trend(
+        self,
+        months: int = 12,
+    ) -> dict:
+        """
+        Collection rate % over last N months. For each month: invoiced (issued), paid (payments in month), rate.
+        """
+        today = date.today()
+        month_labels = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+        rows = []
+        total_inv = Decimal("0")
+        total_paid = Decimal("0")
+        statuses = (
+            InvoiceStatus.ISSUED.value,
+            InvoiceStatus.PARTIALLY_PAID.value,
+            InvoiceStatus.PAID.value,
+        )
+        for i in range(months - 1, -1, -1):
+            # month end: today - i months
+            y = today.year
+            m = today.month - i
+            while m <= 0:
+                m += 12
+                y -= 1
+            start = date(y, m, 1)
+            _, last_day = monthrange(y, m)
+            end = date(y, m, last_day)
+            year_month = f"{y}-{m:02d}"
+            label = f"{month_labels[m - 1]} {y}"
+
+            inv_q = (
+                select(func.coalesce(func.sum(Invoice.total), 0)).where(
+                    Invoice.issue_date >= start,
+                    Invoice.issue_date <= end,
+                    Invoice.status.in_(statuses),
+                )
+            )
+            inv_res = await self.db.execute(inv_q)
+            invoiced = round_money(Decimal(str(inv_res.scalar() or 0)))
+
+            pay_q = (
+                select(func.coalesce(func.sum(Payment.amount), 0)).where(
+                    Payment.status == PaymentStatus.COMPLETED.value,
+                    Payment.payment_date >= start,
+                    Payment.payment_date <= end,
+                )
+            )
+            pay_res = await self.db.execute(pay_q)
+            paid = round_money(Decimal(str(pay_res.scalar() or 0)))
+
+            rate = (
+                round(float(paid / invoiced * 100), 2) if invoiced and invoiced > 0 else None
+            )
+            total_inv += invoiced
+            total_paid += paid
+            rows.append(
+                CollectionRateMonthRow(
+                    year_month=year_month,
+                    label=label,
+                    total_invoiced=invoiced,
+                    total_paid=paid,
+                    rate_percent=rate,
+                )
+            )
+        average_rate = (
+            round(float(total_paid / total_inv * 100), 2) if total_inv and total_inv > 0 else None
+        )
+        return {
+            "rows": rows,
+            "average_rate_percent": average_rate,
+            "target_rate_percent": 90,
+        }
+
+    async def discount_analysis(
+        self,
+        date_from: date,
+        date_to: date,
+    ) -> dict:
+        """
+        Discount analysis by reason: students count, total amount, avg per student, % of revenue.
+        Uses Discount on InvoiceLine -> Invoice; filter by Invoice.issue_date in period.
+        """
+        statuses = (
+            InvoiceStatus.ISSUED.value,
+            InvoiceStatus.PARTIALLY_PAID.value,
+            InvoiceStatus.PAID.value,
+        )
+        q = (
+            select(
+                Discount.reason_id,
+                func.coalesce(DiscountReason.code, "other").label("reason_code"),
+                func.coalesce(DiscountReason.name, "Other").label("reason_name"),
+                func.count(func.distinct(Invoice.student_id)).label("students_count"),
+                func.coalesce(func.sum(Discount.calculated_amount), 0).label("total_amount"),
+            )
+            .select_from(Discount)
+            .join(InvoiceLine, Discount.invoice_line_id == InvoiceLine.id)
+            .join(Invoice, InvoiceLine.invoice_id == Invoice.id)
+            .outerjoin(DiscountReason, Discount.reason_id == DiscountReason.id)
+            .where(
+                Invoice.issue_date >= date_from,
+                Invoice.issue_date <= date_to,
+                Invoice.status.in_(statuses),
+            )
+            .group_by(Discount.reason_id, DiscountReason.id)
+        )
+        res = await self.db.execute(q)
+        raw_rows = res.all()
+
+        revenue_q = (
+            select(func.coalesce(func.sum(Invoice.total), 0)).where(
+                Invoice.issue_date >= date_from,
+                Invoice.issue_date <= date_to,
+                Invoice.status.in_(statuses),
+            )
+        )
+        rev_res = await self.db.execute(revenue_q)
+        total_revenue = round_money(Decimal(str(rev_res.scalar() or 0)))
+
+        rows = []
+        summary_students = 0
+        summary_amount = Decimal("0")
+        for r in raw_rows:
+            reason_id, reason_code, reason_name, cnt, amt = r
+            amt = round_money(Decimal(str(amt)))
+            cnt = int(cnt)
+            avg_per = round_money(amt / cnt) if cnt else None
+            pct = (
+                round(float(amt / total_revenue * 100), 2)
+                if total_revenue and total_revenue > 0 else None
+            )
+            summary_students += cnt
+            summary_amount += amt
+            rows.append(
+                DiscountAnalysisRow(
+                    reason_id=reason_id,
+                    reason_code=str(reason_code) if reason_code else None,
+                    reason_name=str(reason_name) if reason_name else "Other",
+                    students_count=cnt,
+                    total_amount=amt,
+                    avg_per_student=avg_per,
+                    percent_of_revenue=pct,
+                )
+            )
+        pct_rev = (
+            round(float(summary_amount / total_revenue * 100), 2)
+            if total_revenue and total_revenue > 0 else None
+        )
+        return {
+            "date_from": date_from,
+            "date_to": date_to,
+            "rows": rows,
+            "summary": DiscountAnalysisSummary(
+                students_count=summary_students,
+                total_discount_amount=round_money(summary_amount),
+                total_revenue=total_revenue,
+                percent_of_revenue=pct_rev,
+            ),
+        }
+
+    async def top_debtors(
+        self,
+        as_at_date: date | None = None,
+        limit: int = 20,
+    ) -> dict:
+        """
+        Top N students by debt (amount_due). Same buckets as aged_receivables but sorted by total desc, limited.
+        Returns student_id, student_name, grade_name, total_debt, invoice_count, oldest_due_date.
+        """
+        as_at = as_at_date or date.today()
+        ag = await self.aged_receivables(as_at_date=as_at)
+        rows_data = ag["rows"]
+        if not rows_data:
+            return {
+                "as_at_date": as_at,
+                "limit": limit,
+                "rows": [],
+                "total_debt": Decimal("0"),
+            }
+        sorted_rows = sorted(rows_data, key=lambda r: -float(r.total))[:limit]
+        total_debt = sum(r.total for r in sorted_rows)
+
+        # Get grade_name and oldest_due_date per student
+        student_ids = [r.student_id for r in sorted_rows]
+        inv_q = (
+            select(
+                Invoice.student_id,
+                func.count(Invoice.id).label("inv_count"),
+                func.min(Invoice.due_date).label("oldest_due"),
+            )
+            .where(
+                Invoice.student_id.in_(student_ids),
+                Invoice.amount_due > 0,
+                Invoice.status.in_(
+                    [InvoiceStatus.ISSUED.value, InvoiceStatus.PARTIALLY_PAID.value]
+                ),
+            )
+            .group_by(Invoice.student_id)
+        )
+        inv_res = await self.db.execute(inv_q)
+        inv_by_student = {r[0]: (int(r[1]), r[2]) for r in inv_res.all()}
+
+        students_q = (
+            select(Student.id, Student.full_name, Grade.name)
+            .join(Grade, Student.grade_id == Grade.id)
+            .where(Student.id.in_(student_ids))
+        )
+        st_res = await self.db.execute(students_q)
+        student_info = {r[0]: (r[1], r[2]) for r in st_res.all()}
+
+        rows = []
+        for r in sorted_rows:
+            info = student_info.get(r.student_id, ("", ""))
+            inv_count, oldest_due = inv_by_student.get(r.student_id, (0, None))
+            rows.append(
+                TopDebtorRow(
+                    student_id=r.student_id,
+                    student_name=r.student_name,
+                    grade_name=info[1] or "",
+                    total_debt=round_money(r.total),
+                    invoice_count=inv_count,
+                    oldest_due_date=oldest_due,
+                )
+            )
+        return {
+            "as_at_date": as_at,
+            "limit": limit,
+            "rows": rows,
+            "total_debt": round_money(total_debt),
         }

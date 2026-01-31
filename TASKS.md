@@ -677,7 +677,7 @@
 - [x] Отчёт Students: aged-receivables (as_at_date, строки по студентам, bucket'ы current/31-60/61-90/90+, summary). Тесты: Admin/SuperAdmin 200, User/Accountant 403.
 - [x] Отчёт Students: student-fees (term_id, grade_id опционально; по классам: students_count, total_invoiced, total_paid, balance, rate). Тесты: 200/404/403.
 - [x] Отчёты Financial: profit-loss, cash-flow, balance-sheet (параметры; экспорт PDF/Excel — позже).
-- [ ] Отчёты Students: collection-rate, discount-analysis, top-debtors.
+- [x] Отчёты Students: collection-rate, discount-analysis, top-debtors.
 - [ ] Отчёты Procurement & Inventory: procurement-summary, inventory-valuation, low-stock-alert, stock-movement.
 - [ ] Отчёты Compensations: compensation-summary, expense-claims-by-category.
 - [ ] Analytics: revenue-trend, payment-method-distribution, term-comparison, kpis.
@@ -690,7 +690,8 @@
 - [x] Страница отчёта Aged Receivables (/reports/aged-receivables): таблица по студентам (Total, Current 0-30, 31-60, 61-90, 90+, Last Payment), summary; при 403 — сообщение о доступе.
 - [x] Страница отчёта Student Fees by Term (/reports/student-fees): выбор терма и опционально класса, таблица по классам (Class, Students, Total Invoiced, Total Paid, Balance, Rate), summary; при 403 — сообщение о доступе.
 - [x] Страницы финансовых отчётов: Profit & Loss (/reports/profit-loss), Cash Flow (/reports/cash-flow), Balance Sheet (/reports/balance-sheet) — параметры (даты), таблицы, 403; тесты API (profit-loss, cash-flow, balance-sheet).
-- [ ] Остальные страницы отчётов (Students/Procurement/Compensations/Analytics) и экспорт PDF/Excel.
+- [x] Отчёты Students: Collection Rate Trend (/reports/collection-rate), Discount Analysis (/reports/discount-analysis), Top Debtors (/reports/top-debtors) — backend + тесты + страницы и навигация.
+- [ ] Остальные страницы отчётов (Procurement & Inventory, Compensations, Analytics) и экспорт PDF/Excel.
 
 **Порядок реализации (рекомендуемый):** сначала backend dashboard + один отчёт (например aged-receivables или student-fees), тесты; затем фронт дашборда и один отчёт; потом остальные отчёты.
 

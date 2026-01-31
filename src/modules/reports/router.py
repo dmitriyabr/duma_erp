@@ -14,6 +14,9 @@ from src.modules.reports.schemas import (
     ProfitLossResponse,
     CashFlowResponse,
     BalanceSheetResponse,
+    CollectionRateResponse,
+    DiscountAnalysisResponse,
+    TopDebtorsResponse,
 )
 from src.modules.reports.service import ReportsService
 from src.shared.schemas.base import ApiResponse
@@ -138,3 +141,65 @@ async def get_balance_sheet(
     service = ReportsService(db)
     data = await service.balance_sheet(as_at_date=as_at)
     return ApiResponse(data=BalanceSheetResponse(**data))
+
+
+@router.get(
+    "/collection-rate",
+    response_model=ApiResponse[CollectionRateResponse],
+)
+async def get_collection_rate(
+    months: int = Query(12, ge=1, le=24, description="Number of months (default 12)."),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = ReportsUser,
+):
+    """
+    Collection rate trend: rate % per month over last N months (invoiced vs paid in month).
+
+    Access: SuperAdmin, Admin only.
+    """
+    service = ReportsService(db)
+    data = await service.collection_rate_trend(months=months)
+    return ApiResponse(data=CollectionRateResponse(**data))
+
+
+@router.get(
+    "/discount-analysis",
+    response_model=ApiResponse[DiscountAnalysisResponse],
+)
+async def get_discount_analysis(
+    date_from: date = Query(..., description="Start date (inclusive)."),
+    date_to: date = Query(..., description="End date (inclusive)."),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = ReportsUser,
+):
+    """
+    Discount analysis by reason: students count, total amount, avg per student, % of revenue.
+
+    Access: SuperAdmin, Admin only.
+    """
+    if date_from > date_to:
+        raise HTTPException(400, "date_from must be <= date_to")
+    service = ReportsService(db)
+    data = await service.discount_analysis(date_from=date_from, date_to=date_to)
+    return ApiResponse(data=DiscountAnalysisResponse(**data))
+
+
+@router.get(
+    "/top-debtors",
+    response_model=ApiResponse[TopDebtorsResponse],
+)
+async def get_top_debtors(
+    as_at_date: date | None = Query(None, description="Report date (default: today)."),
+    limit: int = Query(20, ge=1, le=100, description="Max number of students (default 20)."),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = ReportsUser,
+):
+    """
+    Top N students by debt amount.
+
+    Access: SuperAdmin, Admin only.
+    """
+    as_at = as_at_date or date.today()
+    service = ReportsService(db)
+    data = await service.top_debtors(as_at_date=as_at, limit=limit)
+    return ApiResponse(data=TopDebtorsResponse(**data))

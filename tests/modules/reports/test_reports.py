@@ -305,3 +305,130 @@ class TestBalanceSheet:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 403
+
+
+class TestCollectionRate:
+    """Tests for GET /reports/collection-rate."""
+
+    async def test_collection_rate_requires_auth(self, client: AsyncClient):
+        response = await client.get("/api/v1/reports/collection-rate")
+        assert response.status_code == 401
+
+    async def test_collection_rate_admin_ok(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await _get_token(client, db_session, UserRole.ADMIN)
+        response = await client.get(
+            "/api/v1/reports/collection-rate?months=6",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        d = response.json()["data"]
+        assert "rows" in d
+        assert len(d["rows"]) == 6
+        assert "average_rate_percent" in d
+        assert "target_rate_percent" in d
+        assert "year_month" in d["rows"][0]
+        assert "label" in d["rows"][0]
+        assert "total_invoiced" in d["rows"][0]
+        assert "total_paid" in d["rows"][0]
+        assert "rate_percent" in d["rows"][0]
+
+    async def test_collection_rate_user_forbidden(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await _get_token(client, db_session, UserRole.USER)
+        response = await client.get(
+            "/api/v1/reports/collection-rate",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403
+
+
+class TestDiscountAnalysis:
+    """Tests for GET /reports/discount-analysis."""
+
+    async def test_discount_analysis_requires_auth(self, client: AsyncClient):
+        response = await client.get(
+            "/api/v1/reports/discount-analysis?date_from=2026-01-01&date_to=2026-01-31"
+        )
+        assert response.status_code == 401
+
+    async def test_discount_analysis_admin_ok(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await _get_token(client, db_session, UserRole.ADMIN)
+        response = await client.get(
+            "/api/v1/reports/discount-analysis?date_from=2026-01-01&date_to=2026-01-31",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        d = response.json()["data"]
+        assert d["date_from"] == "2026-01-01"
+        assert d["date_to"] == "2026-01-31"
+        assert "rows" in d
+        assert "summary" in d
+        assert "students_count" in d["summary"]
+        assert "total_discount_amount" in d["summary"]
+        assert "total_revenue" in d["summary"]
+        assert "percent_of_revenue" in d["summary"]
+
+    async def test_discount_analysis_400_if_date_from_after_date_to(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await _get_token(client, db_session, UserRole.ADMIN)
+        response = await client.get(
+            "/api/v1/reports/discount-analysis?date_from=2026-01-31&date_to=2026-01-01",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 400
+
+    async def test_discount_analysis_user_forbidden(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await _get_token(client, db_session, UserRole.USER)
+        response = await client.get(
+            "/api/v1/reports/discount-analysis?date_from=2026-01-01&date_to=2026-01-31",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403
+
+
+class TestTopDebtors:
+    """Tests for GET /reports/top-debtors."""
+
+    async def test_top_debtors_requires_auth(self, client: AsyncClient):
+        response = await client.get("/api/v1/reports/top-debtors")
+        assert response.status_code == 401
+
+    async def test_top_debtors_admin_ok(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await _get_token(client, db_session, UserRole.ADMIN)
+        response = await client.get(
+            "/api/v1/reports/top-debtors?limit=10",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        d = response.json()["data"]
+        assert "as_at_date" in d
+        assert d["limit"] == 10
+        assert "rows" in d
+        assert "total_debt" in d
+        for row in d.get("rows", []):
+            assert "student_id" in row
+            assert "student_name" in row
+            assert "grade_name" in row
+            assert "total_debt" in row
+            assert "invoice_count" in row
+            assert "oldest_due_date" in row
+
+    async def test_top_debtors_user_forbidden(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await _get_token(client, db_session, UserRole.USER)
+        response = await client.get(
+            "/api/v1/reports/top-debtors",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403

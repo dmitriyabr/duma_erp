@@ -51,8 +51,11 @@ import { PaymentReceiptDownloadPage } from './pages/PaymentReceiptDownloadPage'
 import { AgedReceivablesPage } from './pages/reports/AgedReceivablesPage'
 import { BalanceSheetPage } from './pages/reports/BalanceSheetPage'
 import { CashFlowPage } from './pages/reports/CashFlowPage'
+import { CollectionRatePage } from './pages/reports/CollectionRatePage'
+import { DiscountAnalysisPage } from './pages/reports/DiscountAnalysisPage'
 import { ProfitLossPage } from './pages/reports/ProfitLossPage'
 import { StudentFeesPage } from './pages/reports/StudentFeesPage'
+import { TopDebtorsPage } from './pages/reports/TopDebtorsPage'
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useAuth()
@@ -138,6 +141,9 @@ export const AppRoutes = () => {
           <Route path="reports/balance-sheet" element={<BalanceSheetPage />} />
           <Route path="reports/aged-receivables" element={<AgedReceivablesPage />} />
           <Route path="reports/student-fees" element={<StudentFeesPage />} />
+          <Route path="reports/collection-rate" element={<CollectionRatePage />} />
+          <Route path="reports/discount-analysis" element={<DiscountAnalysisPage />} />
+          <Route path="reports/top-debtors" element={<TopDebtorsPage />} />
           <Route path="audit" element={<AuditTrailPage />} />
           <Route path="payments/new" element={<ReceivePaymentPage />} />
           <Route path="payments" element={<PaymentReceiptsPage />} />

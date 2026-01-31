@@ -157,3 +157,77 @@ class BalanceSheetResponse(BaseSchema):
     net_equity: Decimal
     debt_to_asset_percent: float | None  # total_liabilities / total_assets * 100
     current_ratio: float | None  # current_assets / current_liabilities
+
+
+# --- Students: Collection Rate Trend ---
+
+class CollectionRateMonthRow(BaseSchema):
+    """One month in Collection Rate Trend."""
+
+    year_month: str  # YYYY-MM
+    label: str  # e.g. "Jan 2026"
+    total_invoiced: Decimal
+    total_paid: Decimal
+    rate_percent: float | None
+
+
+class CollectionRateResponse(BaseSchema):
+    """Collection rate % over last N months (e.g. 12)."""
+
+    rows: list[CollectionRateMonthRow]
+    average_rate_percent: float | None
+    target_rate_percent: float | None  # optional target line, e.g. 90
+
+
+# --- Students: Discount Analysis ---
+
+class DiscountAnalysisRow(BaseSchema):
+    """Discount by reason/type."""
+
+    reason_id: int | None
+    reason_code: str | None
+    reason_name: str
+    students_count: int
+    total_amount: Decimal
+    avg_per_student: Decimal | None
+    percent_of_revenue: float | None
+
+
+class DiscountAnalysisSummary(BaseSchema):
+    """Totals for discount analysis."""
+
+    students_count: int
+    total_discount_amount: Decimal
+    total_revenue: Decimal
+    percent_of_revenue: float | None
+
+
+class DiscountAnalysisResponse(BaseSchema):
+    """Discount analysis for a period."""
+
+    date_from: date
+    date_to: date
+    rows: list[DiscountAnalysisRow]
+    summary: DiscountAnalysisSummary
+
+
+# --- Students: Top Debtors ---
+
+class TopDebtorRow(BaseSchema):
+    """One student in Top Debtors report."""
+
+    student_id: int
+    student_name: str
+    grade_name: str
+    total_debt: Decimal
+    invoice_count: int
+    oldest_due_date: date | None
+
+
+class TopDebtorsResponse(BaseSchema):
+    """Top N students by debt amount."""
+
+    as_at_date: date
+    limit: int
+    rows: list[TopDebtorRow]
+    total_debt: Decimal
