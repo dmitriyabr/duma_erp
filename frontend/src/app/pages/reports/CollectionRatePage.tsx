@@ -5,20 +5,24 @@ import {
   Card,
   CardContent,
   CircularProgress,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Typography,
 } from '@mui/material'
 import { useEffect, useState } from 'react'
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
-import { formatMoney } from '../../utils/format'
 
 interface MonthRow {
   year_month: string
@@ -111,30 +115,55 @@ export const CollectionRatePage = () => {
 
       {!loading && data && (
         <>
-          <TableContainer component={Card} sx={{ mb: 2 }}>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell><strong>Month</strong></TableCell>
-                  <TableCell align="right"><strong>Invoiced (KES)</strong></TableCell>
-                  <TableCell align="right"><strong>Paid (KES)</strong></TableCell>
-                  <TableCell align="right"><strong>Rate %</strong></TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {data.rows.map((row) => (
-                  <TableRow key={row.year_month}>
-                    <TableCell>{row.label}</TableCell>
-                    <TableCell align="right">{formatMoney(row.total_invoiced)}</TableCell>
-                    <TableCell align="right">{formatMoney(row.total_paid)}</TableCell>
-                    <TableCell align="right">
-                      {row.rate_percent != null ? `${row.rate_percent}%` : '—'}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          <Card sx={{ mb: 2 }}>
+            <CardContent>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Collection rate % by month · Average: {data.average_rate_percent != null ? `${data.average_rate_percent}%` : '—'}
+                {data.target_rate_percent != null && ` · Target: ${data.target_rate_percent}%`}
+              </Typography>
+              <Box sx={{ width: '100%', height: 320, mt: 1 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={data.rows.map((r) => ({
+                      ...r,
+                      rate: r.rate_percent ?? 0,
+                    }))}
+                    margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                    <YAxis
+                      domain={[0, 100]}
+                      tick={{ fontSize: 12 }}
+                      tickFormatter={(v) => `${v}%`}
+                    />
+                    <Tooltip
+                      formatter={(value: number | undefined) => (value != null ? `${value}%` : '—')}
+                      labelFormatter={(label) => `Month: ${label}`}
+                    />
+                    <Legend />
+                    {data.target_rate_percent != null && (
+                      <ReferenceLine
+                        y={data.target_rate_percent}
+                        stroke="#d32f2f"
+                        strokeDasharray="4 4"
+                        label={{ value: 'Target', position: 'right', fontSize: 11 }}
+                      />
+                    )}
+                    <Line
+                      type="monotone"
+                      dataKey="rate"
+                      name="Collection rate %"
+                      stroke="#1976d2"
+                      strokeWidth={2}
+                      dot={{ r: 3 }}
+                      connectNulls
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </Box>
+            </CardContent>
+          </Card>
 
           <Card>
             <CardContent>

@@ -47,6 +47,7 @@ class TestDashboardAccess:
         assert data.get("success") is True
         assert "data" in data
         d = data["data"]
+        assert "active_students_count" in d
         assert "total_revenue_this_year" in d
         assert "this_term_revenue" in d
         assert "student_debts_total" in d

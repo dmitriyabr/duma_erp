@@ -763,7 +763,11 @@ class ReportsService:
         inv_by_student = {r[0]: (int(r[1]), r[2]) for r in inv_res.all()}
 
         students_q = (
-            select(Student.id, Student.full_name, Grade.name)
+            select(
+                Student.id,
+                func.concat(Student.first_name, " ", Student.last_name).label("full_name"),
+                Grade.name,
+            )
             .join(Grade, Student.grade_id == Grade.id)
             .where(Student.id.in_(student_ids))
         )

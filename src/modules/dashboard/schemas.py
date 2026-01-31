@@ -8,7 +8,8 @@ from src.shared.schemas.base import BaseSchema
 class DashboardResponse(BaseSchema):
     """Summary data for main page: cards, key metrics, alerts."""
 
-    # Financial overview (8 cards)
+    # Overview cards
+    active_students_count: int = 0
     total_revenue_this_year: Decimal = Decimal("0")
     this_term_revenue: Decimal = Decimal("0")
     this_term_invoiced: Decimal = Decimal("0")

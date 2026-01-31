@@ -17,6 +17,7 @@ from src.modules.procurement.models import (
     PurchaseOrder,
     PurchaseOrderStatus,
 )
+from src.modules.students.models import Student, StudentStatus
 from src.modules.terms.models import Term, TermStatus
 from src.shared.utils.money import round_money
 
@@ -127,6 +128,12 @@ class DashboardService:
             procurement_total_this_year + employee_compensations_this_year
         )
 
+        # --- Active students count ---
+        active_students = await self.db.execute(
+            select(func.count(Student.id)).where(Student.status == StudentStatus.ACTIVE.value)
+        )
+        active_students_count = int(active_students.scalar() or 0)
+
         # --- Student debts ---
         excluded_inv = (InvoiceStatus.PAID.value, InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value)
         debt_agg = await self.db.execute(
@@ -201,6 +208,7 @@ class DashboardService:
         pending_grn_count = int(grn_count.scalar() or 0)
 
         return {
+            "active_students_count": active_students_count,
             "total_revenue_this_year": total_revenue_this_year,
             "this_term_revenue": this_term_revenue,
             "this_term_invoiced": this_term_invoiced,

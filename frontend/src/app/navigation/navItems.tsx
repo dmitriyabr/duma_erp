@@ -131,11 +131,10 @@ export const navItems: NavItem[] = [
       { label: 'Profit & Loss', path: '/reports/profit-loss', roles: adminRoles },
       { label: 'Cash Flow', path: '/reports/cash-flow', roles: adminRoles },
       { label: 'Balance Sheet', path: '/reports/balance-sheet', roles: adminRoles },
-      { label: 'Aged Receivables', path: '/reports/aged-receivables', roles: adminRoles },
+      { label: 'Students Debt', path: '/reports/aged-receivables', roles: adminRoles },
       { label: 'Student Fees by Term', path: '/reports/student-fees', roles: adminRoles },
       { label: 'Collection Rate Trend', path: '/reports/collection-rate', roles: adminRoles },
       { label: 'Discount Analysis', path: '/reports/discount-analysis', roles: adminRoles },
-      { label: 'Top Debtors', path: '/reports/top-debtors', roles: adminRoles },
     ],
   },
   {

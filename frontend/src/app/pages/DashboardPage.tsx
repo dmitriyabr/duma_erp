@@ -41,6 +41,7 @@ const quickActions: Array<{
 ]
 
 interface DashboardData {
+  active_students_count: number
   total_revenue_this_year: string
   this_term_revenue: string
   this_term_invoiced: string
@@ -164,8 +165,16 @@ export const DashboardPage = () => {
             >
               <Card>
                 <CardContent>
-                  <Typography variant="body2" color="text.secondary">Revenue (This Year)</Typography>
-                  <Typography variant="h6" sx={{ mt: 1 }}>{formatMoney(dashboard.total_revenue_this_year)}</Typography>
+                  <Typography variant="body2" color="text.secondary">Active Students</Typography>
+                  <Typography variant="h6" sx={{ mt: 1 }}>{dashboard.active_students_count}</Typography>
+                  <Link
+                    component="button"
+                    variant="body2"
+                    onClick={() => navigate('/students')}
+                    sx={{ mt: 1, fontSize: '0.75rem' }}
+                  >
+                    View list
+                  </Link>
                 </CardContent>
               </Card>
               <Card>
@@ -175,6 +184,14 @@ export const DashboardPage = () => {
                   {dashboard.active_term_display_name && (
                     <Typography variant="caption" display="block" color="text.secondary">{dashboard.active_term_display_name}</Typography>
                   )}
+                  <Link
+                    component="button"
+                    variant="body2"
+                    onClick={() => navigate('/reports/student-fees')}
+                    sx={{ mt: 1, fontSize: '0.75rem' }}
+                  >
+                    View report
+                  </Link>
                 </CardContent>
               </Card>
               <Card>
@@ -183,12 +200,28 @@ export const DashboardPage = () => {
                   <Typography variant="h6" sx={{ mt: 1 }}>
                     {dashboard.collection_rate_percent != null ? `${dashboard.collection_rate_percent}%` : '—'}
                   </Typography>
+                  <Link
+                    component="button"
+                    variant="body2"
+                    onClick={() => navigate('/reports/collection-rate')}
+                    sx={{ mt: 1, fontSize: '0.75rem' }}
+                  >
+                    View report
+                  </Link>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent>
                   <Typography variant="body2" color="text.secondary">Expenses (This Year)</Typography>
                   <Typography variant="h6" sx={{ mt: 1 }}>{formatMoney(dashboard.total_expenses_this_year)}</Typography>
+                  <Link
+                    component="button"
+                    variant="body2"
+                    onClick={() => navigate('/reports/profit-loss')}
+                    sx={{ mt: 1, fontSize: '0.75rem' }}
+                  >
+                    View report
+                  </Link>
                 </CardContent>
               </Card>
               <Card>
@@ -210,6 +243,14 @@ export const DashboardPage = () => {
                 <CardContent>
                   <Typography variant="body2" color="text.secondary">Supplier Debt</Typography>
                   <Typography variant="h6" sx={{ mt: 1 }}>{formatMoney(dashboard.supplier_debt)}</Typography>
+                  <Link
+                    component="button"
+                    variant="body2"
+                    onClick={() => navigate('/procurement/orders')}
+                    sx={{ mt: 1, fontSize: '0.75rem' }}
+                  >
+                    View orders
+                  </Link>
                 </CardContent>
               </Card>
               <Card>
@@ -222,13 +263,29 @@ export const DashboardPage = () => {
                 <CardContent>
                   <Typography variant="body2" color="text.secondary">Pending Claims</Typography>
                   <Typography variant="h6" sx={{ mt: 1 }}>{formatMoney(dashboard.pending_claims_amount)}</Typography>
-                  <Typography variant="caption" color="text.secondary">{dashboard.pending_claims_count} claims</Typography>
+                  <Typography variant="caption" color="text.secondary" display="block">{dashboard.pending_claims_count} claims</Typography>
+                  <Link
+                    component="button"
+                    variant="body2"
+                    onClick={() => navigate('/compensations/claims')}
+                    sx={{ mt: 1, fontSize: '0.75rem' }}
+                  >
+                    Review claims
+                  </Link>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent>
                   <Typography variant="body2" color="text.secondary">Pending GRN</Typography>
                   <Typography variant="h6" sx={{ mt: 1 }}>{dashboard.pending_grn_count}</Typography>
+                  <Link
+                    component="button"
+                    variant="body2"
+                    onClick={() => navigate('/procurement/grn')}
+                    sx={{ mt: 1, fontSize: '0.75rem' }}
+                  >
+                    View GRN
+                  </Link>
                 </CardContent>
               </Card>
             </Box>
