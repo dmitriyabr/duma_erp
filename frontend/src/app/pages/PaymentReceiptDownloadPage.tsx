@@ -9,13 +9,11 @@ import { api } from '../services/api'
  */
 export const PaymentReceiptDownloadPage = () => {
   const { id } = useParams<{ id: string }>()
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!id) {
       setError('Missing payment ID')
-      setLoading(false)
       return
     }
     let cancelled = false
@@ -37,8 +35,6 @@ export const PaymentReceiptDownloadPage = () => {
               : 'Failed to load receipt'
           setError(msg)
         }
-      } finally {
-        if (!cancelled) setLoading(false)
       }
     }
     run()

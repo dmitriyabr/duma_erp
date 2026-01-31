@@ -9,13 +9,11 @@ import { api } from '../services/api'
  */
 export const AttachmentDownloadPage = () => {
   const { id } = useParams<{ id: string }>()
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!id) {
       setError('Missing attachment ID')
-      setLoading(false)
       return
     }
     let cancelled = false
@@ -43,8 +41,6 @@ export const AttachmentDownloadPage = () => {
               : 'Download failed'
           setError(msg)
         }
-      } finally {
-        if (!cancelled) setLoading(false)
       }
     }
     run()
