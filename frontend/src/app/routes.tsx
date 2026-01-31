@@ -49,6 +49,9 @@ import { PaymentReceiptsPage } from './pages/accountant/PaymentReceiptsPage'
 import { AttachmentDownloadPage } from './pages/AttachmentDownloadPage'
 import { PaymentReceiptDownloadPage } from './pages/PaymentReceiptDownloadPage'
 import { AgedReceivablesPage } from './pages/reports/AgedReceivablesPage'
+import { BalanceSheetPage } from './pages/reports/BalanceSheetPage'
+import { CashFlowPage } from './pages/reports/CashFlowPage'
+import { ProfitLossPage } from './pages/reports/ProfitLossPage'
 import { StudentFeesPage } from './pages/reports/StudentFeesPage'
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -130,6 +133,9 @@ export const AppRoutes = () => {
           <Route path="compensations/payouts" element={<PayoutsPage />} />
           <Route path="compensations/payouts/:payoutId" element={<PayoutDetailPage />} />
           <Route path="reports" element={<PlaceholderPage title="Reports" />} />
+          <Route path="reports/profit-loss" element={<ProfitLossPage />} />
+          <Route path="reports/cash-flow" element={<CashFlowPage />} />
+          <Route path="reports/balance-sheet" element={<BalanceSheetPage />} />
           <Route path="reports/aged-receivables" element={<AgedReceivablesPage />} />
           <Route path="reports/student-fees" element={<StudentFeesPage />} />
           <Route path="audit" element={<AuditTrailPage />} />

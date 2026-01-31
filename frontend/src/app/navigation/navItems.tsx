@@ -128,6 +128,9 @@ export const navItems: NavItem[] = [
     icon: <AssessmentIcon />,
     roles: adminRoles,
     children: [
+      { label: 'Profit & Loss', path: '/reports/profit-loss', roles: adminRoles },
+      { label: 'Cash Flow', path: '/reports/cash-flow', roles: adminRoles },
+      { label: 'Balance Sheet', path: '/reports/balance-sheet', roles: adminRoles },
       { label: 'Aged Receivables', path: '/reports/aged-receivables', roles: adminRoles },
       { label: 'Student Fees by Term', path: '/reports/student-fees', roles: adminRoles },
     ],
