@@ -40,6 +40,9 @@ import { ExpenseClaimsListPage } from './pages/compensations/ExpenseClaimsListPa
 import { ExpenseClaimDetailPage } from './pages/compensations/ExpenseClaimDetailPage'
 import { PayoutsPage } from './pages/compensations/PayoutsPage'
 import { PayoutDetailPage } from './pages/compensations/PayoutDetailPage'
+import { AuditTrailPage } from './pages/accountant/AuditTrailPage'
+import { AccountantExportPage } from './pages/accountant/AccountantExportPage'
+import { PaymentReceiptsPage } from './pages/accountant/PaymentReceiptsPage'
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useAuth()
@@ -116,7 +119,10 @@ export const AppRoutes = () => {
           <Route path="compensations/payouts" element={<PayoutsPage />} />
           <Route path="compensations/payouts/:payoutId" element={<PayoutDetailPage />} />
           <Route path="reports" element={<PlaceholderPage title="Reports" />} />
-          <Route path="audit" element={<PlaceholderPage title="Audit Log" />} />
+          <Route path="audit" element={<AuditTrailPage />} />
+          <Route path="payments" element={<PaymentReceiptsPage />} />
+          <Route path="accountant/export" element={<AccountantExportPage />} />
+          <Route path="accountant/documents" element={<PlaceholderPage title="Documents" />} />
           <Route path="settings" element={<PlaceholderPage title="Settings" />} />
           <Route path="settings/users" element={<UsersPage />} />
           <Route path="settings/grades" element={<GradesPage />} />

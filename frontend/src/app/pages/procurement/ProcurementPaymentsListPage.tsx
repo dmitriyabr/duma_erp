@@ -20,7 +20,9 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
+import { useAuth } from '../../auth/AuthContext'
 import { formatDate, formatMoney } from '../../utils/format'
+import { isAccountant } from '../../utils/permissions'
 
 interface PaymentRow {
   id: number
@@ -41,6 +43,8 @@ const statusOptions = [
 
 export const ProcurementPaymentsListPage = () => {
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const readOnly = isAccountant(user)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -71,9 +75,11 @@ export const ProcurementPaymentsListPage = () => {
         <Typography variant="h4" sx={{ fontWeight: 700 }}>
           Procurement payments
         </Typography>
-        <Button variant="contained" onClick={() => navigate('/procurement/payments/new')}>
-          New payment
-        </Button>
+        {!readOnly && (
+          <Button variant="contained" onClick={() => navigate('/procurement/payments/new')}>
+            New payment
+          </Button>
+        )}
       </Box>
 
       <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>

@@ -632,19 +632,20 @@
 - Settings → My Profile (только профиль)
 
 **Backend (API для бухгалтера):**
-- [ ] Роутер `/api/v1/accountant/` с проверкой роли Accountant (или переиспользовать существующие GET с role-check)
-- [ ] GET receipts, invoices, purchase-orders, grn, procurement-payments, expense-claims (list + by id + PDF где есть)
-- [ ] GET export: transactions, student-payments, procurement-payments, vat, wht (CSV/Excel)
-- [ ] GET audit-trail с фильтрами
-- [ ] Тесты API (роль Accountant — только read; POST/PUT/DELETE — 403)
+- [x] Роутер `/api/v1/accountant/` с проверкой роли Accountant (Admin/SuperAdmin тоже допущены)
+- [x] Документы: существующие GET (payments, invoices, procurement, compensations) уже допускают Accountant
+- [x] GET export/student-payments (CSV)
+- [x] GET audit-trail с фильтрами (date_from, date_to, user_id, entity_type, action, page, limit)
+- [x] Тесты API (tests/modules/accountant/test_accountant.py — audit-trail и export, роль User — 403)
+- [ ] GET export: transactions, procurement-payments, vat, wht (остальные экспорты)
 
 **Frontend (интерфейс для бухгалтера):**
-- [ ] Для роли Accountant: отдельное меню (или скрыть лишнее и показать только Documents / Data Export / Audit / My Profile)
-- [ ] Страницы документов: Receipts, Invoices, PO, GRN, Procurement Payments, Expense Claims — список + фильтры + детали + кнопка PDF
-- [ ] Страница Data Export: выбор типа экспорта, период, формат, кнопка «Generate»
-- [ ] Страница Audit Trail: список с фильтрами (дата, пользователь, тип документа, действие)
-- [ ] Скрыть/отключить кнопки создания и редактирования для Accountant на всех страницах
-- [ ] Settings для Accountant: только «My Profile» (без Users, Grades и т.д.)
+- [x] Для роли Accountant: отдельное меню (accountantNavItems: Dashboard, Documents, Data Export, Audit Trail)
+- [x] Documents: Payment Receipts (/payments), PO, GRN, Procurement Payments, Expense Claims — ссылки на существующие страницы; страница Payment Receipts (список)
+- [x] Страница Data Export (/accountant/export): Student Payments CSV, период, кнопка Download
+- [x] Страница Audit Trail (/audit): таблица с фильтрами (дата, entity_type, action), пагинация
+- [x] Скрыть кнопки создания для Accountant (PaymentReceiptsPage, ProcurementPaymentsListPage); isAccountant в permissions
+- [ ] Settings для Accountant: в минимальном меню Settings не показываем (при необходимости — только My Profile)
 
 ---
 

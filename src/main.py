@@ -32,6 +32,7 @@ from src.modules.compensations.router import (
     router as compensations_router,
     payouts_router as compensations_payouts_router,
 )
+from src.modules.accountant.router import router as accountant_router
 from src.core.config import settings
 from src.core.exceptions import AppException
 from src.core.exceptions.handlers import (
@@ -95,6 +96,7 @@ def create_app() -> FastAPI:
     app.include_router(procurement_router, prefix="/api/v1")
     app.include_router(compensations_router, prefix="/api/v1")
     app.include_router(compensations_payouts_router, prefix="/api/v1")
+    app.include_router(accountant_router, prefix="/api/v1")
 
     # Serve frontend static files (production)
     frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"

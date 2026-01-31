@@ -13,7 +13,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import SchoolIcon from '@mui/icons-material/School'
 import { useMemo, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { navItems } from '../navigation/navItems'
+import { accountantNavItems, navItems } from '../navigation/navItems'
 import { useAuth } from '../auth/AuthContext'
 
 const drawerWidth = 280
@@ -27,6 +27,9 @@ export const SidebarNav = () => {
   const availableItems = useMemo(() => {
     if (!role) {
       return []
+    }
+    if (role === 'Accountant') {
+      return accountantNavItems
     }
     return navItems.filter((item) => item.roles.includes(role))
   }, [role])

@@ -1,9 +1,12 @@
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.audit.models import AuditLog
+from src.core.auth.models import User
 
 
 class AuditAction(StrEnum):
@@ -121,3 +124,49 @@ async def create_audit_log(
     await session.flush()
 
     return audit_log
+
+
+async def list_audit_entries(
+    session: AsyncSession,
+    *,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    user_id: int | None = None,
+    entity_type: str | None = None,
+    action: str | None = None,
+    page: int = 1,
+    limit: int = 50,
+) -> tuple[list[tuple[AuditLog, str | None]], int]:
+    """
+    List audit log entries with optional filters.
+    Returns (list of (AuditLog, user_full_name), total_count).
+    """
+    q = (
+        select(AuditLog, User.full_name)
+        .outerjoin(User, AuditLog.user_id == User.id)
+        .order_by(AuditLog.created_at.desc())
+    )
+    count_q = select(func.count()).select_from(AuditLog)
+    if date_from is not None:
+        q = q.where(AuditLog.created_at >= date_from)
+        count_q = count_q.where(AuditLog.created_at >= date_from)
+    if date_to is not None:
+        q = q.where(AuditLog.created_at <= date_to)
+        count_q = count_q.where(AuditLog.created_at <= date_to)
+    if user_id is not None:
+        q = q.where(AuditLog.user_id == user_id)
+        count_q = count_q.where(AuditLog.user_id == user_id)
+    if entity_type is not None:
+        q = q.where(AuditLog.entity_type == entity_type)
+        count_q = count_q.where(AuditLog.entity_type == entity_type)
+    if action is not None:
+        q = q.where(AuditLog.action == action)
+        count_q = count_q.where(AuditLog.action == action)
+
+    total_result = await session.execute(count_q)
+    total = total_result.scalar_one()
+
+    q = q.offset((page - 1) * limit).limit(limit)
+    result = await session.execute(q)
+    rows = result.all()
+    return [(row[0], row[1]) for row in rows], total

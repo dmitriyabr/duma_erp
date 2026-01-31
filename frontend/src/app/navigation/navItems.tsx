@@ -7,6 +7,8 @@ import PaymentsIcon from '@mui/icons-material/Payments'
 import AssessmentIcon from '@mui/icons-material/Assessment'
 import FactCheckIcon from '@mui/icons-material/FactCheck'
 import SettingsIcon from '@mui/icons-material/Settings'
+import DescriptionIcon from '@mui/icons-material/Description'
+import FileDownloadIcon from '@mui/icons-material/FileDownload'
 import type { ReactNode } from 'react'
 import type { UserRole } from '../auth/authStorage'
 
@@ -21,6 +23,26 @@ export interface NavItem {
 const allRoles: UserRole[] = ['SuperAdmin', 'Admin', 'User', 'Accountant']
 const adminRoles: UserRole[] = ['SuperAdmin', 'Admin']
 const viewRoles: UserRole[] = ['SuperAdmin', 'Admin', 'Accountant']
+
+/** Minimal nav for Accountant role (read-only: documents, export, audit). */
+export const accountantNavItems: NavItem[] = [
+  { label: 'Dashboard', path: '/', icon: <DashboardIcon />, roles: ['Accountant'] },
+  {
+    label: 'Documents',
+    path: '/accountant/documents',
+    icon: <DescriptionIcon />,
+    roles: ['Accountant'],
+    children: [
+      { label: 'Payment Receipts', path: '/payments', roles: ['Accountant'] },
+      { label: 'Purchase Orders', path: '/procurement/orders', roles: ['Accountant'] },
+      { label: 'Goods Received', path: '/procurement/grn', roles: ['Accountant'] },
+      { label: 'Procurement Payments', path: '/procurement/payments', roles: ['Accountant'] },
+      { label: 'Expense Claims', path: '/compensations/claims', roles: ['Accountant'] },
+    ],
+  },
+  { label: 'Data Export', path: '/accountant/export', icon: <FileDownloadIcon />, roles: ['Accountant'] },
+  { label: 'Audit Trail', path: '/audit', icon: <FactCheckIcon />, roles: ['Accountant'] },
+]
 
 export const navItems: NavItem[] = [
   {

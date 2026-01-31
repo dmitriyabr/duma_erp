@@ -40,3 +40,8 @@ export function canCancelIssuance(user: AuthUser | null): boolean {
 export function canInvoiceTerm(user: AuthUser | null): boolean {
   return user?.role === 'SuperAdmin'
 }
+
+/** Accountant is read-only: no create/edit. */
+export function isAccountant(user: AuthUser | null): boolean {
+  return user?.role === 'Accountant'
+}
