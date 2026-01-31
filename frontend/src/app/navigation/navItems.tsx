@@ -51,7 +51,8 @@ export const accountantNavItems: NavItem[] = [
       { label: 'Purchase Orders', path: '/procurement/orders', roles: ['Accountant'] },
       { label: 'Goods Received', path: '/procurement/grn', roles: ['Accountant'] },
       { label: 'Procurement Payments', path: '/procurement/payments', roles: ['Accountant'] },
-      { label: 'Staff Expenses Claims', path: '/compensations/claims', roles: ['Accountant'] },
+      { label: 'Employee Expenses Claims', path: '/compensations/claims', roles: ['Accountant'] },
+      { label: 'Employee Payouts', path: '/compensations/payouts', roles: ['Accountant'] },
     ],
   },
   { label: 'Data Export', path: '/accountant/export', icon: <FileDownloadIcon />, roles: ['Accountant'] },
@@ -117,7 +118,7 @@ export const navItems: NavItem[] = [
     icon: <PaymentsIcon />,
     roles: allRoles,
     children: [
-      { label: 'Staff Expenses Claims', path: '/compensations/claims', roles: allRoles },
+      { label: 'Employee Expenses Claims', path: '/compensations/claims', roles: allRoles },
       { label: 'Payouts', path: '/compensations/payouts', roles: ['SuperAdmin'] },
     ],
   },

@@ -128,7 +128,7 @@ export const ExpenseClaimsListPage = () => {
   return (
     <Box>
       <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
-        Staff Expenses Claims
+        Employee Expenses Claims
       </Typography>
 
       {!userIsSuperAdmin && myBalance ? (

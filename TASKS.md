@@ -631,7 +631,7 @@
 - Frontend: меню, страницы Receipts/Export/Audit, скрытие кнопок создания — готово; Settings для Accountant не показываем (минимальное меню без Settings).
 
 **Навигация для роли Accountant (минимальная):**
-- Documents: Incoming Payments, Students Invoices, Purchase Orders, GRN, Procurement Payments, Staff Expenses Claims
+- Documents: Incoming Payments, Students Invoices, Purchase Orders, GRN, Procurement Payments, Employee Expenses Claims, Employee Payouts
 - Data Export: Student Payments, Procurement Payments, Student Balance Changes (CSV); отдельные периоды по каждому экспорту, предзаполнение дат (текущий месяц)
 - Audit Trail
 - Settings → My Profile (только профиль)
@@ -648,7 +648,7 @@
 
 **Frontend (интерфейс для бухгалтера):**
 - [x] Для роли Accountant: отдельное меню (accountantNavItems: Dashboard, Documents, Data Export, Audit Trail)
-- [x] Documents: Incoming Payments (/payments), Students Invoices (/billing/invoices), PO, GRN, Procurement Payments, Staff Expenses Claims — ссылки на существующие страницы
+- [x] Documents: Incoming Payments (/payments), Students Invoices (/billing/invoices), PO, GRN, Procurement Payments, Employee Expenses Claims — ссылки на существующие страницы
 - [x] Страница Data Export (/accountant/export): Student Payments, Procurement Payments, Student Balance Changes CSV; у каждого экспорта свой период дат; предзаполнение текущим месяцем; ссылки в CSV ведут на фронт (FRONTEND_URL) — /attachment/:id/download и /payment/:id/receipt (JWT при открытии в приложении)
 - [x] Страницы скачивания по ссылке из CSV: /attachment/:id/download, /payment/:id/receipt (проверка JWT, редирект на логин при необходимости)
 - [x] Проактивное обновление JWT (api.ts): за 2 мин до истечения access token — refresh в request interceptor; общая refreshAccessToken() для 401 и проактивного обновления

@@ -21,8 +21,10 @@ import {
 } from '@mui/material'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../../auth/AuthContext'
 import { USERS_LIST_LIMIT } from '../../constants/pagination'
 import { api } from '../../services/api'
+import { isAccountant } from '../../utils/permissions'
 import type { ApiResponse, PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
@@ -55,6 +57,8 @@ const getDefaultPayoutDate = () => {
 
 export const PayoutsPage = () => {
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const readOnly = isAccountant(user)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
   const [employeeBalances, setEmployeeBalances] = useState<EmployeeBalanceRow[]>([])
@@ -195,7 +199,7 @@ export const PayoutsPage = () => {
                   </Typography>
                 </TableCell>
                 <TableCell align="right">
-                  {balance.balance > 0 ? (
+                  {!readOnly && balance.balance > 0 ? (
                     <Button size="small" variant="contained" onClick={() => openPayoutDialog(balance.employee_id)}>
                       Pay
                     </Button>
