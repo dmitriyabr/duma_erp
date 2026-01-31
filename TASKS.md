@@ -643,7 +643,7 @@
 - [x] GET export/procurement-payments (CSV)
 - [x] GET audit-trail с фильтрами (date_from, date_to, user_id, entity_type, action, page, limit)
 - [x] Тесты API (tests/modules/accountant/test_accountant.py — audit-trail и оба export, роль User — 403)
-- [ ] GET export: transactions, vat, wht (по желанию)
+- [ ] GET export: transactions, vat, wht
 
 **Frontend (интерфейс для бухгалтера):**
 - [x] Для роли Accountant: отдельное меню (accountantNavItems: Dashboard, Documents, Data Export, Audit Trail)
@@ -653,7 +653,7 @@
 - [x] Скрыть кнопки создания для Accountant (PaymentReceiptsPage, ProcurementPaymentsListPage); isAccountant в permissions
 - [x] Settings для Accountant: в минимальном меню Settings не показываем (решение принято)
 
-**Осталось по 9.11 (опционально):**
+**Осталось по 9.11:**
 - [ ] GET export/transactions (общий экспорт транзакций)
 - [ ] GET export/vat, GET export/wht (для налоговых отчётов)
 

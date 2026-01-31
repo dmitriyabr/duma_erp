@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.auth.dependencies import SuperAdminUser
+from src.core.auth.dependencies import require_roles, SuperAdminUser
+from src.core.auth.models import User, UserRole
 from src.core.database import get_db
 from src.modules.terms.schemas import (
     FixedFeeCreate,
@@ -162,11 +163,13 @@ async def update_price_settings(
 
 @router.get("/transport-zones", response_model=SuccessResponse[list[TransportZoneResponse]])
 async def list_transport_zones(
-    current_user: SuperAdminUser,
     include_inactive: bool = Query(False),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
 ):
-    """List all transport zones."""
+    """List all transport zones (read-only for Accountant)."""
     service = TermService(db)
     zones = await service.list_transport_zones(include_inactive=include_inactive)
 

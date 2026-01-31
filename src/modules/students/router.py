@@ -52,7 +52,7 @@ async def list_grades(
     include_inactive: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)
     ),
 ):
     """List all grades."""
@@ -72,7 +72,7 @@ async def get_grade(
     grade_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)
     ),
 ):
     """Get grade by ID."""
