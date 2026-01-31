@@ -126,7 +126,10 @@ export const navItems: NavItem[] = [
     label: 'Reports',
     path: '/reports',
     icon: <AssessmentIcon />,
-    roles: viewRoles,
+    roles: adminRoles,
+    children: [
+      { label: 'Aged Receivables', path: '/reports/aged-receivables', roles: adminRoles },
+    ],
   },
   {
     label: 'Audit Log',

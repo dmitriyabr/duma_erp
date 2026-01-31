@@ -664,6 +664,33 @@
 - [ ] GET export/transactions (общий экспорт транзакций)
 - [ ] GET export/vat, GET export/wht (для налоговых отчётов)
 
+### 9.12 Dashboard и отчёты для руководства (SuperAdmin/Admin)
+> ТЗ: **MANAGER_REPORTS.md**. Роли Manager нет; доступ к сводкам и отчётам — SuperAdmin, Admin. **Quick Actions над дашбордом** — видимы для **User** тоже (остальное только Admin/SuperAdmin).
+
+**Доступ:**
+- Quick Actions на главной: User, Admin, SuperAdmin (не скрывать для User).
+- Карточки, графики, алерты, лента активности на Dashboard + весь раздел Reports: только Admin, SuperAdmin.
+
+**Backend:**
+- [x] GET /api/v1/dashboard — сводка для главной (карточки, ключевые метрики). Доступ: Admin, SuperAdmin. Модуль dashboard: router, service, schemas; тесты (Admin/SuperAdmin 200, User/Accountant 403).
+- [x] Роутер /api/v1/reports/ с проверкой роли Admin/SuperAdmin.
+- [x] Отчёт Students: aged-receivables (as_at_date, строки по студентам, bucket'ы current/1-30/31-60/61-90/90+, summary). Тесты: Admin/SuperAdmin 200, User/Accountant 403.
+- [ ] Отчёты Financial: profit-loss, cash-flow, balance-sheet (параметры, экспорт PDF/Excel).
+- [ ] Отчёты Students: student-fees, collection-rate, discount-analysis, top-debtors.
+- [ ] Отчёты Procurement & Inventory: procurement-summary, inventory-valuation, low-stock-alert, stock-movement.
+- [ ] Отчёты Compensations: compensation-summary, expense-claims-by-category.
+- [ ] Analytics: revenue-trend, payment-method-distribution, term-comparison, kpis.
+- [ ] Тесты API (dashboard, reports; User/Accountant — 403 на dashboard сводке и reports).
+
+**Frontend:**
+- [x] Quick Actions: оставить видимыми для User (не скрывать); добавлена кнопка «View Outstanding Debts» → /reports/aged-receivables.
+- [x] Dashboard для Admin/SuperAdmin: под Quick Actions — запрос GET /dashboard, карточки (Revenue This Year, This Term Revenue, Collection Rate, Expenses, Student Debts, Supplier Debt, Credit Balances, Pending Claims, Pending GRN). Для User под Quick Actions — текст «Summary and reports are available to Admin and SuperAdmin».
+- [x] Меню Reports (один пункт с подменю): Aged Receivables. Показывать только Admin, SuperAdmin (roles: adminRoles).
+- [x] Страница отчёта Aged Receivables (/reports/aged-receivables): таблица по студентам (Total, Current, 1-30, 31-60, 61-90, 90+, Last Payment), summary; при 403 — сообщение о доступе.
+- [ ] Остальные страницы отчётов и экспорт PDF/Excel.
+
+**Порядок реализации (рекомендуемый):** сначала backend dashboard + один отчёт (например aged-receivables или student-fees), тесты; затем фронт дашборда и один отчёт; потом остальные отчёты.
+
 ---
 
 ## Фаза 10: Вложения и PDF

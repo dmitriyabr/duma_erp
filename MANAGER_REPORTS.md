@@ -1,25 +1,37 @@
-# Отчеты и Dashboard для менеджера школы
+# Отчеты и Dashboard для руководства школы
 
 ## Назначение
 
-Менеджер школы (владелец, директор) использует систему для:
+Владелец/директор школы (роли **SuperAdmin** или **Admin**) использует систему для:
 - **Мониторинга финансового состояния** школы в реальном времени
 - **Контроля оплат** студентов и задолженностей
 - **Управления операциями** (закупки, инвентарь, расходы)
 - **Принятия решений** на основе данных и аналитики
 - **Планирования** бюджета и прогнозирования доходов
 
-## Основные роли пользователей
+**Роли:** Отдельной роли «Manager» нет.
+- **Quick Actions** (кнопки быстрых действий над дашбордом): видят **User**, **Admin**, **SuperAdmin** — оставляем для всех, кто ходит на главную.
+- **Остальной контент дашборда** (карточки, графики, алерты, лента активности) и **весь раздел Reports**: только **SuperAdmin** и **Admin**.
+- Accountant — свои разделы (см. ACCOUNTANT_REPORTS.md); у него отдельное меню без отчётов руководства.
 
-| Роль | Доступ |
-|------|--------|
-| **SuperAdmin** | Полный доступ ко всем модулям и отчетам |
-| **Admin** | CRUD операции, просмотр отчетов, без права отменять платежи |
-| **User** | Создание собственных claims/requests, просмотр своих данных |
-| **Accountant** | Read-only, экспорт данных, PDF документов |
-| **Manager** | Read-only к операциям, полный доступ к отчетам и аналитике |
+---
 
-## 1. Dashboard (главная страница для менеджера)
+## Распределение: что где
+
+| Где | Что |
+|-----|-----|
+| **Dashboard (главная)** | Сводные карточки, ключевые метрики, 1–2 графика, быстрые действия, алерты, лента активности. Всё, что нужно «с первого взгляда». |
+| **Раздел Reports** | Полноценные отчёты с фильтрами, таблицами, экспортом. Каждый отчёт — отдельная страница (или подраздел). |
+
+Ниже детализация по разделам.
+
+---
+
+## 1. Dashboard (главная страница)
+
+*Страница уже есть (/).*
+- **Quick Actions** (кнопки над контентом): доступны **User**, **Admin**, **SuperAdmin** — не скрывать для User.
+- **Остальные блоки** (Period Selector, карточки, графики, алерты, лента активности): только **SuperAdmin**, **Admin**. Для User под Quick Actions показывать пустое место или краткое приветствие, без сводок и отчётов.
 
 ### 1.1 Period Selector
 ```
@@ -151,9 +163,31 @@ Growth rate: +11% year-over-year
 └─────────────────────────────────────────────────────────┘
 ```
 
-## 2. Financial Reports
+**Итог по Dashboard:** На главной — только сводка и быстрый доступ. Полные таблицы и детальные отчёты живут в разделе **Reports**; Quick Actions ведут на соответствующие страницы отчётов или разделов (Aged Receivables, Student Fees Report, Inventory, Approve Claims).
 
-### 2.1 Profit & Loss Statement
+---
+
+## 2. Раздел Reports (меню и страницы)
+
+*В сайдбаре один пункт **Reports** с подпунктами. Доступ: SuperAdmin, Admin. Каждый подпункт — отдельная страница с параметрами, кнопкой «Сформировать», таблицами/графиками и экспортом (PDF/Excel).*
+
+**Структура меню Reports:**
+
+| Подраздел | Отчёты (страницы) |
+|-----------|--------------------|
+| **Financial** | Profit & Loss, Cash Flow, Balance Sheet |
+| **Students** | Fees Summary by Term, Aged Receivables, Collection Rate Trend, Discount Analysis, Top Debtors |
+| **Procurement & Inventory** | Procurement Summary, Inventory Valuation, Low Stock Alert, Stock Movement Report |
+| **Compensations** | Compensation Summary, Expense Claims by Category |
+| **Analytics** | Revenue per Student Trend, Payment Method Distribution, Term-over-Term Comparison, KPIs & Metrics |
+
+Ниже — описание каждого отчёта (содержимое страниц раздела Reports).
+
+---
+
+## 3. Financial Reports (страницы в разделе Reports)
+
+### 3.1 Profit & Loss Statement
 
 **Параметры:**
 - Period: Custom date range или по триместрам
@@ -197,7 +231,7 @@ Profit Margin: 51.2%
 - [📈 Compare with Previous Year]
 - [📝 Add Notes]
 
-### 2.2 Cash Flow Report
+### 3.2 Cash Flow Report
 
 **Параметры:**
 - Period: Daily / Weekly / Monthly
@@ -235,7 +269,7 @@ CLOSING BALANCE: 8,200,000 KES (as at 31 Jan 2026)
 - Waterfall chart показывающий движение денег
 - Line chart: Daily cash balance trend
 
-### 2.3 Balance Sheet (упрощенный)
+### 3.3 Balance Sheet (упрощенный)
 
 **На дату:**
 ```
@@ -259,9 +293,9 @@ Debt-to-Asset Ratio: 19.8%
 Current Ratio: 5.05 (healthy)
 ```
 
-## 3. Student Reports
+## 4. Student Reports (страницы в разделе Reports)
 
-### 3.1 Student Fees Summary by Term
+### 4.1 Student Fees Summary by Term
 
 **Параметры:**
 - Term: Term 1 / Term 2 / Term 3
@@ -281,7 +315,7 @@ TOTAL    | 145      | 17,460,000    | 15,600,000 | 1,860,000 | 89%
 
 **Drill-down:** Клик на класс → список студентов с деталями
 
-### 3.2 Aged Receivables (Дебиторская задолженность)
+### 4.2 Aged Receivables (Дебиторская задолженность)
 
 **Параметры:**
 - As at date
@@ -289,16 +323,16 @@ TOTAL    | 145      | 17,460,000    | 15,600,000 | 1,860,000 | 89%
 
 **Структура:**
 ```
-Student        | Total  | Current | 1-30  | 31-60 | 61-90 | 90+   | Last Payment
+Student        | Total  | Current (0-30) | 31-60 | 61-90 | 90+   | Last Payment
 ────────────────────────────────────────────────────────────────────────────────
-John Doe       | 85,000 | 50,000  | 20,000| 10,000| 5,000 | 0     | 15 Jan 2026
-Jane Smith     | 150,000| 0       | 0     | 50,000| 50,000| 50,000| 01 Nov 2025
-Bob Johnson    | 45,000 | 45,000  | 0     | 0     | 0     | 0     | 28 Jan 2026
+John Doe       | 85,000 | 70,000         | 10,000| 5,000 | 0     | 15 Jan 2026
+Jane Smith     | 150,000| 0              | 50,000| 50,000| 50,000| 01 Nov 2025
+Bob Johnson    | 45,000 | 45,000         | 0     | 0     | 0     | 28 Jan 2026
 ────────────────────────────────────────────────────────────────────────────────
-TOTALS         |3,850,000|1,200,000|850,000|900,000|450,000|450,000|
+TOTALS         |3,850,000|2,050,000      |900,000|450,000|450,000|
 
 Summary:
-- 🟢 Current (0-30 days): 2,050,000 KES (53%)
+- 🟢 Current (0-30 days): 2,050,000 KES (53%) — не просрочено или до 30 дней просрочки
 - 🟡 31-60 days: 900,000 KES (23%)
 - 🟠 61-90 days: 450,000 KES (12%)
 - 🔴 90+ days: 450,000 KES (12%) ← URGENT ACTION NEEDED
@@ -309,7 +343,7 @@ Summary:
 - [📊 Export for Follow-up]
 - [🔍 View Payment History]
 
-### 3.3 Collection Rate Trend
+### 4.3 Collection Rate Trend
 
 **Visual: Line Chart**
 ```
@@ -325,7 +359,7 @@ Target: 90% (red dashed line)
 Average: 88.5%
 ```
 
-### 3.4 Discount Analysis
+### 4.4 Discount Analysis
 
 **Параметры:**
 - Period
@@ -344,9 +378,9 @@ TOTAL              | 48       | 2,400,000   | 50,000      | 5.3%
 
 **Insight:** "Discounts represent 5.3% of gross revenue. This is within target range (< 8%)."
 
-## 4. Procurement & Inventory Reports
+## 5. Procurement & Inventory Reports (страницы в разделе Reports)
 
-### 4.1 Procurement Summary
+### 5.1 Procurement Summary
 
 **Параметры:**
 - Period
@@ -369,7 +403,7 @@ Outstanding Breakdown:
 - 61+ days: 0 KES
 ```
 
-### 4.2 Inventory Valuation
+### 5.2 Inventory Valuation
 
 **As at date:**
 ```
@@ -383,7 +417,7 @@ Food Supplies   | 80    | 1,200    | 200       | 240,000     | 12x/yr
 TOTAL           | 260   | 7,950    |           | 2,235,000   |
 ```
 
-### 4.3 Low Stock Alert
+### 5.3 Low Stock Alert
 
 ```
 Item              | Current | Min Level | Status | Action
@@ -394,7 +428,7 @@ Pens (blue)       | 150     | 100       | 🟢     | OK
 ──────────────────────────────────────────────────────────
 ```
 
-### 4.4 Stock Movement Report
+### 5.4 Stock Movement Report
 
 **Параметры:**
 - Period
@@ -409,9 +443,9 @@ Date       | Type   | Item          | Qty | Ref#        | User  | Balance
 25 Jan 26  | Issue  | Notebooks     | -100| REQ-2026-87 | User1 | 35
 ```
 
-## 5. Employee Compensation Reports
+## 6. Employee Compensation Reports (страницы в разделе Reports)
 
-### 5.1 Compensation Summary
+### 6.1 Compensation Summary
 
 **Параметры:**
 - Period
@@ -431,7 +465,7 @@ Pending Approval: 2 claims, 20,000 KES
 Approved but Unpaid: 4 claims, 35,000 KES
 ```
 
-### 5.2 Expense Claims by Category
+### 6.2 Expense Claims by Category
 
 **Visual: Pie Chart**
 ```
@@ -441,9 +475,9 @@ Procurement (employee paid): 60,000 KES (24%)
 Other: 20,000 KES (8%)
 ```
 
-## 6. Operational Analytics
+## 7. Operational Analytics (страницы в разделе Reports)
 
-### 6.1 Revenue per Student (Trend)
+### 7.1 Revenue per Student (Trend)
 
 **Visual: Line Chart**
 ```
@@ -455,7 +489,7 @@ Shows average revenue per student over 3 years:
 Growth: +8.4% over 3 years
 ```
 
-### 6.2 Payment Method Distribution
+### 7.2 Payment Method Distribution
 
 **Visual: Bar Chart**
 ```
@@ -467,7 +501,7 @@ Cheque: 1,200,000 KES (5%)
 Insight: "M-Pesa is the most popular payment method. Consider offering M-Pesa discount."
 ```
 
-### 6.3 Term-over-Term Comparison
+### 7.3 Term-over-Term Comparison
 
 **Таблица:**
 ```
@@ -483,7 +517,7 @@ Discounts Given     | 800,000     | 1,200,000   | +50%
 
 **Insight:** "Collection rate dropped 5%. Follow up with parents on outstanding payments."
 
-### 6.4 Top 10 Debtors
+### 7.4 Top 10 Debtors
 
 ```
 Student         | Class | Total Debt | Days Overdue | Last Contact
@@ -501,9 +535,9 @@ TOTAL (Top 10)  |       | 850,000    |             |
 - [☎️ Mark for Phone Call]
 - [📄 Generate Demand Letter]
 
-## 7. Alerts & Automation
+## 8. Alerts & Automation
 
-### 7.1 Automated Alerts (Email/SMS/In-App)
+### 8.1 Automated Alerts (Email/SMS/In-App)
 
 **Daily:**
 - Summary of payments received today
@@ -526,59 +560,54 @@ TOTAL (Top 10)  |       | 850,000    |             |
 - Inventory item out of stock
 - Large payment received (> 500,000 KES)
 
-### 7.2 Scheduled Reports (Auto-delivery)
+### 8.2 Scheduled Reports (Auto-delivery)
 
-**Manager can schedule:**
+**Admin/SuperAdmin может настроить:**
 - Daily: Cash flow summary (Email at 6 PM)
 - Weekly: Student debts aging report (Email Monday 9 AM)
 - Monthly: P&L statement (Email on 1st of month)
 - End of Term: Full financial review (PDF report)
 
-## 8. User Interface for Manager
+## 9. User Interface: Dashboard + Reports
 
-### 8.1 Navigation (левый сайдбар)
+*Общее меню для SuperAdmin/Admin. Dashboard — главная страница; Reports — один пункт в сайдбаре с подменю.*
+
+### 9.1 Навигация (левый сайдбар)
 
 ```
-📊 Dashboard
+📊 Dashboard          ← главная: карточки, графики, Quick Actions, алерты, лента активности
 
-📈 Financial Reports
-   ├─ Profit & Loss
-   ├─ Cash Flow
-   ├─ Balance Sheet
-   └─ Revenue Analysis
+📋 Reports            ← один пункт меню, при раскрытии:
+   ├─ Financial
+   │  ├─ Profit & Loss
+   │  ├─ Cash Flow
+   │  └─ Balance Sheet
+   ├─ Students
+   │  ├─ Fees Summary by Term
+   │  ├─ Aged Receivables
+   │  ├─ Collection Rate Trend
+   │  ├─ Discount Analysis
+   │  └─ Top Debtors
+   ├─ Procurement & Inventory
+   │  ├─ Procurement Summary
+   │  ├─ Inventory Valuation
+   │  ├─ Low Stock Alert
+   │  └─ Stock Movement Report
+   ├─ Compensations
+   │  ├─ Compensation Summary
+   │  └─ Expense Claims by Category
+   └─ Analytics
+      ├─ Revenue per Student Trend
+      ├─ Payment Method Distribution
+      ├─ Term-over-Term Comparison
+      └─ KPIs & Metrics
 
-👨‍🎓 Student Reports
-   ├─ Fees Summary
-   ├─ Aged Receivables
-   ├─ Collection Rate
-   ├─ Discount Analysis
-   └─ Top Debtors
-
-📦 Procurement & Inventory
-   ├─ Procurement Summary
-   ├─ Inventory Valuation
-   ├─ Stock Movements
-   └─ Low Stock Alerts
-
-💼 Employee Compensations
-   ├─ Claims Summary
-   ├─ Expense Analysis
-   └─ Pending Approvals
-
-📉 Analytics
-   ├─ Revenue Trends
-   ├─ Payment Methods
-   ├─ Term Comparisons
-   └─ KPIs & Metrics
-
-⚙️ Settings
-   ├─ Report Templates
-   ├─ Scheduled Reports
-   ├─ Alert Preferences
-   └─ My Profile
+… остальные пункты меню (Students, Billing, Warehouse, Procurement, Compensations, Settings)
 ```
 
-### 8.2 Report Page Layout
+Quick Actions на Dashboard видны **User**, **Admin**, **SuperAdmin** и ведут: «View Outstanding Debts» → Reports → Aged Receivables; «Student Fees Report» → Reports → Fees Summary; «Check Inventory Levels» → Warehouse или Low Stock Alert; «Approve Claims» → Compensations → Claims.
+
+### 9.2 Report Page Layout
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -610,7 +639,7 @@ TOTAL (Top 10)  |       | 850,000    |             |
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 8.3 Mobile Responsiveness
+### 9.3 Mobile Responsiveness
 
 **Mobile view priorities:**
 1. Key metrics cards (scrollable)
@@ -619,9 +648,11 @@ TOTAL (Top 10)  |       | 850,000    |             |
 4. Simplified charts (touch-friendly)
 5. Collapsed navigation (hamburger menu)
 
-## 9. KPIs & Targets
+## 10. KPIs & Targets
 
-### 9.1 Financial KPIs
+*Могут отображаться на Dashboard (карточки/таблица) и/или отдельной страницей Reports → Analytics → KPIs & Metrics.*
+
+### 10.1 Financial KPIs
 
 | KPI | Current | Target | Status |
 |-----|---------|--------|--------|
@@ -632,7 +663,7 @@ TOTAL (Top 10)  |       | 850,000    |             |
 | Cash Balance | 8.2M | > 5M | 🟢 Healthy |
 | Debt-to-Asset Ratio | 19.8% | < 30% | 🟢 Good |
 
-### 9.2 Operational KPIs
+### 10.2 Operational KPIs
 
 | KPI | Current | Target | Status |
 |-----|---------|--------|--------|
@@ -642,63 +673,58 @@ TOTAL (Top 10)  |       | 850,000    |             |
 | Stock Turnover | 3.2x/yr | > 3x | 🟢 Efficient |
 | Claims Approval Time | 5 days | < 7 days | 🟢 Fast |
 
-## 10. Технические требования
+## 11. Технические требования
 
-### 10.1 API Endpoints
+*Доступ к API дашборда и отчётов: SuperAdmin, Admin (проверка роли в middleware).*
 
-```
-# Dashboard
-GET /api/v1/manager/dashboard?period=current_term
-
-# Financial Reports
-GET /api/v1/manager/reports/profit-loss?start_date=...&end_date=...&format=pdf
-GET /api/v1/manager/reports/cash-flow?period=...&format=excel
-GET /api/v1/manager/reports/balance-sheet?as_at_date=...
-
-# Student Reports
-GET /api/v1/manager/reports/student-fees?term_id=...&format=excel
-GET /api/v1/manager/reports/aged-receivables?as_at_date=...
-GET /api/v1/manager/reports/collection-rate?period=...
-
-# Procurement Reports
-GET /api/v1/manager/reports/procurement-summary?start_date=...&end_date=...
-GET /api/v1/manager/reports/inventory-valuation?as_at_date=...
-
-# Analytics
-GET /api/v1/manager/analytics/revenue-trend?period=...
-GET /api/v1/manager/analytics/kpis?period=...
-```
-
-### 10.2 Real-time Updates (WebSocket)
+### 11.1 API Endpoints
 
 ```
-ws://api/manager/live-updates
+# Dashboard (главная страница)
+GET /api/v1/dashboard?period=current_term
+# Возвращает: карточки (revenue, expenses, collection rate, …), ключевые метрики, данные для 1–2 графиков, алерты, последнюю активность.
 
-Events:
-- payment_received
-- invoice_created
-- claim_submitted
-- stock_low
-- alert_triggered
+# Отчёты (раздел Reports) — единый префикс /api/v1/reports/ или по ресурсам
+GET /api/v1/reports/profit-loss?start_date=...&end_date=...&format=pdf
+GET /api/v1/reports/cash-flow?period=...&format=excel
+GET /api/v1/reports/balance-sheet?as_at_date=...
+
+GET /api/v1/reports/student-fees?term_id=...&format=excel
+GET /api/v1/reports/aged-receivables?as_at_date=...
+GET /api/v1/reports/collection-rate?period=...
+
+GET /api/v1/reports/procurement-summary?start_date=...&end_date=...
+GET /api/v1/reports/inventory-valuation?as_at_date=...
+
+GET /api/v1/reports/analytics/revenue-trend?period=...
+GET /api/v1/reports/analytics/kpis?period=...
 ```
 
-### 10.3 Performance
+### 11.2 Real-time Updates (WebSocket) — опционально
+
+```
+ws://api/dashboard/live-updates   (или /api/reports/live-updates)
+
+Events: payment_received, invoice_created, claim_submitted, stock_low, alert_triggered
+```
+
+### 11.3 Performance
 
 - Dashboard должен загружаться < 2 секунды
 - Кэширование данных на 5 минут (refresh button для manual update)
 - Lazy loading для charts
 - Background jobs для тяжелых отчетов (> 1000 records)
 
-### 10.4 Export Formats
+### 11.4 Export Formats
 
 - **PDF**: Для печати и архивирования
 - **Excel**: Для дальнейшего анализа
 - **CSV**: Для импорта в другие системы
 - **Email**: Direct send with attachments
 
-## 11. Фичи "Nice to Have"
+## 12. Фичи "Nice to Have"
 
-### 11.1 Forecasting (Прогнозирование)
+### 12.1 Forecasting (Прогнозирование)
 
 **Revenue Forecast:**
 - Основано на enrollment trend и collection rate
@@ -709,7 +735,7 @@ Events:
 - Прогноз баланса на 3-6 месяцев
 - Warning if projected balance < threshold
 
-### 11.2 Budget Management
+### 12.2 Budget Management
 
 **Set Budgets:**
 - Procurement budget: 20M KES/year
@@ -721,16 +747,16 @@ Events:
 - Alerts when 80% of budget used
 - Variance analysis (actual vs budget)
 
-### 11.3 Custom Reports Builder
+### 12.3 Custom Reports Builder
 
-Менеджер может создать custom отчет:
+Admin/SuperAdmin может создать custom отчёт:
 - Выбрать entities (Invoice, Payment, etc.)
 - Добавить filters
 - Выбрать columns
 - Добавить grouping/totals
 - Preview и save as template
 
-### 11.4 Benchmarking
+### 12.4 Benchmarking
 
 Сравнение с "industry averages" (if data available):
 - Average fee per student in region
@@ -738,7 +764,7 @@ Events:
 - Profit margin benchmark
 - Expense ratios
 
-### 11.5 AI Insights (Future)
+### 12.5 AI Insights (Future)
 
 **Automated insights:**
 - "Collection rate dropped 5% this term. Main reason: 15 students with debts > 90 days. Suggested action: Send reminders."

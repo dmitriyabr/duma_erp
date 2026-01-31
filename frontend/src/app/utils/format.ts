@@ -26,14 +26,16 @@ export const formatDate = (value?: string | null) => {
   }).format(date)
 }
 
-export const formatMoney = (value?: number | null) => {
+export const formatMoney = (value?: number | string | null) => {
   if (value === null || value === undefined) {
     return '—'
   }
+  const num = typeof value === 'string' ? Number(value) : value
+  if (Number.isNaN(num)) return '—'
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
     currency: 'KES',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(value)
+  }).format(num)
 }

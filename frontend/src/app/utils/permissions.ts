@@ -45,3 +45,13 @@ export function canInvoiceTerm(user: AuthUser | null): boolean {
 export function isAccountant(user: AuthUser | null): boolean {
   return user?.role === 'Accountant'
 }
+
+/** Dashboard summary (cards, metrics): only Admin/SuperAdmin. User sees Quick Actions only. */
+export function canSeeDashboardSummary(user: AuthUser | null): boolean {
+  return user?.role === 'SuperAdmin' || user?.role === 'Admin'
+}
+
+/** Reports section (Aged Receivables, etc.): only Admin/SuperAdmin. */
+export function canSeeReports(user: AuthUser | null): boolean {
+  return user?.role === 'SuperAdmin' || user?.role === 'Admin'
+}
