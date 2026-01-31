@@ -622,12 +622,36 @@
 - [ ] **[ОБСУДИТЬ]** Уточнить требования к интерфейсу
 - [ ] Просмотр аудит-лога с фильтрами
 
+### 9.11 Интерфейс для бухгалтера (Accountant)
+> ТЗ: **ACCOUNTANT_REPORTS.md**. Роль Accountant — read-only: первичные документы, экспорт данных, audit trail. Без создания/редактирования.
+
+**Навигация для роли Accountant (минимальная):**
+- Documents: Payment Receipts, Student Invoices, Purchase Orders, GRN, Procurement Payments, Employee Expenses
+- Data Export: All Transactions, Student Payments, Procurement Payments, VAT, WHT
+- Audit Trail
+- Settings → My Profile (только профиль)
+
+**Backend (API для бухгалтера):**
+- [ ] Роутер `/api/v1/accountant/` с проверкой роли Accountant (или переиспользовать существующие GET с role-check)
+- [ ] GET receipts, invoices, purchase-orders, grn, procurement-payments, expense-claims (list + by id + PDF где есть)
+- [ ] GET export: transactions, student-payments, procurement-payments, vat, wht (CSV/Excel)
+- [ ] GET audit-trail с фильтрами
+- [ ] Тесты API (роль Accountant — только read; POST/PUT/DELETE — 403)
+
+**Frontend (интерфейс для бухгалтера):**
+- [ ] Для роли Accountant: отдельное меню (или скрыть лишнее и показать только Documents / Data Export / Audit / My Profile)
+- [ ] Страницы документов: Receipts, Invoices, PO, GRN, Procurement Payments, Expense Claims — список + фильтры + детали + кнопка PDF
+- [ ] Страница Data Export: выбор типа экспорта, период, формат, кнопка «Generate»
+- [ ] Страница Audit Trail: список с фильтрами (дата, пользователь, тип документа, действие)
+- [ ] Скрыть/отключить кнопки создания и редактирования для Accountant на всех страницах
+- [ ] Settings для Accountant: только «My Profile» (без Users, Grades и т.д.)
+
 ---
 
 ## Фаза 10: Вложения и PDF
 
 ### 10.1 Загрузка файлов
-- [ ] **[ОБСУДИТЬ]** Где хранить файлы (локально/S3)? Лимиты размера? Типы файлов?
+- [x] **[ОБСУДИТЬ]** Где хранить файлы (локально/S3)? Лимиты размера? Типы файлов?
 - [x] Модель Attachment (для подтверждений платежей: image/PDF, до 10 MB)
 - [x] Сервис upload/download (локально `STORAGE_PATH`; прод — см. CLOUDFLARE_R2.md)
 - [x] API endpoints: POST/GET /attachments, GET /attachments/{id}/download
@@ -639,7 +663,7 @@
 
 - [x] Настройки школы в UI (реквизиты, логотип, штамп) — одна страница Settings → School, хранение в school_settings
 - [x] Тесты school-settings (API GET/PUT, сервис get/update, роли Admin/SuperAdmin vs User/Accountant)
-- [ ] **[ОБСУДИТЬ]** Шаблоны документов (остальное по DOCUMENT_GENERATION.md)
+- [x] **[ОБСУДИТЬ]** Шаблоны документов (остальное по DOCUMENT_GENERATION.md)
 - [x] PDF счёта (WeasyPrint + Jinja2, GET /invoices/{id}/pdf, данные из school_settings)
 - [x] PDF квитанции (GET /payments/{id}/receipt/pdf, только completed)
 - [x] Тесты генерации (tests/core/test_pdf.py — эндпоинты с моком WeasyPrint)
