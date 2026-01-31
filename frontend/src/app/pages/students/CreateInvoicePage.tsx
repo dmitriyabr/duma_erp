@@ -14,8 +14,9 @@ import {
   Typography,
 } from '@mui/material'
 import { useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useApi, useApiMutation } from '../../hooks/useApi'
+import { DEFAULT_PAGE_SIZE } from '../../constants/pagination'
 import { api, unwrapResponse } from '../../services/api'
 import { formatMoney } from '../../utils/format'
 
@@ -27,6 +28,12 @@ interface KitOption {
 }
 
 interface StudentResponse {
+  id: number
+  full_name: string
+  student_number: string
+}
+
+interface StudentOption {
   id: number
   full_name: string
   student_number: string
@@ -61,26 +68,45 @@ const getDefaultDueDate = () => {
 }
 
 export const CreateInvoicePage = () => {
-  const { studentId } = useParams()
+  const { studentId: paramStudentId } = useParams()
+  const location = useLocation()
   const navigate = useNavigate()
-  const resolvedId = Number(studentId)
+  const state = (location.state as { studentId?: number } | null) ?? null
+  const [selectedStudentId, setSelectedStudentId] = useState<number | ''>(state?.studentId ?? '')
+  const resolvedId = paramStudentId
+    ? Number(paramStudentId)
+    : (state?.studentId ?? (selectedStudentId === '' ? 0 : selectedStudentId))
+  const studentIdLocked = !!paramStudentId || (state?.studentId != null)
+  const isStandalone = !paramStudentId
+
   const [lines, setLines] = useState<DraftLine[]>([emptyLine()])
   const [dueDate, setDueDate] = useState(getDefaultDueDate())
   const [notes, setNotes] = useState('')
   const [validationError, setValidationError] = useState<string | null>(null)
 
   const kitsApi = useApi<KitOption[]>('/items/kits', { params: { include_inactive: false } })
+  const studentsListApi = useApi<{ items: StudentOption[]; total: number }>(
+    isStandalone ? '/students' : null,
+    isStandalone ? { params: { page: 1, limit: DEFAULT_PAGE_SIZE, status: 'active' } } : undefined,
+    [isStandalone]
+  )
   const studentApi = useApi<StudentResponse>(
     resolvedId && !Number.isNaN(resolvedId) ? `/students/${resolvedId}` : null
   )
   const createMutation = useApiMutation<InvoiceDetail>()
+  const students = studentsListApi.data?.items ?? []
 
   const kits = useMemo(
     () => (kitsApi.data ?? []).filter((kit) => kit.price_type === 'standard'),
     [kitsApi.data]
   )
   const student = studentApi.data ?? null
-  const error = validationError ?? kitsApi.error ?? studentApi.error ?? createMutation.error
+  const error =
+    validationError ??
+    kitsApi.error ??
+    studentApi.error ??
+    studentsListApi.error ??
+    createMutation.error
   const loading = createMutation.loading
 
   const updateLine = (lineId: string, updates: Partial<DraftLine>) => {
@@ -163,10 +189,47 @@ export const CreateInvoicePage = () => {
     if (result != null) navigate(`/students/${resolvedId}?tab=invoices`)
   }
 
+  if (isStandalone && !resolvedId) {
+    return (
+      <Box>
+        <Button onClick={() => navigate(-1)} sx={{ mb: 2 }}>
+          Back
+        </Button>
+        <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+          Sell items to student
+        </Typography>
+        {studentsListApi.error ? (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {studentsListApi.error}
+          </Alert>
+        ) : null}
+        <FormControl size="small" sx={{ minWidth: 280, display: 'block', mb: 2 }}>
+          <Select
+            value={selectedStudentId === '' ? '' : String(selectedStudentId)}
+            onChange={(e) => setSelectedStudentId(e.target.value ? Number(e.target.value) : '')}
+            displayEmpty
+            renderValue={(v) => {
+              if (!v) return 'Select student'
+              const s = students.find((x) => String(x.id) === v)
+              return s ? `${s.full_name} (#${s.student_number})` : 'Select student'
+            }}
+          >
+            <MenuItem value="">Select student</MenuItem>
+            {students.map((s) => (
+              <MenuItem key={s.id} value={String(s.id)}>
+                {s.full_name} · #{s.student_number}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Box>
+    )
+  }
+
   return (
     <Box>
-      <Button onClick={() => navigate(`/students/${resolvedId}?tab=invoices`)} sx={{ mb: 2 }}>
-        Back to student
+      <Button onClick={() => navigate(-1)} sx={{ mb: 2 }}>
+        Back
       </Button>
       <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
         Sell item
@@ -174,6 +237,11 @@ export const CreateInvoicePage = () => {
       {student ? (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
           {student.full_name} · Student #{student.student_number}
+          {studentIdLocked ? null : (
+            <Button size="small" sx={{ ml: 1 }} onClick={() => setSelectedStudentId('')}>
+              Change student
+            </Button>
+          )}
         </Typography>
       ) : null}
 
@@ -319,7 +387,7 @@ export const CreateInvoicePage = () => {
       </Box>
 
       <Box sx={{ display: 'flex', gap: 1, mt: 3 }}>
-        <Button onClick={() => navigate(`/students/${resolvedId}`)}>Cancel</Button>
+        <Button onClick={() => navigate(-1)}>Cancel</Button>
         <Button variant="contained" onClick={submitInvoice} disabled={loading}>
           Create invoice
         </Button>

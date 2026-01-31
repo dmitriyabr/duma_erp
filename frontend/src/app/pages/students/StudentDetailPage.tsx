@@ -111,7 +111,7 @@ export const StudentDetailPage = () => {
   return (
     <Box>
       <Button onClick={() => navigate('/students')} sx={{ mb: 2 }}>
-        Back to students
+        Back
       </Button>
 
       {error ? (

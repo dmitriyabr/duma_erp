@@ -18,7 +18,8 @@ import {
   Typography,
 } from '@mui/material'
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf'
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../../auth/AuthContext'
 import { INVOICE_LIST_LIMIT, PAYMENTS_LIST_LIMIT } from '../../../constants/pagination'
 import { useApi, useApiMutation } from '../../../hooks/useApi'
@@ -50,23 +51,13 @@ export const PaymentsTab = ({
   studentId,
   onError,
   onBalanceChange,
-  onAllocationResult,
+  onAllocationResult: _onAllocationResult,
   initialInvoices,
   invoicesLoading: _invoicesLoading,
 }: PaymentsTabProps) => {
+  const navigate = useNavigate()
   const { user } = useAuth()
-  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
-  const [paymentForm, setPaymentForm] = useState({
-    amount: '',
-    payment_method: 'mpesa',
-    payment_date: new Date().toISOString().slice(0, 10),
-    reference: '',
-    notes: '',
-  })
   const [selectedPayment, setSelectedPayment] = useState<PaymentResponse | null>(null)
-  const [confirmationAttachmentId, setConfirmationAttachmentId] = useState<number | null>(null)
-  const [confirmationFileName, setConfirmationFileName] = useState<string | null>(null)
-  const confirmationFileInputRef = React.useRef<HTMLInputElement>(null)
   const [allocationDialogOpen, setAllocationDialogOpen] = useState(false)
   const [allocationForm, setAllocationForm] = useState({
     invoice_id: '',
@@ -86,15 +77,12 @@ export const PaymentsTab = ({
       : undefined,
     initialInvoices === undefined ? [studentId] : []
   )
-  const submitPaymentMutation = useApiMutation<PaymentResponse>()
-  const uploadAttachmentMutation = useApiMutation<{ id: number; file_name: string }>()
   const allocationMutation = useApiMutation<unknown>()
   const cancelPaymentMutation = useApiMutation<unknown>()
 
   const payments = paymentsApi.data?.items ?? []
   const invoices = initialInvoices !== undefined ? (initialInvoices ?? []) : (invoicesApi.data?.items ?? [])
-  const loading = submitPaymentMutation.loading || allocationMutation.loading || cancelPaymentMutation.loading
-  const uploadingFile = uploadAttachmentMutation.loading
+  const loading = allocationMutation.loading || cancelPaymentMutation.loading
 
   useEffect(() => {
     if (paymentsApi.error) onError(paymentsApi.error)
@@ -102,72 +90,6 @@ export const PaymentsTab = ({
   useEffect(() => {
     if (initialInvoices === undefined && invoicesApi.error) onError(invoicesApi.error)
   }, [initialInvoices, invoicesApi.error, onError])
-
-  const openPaymentDialog = () => {
-    setPaymentForm({
-      amount: '',
-      payment_method: 'mpesa',
-      payment_date: new Date().toISOString().slice(0, 10),
-      reference: '',
-      notes: '',
-    })
-    setConfirmationAttachmentId(null)
-    setConfirmationFileName(null)
-    if (confirmationFileInputRef.current) confirmationFileInputRef.current.value = ''
-    setPaymentDialogOpen(true)
-  }
-
-  const handleConfirmationFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-    uploadAttachmentMutation.reset()
-    const formData = new FormData()
-    formData.append('file', file)
-    const result = await uploadAttachmentMutation.execute(() =>
-      api
-        .post('/attachments', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
-        .then((r) => ({ data: { data: unwrapResponse<{ id: number; file_name: string }>(r) } }))
-    )
-    if (result != null) {
-      setConfirmationAttachmentId(result.id)
-      setConfirmationFileName(file.name)
-    } else if (uploadAttachmentMutation.error) {
-      onError(uploadAttachmentMutation.error)
-    }
-    event.target.value = ''
-  }
-
-  const submitPayment = async () => {
-    const hasReference = Boolean(paymentForm.reference?.trim())
-    const hasFile = confirmationAttachmentId != null
-    if (!hasReference && !hasFile) {
-      onError('Reference or confirmation file is required.')
-      return
-    }
-    submitPaymentMutation.reset()
-    const created = await submitPaymentMutation.execute(async () => {
-      const createRes = await api.post('/payments', {
-        student_id: studentId,
-        amount: Number(paymentForm.amount),
-        payment_method: paymentForm.payment_method,
-        payment_date: paymentForm.payment_date,
-        reference: paymentForm.reference.trim() || null,
-        confirmation_attachment_id: confirmationAttachmentId ?? undefined,
-        notes: paymentForm.notes.trim() || null,
-      })
-      const payment = unwrapResponse<PaymentResponse>(createRes)
-      await api.post(`/payments/${payment.id}/complete`)
-      return { data: { data: payment } }
-    })
-    if (created != null) {
-      onAllocationResult('Payment completed. Balance has been allocated to invoices.')
-      setPaymentDialogOpen(false)
-      paymentsApi.refetch()
-      onBalanceChange()
-    } else if (submitPaymentMutation.error) {
-      onError(submitPaymentMutation.error)
-    }
-  }
 
   const openManualAllocation = () => {
     invoicesApi.refetch()
@@ -259,7 +181,10 @@ export const PaymentsTab = ({
           <Button variant="outlined" onClick={openManualAllocation}>
             Allocate credit
           </Button>
-          <Button variant="contained" onClick={openPaymentDialog}>
+          <Button
+            variant="contained"
+            onClick={() => navigate('/payments/new', { state: { studentId } })}
+          >
             Record payment
           </Button>
         </Box>
@@ -316,85 +241,6 @@ export const PaymentsTab = ({
           ) : null}
         </TableBody>
       </Table>
-
-      {/* Payment Dialog */}
-      <Dialog open={paymentDialogOpen} onClose={() => setPaymentDialogOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Record payment</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <TextField
-            label="Amount"
-            type="number"
-            value={paymentForm.amount}
-            onChange={(event) => setPaymentForm({ ...paymentForm, amount: event.target.value })}
-          />
-          <FormControl>
-            <InputLabel>Method</InputLabel>
-            <Select
-              value={paymentForm.payment_method}
-              label="Method"
-              onChange={(event) => setPaymentForm({ ...paymentForm, payment_method: event.target.value })}
-            >
-              <MenuItem value="mpesa">M-Pesa</MenuItem>
-              <MenuItem value="bank_transfer">Bank transfer</MenuItem>
-            </Select>
-          </FormControl>
-          <TextField
-            label="Payment date"
-            type="date"
-            value={paymentForm.payment_date}
-            onChange={(event) => setPaymentForm({ ...paymentForm, payment_date: event.target.value })}
-            InputLabelProps={{ shrink: true }}
-          />
-          <TextField
-            label="Reference (optional if file uploaded)"
-            value={paymentForm.reference}
-            onChange={(event) => setPaymentForm({ ...paymentForm, reference: event.target.value })}
-            helperText="Reference or confirmation file below is required"
-          />
-          <Box>
-            <Button
-              variant="outlined"
-              component="label"
-              disabled={uploadingFile}
-              sx={{ mr: 1 }}
-            >
-              {uploadingFile ? 'Uploading…' : 'Upload confirmation (image/PDF)'}
-              <input
-                ref={confirmationFileInputRef}
-                type="file"
-                hidden
-                accept="image/*,.pdf,application/pdf"
-                onChange={handleConfirmationFileChange}
-              />
-            </Button>
-            {confirmationFileName && (
-              <Typography variant="body2" color="text.secondary" component="span">
-                {confirmationFileName}
-              </Typography>
-            )}
-          </Box>
-          <TextField
-            label="Notes"
-            value={paymentForm.notes}
-            onChange={(event) => setPaymentForm({ ...paymentForm, notes: event.target.value })}
-            multiline
-            minRows={2}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={submitPayment}
-            disabled={
-              loading ||
-              (!paymentForm.reference?.trim() && confirmationAttachmentId == null)
-            }
-          >
-            Save
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Payment Detail Dialog */}
       <Dialog

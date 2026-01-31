@@ -404,6 +404,9 @@
 - [x] MUI: фикс наложения label и placeholder — в теме заданы `MuiTextField.defaultProps.InputLabelProps.shrink: true` и `MuiInputLabel.defaultProps.shrink: true`, подпись всегда сверху у полей и селектов
 - [x] Современный Sidebar (тёмный gradient, логотип)
 - [x] TopBar с аватаром и dropdown меню
+- [x] Dashboard Quick Actions (скрыты для Accountant): Admit New Student → /students/new (страница формы), Sell Items To Student (/billing/invoices/new), Receive Student Payment (/payments/new), Track Order Items, Receive Order Items, Track Payment, Issue Item From Stock, Issue Reserved Item. Унификация: из карточки студента «Record payment» → /payments/new с state.studentId; CreateInvoicePage блокирует студента при state.studentId или :studentId.
+- [x] New Student — отдельная страница /students/new (CreateStudentPage); после создания редирект на карточку студента /students/:id.
+- [x] Кнопка «Back»: на **карточках (detail)** — в список (семантический родитель), на **формах** — по истории (navigate(-1)). Пример: StudentDetailPage → Back → /students; формы (CreateStudent, CreateInvoice, ReceivePayment, TermForm, PO, ProcurementPayment, IssueForm) → Back/Cancel = navigate(-1).
 
 **Рефакторинг обработки 401 (token refresh):**
 > Проблема: При истечении токена страницы показывали ошибку, даже если interceptor успешно обновлял токен

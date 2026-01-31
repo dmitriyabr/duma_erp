@@ -203,6 +203,9 @@ export const IssueFormPage = () => {
 
   return (
     <Box>
+      <Button onClick={() => navigate(-1)} sx={{ mb: 2 }}>
+        Back
+      </Button>
       <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
         Issue stock
       </Typography>
@@ -359,7 +362,7 @@ export const IssueFormPage = () => {
       </Box>
 
       <Box sx={{ display: 'flex', gap: 1, mt: 3 }}>
-        <Button onClick={() => navigate('/inventory/stock')}>Cancel</Button>
+        <Button onClick={() => navigate(-1)}>Cancel</Button>
         <Button
           variant="contained"
           onClick={handleSubmit}

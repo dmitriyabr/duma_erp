@@ -27,8 +27,10 @@ import { ProcurementPaymentsListPage } from './pages/procurement/ProcurementPaym
 import { ProcurementPaymentFormPage } from './pages/procurement/ProcurementPaymentFormPage'
 import { ProcurementPaymentDetailPage } from './pages/procurement/ProcurementPaymentDetailPage'
 import { StudentsPage } from './pages/students/StudentsPage'
+import { CreateStudentPage } from './pages/students/CreateStudentPage'
 import { StudentDetailPage } from './pages/students/StudentDetailPage'
 import { CreateInvoicePage } from './pages/students/CreateInvoicePage'
+import { ReceivePaymentPage } from './pages/students/ReceivePaymentPage'
 import { StockPage } from './pages/inventory/StockPage'
 import { IssueFormPage } from './pages/inventory/IssueFormPage'
 import { MovementsPage } from './pages/inventory/MovementsPage'
@@ -81,6 +83,7 @@ export const AppRoutes = () => {
           <Route path="attachment/:id/download" element={<AttachmentDownloadPage />} />
           <Route path="payment/:id/receipt" element={<PaymentReceiptDownloadPage />} />
           <Route path="students" element={<StudentsPage />} />
+          <Route path="students/new" element={<CreateStudentPage />} />
           <Route path="students/:studentId" element={<StudentDetailPage />} />
           <Route path="students/:studentId/invoices/new" element={<CreateInvoicePage />} />
           <Route path="billing" element={<PlaceholderPage title="Billing" />} />
@@ -93,6 +96,7 @@ export const AppRoutes = () => {
           <Route path="billing/catalog/items" element={<CatalogPage />} />
           <Route path="billing/catalog/categories" element={<CatalogPage />} />
           <Route path="billing/invoices" element={<InvoicesListPage />} />
+          <Route path="billing/invoices/new" element={<CreateInvoicePage />} />
           <Route path="billing/payments" element={<PlaceholderPage title="Payments" />} />
           <Route path="billing/allocations" element={<PlaceholderPage title="Allocations" />} />
           <Route path="billing/statement" element={<PlaceholderPage title="Statement" />} />
@@ -125,6 +129,7 @@ export const AppRoutes = () => {
           <Route path="compensations/payouts/:payoutId" element={<PayoutDetailPage />} />
           <Route path="reports" element={<PlaceholderPage title="Reports" />} />
           <Route path="audit" element={<AuditTrailPage />} />
+          <Route path="payments/new" element={<ReceivePaymentPage />} />
           <Route path="payments" element={<PaymentReceiptsPage />} />
           <Route path="accountant/export" element={<AccountantExportPage />} />
           <Route path="accountant/documents" element={<PlaceholderPage title="Documents" />} />

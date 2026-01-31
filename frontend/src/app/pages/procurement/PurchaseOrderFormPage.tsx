@@ -384,6 +384,9 @@ export const PurchaseOrderFormPage = () => {
 
   return (
     <Box>
+      <Button onClick={() => navigate(-1)} sx={{ mb: 2 }}>
+        Back
+      </Button>
       <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
         {isEdit ? 'Edit purchase order' : 'New purchase order'}
       </Typography>
@@ -605,7 +608,7 @@ export const PurchaseOrderFormPage = () => {
       </Box>
 
       <Box sx={{ display: 'flex', gap: 1, mt: 3 }}>
-        <Button onClick={() => navigate('/procurement/orders')}>Cancel</Button>
+        <Button onClick={() => navigate(-1)}>Cancel</Button>
         <Button variant="contained" onClick={handleSubmit} disabled={saving || poLoading}>
           Save order
         </Button>

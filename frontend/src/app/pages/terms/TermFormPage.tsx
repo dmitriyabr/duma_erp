@@ -357,7 +357,7 @@ export const TermFormPage = () => {
       </Box>
 
       <Box sx={{ display: 'flex', gap: 1, mt: 3 }}>
-        <Button onClick={() => navigate('/billing/terms')}>Cancel</Button>
+        <Button onClick={() => navigate(-1)}>Cancel</Button>
         <Button variant="contained" onClick={handleSubmit} disabled={loading}>
           Save term
         </Button>

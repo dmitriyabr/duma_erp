@@ -228,6 +228,9 @@ export const ProcurementPaymentFormPage = () => {
 
   return (
     <Box>
+      <Button onClick={() => navigate(-1)} sx={{ mb: 2 }}>
+        Back
+      </Button>
       <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
         {isEdit ? 'Edit payment' : 'New payment'}
       </Typography>
@@ -421,7 +424,7 @@ export const ProcurementPaymentFormPage = () => {
       </Box>
 
       <Box sx={{ display: 'flex', gap: 1, mt: 3 }}>
-        <Button onClick={() => navigate('/procurement/payments')}>Cancel</Button>
+        <Button onClick={() => navigate(-1)}>Cancel</Button>
         <Button variant="contained" onClick={handleSubmit} disabled={creatingPayment || isEdit}>
           {isEdit ? 'Save (not editable)' : 'Create payment'}
         </Button>
