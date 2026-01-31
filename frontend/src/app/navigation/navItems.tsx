@@ -129,6 +129,7 @@ export const navItems: NavItem[] = [
     roles: adminRoles,
     children: [
       { label: 'Aged Receivables', path: '/reports/aged-receivables', roles: adminRoles },
+      { label: 'Student Fees by Term', path: '/reports/student-fees', roles: adminRoles },
     ],
   },
   {

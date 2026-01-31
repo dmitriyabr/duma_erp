@@ -35,3 +35,35 @@ class AgedReceivablesResponse(BaseSchema):
     as_at_date: date
     rows: list[AgedReceivablesRow]
     summary: AgedReceivablesSummary
+
+
+class StudentFeesRow(BaseSchema):
+    """One row in Student Fees Summary by Term (per grade)."""
+
+    grade_id: int
+    grade_name: str
+    students_count: int
+    total_invoiced: Decimal
+    total_paid: Decimal
+    balance: Decimal
+    rate_percent: float | None  # collection rate 0-100, None if no invoiced
+
+
+class StudentFeesSummary(BaseSchema):
+    """Total row for Student Fees Summary."""
+
+    students_count: int
+    total_invoiced: Decimal
+    total_paid: Decimal
+    balance: Decimal
+    rate_percent: float | None
+
+
+class StudentFeesResponse(BaseSchema):
+    """Student Fees Summary by Term response."""
+
+    term_id: int
+    term_display_name: str
+    grade_id: int | None  # if filter applied
+    rows: list[StudentFeesRow]
+    summary: StudentFeesSummary

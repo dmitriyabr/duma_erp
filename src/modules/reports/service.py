@@ -8,14 +8,18 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.core.exceptions import NotFoundError
 from src.modules.invoices.models import Invoice, InvoiceStatus
 from src.modules.payments.models import Payment, PaymentStatus
-from src.modules.students.models import Student
+from src.modules.students.models import Grade, Student
+from src.modules.terms.models import Term
 from src.shared.utils.money import round_money
 
 from src.modules.reports.schemas import (
     AgedReceivablesRow,
     AgedReceivablesSummary,
+    StudentFeesRow,
+    StudentFeesSummary,
 )
 
 
@@ -135,5 +139,95 @@ class ReportsService:
                 bucket_31_60=round_money(summary_31_60),
                 bucket_61_90=round_money(summary_61_90),
                 bucket_90_plus=round_money(summary_90_plus),
+            ),
+        }
+
+    async def student_fees_summary(
+        self,
+        term_id: int,
+        grade_id: int | None = None,
+    ) -> dict:
+        """
+        Student Fees Summary by Term: per-grade aggregates (students count, total invoiced, paid, balance, rate).
+
+        term_id: required. grade_id: optional filter (only that grade).
+        Only invoices with status issued, partially_paid, paid are included.
+        """
+        term_result = await self.db.execute(select(Term).where(Term.id == term_id))
+        term = term_result.scalar_one_or_none()
+        if not term:
+            raise NotFoundError(f"Term with id {term_id} not found")
+
+        statuses = (
+            InvoiceStatus.ISSUED.value,
+            InvoiceStatus.PARTIALLY_PAID.value,
+            InvoiceStatus.PAID.value,
+        )
+        q = (
+            select(
+                Student.grade_id,
+                Grade.name.label("grade_name"),
+                func.count(func.distinct(Invoice.student_id)).label("students_count"),
+                func.coalesce(func.sum(Invoice.total), 0).label("total_invoiced"),
+                func.coalesce(func.sum(Invoice.paid_total), 0).label("total_paid"),
+                func.coalesce(func.sum(Invoice.amount_due), 0).label("balance"),
+            )
+            .select_from(Invoice)
+            .join(Student, Invoice.student_id == Student.id)
+            .join(Grade, Student.grade_id == Grade.id)
+            .where(
+                Invoice.term_id == term_id,
+                Invoice.status.in_(statuses),
+            )
+            .group_by(Student.grade_id, Grade.name, Grade.display_order)
+            .order_by(Grade.display_order, Grade.name)
+        )
+        if grade_id is not None:
+            q = q.where(Student.grade_id == grade_id)
+        result = await self.db.execute(q)
+        raw_rows = result.all()
+
+        rows = []
+        summary_students = 0
+        summary_invoiced = Decimal("0")
+        summary_paid = Decimal("0")
+        summary_balance = Decimal("0")
+        for r in raw_rows:
+            gid, gname, cnt, inv, paid, bal = r
+            inv = round_money(Decimal(str(inv)))
+            paid = round_money(Decimal(str(paid)))
+            bal = round_money(Decimal(str(bal)))
+            rate = round(float(paid / inv * 100), 2) if inv and inv > 0 else None
+            summary_students += int(cnt)
+            summary_invoiced += inv
+            summary_paid += paid
+            summary_balance += bal
+            rows.append(
+                StudentFeesRow(
+                    grade_id=int(gid),
+                    grade_name=str(gname),
+                    students_count=int(cnt),
+                    total_invoiced=inv,
+                    total_paid=paid,
+                    balance=bal,
+                    rate_percent=rate,
+                )
+            )
+        summary_rate = (
+            round(float(summary_paid / summary_invoiced * 100), 2)
+            if summary_invoiced and summary_invoiced > 0
+            else None
+        )
+        return {
+            "term_id": term_id,
+            "term_display_name": term.display_name,
+            "grade_id": grade_id,
+            "rows": rows,
+            "summary": StudentFeesSummary(
+                students_count=summary_students,
+                total_invoiced=round_money(summary_invoiced),
+                total_paid=round_money(summary_paid),
+                balance=round_money(summary_balance),
+                rate_percent=summary_rate,
             ),
         }

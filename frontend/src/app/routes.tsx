@@ -49,6 +49,7 @@ import { PaymentReceiptsPage } from './pages/accountant/PaymentReceiptsPage'
 import { AttachmentDownloadPage } from './pages/AttachmentDownloadPage'
 import { PaymentReceiptDownloadPage } from './pages/PaymentReceiptDownloadPage'
 import { AgedReceivablesPage } from './pages/reports/AgedReceivablesPage'
+import { StudentFeesPage } from './pages/reports/StudentFeesPage'
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useAuth()
@@ -130,6 +131,7 @@ export const AppRoutes = () => {
           <Route path="compensations/payouts/:payoutId" element={<PayoutDetailPage />} />
           <Route path="reports" element={<PlaceholderPage title="Reports" />} />
           <Route path="reports/aged-receivables" element={<AgedReceivablesPage />} />
+          <Route path="reports/student-fees" element={<StudentFeesPage />} />
           <Route path="audit" element={<AuditTrailPage />} />
           <Route path="payments/new" element={<ReceivePaymentPage />} />
           <Route path="payments" element={<PaymentReceiptsPage />} />
