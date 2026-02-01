@@ -19,10 +19,13 @@ from src.modules.items.models import Category, Item
 from src.modules.payments.models import CreditAllocation, Payment, PaymentStatus
 from src.modules.procurement.models import (
     GoodsReceivedNote,
+    GoodsReceivedLine,
+    GoodsReceivedStatus,
     PaymentPurpose,
     ProcurementPayment,
     ProcurementPaymentStatus,
     PurchaseOrder,
+    PurchaseOrderLine,
     PurchaseOrderStatus,
 )
 from src.modules.students.models import Grade, Student, StudentStatus
@@ -636,14 +639,43 @@ class ReportsService:
         )
         inventory = round_money(Decimal(str(stock_res.scalar() or 0)))
         total_assets = round_money(cash + receivables + inventory)
-        supp = await self.db.execute(
-            select(func.coalesce(func.sum(PurchaseOrder.debt_amount), 0)).where(
-                PurchaseOrder.status.notin_(
-                    [PurchaseOrderStatus.CANCELLED.value, PurchaseOrderStatus.CLOSED.value]
-                )
+        # Accounts Payable (Supplier Debts) as at date: received value (from GRNs approved by date) minus payments by date, per PO.
+        grn_value_q = (
+            select(
+                GoodsReceivedNote.po_id,
+                func.coalesce(
+                    func.sum(GoodsReceivedLine.quantity_received * PurchaseOrderLine.unit_price),
+                    0,
+                ).label("received"),
+            )
+            .select_from(GoodsReceivedNote)
+            .join(GoodsReceivedLine, GoodsReceivedLine.grn_id == GoodsReceivedNote.id)
+            .join(PurchaseOrderLine, PurchaseOrderLine.id == GoodsReceivedLine.po_line_id)
+            .where(GoodsReceivedNote.status == GoodsReceivedStatus.APPROVED.value)
+            .where(cast(GoodsReceivedNote.approved_at, SqlDate) <= as_at_date)
+            .group_by(GoodsReceivedNote.po_id)
+        )
+        grn_rows = (await self.db.execute(grn_value_q)).all()
+        received_by_po: dict[int, Decimal] = {r[0]: round_money(Decimal(str(r[1] or 0))) for r in grn_rows}
+        pay_supp_q = (
+            select(
+                ProcurementPayment.po_id,
+                func.coalesce(func.sum(ProcurementPayment.amount), 0).label("paid"),
+            )
+            .where(ProcurementPayment.po_id.isnot(None))
+            .where(ProcurementPayment.status == ProcurementPaymentStatus.POSTED.value)
+            .where(ProcurementPayment.payment_date <= as_at_date)
+            .group_by(ProcurementPayment.po_id)
+        )
+        pay_supp_rows = (await self.db.execute(pay_supp_q)).all()
+        paid_by_po: dict[int, Decimal] = {r[0]: round_money(Decimal(str(r[1] or 0))) for r in pay_supp_rows}
+        all_po_ids = set(received_by_po) | set(paid_by_po)
+        supplier_debt = round_money(
+            sum(
+                max(Decimal("0"), received_by_po.get(pid, Decimal("0")) - paid_by_po.get(pid, Decimal("0")))
+                for pid in all_po_ids
             )
         )
-        supplier_debt = round_money(Decimal(str(supp.scalar() or 0)))
         pay_tot = await self.db.execute(
             select(
                 Payment.student_id,
