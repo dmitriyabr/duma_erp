@@ -130,6 +130,153 @@ GUARDIANS = [
     ("Michael Ouma", "+254767890156", None),
 ]
 
+# --- Склад: категории и сотни товаров (реалистичная школа) ---
+# Формат: категория -> список (sku, name, price_kes)
+ITEMS_BY_CATEGORY: dict[str, list[tuple[str, str, int]]] = {
+    "Uniforms": [
+        ("SHIRT-PG", "School Shirt Play Group", 650),
+        ("SHIRT-PP1", "School Shirt PP1", 700),
+        ("SHIRT-PP2", "School Shirt PP2", 750),
+        ("SHIRT-G1", "School Shirt Grade 1", 800),
+        ("SHIRT-G2", "School Shirt Grade 2", 850),
+        ("SHIRT-G3", "School Shirt Grade 3", 900),
+        ("SHIRT-G4", "School Shirt Grade 4", 950),
+        ("SHIRT-G5", "School Shirt Grade 5", 1000),
+        ("SHIRT-G6", "School Shirt Grade 6", 1100),
+        ("SHORTS-PG", "School Shorts Play Group", 450),
+        ("SHORTS-PP1", "School Shorts PP1", 500),
+        ("SHORTS-PP2", "School Shorts PP2", 550),
+        ("SHORTS-G1", "School Shorts Grade 1", 600),
+        ("SHORTS-G2", "School Shorts Grade 2", 650),
+        ("SHORTS-G3", "School Shorts Grade 3", 700),
+        ("SHORTS-G4", "School Shorts Grade 4", 750),
+        ("SHORTS-G5", "School Shorts Grade 5", 800),
+        ("SHORTS-G6", "School Shorts Grade 6", 850),
+        ("SWEATER-S", "School Sweater Small", 1200),
+        ("SWEATER-M", "School Sweater Medium", 1350),
+        ("SWEATER-L", "School Sweater Large", 1500),
+        ("SOCKS-P", "School Socks Primary", 250),
+        ("TIE", "School Tie", 350),
+        ("CAP", "School Cap", 400),
+        ("SHOES-28", "School Shoes size 28", 1800),
+        ("SHOES-30", "School Shoes size 30", 1900),
+        ("SHOES-32", "School Shoes size 32", 2000),
+        ("SHOES-34", "School Shoes size 34", 2100),
+        ("SHOES-36", "School Shoes size 36", 2200),
+    ],
+    "Stationery": [
+        ("PEN-BLUE", "Ballpen Blue", 25),
+        ("PEN-RED", "Ballpen Red", 25),
+        ("PEN-BLACK", "Ballpen Black", 25),
+        ("PENCIL-HB", "Pencil HB", 15),
+        ("PENCIL-2B", "Pencil 2B", 15),
+        ("ERASER", "Eraser", 20),
+        ("SHARPENER", "Pencil Sharpener", 30),
+        ("RULER-30", "Ruler 30cm", 40),
+        ("RULER-15", "Ruler 15cm", 25),
+        ("NB-72", "Notebook 72 pages", 80),
+        ("NB-96", "Notebook 96 pages", 100),
+        ("NB-120", "Notebook 120 pages", 120),
+        ("EX-BK-SQ", "Exercise book Squared", 45),
+        ("EX-BK-LN", "Exercise book Lined", 45),
+        ("A4-REAM", "A4 Paper Ream 500 sheets", 450),
+        ("FOLDER", "Plastic Folder", 80),
+        ("STAPLER", "Stapler", 250),
+        ("STAPLES", "Staples box", 80),
+        ("GLUE-STICK", "Glue Stick", 60),
+        ("SCISSORS", "Scissors", 150),
+        ("MARKER-BLUE", "Marker Blue", 120),
+        ("MARKER-RED", "Marker Red", 120),
+        ("MARKER-BLACK", "Marker Black", 120),
+        ("HIGHLIGHTER", "Highlighter Yellow", 100),
+        ("CARTRIDGE-B", "Ink Cartridge Blue", 350),
+        ("CARTRIDGE-BK", "Ink Cartridge Black", 350),
+        ("CHALK-BOX", "Chalk box", 80),
+        ("BOARD-MARKER", "Whiteboard Marker", 150),
+        ("DUSTER", "Board Duster", 200),
+        ("TAPE-DISP", "Tape Dispenser", 180),
+        ("TAPE-ROLL", "Cellotape Roll", 100),
+        ("CLIP-BOX", "Paper Clips box", 50),
+        ("RUBBER-BAND", "Rubber Bands pack", 40),
+        ("LABEL-A4", "Labels A4 sheet", 120),
+        ("ENVELOPE-A4", "Envelope A4", 15),
+        ("FILE-BOX", "File box", 350),
+        ("CRAYON-12", "Crayons 12 pcs", 180),
+        ("WATER-COLOUR", "Water Colours set", 450),
+        ("BRUSH-SET", "Paint Brushes set", 220),
+        ("CLAY-PACK", "Modelling Clay", 150),
+    ],
+    "Cleaning": [
+        ("DETERGENT-1L", "Detergent 1L", 280),
+        ("DETERGENT-5L", "Detergent 5L", 1200),
+        ("SOAP-BAR", "Bar Soap", 80),
+        ("SOAP-LIQ", "Liquid Soap 1L", 350),
+        ("MOP", "Mop", 650),
+        ("BUCKET", "Bucket", 400),
+        ("BLEACH-1L", "Bleach 1L", 200),
+        ("TOILET-ROLL", "Toilet Roll", 120),
+        ("HAND-TOWEL", "Hand Towel pack", 450),
+        ("BROOM", "Broom", 350),
+        ("DUSTPAN", "Dustpan", 250),
+        ("GLOVES", "Cleaning Gloves", 180),
+        ("SPRAY-500", "Spray 500ml", 320),
+        ("FLOOR-WAX", "Floor Wax 1L", 550),
+        ("SPONGE-PACK", "Sponges pack", 150),
+    ],
+    "Sports": [
+        ("BALL-FOOT", "Football", 1200),
+        ("BALL-NET", "Netball", 1100),
+        ("BALL-RUGBY", "Rugby Ball", 1800),
+        ("BALL-VOLLEY", "Volleyball", 950),
+        ("CONES-SET", "Cones set 10", 800),
+        ("WHISTLE", "Whistle", 150),
+        ("FIRST-AID", "First Aid Kit", 1200),
+        ("BIB-SET", "Bibs set 10", 600),
+        ("SKIP-ROPE", "Skipping Rope", 200),
+        ("STOPWATCH", "Stopwatch", 800),
+        ("BAT-CRICKET", "Cricket Bat", 2500),
+        ("BALL-CRICKET", "Cricket Ball", 450),
+        ("STUMPS", "Cricket Stumps", 900),
+        ("NET-BADMINTON", "Badminton Net", 1500),
+        ("SHUTTLE-PACK", "Shuttlecocks pack", 350),
+        ("RACKET", "Badminton Racket", 1200),
+    ],
+    "Catering": [
+        ("RICE-1KG", "Rice 1kg", 180),
+        ("RICE-5KG", "Rice 5kg", 850),
+        ("BEANS-1KG", "Beans 1kg", 220),
+        ("BEANS-5KG", "Beans 5kg", 1000),
+        ("OIL-1L", "Cooking Oil 1L", 450),
+        ("OIL-5L", "Cooking Oil 5L", 2100),
+        ("FLOUR-1KG", "Wheat Flour 1kg", 120),
+        ("FLOUR-5KG", "Wheat Flour 5kg", 550),
+        ("SUGAR-1KG", "Sugar 1kg", 150),
+        ("SUGAR-5KG", "Sugar 5kg", 700),
+        ("TEA-500G", "Tea 500g", 350),
+        ("MILK-1L", "Milk 1L", 120),
+        ("SALT-1KG", "Salt 1kg", 80),
+        ("SPICE-MIX", "Spice mix pack", 250),
+        ("TOMATO-TIN", "Tomato paste tin", 180),
+        ("ONION-1KG", "Onions 1kg", 100),
+        ("POTATO-1KG", "Potatoes 1kg", 90),
+        ("CABBAGE", "Cabbage", 80),
+        ("CARROT-1KG", "Carrots 1kg", 120),
+    ],
+}
+
+# Поставщики и цели заказов для эмуляции жизни школы
+SUPPLIERS = [
+    ("Nairobi Office Supplies Ltd", "+254700111222", "Supplies"),
+    ("EduStationery Kenya", "+254711222333", "Supplies"),
+    ("School Uniforms Co", None, "Uniforms"),
+    ("CleanPro Supplies", "+254722333444", "Maintenance"),
+    ("Sports Warehouse Nairobi", "+254733444555", "Other"),
+    ("Metro Catering Supplies", "+254744555666", "Other"),
+    ("Jamia Wholesale", "+254755666777", "Other"),
+    ("Guard reimbursement", None, "Other"),
+    ("Teacher out-of-pocket", None, "Other"),
+]
+
 # Школьные сборы по классам (KES) — младшие дешевле, старшие дороже
 FEES_BY_GRADE = {
     "PG": Decimal("45000.00"),
@@ -621,211 +768,316 @@ async def seed_payments_and_allocations(
     print("  Created payments and credit allocations.")
 
 
+def _sku_price_list() -> list[tuple[str, Decimal]]:
+    """Список (sku, price) для генерации строк заказов."""
+    out: list[tuple[str, Decimal]] = []
+    for items_list in ITEMS_BY_CATEGORY.values():
+        for sku, _name, price_kes in items_list:
+            out.append((sku, Decimal(str(price_kes))))
+    return out
+
+
 async def seed_procurement(
     session: AsyncSession,
     num_gen: DocumentNumberGenerator,
     purpose_ids: dict[str, int],
     user_id: int,
     employee_user_id: int,
-) -> tuple[list[int], int | None]:
-    """Заказы, один GRN, один PPAY с employee_paid_id. Возвращает (list of PO ids, procurement_payment_id with employee)."""
+    item_id_by_sku: dict[str, int],
+) -> None:
+    """Десятки заказов, GRN, платежей; эмуляция жизни школы (сотни строк, склады)."""
     result = await session.execute(select(PurchaseOrder).limit(1))
     if result.scalar_one_or_none():
         print("  Procurement already exists, skip.")
-        return [], None
+        return
 
-    purpose_supplies = purpose_ids["Supplies"]
+    sku_price_list = _sku_price_list()
+    if not sku_price_list:
+        print("  No items for PO lines, skip procurement.")
+        return
+
     purpose_other = purpose_ids["Other"]
+    purpose_supplies = purpose_ids["Supplies"]
+    purpose_uniforms = purpose_ids.get("Uniforms", purpose_other)
+    purpose_maint = purpose_ids.get("Maintenance", purpose_other)
 
-    # PO 1: поставка канцтоваров
-    po_number1 = await num_gen.generate("PO", CURRENT_YEAR)
-    po1 = PurchaseOrder(
-        po_number=po_number1,
-        supplier_name="Nairobi Office Supplies Ltd",
-        supplier_contact="+254700111222",
-        purpose_id=purpose_supplies,
-        status=PurchaseOrderStatus.ORDERED.value,
-        order_date=date(CURRENT_YEAR, 1, 20),
-        expected_delivery_date=date(CURRENT_YEAR, 2, 5),
-        track_to_warehouse=False,
-        expected_total=Decimal("25000.00"),
-        received_value=Decimal("0.00"),
-        paid_total=Decimal("0.00"),
-        debt_amount=Decimal("25000.00"),
-        created_by_id=user_id,
-    )
-    session.add(po1)
-    await session.flush()
-    session.add(PurchaseOrderLine(
-        po_id=po1.id,
-        item_id=None,
-        description="A4 paper, pens, folders",
-        quantity_expected=50,
-        quantity_cancelled=0,
-        unit_price=Decimal("500.00"),
-        line_total=Decimal("25000.00"),
-        quantity_received=0,
-        line_order=1,
-    ))
-    await session.flush()
+    # Создаём 45+ заказов: разные поставщики, даты, статусы (draft / ordered / received / partially_received)
+    po_list: list[tuple[PurchaseOrder, list[PurchaseOrderLine], bool]] = []  # (po, lines, will_receive)
+    for i in range(48):
+        supplier_name, contact, purpose_name = SUPPLIERS[i % len(SUPPLIERS)]
+        purpose_id = purpose_ids.get(purpose_name, purpose_other)
+        if supplier_name in ("Guard reimbursement", "Teacher out-of-pocket"):
+            purpose_id = purpose_other
+        # Статусы: ~12 draft, ~12 ordered, ~24 received/partially_received
+        r = i % 4
+        if r == 0:
+            status = PurchaseOrderStatus.DRAFT.value
+            will_receive = False
+        elif r == 1:
+            status = PurchaseOrderStatus.ORDERED.value
+            will_receive = False
+        else:
+            status = PurchaseOrderStatus.RECEIVED.value if r == 3 else PurchaseOrderStatus.PARTIALLY_RECEIVED.value
+            will_receive = True
+        order_d = date(CURRENT_YEAR - 1, 2, 1) + timedelta(days=i * 8) if i < 24 else date(CURRENT_YEAR, 1, 1) + timedelta(days=(i - 24) * 5)
+        po_number = await num_gen.generate("PO", order_d.year)
+        po = PurchaseOrder(
+            po_number=po_number,
+            supplier_name=supplier_name,
+            supplier_contact=contact,
+            purpose_id=purpose_id,
+            status=status,
+            order_date=order_d,
+            expected_delivery_date=order_d + timedelta(days=14),
+            track_to_warehouse=(purpose_name != "Other"),
+            expected_total=Decimal("0.00"),
+            received_value=Decimal("0.00"),
+            paid_total=Decimal("0.00"),
+            debt_amount=Decimal("0.00"),
+            created_by_id=user_id,
+        )
+        session.add(po)
+        await session.flush()
+        # 3–8 строк на заказ (для не-Other — item_id из склада; для Other — без item)
+        num_lines = 3 + (i % 6)
+        lines: list[PurchaseOrderLine] = []
+        expected_total = Decimal("0.00")
+        for ln in range(num_lines):
+            sku, price = sku_price_list[(i * 7 + ln) % len(sku_price_list)]
+            item_id = item_id_by_sku.get(sku) if supplier_name not in ("Guard reimbursement", "Teacher out-of-pocket") else None
+            qty = 10 + (i + ln) % 50 if item_id else 1
+            unit_price = price * (Decimal("0.9") + Decimal((i % 20) / 100))
+            line_total = round_money(unit_price * qty)
+            expected_total += line_total
+            pl = PurchaseOrderLine(
+                po_id=po.id,
+                item_id=item_id,
+                description=sku if item_id else ("Out-of-pocket" if "Guard" in supplier_name else "Sundries"),
+                quantity_expected=qty,
+                quantity_cancelled=0,
+                unit_price=unit_price,
+                line_total=line_total,
+                quantity_received=0,
+                line_order=ln + 1,
+            )
+            session.add(pl)
+            await session.flush()
+            lines.append(pl)
+        po.expected_total = expected_total
+        po.received_value = Decimal("0.00")
+        po.debt_amount = expected_total
+        if will_receive:
+            po_list.append((po, lines, True))
+        await session.flush()
 
-    # PO 2: оплата охранником (employee) — создаст ExpenseClaim
-    po_number2 = await num_gen.generate("PO", CURRENT_YEAR)
-    po2 = PurchaseOrder(
-        po_number=po_number2,
-        supplier_name="Guard reimbursement",
-        supplier_contact=None,
-        purpose_id=purpose_other,
-        status=PurchaseOrderStatus.RECEIVED.value,
-        order_date=date(CURRENT_YEAR, 1, 15),
-        expected_delivery_date=None,
-        track_to_warehouse=False,
-        expected_total=Decimal("3000.00"),
-        received_value=Decimal("3000.00"),
-        paid_total=Decimal("3000.00"),
-        debt_amount=Decimal("0.00"),
-        created_by_id=user_id,
-    )
-    session.add(po2)
-    await session.flush()
-    session.add(PurchaseOrderLine(
-        po_id=po2.id,
-        item_id=None,
-        description="Out-of-pocket (guard)",
-        quantity_expected=1,
-        quantity_cancelled=0,
-        unit_price=Decimal("3000.00"),
-        line_total=Decimal("3000.00"),
-        quantity_received=1,
-        line_order=1,
-    ))
-    await session.flush()
+    # GRN для полученных/частично полученных заказов (~25)
+    stock_by_item: dict[int, Stock] = {}
+    grn_count = 0
+    for po, lines, _ in po_list:
+        grn_number = await num_gen.generate("GRN", po.order_date.year)
+        received_date = po.order_date + timedelta(days=5)
+        grn = GoodsReceivedNote(
+            grn_number=grn_number,
+            po_id=po.id,
+            status=GoodsReceivedStatus.APPROVED.value,
+            received_date=received_date,
+            received_by_id=user_id,
+            approved_by_id=user_id,
+            approved_at=received_date,
+            notes="Demo receipt",
+        )
+        session.add(grn)
+        await session.flush()
+        grn_count += 1
+        received_value = Decimal("0.00")
+        for pl in lines:
+            qty_rec = pl.quantity_expected if po.status == PurchaseOrderStatus.RECEIVED.value else max(1, pl.quantity_expected // 2)
+            pl.quantity_received = qty_rec
+            received_value += round_money(pl.unit_price * qty_rec)
+            grn_line = GoodsReceivedLine(
+                grn_id=grn.id,
+                po_line_id=pl.id,
+                item_id=pl.item_id,
+                quantity_received=qty_rec,
+            )
+            session.add(grn_line)
+            await session.flush()
+            if pl.item_id and qty_rec > 0:
+                if pl.item_id not in stock_by_item:
+                    st = Stock(
+                        item_id=pl.item_id,
+                        quantity_on_hand=0,
+                        quantity_reserved=0,
+                        average_cost=Decimal("0.00"),
+                    )
+                    session.add(st)
+                    await session.flush()
+                    stock_by_item[pl.item_id] = st
+                st = stock_by_item[pl.item_id]
+                cost = pl.unit_price
+                q_before = st.quantity_on_hand
+                avg_before = st.average_cost
+                total_before = q_before * avg_before
+                total_after = total_before + cost * qty_rec
+                q_after = q_before + qty_rec
+                avg_after = (total_after / q_after) if q_after else Decimal("0.00")
+                st.quantity_on_hand = q_after
+                st.average_cost = round_money(avg_after)
+                session.add(StockMovement(
+                    stock_id=st.id,
+                    item_id=pl.item_id,
+                    movement_type=MovementType.RECEIPT.value,
+                    quantity=qty_rec,
+                    unit_cost=cost,
+                    quantity_before=q_before,
+                    quantity_after=q_after,
+                    average_cost_before=avg_before,
+                    average_cost_after=st.average_cost,
+                    reference_type="goods_received_note",
+                    reference_id=grn.id,
+                    notes=f"GRN {grn.grn_number}",
+                    created_by_id=user_id,
+                ))
+        po.received_value = received_value
+        po.debt_amount = po.expected_total - received_value
+        await session.flush()
 
-    # PPAY по PO2 от имени сотрудника (guard)
-    ppay_number = await num_gen.generate("PPAY", CURRENT_YEAR)
-    ppay = ProcurementPayment(
-        payment_number=ppay_number,
-        po_id=po2.id,
-        purpose_id=purpose_other,
-        payee_name="Security Guard",
-        payment_date=date(CURRENT_YEAR, 1, 25),
-        amount=Decimal("3000.00"),
-        payment_method=ProcurementPaymentMethod.CASH.value,
-        company_paid=False,
-        employee_paid_id=employee_user_id,
-        status=ProcurementPaymentStatus.POSTED.value,
-        created_by_id=user_id,
-    )
-    session.add(ppay)
-    await session.flush()
-    emp_payment_id = ppay.id
+    # Платежи по закупкам: 35+ (часть по PO, часть Other; 5 с employee_paid_id)
+    all_po_ids = [t[0].id for t in po_list]
+    po_ids_with_po = [pid for pid in all_po_ids]
+    payments_for_claims: list[ProcurementPayment] = []
+    for j in range(38):
+        is_employee = j in (0, 8, 16, 24, 32)
+        if is_employee:
+            payee_name = "Security Guard" if j % 2 == 0 else "Jane Teacher"
+            po_for_emp = None
+            purpose_id = purpose_other
+            amt = Decimal("2500.00") + Decimal((j * 100) % 2000)
+        else:
+            if not po_ids_with_po:
+                continue
+            po_id = po_ids_with_po[j % len(po_ids_with_po)]
+            po_row = (await session.execute(select(PurchaseOrder).where(PurchaseOrder.id == po_id))).scalar_one()
+            po_for_emp = po_id
+            purpose_id = po_row.purpose_id
+            amt = min(po_row.debt_amount, Decimal("50000.00") + Decimal((j * 1000) % 30000))
+            if amt <= 0:
+                continue
+            payee_name = po_row.supplier_name
+        pay_d = date(CURRENT_YEAR, 1, 15) + timedelta(days=j % 45)
+        ppay_number = await num_gen.generate("PPAY", pay_d.year)
+        ppay = ProcurementPayment(
+            payment_number=ppay_number,
+            po_id=po_for_emp,
+            purpose_id=purpose_id,
+            payee_name=payee_name,
+            payment_date=pay_d,
+            amount=amt,
+            payment_method=ProcurementPaymentMethod.MPESA.value if j % 3 != 0 else ProcurementPaymentMethod.BANK.value,
+            company_paid=not is_employee,
+            employee_paid_id=employee_user_id if is_employee else None,
+            status=ProcurementPaymentStatus.POSTED.value,
+            created_by_id=user_id,
+        )
+        session.add(ppay)
+        await session.flush()
+        if is_employee:
+            payments_for_claims.append(ppay)
+        else:
+            po_row.paid_total += amt
+            po_row.debt_amount -= amt
+        await session.flush()
 
-    # ExpenseClaim от этого платежа (вручную, как в create_from_payment)
-    claim_number = await num_gen.generate("CLM", CURRENT_YEAR)
-    claim = ExpenseClaim(
-        claim_number=claim_number,
-        payment_id=ppay.id,
-        employee_id=employee_user_id,
-        purpose_id=purpose_other,
-        amount=Decimal("3000.00"),
-        description=f"Reimbursement {ppay.payment_number}",
-        expense_date=ppay.payment_date,
-        status=ExpenseClaimStatus.APPROVED.value,
-        paid_amount=Decimal("3000.00"),
-        remaining_amount=Decimal("0.00"),
-        auto_created_from_payment=True,
-        related_procurement_payment_id=ppay.id,
-    )
-    session.add(claim)
-    await session.flush()
+    # Expense claims и payouts по employee payments
+    claim_ids_and_amounts: list[tuple[int, Decimal]] = []
+    for ppay in payments_for_claims:
+        claim_number = await num_gen.generate("CLM", ppay.payment_date.year)
+        claim = ExpenseClaim(
+            claim_number=claim_number,
+            payment_id=ppay.id,
+            employee_id=ppay.employee_paid_id,
+            purpose_id=ppay.purpose_id,
+            amount=ppay.amount,
+            description=f"Reimbursement {ppay.payment_number}",
+            expense_date=ppay.payment_date,
+            status=ExpenseClaimStatus.APPROVED.value,
+            paid_amount=Decimal("0.00"),
+            remaining_amount=ppay.amount,
+            auto_created_from_payment=True,
+            related_procurement_payment_id=ppay.id,
+        )
+        session.add(claim)
+        await session.flush()
+        claim_ids_and_amounts.append((claim.id, claim.amount))
 
-    # Compensation payout и аллокация на claim
-    payout_number = await num_gen.generate("PAY", CURRENT_YEAR)
-    payout = CompensationPayout(
-        payout_number=payout_number,
-        employee_id=employee_user_id,
-        payout_date=date(CURRENT_YEAR, 2, 1),
-        amount=Decimal("3000.00"),
-        payment_method=PayoutMethod.CASH.value,
-    )
-    session.add(payout)
-    await session.flush()
-    session.add(PayoutAllocation(payout_id=payout.id, claim_id=claim.id, allocated_amount=Decimal("3000.00")))
-    # EmployeeBalance для отчётов
+    total_approved = sum(a for _, a in claim_ids_and_amounts)
+    paid_so_far = Decimal("0.00")
+    for idx, (claim_id, amount) in enumerate(claim_ids_and_amounts):
+        payout_number = await num_gen.generate("PAY", date(CURRENT_YEAR, 2, 1).year)
+        payout = CompensationPayout(
+            payout_number=payout_number,
+            employee_id=employee_user_id,
+            payout_date=date(CURRENT_YEAR, 2, 1) + timedelta(days=idx * 3),
+            amount=amount,
+            payment_method=PayoutMethod.CASH.value,
+        )
+        session.add(payout)
+        await session.flush()
+        session.add(PayoutAllocation(payout_id=payout.id, claim_id=claim_id, allocated_amount=amount))
+        claim_row = (await session.execute(select(ExpenseClaim).where(ExpenseClaim.id == claim_id))).scalar_one()
+        claim_row.paid_amount = amount
+        claim_row.remaining_amount = Decimal("0.00")
+        claim_row.status = ExpenseClaimStatus.PAID.value
+        paid_so_far += amount
+        await session.flush()
+
     eb = EmployeeBalance(
         employee_id=employee_user_id,
-        total_approved=Decimal("3000.00"),
-        total_paid=Decimal("3000.00"),
+        total_approved=total_approved,
+        total_paid=paid_so_far,
         balance=Decimal("0.00"),
     )
     session.add(eb)
     await session.flush()
 
-    print("  Created POs, procurement payment, expense claim, payout, employee balance.")
-    return [po1.id, po2.id], emp_payment_id
+    print(f"  Created 48 POs, {grn_count} GRNs, 38 procurement payments, {len(payments_for_claims)} claims/payouts, stock for {len(stock_by_item)} items.")
 
 
-async def seed_inventory_items_and_stock(session: AsyncSession, user_id: int) -> None:
-    """Пара товаров (форма) и остатки для отчётов по складу."""
+async def seed_inventory_categories_and_items(session: AsyncSession) -> dict[str, int]:
+    """Создаёт категории склада и сотни товаров (форма, канцтовары, уборка, спорт, питание). Возвращает sku -> item_id."""
     result = await session.execute(select(Item).limit(1))
     if result.scalar_one_or_none():
-        print("  Inventory items/stock already exist, skip.")
-        return
+        print("  Inventory items already exist, loading sku -> id.")
+        r = await session.execute(select(Item.sku_code, Item.id))
+        return {row[0]: row[1] for row in r.all()}
 
-    cat = Category(name="Uniforms", is_active=True)
-    session.add(cat)
-    await session.flush()
-    items = [
-        Item(
-            category_id=cat.id,
-            sku_code="SHIRT-P",
-            name="School Shirt (Primary)",
-            item_type=ItemType.PRODUCT.value,
-            price_type="standard",
-            price=Decimal("1200.00"),
-            requires_full_payment=True,
-            is_active=True,
-        ),
-        Item(
-            category_id=cat.id,
-            sku_code="SHORTS-P",
-            name="School Shorts (Primary)",
-            item_type=ItemType.PRODUCT.value,
-            price_type="standard",
-            price=Decimal("800.00"),
-            requires_full_payment=True,
-            is_active=True,
-        ),
-    ]
-    for it in items:
-        session.add(it)
-    await session.flush()
-    for it in items:
-        st = Stock(
-            item_id=it.id,
-            quantity_on_hand=100,
-            quantity_reserved=0,
-            average_cost=Decimal("600.00"),
-        )
-        session.add(st)
+    category_ids: dict[str, int] = {}
+    for cat_name in ITEMS_BY_CATEGORY:
+        c = Category(name=cat_name, is_active=True)
+        session.add(c)
         await session.flush()
-        session.add(StockMovement(
-            stock_id=st.id,
-            item_id=it.id,
-            movement_type=MovementType.RECEIPT.value,
-            quantity=100,
-            unit_cost=Decimal("600.00"),
-            quantity_before=0,
-            quantity_after=100,
-            average_cost_before=Decimal("0.00"),
-            average_cost_after=Decimal("600.00"),
-            reference_type="adjustment",
-            reference_id=None,
-            notes="Opening balance (demo)",
-            created_by_id=user_id,
-        ))
-    await session.flush()
-    print("  Created Uniforms category, 2 items, stock and movements.")
+        category_ids[cat_name] = c.id
+
+    item_id_by_sku: dict[str, int] = {}
+    for cat_name, items_list in ITEMS_BY_CATEGORY.items():
+        cat_id = category_ids[cat_name]
+        for sku, name, price_kes in items_list:
+            it = Item(
+                category_id=cat_id,
+                sku_code=sku,
+                name=name,
+                item_type=ItemType.PRODUCT.value,
+                price_type="standard",
+                price=Decimal(str(price_kes)),
+                requires_full_payment=True,
+                is_active=True,
+            )
+            session.add(it)
+            await session.flush()
+            item_id_by_sku[sku] = it.id
+    total = sum(len(v) for v in ITEMS_BY_CATEGORY.values())
+    print(f"  Created {len(ITEMS_BY_CATEGORY)} categories and {total} items.")
+    return item_id_by_sku
 
 
 async def run_seed(session: AsyncSession, dry_run: bool) -> None:
@@ -850,8 +1102,8 @@ async def run_seed(session: AsyncSession, dry_run: bool) -> None:
         sku_to_kit_id, students, user_id,
     )
     await seed_payments_and_allocations(session, num_gen, students, invoice_totals, user_id)
-    await seed_procurement(session, num_gen, purpose_ids, user_id, employee_user_id or user_id)
-    await seed_inventory_items_and_stock(session, user_id)
+    item_id_by_sku = await seed_inventory_categories_and_items(session)
+    await seed_procurement(session, num_gen, purpose_ids, user_id, employee_user_id or user_id, item_id_by_sku)
 
     if dry_run:
         await session.rollback()
