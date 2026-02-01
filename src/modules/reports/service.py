@@ -696,9 +696,10 @@ class ReportsService:
         pay_supp_rows = (await self.db.execute(pay_supp_q)).all()
         paid_by_po: dict[int, Decimal] = {r[0]: round_money(Decimal(str(r[1] or 0))) for r in pay_supp_rows}
         all_po_ids = set(received_by_po) | set(paid_by_po)
+        # Sum (received - paid) per PO: can be negative (overpayment = prepayment/advance to supplier).
         supplier_debt = round_money(
             sum(
-                max(Decimal("0"), received_by_po.get(pid, Decimal("0")) - paid_by_po.get(pid, Decimal("0")))
+                received_by_po.get(pid, Decimal("0")) - paid_by_po.get(pid, Decimal("0"))
                 for pid in all_po_ids
             )
         )
