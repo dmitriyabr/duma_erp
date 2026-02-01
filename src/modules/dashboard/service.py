@@ -223,8 +223,6 @@ class DashboardService:
     ) -> tuple[Decimal, Decimal, Decimal]:
         """Get term-specific revenue and invoice metrics."""
         # Execute revenue and invoice queries in parallel
-        import asyncio
-
         revenue_task = self.db.execute(
             select(func.coalesce(func.sum(Payment.amount), 0)).where(
                 Payment.status == PaymentStatus.COMPLETED.value,
