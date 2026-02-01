@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.compensations.models import CompensationPayout, ExpenseClaim, ExpenseClaimStatus
 from src.modules.invoices.models import Invoice, InvoiceStatus
-from src.modules.payments.models import CreditAllocation, Payment, PaymentStatus
+from src.modules.payments.models import Payment, PaymentStatus
 from src.modules.procurement.models import (
     GoodsReceivedNote,
     GoodsReceivedStatus,
@@ -157,29 +157,11 @@ class DashboardService:
         supplier_debt = round_money(Decimal(str(supp.scalar() or 0)))
 
         # --- Credit balances (sum of available balance per student) ---
-        pay_tot = await self.db.execute(
-            select(
-                Payment.student_id,
-                func.coalesce(func.sum(Payment.amount), 0).label("s"),
-            ).where(Payment.status == PaymentStatus.COMPLETED.value).group_by(Payment.student_id)
+        # Use cached balances from students table (much faster than SUM queries)
+        credit_result = await self.db.execute(
+            select(func.coalesce(func.sum(Student.cached_credit_balance), 0))
         )
-        payments_by_student = {r[0]: Decimal(str(r[1])) for r in pay_tot.all()}
-
-        alloc_tot = await self.db.execute(
-            select(
-                CreditAllocation.student_id,
-                func.coalesce(func.sum(CreditAllocation.amount), 0).label("s"),
-            ).group_by(CreditAllocation.student_id)
-        )
-        allocated_by_student = {r[0]: Decimal(str(r[1])) for r in alloc_tot.all()}
-
-        all_students = set(payments_by_student) | set(allocated_by_student)
-        credit_balances_total = Decimal("0")
-        for sid in all_students:
-            p = payments_by_student.get(sid, Decimal("0"))
-            a = allocated_by_student.get(sid, Decimal("0"))
-            credit_balances_total += round_money(p - a)
-        credit_balances_total = round_money(credit_balances_total)
+        credit_balances_total = round_money(Decimal(str(credit_result.scalar() or 0)))
 
         # --- Pending expense claims ---
         pending_statuses = (
