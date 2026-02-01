@@ -144,7 +144,7 @@ async def export_student_balance_changes(
     db: AsyncSession = Depends(get_db),
     current_user: User = AccountantOrAdmin,
 ):
-    """Export all student balance changes (payments in, allocations out) for date range as CSV."""
+    """Export student balance changes with running balances, grouped by student. Includes opening/closing balances and transaction details."""
     if format.lower() != "csv":
         return Response(
             content="Only CSV format is supported",
@@ -155,7 +155,7 @@ async def export_student_balance_changes(
         date_from=start_date,
         date_to=end_date,
     )
-    content = build_student_balance_changes_csv(rows)
+    content = build_student_balance_changes_csv(rows, date_from=start_date)
     filename = f"student_balance_changes_{start_date}_{end_date}.csv"
     return Response(
         content=content,

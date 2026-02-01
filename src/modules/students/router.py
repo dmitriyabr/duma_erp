@@ -16,7 +16,10 @@ from src.modules.students.schemas import (
     StudentUpdate,
 )
 from src.modules.students.service import StudentService
+from src.modules.invoices.service import InvoiceService
 from src.shared.schemas.base import ApiResponse, PaginatedResponse
+from src.shared.utils.money import round_money
+from decimal import Decimal
 
 router = APIRouter(prefix="/students", tags=["Students"])
 
@@ -107,8 +110,16 @@ async def update_grade(
 # --- Student Endpoints ---
 
 
-def _student_to_response(student) -> StudentResponse:
+def _student_to_response(
+    student, 
+    available_balance: float | None = None,
+    outstanding_debt: float | None = None,
+) -> StudentResponse:
     """Helper to convert Student to response."""
+    balance = None
+    if available_balance is not None and outstanding_debt is not None:
+        balance = round_money(Decimal(str(available_balance)) - Decimal(str(outstanding_debt)))
+    
     return StudentResponse(
         id=student.id,
         student_number=student.student_number,
@@ -128,6 +139,9 @@ def _student_to_response(student) -> StudentResponse:
         enrollment_date=student.enrollment_date,
         notes=student.notes,
         created_by_id=student.created_by_id,
+        available_balance=float(available_balance) if available_balance is not None else None,
+        outstanding_debt=float(outstanding_debt) if outstanding_debt is not None else None,
+        balance=float(balance) if balance is not None else None,
     )
 
 
@@ -163,6 +177,7 @@ async def list_students(
     grade_id: int | None = Query(None, description="Filter by grade"),
     transport_zone_id: int | None = Query(None, description="Filter by transport zone"),
     search: str | None = Query(None, description="Search by name, number, guardian"),
+    include_balance: bool = Query(False, description="Include credit balance and outstanding debt"),
     page: int = Query(1, ge=1),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
@@ -184,10 +199,37 @@ async def list_students(
         limit=limit,
     )
 
+    # Load balances if requested
+    balances_map = {}
+    debt_map = {}
+    if include_balance and students:
+        student_ids = [s.id for s in students]
+        
+        # Get cached credit balances (from students table)
+        from src.modules.students.models import Student
+        from sqlalchemy import select
+        result = await db.execute(
+            select(Student.id, Student.cached_credit_balance)
+            .where(Student.id.in_(student_ids))
+        )
+        balances_map = {row[0]: float(row[1]) for row in result.all()}
+        
+        # Get outstanding debt (from invoices)
+        invoice_service = InvoiceService(db)
+        totals = await invoice_service.get_outstanding_totals(student_ids)
+        debt_map = {t.student_id: float(t.total_due) for t in totals}
+
     return ApiResponse(
         success=True,
         data=PaginatedResponse.create(
-            items=[_student_to_response(s) for s in students],
+            items=[
+                _student_to_response(
+                    s,
+                    available_balance=balances_map.get(s.id),
+                    outstanding_debt=debt_map.get(s.id, 0.0),
+                )
+                for s in students
+            ],
             total=total,
             page=page,
             limit=limit,
