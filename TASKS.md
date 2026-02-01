@@ -694,6 +694,7 @@
 - [x] Страницы отчётов Procurement & Inventory: Procurement Summary, Inventory Valuation, Low Stock Alert, Stock Movement Report (меню, роуты, страницы).
 - [x] Страницы отчётов Compensations: Compensation Summary, Expense Claims by Category (меню, роуты, страницы).
 - [x] Страницы отчётов Analytics: Revenue per Student Trend, Payment Method Distribution, Term Comparison, KPIs & Metrics (меню, роуты, страницы).
+- [x] Скрипт наполнения БД демо-данными: `scripts/seed_demo_data.py` (реалистичные школьные данные: пользователи, классы, термы, ученики, счета, платежи, закупки, компенсации, склад).
 - [ ] Экспорт PDF/Excel для отчётов.
 
 **Порядок реализации (рекомендуемый):** сначала backend dashboard + один отчёт (например aged-receivables или student-fees), тесты; затем фронт дашборда и один отчёт; потом остальные отчёты.
