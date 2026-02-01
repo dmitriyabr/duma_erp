@@ -1,17 +1,12 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Checkbox,
-  FormControlLabel,
-  Paper,
-  TextField,
-  Typography,
-} from '@mui/material'
-import SchoolIcon from '@mui/icons-material/School'
+import { School } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
+import { Input } from '../components/ui/Input'
+import { Button } from '../components/ui/Button'
+import { Alert } from '../components/ui/Alert'
+import { Checkbox } from '../components/ui/Checkbox'
+import { Typography } from '../components/ui/Typography'
 
 export const LoginPage = () => {
   const { login, user } = useAuth()
@@ -45,169 +40,63 @@ export const LoginPage = () => {
   }
 
   return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        display: 'flex',
-        background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
-      }}
-    >
+    <div className="min-h-screen flex bg-gradient-to-br from-slate-900 to-slate-800">
       {/* Left side - Branding */}
-      <Box
-        sx={{
-          flex: 1,
-          display: { xs: 'none', md: 'flex' },
-          flexDirection: 'column',
-          justifyContent: 'center',
-          alignItems: 'center',
-          p: 6,
-        }}
-      >
-        <Box
-          sx={{
-            width: 80,
-            height: 80,
-            borderRadius: 3,
-            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            mb: 3,
-            boxShadow: '0 20px 40px -10px rgba(99, 102, 241, 0.4)',
-          }}
-        >
-          <SchoolIcon sx={{ color: 'white', fontSize: 48 }} />
-        </Box>
-        <Typography
-          variant="h3"
-          sx={{
-            fontWeight: 700,
-            color: '#ffffff',
-            textAlign: 'center',
-            mb: 2,
-          }}
-        >
+      <div className="hidden md:flex flex-1 flex-col justify-center items-center p-12">
+        <div className="w-20 h-20 rounded-xl bg-gradient-to-br from-primary to-primary-dark flex items-center justify-center mb-6 shadow-2xl shadow-primary/40">
+          <School className="w-12 h-12 text-white" />
+        </div>
+        <Typography variant="h1" className="text-white text-center mb-4">
           School ERP
         </Typography>
-        <Typography
-          sx={{
-            color: '#94a3b8',
-            textAlign: 'center',
-            maxWidth: 400,
-            fontSize: '1.125rem',
-            lineHeight: 1.6,
-          }}
-        >
+        <Typography variant="body1" className="text-slate-300 text-center max-w-md text-lg leading-relaxed">
           Complete school management system for billing, inventory, procurement, and more.
         </Typography>
-      </Box>
+      </div>
 
       {/* Right side - Login form */}
-      <Box
-        sx={{
-          flex: { xs: 1, md: '0 0 480px' },
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          p: 3,
-          backgroundColor: '#f8fafc',
-          borderRadius: { xs: 0, md: '32px 0 0 32px' },
-        }}
-      >
-        <Paper
-          elevation={0}
-          sx={{
-            p: 5,
-            width: '100%',
-            maxWidth: 400,
-            backgroundColor: 'transparent',
-          }}
-        >
-          <Box sx={{ display: { xs: 'flex', md: 'none' }, justifyContent: 'center', mb: 3 }}>
-            <Box
-              sx={{
-                width: 56,
-                height: 56,
-                borderRadius: 2,
-                background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <SchoolIcon sx={{ color: 'white', fontSize: 32 }} />
-            </Box>
-          </Box>
+      <div className="flex-1 md:flex-[0_0_480px] flex items-center justify-center p-6 bg-slate-50 md:rounded-l-[32px]">
+        <div className="w-full max-w-md">
+          <div className="flex justify-center md:hidden mb-6">
+            <div className="w-14 h-14 rounded-lg bg-gradient-to-br from-primary to-primary-dark flex items-center justify-center">
+              <School className="w-8 h-8 text-white" />
+            </div>
+          </div>
 
-          <Typography
-            variant="h4"
-            sx={{
-              fontWeight: 700,
-              mb: 1,
-              color: '#1e293b',
-              textAlign: { xs: 'center', md: 'left' },
-            }}
-          >
+          <Typography variant="h4" className="mb-1 text-center md:text-left">
             Welcome back
           </Typography>
-          <Typography
-            sx={{
-              color: '#64748b',
-              mb: 4,
-              textAlign: { xs: 'center', md: 'left' },
-            }}
-          >
+          <Typography variant="body2" color="secondary" className="mb-8 text-center md:text-left">
             Enter your credentials to access your account
           </Typography>
 
-          {error ? (
-            <Alert severity="error" sx={{ mb: 3 }}>
+          {error && (
+            <Alert severity="error" className="mb-6">
               {error}
             </Alert>
-          ) : null}
+          )}
 
-          <Box component="form" onSubmit={handleSubmit}>
-            <TextField
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <Input
               label="Email address"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              fullWidth
-              margin="normal"
               type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               required
               autoComplete="email"
-              sx={{ mb: 2 }}
             />
-            <TextField
+            <Input
               label="Password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              fullWidth
-              margin="normal"
               type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               required
               autoComplete="current-password"
-              sx={{ mb: 1 }}
             />
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={remember}
-                  onChange={(event) => setRemember(event.target.checked)}
-                  sx={{
-                    color: '#94a3b8',
-                    '&.Mui-checked': {
-                      color: '#6366f1',
-                    },
-                  }}
-                />
-              }
-              label={
-                <Typography sx={{ color: '#64748b', fontSize: '0.875rem' }}>
-                  Remember me
-                </Typography>
-              }
-              sx={{ mb: 3 }}
+            <Checkbox
+              label="Remember me"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
             />
             <Button
               type="submit"
@@ -215,27 +104,16 @@ export const LoginPage = () => {
               fullWidth
               size="large"
               disabled={isSubmitting}
-              sx={{
-                py: 1.5,
-                fontSize: '1rem',
-              }}
             >
               {isSubmitting ? 'Signing in...' : 'Sign in'}
             </Button>
-          </Box>
+          </form>
 
-          <Typography
-            sx={{
-              mt: 4,
-              textAlign: 'center',
-              color: '#94a3b8',
-              fontSize: '0.8125rem',
-            }}
-          >
+          <Typography variant="caption" color="secondary" className="mt-8 text-center block">
             Demo: admin@school.com / Admin123!
           </Typography>
-        </Paper>
-      </Box>
-    </Box>
+        </div>
+      </div>
+    </div>
   )
 }

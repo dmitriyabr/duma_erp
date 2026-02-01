@@ -1,35 +1,28 @@
-import {
-  AppBar,
-  Avatar,
-  Box,
-  IconButton,
-  Menu,
-  MenuItem,
-  Toolbar,
-  Tooltip,
-  Typography,
-} from '@mui/material'
-import LogoutIcon from '@mui/icons-material/Logout'
-import PersonIcon from '@mui/icons-material/Person'
-import { useState } from 'react'
+import { LogOut, User } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../auth/AuthContext'
+import { cn } from '../utils/cn'
 
 export const TopBar = () => {
   const { user, logout } = useAuth()
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
 
-  const handleMenu = (event: React.MouseEvent<HTMLElement>) => {
-    setAnchorEl(event.currentTarget)
-  }
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
 
-  const handleClose = () => {
-    setAnchorEl(null)
-  }
+    if (menuOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
 
-  const handleLogout = () => {
-    handleClose()
-    logout()
-  }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [menuOpen])
 
   const getInitials = (name: string) => {
     return name
@@ -41,109 +34,58 @@ export const TopBar = () => {
   }
 
   return (
-    <AppBar
-      position="sticky"
-      elevation={0}
-      sx={{
-        bgcolor: '#ffffff',
-        color: '#1e293b',
-        borderBottom: '1px solid #e2e8f0',
-      }}
-    >
-      <Toolbar sx={{ display: 'flex', justifyContent: 'space-between', minHeight: 64 }}>
-        <Box>
-          <Typography variant="h6" sx={{ fontWeight: 600, color: '#1e293b' }}>
+    <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-none">
+      <div className="flex items-center justify-between px-6 h-16">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-800">
             {user ? `Welcome back, ${user.full_name.split(' ')[0]}` : 'School ERP'}
-          </Typography>
-          <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.8125rem' }}>
+          </h2>
+          <p className="text-sm text-slate-500">
             {new Date().toLocaleDateString('en-GB', {
               weekday: 'long',
               year: 'numeric',
               month: 'long',
               day: 'numeric',
             })}
-          </Typography>
-        </Box>
+          </p>
+        </div>
 
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Tooltip title="Account">
-            <IconButton
-              onClick={handleMenu}
-              sx={{
-                p: 0.5,
-                '&:hover': {
-                  backgroundColor: 'rgba(99, 102, 241, 0.08)',
-                },
-              }}
-            >
-              <Avatar
-                sx={{
-                  width: 40,
-                  height: 40,
-                  background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-                  fontSize: '0.875rem',
-                  fontWeight: 600,
-                }}
-              >
-                {user ? getInitials(user.full_name) : <PersonIcon />}
-              </Avatar>
-            </IconButton>
-          </Tooltip>
-
-          <Menu
-            anchorEl={anchorEl}
-            open={Boolean(anchorEl)}
-            onClose={handleClose}
-            transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-            anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-            PaperProps={{
-              sx: {
-                mt: 1,
-                minWidth: 200,
-                borderRadius: 2,
-                boxShadow: '0 10px 40px -10px rgba(0, 0, 0, 0.2)',
-              },
-            }}
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setMenuOpen(!menuOpen)}
+            className="p-1 rounded-lg hover:bg-primary/8 transition-colors"
+            aria-label="Account menu"
           >
-            <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid #e2e8f0' }}>
-              <Typography sx={{ fontWeight: 600, color: '#1e293b' }}>
-                {user?.full_name}
-              </Typography>
-              <Typography variant="body2" sx={{ color: '#64748b' }}>
-                {user?.email}
-              </Typography>
-              <Typography
-                variant="caption"
-                sx={{
-                  display: 'inline-block',
-                  mt: 0.5,
-                  px: 1,
-                  py: 0.25,
-                  borderRadius: 1,
-                  backgroundColor: 'rgba(99, 102, 241, 0.1)',
-                  color: '#6366f1',
-                  fontWeight: 500,
-                }}
-              >
-                {user?.role}
-              </Typography>
-            </Box>
-            <MenuItem
-              onClick={handleLogout}
-              sx={{
-                py: 1.5,
-                color: '#ef4444',
-                '&:hover': {
-                  backgroundColor: 'rgba(239, 68, 68, 0.08)',
-                },
-              }}
+            <div
+              className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary-dark flex items-center justify-center text-white text-sm font-semibold"
             >
-              <LogoutIcon sx={{ mr: 1.5, fontSize: 20 }} />
-              Sign out
-            </MenuItem>
-          </Menu>
-        </Box>
-      </Toolbar>
-    </AppBar>
+              {user ? getInitials(user.full_name) : <User className="w-5 h-5" />}
+            </div>
+          </button>
+
+          {menuOpen && (
+            <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-lg shadow-xl border border-slate-200 overflow-hidden z-50">
+              <div className="px-4 py-3 border-b border-slate-200">
+                <p className="font-semibold text-slate-800">{user?.full_name}</p>
+                <p className="text-sm text-slate-500">{user?.email}</p>
+                <span className="inline-block mt-1 px-2 py-0.5 rounded bg-primary/10 text-primary text-xs font-medium">
+                  {user?.role}
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  setMenuOpen(false)
+                  logout()
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-error hover:bg-error/8 transition-colors"
+              >
+                <LogOut className="w-5 h-5" />
+                <span>Sign out</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </header>
   )
 }

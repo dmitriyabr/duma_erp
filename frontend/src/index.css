@@ -1,16 +1,38 @@
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-body {
-  margin: 0;
-  background-color: #f5f6f8;
-  color: #1f2933;
-  font-family: Roboto, Helvetica, Arial, sans-serif;
-}
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
 
-#root {
-  min-height: 100vh;
+  body {
+    @apply bg-slate-50 text-slate-800 font-sans;
+    margin: 0;
+  }
+
+  #root {
+    min-height: 100vh;
+  }
+
+  /* Custom scrollbar */
+  body {
+    scrollbar-width: thin;
+  }
+
+  body::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  body::-webkit-scrollbar-thumb {
+    @apply bg-slate-300 rounded;
+  }
+
+  body::-webkit-scrollbar-track {
+    background: transparent;
+  }
 }

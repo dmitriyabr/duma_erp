@@ -1,11 +1,11 @@
 import {
-  Button,
   Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
   DialogTitle,
-} from '@mui/material'
+  DialogContent,
+  DialogActions,
+} from './ui/Dialog'
+import { Button } from './ui/Button'
+import { Typography } from './ui/Typography'
 
 interface ConfirmDialogProps {
   open: boolean
@@ -30,10 +30,14 @@ export const ConfirmDialog = ({
     <Dialog open={open} onClose={onCancel}>
       <DialogTitle>{title}</DialogTitle>
       <DialogContent>
-        <DialogContentText>{description}</DialogContentText>
+        <Typography variant="body1" color="secondary">
+          {description}
+        </Typography>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onCancel}>{cancelLabel}</Button>
+        <Button variant="outlined" onClick={onCancel}>
+          {cancelLabel}
+        </Button>
         <Button variant="contained" onClick={onConfirm}>
           {confirmLabel}
         </Button>

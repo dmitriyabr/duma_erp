@@ -1,20 +1,13 @@
 import {
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CircularProgress,
-  Link,
-  Typography,
-} from '@mui/material'
-import PersonAddIcon from '@mui/icons-material/PersonAdd'
-import PaymentIcon from '@mui/icons-material/Payment'
-import ShoppingCartIcon from '@mui/icons-material/ShoppingCart'
-import LocalShippingIcon from '@mui/icons-material/LocalShipping'
-import InventoryIcon from '@mui/icons-material/Inventory'
-import ReceiptLongIcon from '@mui/icons-material/ReceiptLong'
-import CheckroomIcon from '@mui/icons-material/Checkroom'
-import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn'
+  UserPlus,
+  CreditCard,
+  ShoppingCart,
+  Truck,
+  Package,
+  Receipt,
+  Shirt,
+  CheckCircle,
+} from 'lucide-react'
 import type React from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
@@ -23,6 +16,11 @@ import { isAccountant, canSeeDashboardSummary } from '../utils/permissions'
 import { api } from '../services/api'
 import type { ApiResponse } from '../types/api'
 import { formatMoney } from '../utils/format'
+import { Button } from '../components/ui/Button'
+import { Card, CardContent } from '../components/ui/Card'
+import { Typography } from '../components/ui/Typography'
+import { Spinner } from '../components/ui/Spinner'
+import { Alert } from '../components/ui/Alert'
 
 const quickActions: Array<{
   label: string
@@ -30,14 +28,14 @@ const quickActions: Array<{
   state?: Record<string, unknown>
   icon: React.ReactNode
 }> = [
-  { label: 'Admit New Student', path: '/students/new', icon: <PersonAddIcon /> },
-  { label: 'Sell Items To Student', path: '/billing/invoices/new', icon: <ShoppingCartIcon /> },
-  { label: 'Receive Student Payment', path: '/payments/new', icon: <PaymentIcon /> },
-  { label: 'Track Order Items', path: '/procurement/orders/new', icon: <LocalShippingIcon /> },
-  { label: 'Receive Order Items', path: '/procurement/orders', icon: <InventoryIcon /> },
-  { label: 'Track Payment', path: '/procurement/payments/new', icon: <ReceiptLongIcon /> },
-  { label: 'Issue Item From Stock', path: '/inventory/issue', icon: <CheckroomIcon /> },
-  { label: 'Issue Reserved Item', path: '/inventory/reservations', icon: <AssignmentTurnedInIcon /> },
+  { label: 'Admit New Student', path: '/students/new', icon: <UserPlus className="w-5 h-5" /> },
+  { label: 'Sell Items To Student', path: '/billing/invoices/new', icon: <ShoppingCart className="w-5 h-5" /> },
+  { label: 'Receive Student Payment', path: '/payments/new', icon: <CreditCard className="w-5 h-5" /> },
+  { label: 'Track Order Items', path: '/procurement/orders/new', icon: <Truck className="w-5 h-5" /> },
+  { label: 'Receive Order Items', path: '/procurement/orders', icon: <Package className="w-5 h-5" /> },
+  { label: 'Track Payment', path: '/procurement/payments/new', icon: <Receipt className="w-5 h-5" /> },
+  { label: 'Issue Item From Stock', path: '/inventory/issue', icon: <Shirt className="w-5 h-5" /> },
+  { label: 'Issue Reserved Item', path: '/inventory/reservations', icon: <CheckCircle className="w-5 h-5" /> },
 ]
 
 interface DashboardData {
@@ -90,28 +88,17 @@ export const DashboardPage = () => {
   }, [showSummary])
 
   return (
-    <Box>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+    <div>
+      <Typography variant="h4" className="mb-4">
         Dashboard
       </Typography>
 
       {showQuickActions && (
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2, color: 'text.secondary' }}>
+        <div className="mb-8">
+          <Typography variant="subtitle1" className="mb-4" color="secondary">
             Quick Actions
           </Typography>
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: {
-                xs: '1fr',
-                sm: 'repeat(2, 1fr)',
-                md: 'repeat(3, 1fr)',
-                lg: 'repeat(4, 1fr)',
-              },
-              gap: 2,
-            }}
-          >
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {quickActions.map((action) => (
               <Button
                 key={action.label}
@@ -119,190 +106,197 @@ export const DashboardPage = () => {
                 size="large"
                 fullWidth
                 onClick={() => navigate(action.path, action.state ? { state: action.state } : undefined)}
-                startIcon={action.icon}
-                sx={{
-                  py: 2.5,
-                  px: 2,
-                  justifyContent: 'flex-start',
-                  textTransform: 'none',
-                  fontSize: '1rem',
-                  fontWeight: 600,
-                  boxShadow: 1,
-                  '&:hover': { boxShadow: 3 },
-                }}
+                className="justify-start gap-2 py-6 px-4 text-base font-semibold shadow-sm hover:shadow-md"
               >
+                {action.icon}
                 {action.label}
               </Button>
             ))}
-          </Box>
-        </Box>
+          </div>
+        </div>
       )}
 
       {showSummary && (
         <>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2, color: 'text.secondary' }}>
+          <Typography variant="subtitle1" className="mb-4" color="secondary">
             Overview
           </Typography>
           {loading && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-              <CircularProgress />
-            </Box>
+            <div className="flex justify-center py-8">
+              <Spinner size="large" />
+            </div>
           )}
           {error && (
-            <Typography color="error" sx={{ mb: 2 }}>{error}</Typography>
+            <Alert severity="error" className="mb-4">
+              {error}
+            </Alert>
           )}
           {!loading && dashboard && (
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: {
-                  xs: '1fr',
-                  sm: 'repeat(2, 1fr)',
-                  md: 'repeat(4, 1fr)',
-                },
-                gap: 2,
-              }}
-            >
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
               <Card>
                 <CardContent>
-                  <Typography variant="body2" color="text.secondary">Active Students</Typography>
-                  <Typography variant="h6" sx={{ mt: 1 }}>{dashboard.active_students_count}</Typography>
-                  <Link
-                    component="button"
-                    variant="body2"
+                  <Typography variant="body2" color="secondary">
+                    Active Students
+                  </Typography>
+                  <Typography variant="h6" className="mt-2">
+                    {dashboard.active_students_count}
+                  </Typography>
+                  <button
                     onClick={() => navigate('/students')}
-                    sx={{ mt: 1, fontSize: '0.75rem' }}
+                    className="mt-2 text-xs text-primary hover:underline"
                   >
                     View list
-                  </Link>
+                  </button>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent>
-                  <Typography variant="body2" color="text.secondary">This Term Revenue</Typography>
-                  <Typography variant="h6" sx={{ mt: 1 }}>{formatMoney(dashboard.this_term_revenue)}</Typography>
+                  <Typography variant="body2" color="secondary">
+                    This Term Revenue
+                  </Typography>
+                  <Typography variant="h6" className="mt-2">
+                    {formatMoney(dashboard.this_term_revenue)}
+                  </Typography>
                   {dashboard.active_term_display_name && (
-                    <Typography variant="caption" display="block" color="text.secondary">{dashboard.active_term_display_name}</Typography>
+                    <Typography variant="caption" color="secondary" className="block mt-1">
+                      {dashboard.active_term_display_name}
+                    </Typography>
                   )}
-                  <Link
-                    component="button"
-                    variant="body2"
+                  <button
                     onClick={() => navigate('/reports/student-fees')}
-                    sx={{ mt: 1, fontSize: '0.75rem' }}
+                    className="mt-2 text-xs text-primary hover:underline"
                   >
                     View report
-                  </Link>
+                  </button>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent>
-                  <Typography variant="body2" color="text.secondary">Collection Rate</Typography>
-                  <Typography variant="h6" sx={{ mt: 1 }}>
+                  <Typography variant="body2" color="secondary">
+                    Collection Rate
+                  </Typography>
+                  <Typography variant="h6" className="mt-2">
                     {dashboard.collection_rate_percent != null ? `${dashboard.collection_rate_percent}%` : '—'}
                   </Typography>
-                  <Link
-                    component="button"
-                    variant="body2"
+                  <button
                     onClick={() => navigate('/reports/collection-rate')}
-                    sx={{ mt: 1, fontSize: '0.75rem' }}
+                    className="mt-2 text-xs text-primary hover:underline"
                   >
                     View report
-                  </Link>
+                  </button>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent>
-                  <Typography variant="body2" color="text.secondary">Expenses (This Year)</Typography>
-                  <Typography variant="h6" sx={{ mt: 1 }}>{formatMoney(dashboard.total_expenses_this_year)}</Typography>
-                  <Link
-                    component="button"
-                    variant="body2"
+                  <Typography variant="body2" color="secondary">
+                    Expenses (This Year)
+                  </Typography>
+                  <Typography variant="h6" className="mt-2">
+                    {formatMoney(dashboard.total_expenses_this_year)}
+                  </Typography>
+                  <button
                     onClick={() => navigate('/reports/profit-loss')}
-                    sx={{ mt: 1, fontSize: '0.75rem' }}
+                    className="mt-2 text-xs text-primary hover:underline"
                   >
                     View report
-                  </Link>
+                  </button>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent>
-                  <Typography variant="body2" color="text.secondary">Student Debts</Typography>
-                  <Typography variant="h6" sx={{ mt: 1 }}>{formatMoney(dashboard.student_debts_total)}</Typography>
-                  <Typography variant="caption" color="text.secondary" display="block">{dashboard.student_debts_count} students</Typography>
-                  <Link
-                    component="button"
-                    variant="body2"
+                  <Typography variant="body2" color="secondary">
+                    Student Debts
+                  </Typography>
+                  <Typography variant="h6" className="mt-2">
+                    {formatMoney(dashboard.student_debts_total)}
+                  </Typography>
+                  <Typography variant="caption" color="secondary" className="block mt-1">
+                    {dashboard.student_debts_count} students
+                  </Typography>
+                  <button
                     onClick={() => navigate('/reports/aged-receivables')}
-                    sx={{ mt: 1, fontSize: '0.75rem' }}
+                    className="mt-2 text-xs text-primary hover:underline"
                   >
                     View report
-                  </Link>
+                  </button>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent>
-                  <Typography variant="body2" color="text.secondary">Supplier Debt</Typography>
-                  <Typography variant="h6" sx={{ mt: 1 }}>{formatMoney(dashboard.supplier_debt)}</Typography>
-                  <Link
-                    component="button"
-                    variant="body2"
+                  <Typography variant="body2" color="secondary">
+                    Supplier Debt
+                  </Typography>
+                  <Typography variant="h6" className="mt-2">
+                    {formatMoney(dashboard.supplier_debt)}
+                  </Typography>
+                  <button
                     onClick={() => navigate('/procurement/orders')}
-                    sx={{ mt: 1, fontSize: '0.75rem' }}
+                    className="mt-2 text-xs text-primary hover:underline"
                   >
                     View orders
-                  </Link>
+                  </button>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent>
-                  <Typography variant="body2" color="text.secondary">Credit Balances</Typography>
-                  <Typography variant="h6" sx={{ mt: 1 }}>{formatMoney(dashboard.credit_balances_total)}</Typography>
+                  <Typography variant="body2" color="secondary">
+                    Credit Balances
+                  </Typography>
+                  <Typography variant="h6" className="mt-2">
+                    {formatMoney(dashboard.credit_balances_total)}
+                  </Typography>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent>
-                  <Typography variant="body2" color="text.secondary">Pending Claims</Typography>
-                  <Typography variant="h6" sx={{ mt: 1 }}>{formatMoney(dashboard.pending_claims_amount)}</Typography>
-                  <Typography variant="caption" color="text.secondary" display="block">{dashboard.pending_claims_count} claims</Typography>
-                  <Link
-                    component="button"
-                    variant="body2"
+                  <Typography variant="body2" color="secondary">
+                    Pending Claims
+                  </Typography>
+                  <Typography variant="h6" className="mt-2">
+                    {formatMoney(dashboard.pending_claims_amount)}
+                  </Typography>
+                  <Typography variant="caption" color="secondary" className="block mt-1">
+                    {dashboard.pending_claims_count} claims
+                  </Typography>
+                  <button
                     onClick={() => navigate('/compensations/claims')}
-                    sx={{ mt: 1, fontSize: '0.75rem' }}
+                    className="mt-2 text-xs text-primary hover:underline"
                   >
                     Review claims
-                  </Link>
+                  </button>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent>
-                  <Typography variant="body2" color="text.secondary">Pending GRN</Typography>
-                  <Typography variant="h6" sx={{ mt: 1 }}>{dashboard.pending_grn_count}</Typography>
-                  <Link
-                    component="button"
-                    variant="body2"
+                  <Typography variant="body2" color="secondary">
+                    Pending GRN
+                  </Typography>
+                  <Typography variant="h6" className="mt-2">
+                    {dashboard.pending_grn_count}
+                  </Typography>
+                  <button
                     onClick={() => navigate('/procurement/grn')}
-                    sx={{ mt: 1, fontSize: '0.75rem' }}
+                    className="mt-2 text-xs text-primary hover:underline"
                   >
                     View GRN
-                  </Link>
+                  </button>
                 </CardContent>
               </Card>
-            </Box>
+            </div>
           )}
         </>
       )}
 
       {!showSummary && showQuickActions && (
         <>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2, color: 'text.secondary' }}>
+          <Typography variant="subtitle1" className="mb-4" color="secondary">
             Overview
           </Typography>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" color="secondary">
             Summary and reports are available to Admin and SuperAdmin.
           </Typography>
         </>
       )}
-    </Box>
+    </div>
   )
 }

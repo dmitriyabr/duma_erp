@@ -1,25 +1,17 @@
-import { Box } from '@mui/material'
 import { Outlet } from 'react-router-dom'
 import { SidebarNav } from './SidebarNav'
 import { TopBar } from './TopBar'
 
 export const AppLayout = () => {
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh', backgroundColor: '#f8fafc' }}>
+    <div className="flex min-h-screen bg-slate-50">
       <SidebarNav />
-      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar />
-        <Box
-          component="main"
-          sx={{
-            flexGrow: 1,
-            p: 4,
-            overflowY: 'auto',
-          }}
-        >
+        <main className="flex-1 p-8 overflow-y-auto">
           <Outlet />
-        </Box>
-      </Box>
-    </Box>
+        </main>
+      </div>
+    </div>
   )
 }
