@@ -11,7 +11,12 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.types import Date as SqlDate
 
 from src.core.exceptions import NotFoundError
-from src.modules.compensations.models import CompensationPayout, ExpenseClaim, ExpenseClaimStatus
+from src.modules.compensations.models import (
+    CompensationPayout,
+    ExpenseClaim,
+    ExpenseClaimStatus,
+    PayoutAllocation,
+)
 from src.modules.discounts.models import Discount, DiscountReason
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus
 from src.modules.inventory.models import Issuance, Stock, StockMovement, MovementType
@@ -632,12 +637,33 @@ class ReportsService:
         )
         recv = await self.db.execute(recv_q)
         receivables = round_money(Decimal(str(recv.scalar() or 0)))
-        stock_res = await self.db.execute(
+        # Inventory at Cost as at date: from latest StockMovement per stock where movement date <= as_at_date.
+        latest_mov = (
             select(
-                func.coalesce(func.sum(Stock.quantity_on_hand * Stock.average_cost), 0),
+                StockMovement.stock_id,
+                func.max(StockMovement.created_at).label("max_created"),
+            )
+            .where(cast(StockMovement.created_at, SqlDate) <= as_at_date)
+            .group_by(StockMovement.stock_id)
+        ).subquery()
+        inv_q = (
+            select(
+                func.coalesce(
+                    func.sum(
+                        StockMovement.quantity_after * StockMovement.average_cost_after
+                    ),
+                    0,
+                )
+            )
+            .select_from(StockMovement)
+            .join(
+                latest_mov,
+                (StockMovement.stock_id == latest_mov.c.stock_id)
+                & (StockMovement.created_at == latest_mov.c.max_created),
             )
         )
-        inventory = round_money(Decimal(str(stock_res.scalar() or 0)))
+        inv_res = await self.db.execute(inv_q)
+        inventory = round_money(Decimal(str(inv_res.scalar() or 0)))
         total_assets = round_money(cash + receivables + inventory)
         # Accounts Payable (Supplier Debts) as at date: received value (from GRNs approved by date) minus payments by date, per PO.
         grn_value_q = (
@@ -701,17 +727,43 @@ class ReportsService:
                 payments_by_student.get(sid, Decimal("0")) - allocated_by_student.get(sid, Decimal("0"))
             )
         credit_balances = round_money(credit_total)
-        pending_statuses = (
-            ExpenseClaimStatus.PENDING_APPROVAL.value,
-            ExpenseClaimStatus.APPROVED.value,
+        # Employee Payable (Pending Claims) as at date: for claims created by date and not draft/rejected,
+        # remaining as at date = amount - sum(allocated_amount from payouts with payout_date <= as_at_date).
+        excluded_claim_statuses = (
+            ExpenseClaimStatus.DRAFT.value,
+            ExpenseClaimStatus.REJECTED.value,
         )
-        claims = await self.db.execute(
-            select(func.coalesce(func.sum(ExpenseClaim.remaining_amount), 0)).where(
-                ExpenseClaim.status.in_(pending_statuses),
-                ExpenseClaim.remaining_amount > 0,
+        payout_tot = (
+            select(
+                PayoutAllocation.claim_id,
+                func.coalesce(func.sum(PayoutAllocation.allocated_amount), 0).label("paid"),
+            )
+            .select_from(PayoutAllocation)
+            .join(CompensationPayout, CompensationPayout.id == PayoutAllocation.payout_id)
+            .where(CompensationPayout.payout_date <= as_at_date)
+            .group_by(PayoutAllocation.claim_id)
+        ).subquery()
+        claims_q = (
+            select(
+                ExpenseClaim.id,
+                ExpenseClaim.amount,
+                func.coalesce(payout_tot.c.paid, 0).label("paid_by_date"),
+            )
+            .select_from(ExpenseClaim)
+            .outerjoin(payout_tot, ExpenseClaim.id == payout_tot.c.claim_id)
+            .where(cast(ExpenseClaim.created_at, SqlDate) <= as_at_date)
+            .where(ExpenseClaim.status.notin_(excluded_claim_statuses))
+        )
+        claims_rows = (await self.db.execute(claims_q)).all()
+        pending_claims = round_money(
+            sum(
+                max(
+                    Decimal("0"),
+                    Decimal(str(r[1] or 0)) - Decimal(str(r[2] or 0)),
+                )
+                for r in claims_rows
             )
         )
-        pending_claims = round_money(Decimal(str(claims.scalar() or 0)))
         total_liabilities = round_money(supplier_debt + credit_balances + pending_claims)
         net_equity = round_money(total_assets - total_liabilities)
         return {
