@@ -1,6 +1,7 @@
 import {
   Alert,
   Box,
+  Button,
   Card,
   CardContent,
   CircularProgress,
@@ -19,6 +20,7 @@ import { Link as RouterLink, useSearchParams } from 'react-router-dom'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { formatDate, formatMoney } from '../../utils/format'
+import { downloadReportExcel } from '../../utils/reportExcel'
 
 interface AgedRow {
   student_id: number
@@ -124,9 +126,17 @@ export const AgedReceivablesPage = () => {
     )
   }
 
+  const handleExportExcel = () => {
+    const params = asAtParam ? { as_at_date: asAtParam } : {}
+    downloadReportExcel('/reports/aged-receivables', params, 'aged-receivables.xlsx')
+  }
+
   return (
     <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>Students Debt</Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+        <Typography variant="h5">Students Debt</Typography>
+        <Button variant="outlined" size="small" onClick={handleExportExcel}>Export to Excel</Button>
+      </Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Student debts by aging (as at {data ? formatDate(data.as_at_date) : '—'}).
       </Typography>

@@ -106,6 +106,7 @@ class ProfitLossResponse(BaseSchema):
     net_revenue_monthly: dict[str, Decimal] | None = None
     total_expenses_monthly: dict[str, Decimal] | None = None
     net_profit_monthly: dict[str, Decimal] | None = None
+    profit_margin_percent_monthly: dict[str, float] | None = None  # when breakdown=monthly
 
 
 # --- Cash Flow ---
@@ -177,6 +178,8 @@ class BalanceSheetResponse(BaseSchema):
     net_equity_monthly: dict[str, Decimal] | None = None
     debt_to_asset_percent: float | None  # total_liabilities / total_assets * 100
     current_ratio: float | None  # current_assets / current_liabilities
+    debt_to_asset_percent_monthly: dict[str, float] | None = None  # when breakdown=monthly
+    current_ratio_monthly: dict[str, float] | None = None  # when breakdown=monthly
 
 
 # --- Students: Collection Rate Trend ---

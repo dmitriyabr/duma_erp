@@ -69,6 +69,25 @@ class TestAgedReceivables:
         assert response.status_code == 200
         assert response.json()["data"]["as_at_date"] == "2026-01-31"
 
+    async def test_aged_receivables_format_xlsx_returns_excel(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """With format=xlsx returns Excel file (binary) and Content-Disposition."""
+        token = await _get_token(client, db_session, UserRole.ADMIN)
+        response = await client.get(
+            "/api/v1/reports/aged-receivables",
+            params={"format": "xlsx"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert "spreadsheetml" in response.headers.get("content-type", "")
+        assert "attachment" in response.headers.get("content-disposition", "").lower()
+        assert "aged-receivables.xlsx" in response.headers.get("content-disposition", "")
+        body = response.content
+        assert len(body) > 100
+        # XLSX is a zip; first bytes are PK
+        assert body[:2] == b"PK"
+
     async def test_aged_receivables_user_forbidden(
         self, client: AsyncClient, db_session: AsyncSession
     ):
@@ -311,6 +330,20 @@ class TestBalanceSheet:
         assert "net_equity" in d
         assert "debt_to_asset_percent" in d
         assert "current_ratio" in d
+
+    async def test_balance_sheet_breakdown_monthly(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await _get_token(client, db_session, UserRole.ADMIN)
+        response = await client.get(
+            "/api/v1/reports/balance-sheet?as_at_date=2026-03-31&date_from=2026-01-01&date_to=2026-03-31&breakdown=monthly",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        d = response.json()["data"]
+        assert d["months"] == ["2026-01", "2026-02", "2026-03"]
+        assert "debt_to_asset_percent_monthly" in d
+        assert "current_ratio_monthly" in d
 
     async def test_balance_sheet_user_forbidden(
         self, client: AsyncClient, db_session: AsyncSession

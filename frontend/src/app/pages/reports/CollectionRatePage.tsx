@@ -23,6 +23,7 @@ import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
+import { downloadReportExcel } from '../../utils/reportExcel'
 
 interface MonthRow {
   year_month: string
@@ -101,6 +102,7 @@ export const CollectionRatePage = () => {
               ))}
             </select>
             <Button variant="contained" onClick={runReport}>Run report</Button>
+            <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/collection-rate', { months }, 'collection-rate.xlsx')}>Export to Excel</Button>
           </Box>
         </CardContent>
       </Card>

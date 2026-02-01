@@ -24,6 +24,7 @@ import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
 import { DateRangeShortcuts, getDateRangeForPreset } from '../../components/DateRangeShortcuts'
+import { downloadReportExcel } from '../../utils/reportExcel'
 
 interface StockMovementRow {
   movement_id: number
@@ -66,19 +67,25 @@ export const StockMovementPage = () => {
   const [error, setError] = useState<string | null>(null)
   const [forbidden, setForbidden] = useState(false)
 
-  const runReport = () => {
+  const runReport = (overrideFrom?: string, overrideTo?: string) => {
     if (!canSeeReports(user)) return
+    const from = overrideFrom ?? dateFrom
+    const to = overrideTo ?? dateTo
     setLoading(true)
     setError(null)
     const params: { date_from: string; date_to: string; movement_type?: string } = {
-      date_from: dateFrom,
-      date_to: dateTo,
+      date_from: from,
+      date_to: to,
     }
     if (movementType) params.movement_type = movementType
     api
       .get<ApiResponse<StockMovementData>>('/reports/stock-movement', { params })
       .then((res) => {
-        if (res.data?.data) setData(res.data.data)
+        if (res.data?.data) {
+          setData(res.data.data)
+          setDateFrom(from)
+          setDateTo(to)
+        }
       })
       .catch((err) => {
         if (err.response?.status === 403) setForbidden(true)
@@ -110,7 +117,7 @@ export const StockMovementPage = () => {
       <Card sx={{ mb: 2 }}>
         <CardContent>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
-            <DateRangeShortcuts dateFrom={dateFrom} dateTo={dateTo} onRangeChange={(from, to) => { setDateFrom(from); setDateTo(to) }} onRun={runReport} />
+            <DateRangeShortcuts dateFrom={dateFrom} dateTo={dateTo} onRangeChange={(from, to) => { setDateFrom(from); setDateTo(to) }} onRun={(from, to) => runReport(from, to)} />
             <TextField label="From" type="date" size="small" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
             <TextField label="To" type="date" size="small" value={dateTo} onChange={(e) => setDateTo(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
             <FormControl size="small" sx={{ minWidth: 140 }}>
@@ -128,7 +135,18 @@ export const StockMovementPage = () => {
                 <MenuItem value="unreserve">Unreserve</MenuItem>
               </Select>
             </FormControl>
-            <Button variant="contained" onClick={runReport}>Run report</Button>
+            <Button variant="contained" onClick={() => runReport()}>Run report</Button>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => {
+                const params: Record<string, unknown> = { date_from: dateFrom, date_to: dateTo }
+                if (movementType) params.movement_type = movementType
+                downloadReportExcel('/reports/stock-movement', params, 'stock-movement.xlsx')
+              }}
+            >
+              Export to Excel
+            </Button>
           </Box>
         </CardContent>
       </Card>

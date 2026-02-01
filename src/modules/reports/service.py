@@ -5,9 +5,10 @@ from decimal import Decimal
 from collections import defaultdict
 from calendar import monthrange
 
-from sqlalchemy import case, select, func
+from sqlalchemy import case, cast, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.types import Date as SqlDate
 
 from src.core.exceptions import NotFoundError
 from src.modules.compensations.models import CompensationPayout, ExpenseClaim, ExpenseClaimStatus
@@ -399,6 +400,7 @@ class ReportsService:
         comp_monthly: dict[str, Decimal] = {}
         total_exp_monthly: dict[str, Decimal] = {}
         net_profit_monthly: dict[str, Decimal] = {}
+        profit_margin_monthly: dict[str, float] = {}
         for mo in months:
             y, m = int(mo[:4]), int(mo[5:7])
             first = date(y, m, 1)
@@ -411,6 +413,10 @@ class ReportsService:
             comp_monthly[mo] = period["comp_total"]
             total_exp_monthly[mo] = period["total_expenses"]
             net_profit_monthly[mo] = period["net_profit"]
+            if period["net_revenue"] and period["net_revenue"] > 0:
+                profit_margin_monthly[mo] = round(
+                    float(period["net_profit"] / period["net_revenue"] * 100), 2
+                )
             for r in period["revenue_lines"]:
                 rev_by_label[r["label"]][mo] = r["amount"]
         for line in revenue_lines:
@@ -423,6 +429,7 @@ class ReportsService:
         out["net_revenue_monthly"] = net_rev_monthly
         out["total_expenses_monthly"] = total_exp_monthly
         out["net_profit_monthly"] = net_profit_monthly
+        out["profit_margin_percent_monthly"] = profit_margin_monthly
         return out
 
     async def _cash_flow_period(
@@ -596,12 +603,31 @@ class ReportsService:
             - Decimal(str(proc.scalar() or 0))
             - Decimal(str(comp.scalar() or 0))
         )
-        excluded = (InvoiceStatus.PAID.value, InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value)
-        recv = await self.db.execute(
-            select(func.coalesce(func.sum(Invoice.amount_due), 0)).where(
-                Invoice.status.notin_(excluded),
+        # Receivables as at date: invoices issued by as_at_date; amount due = total - allocations created by as_at_date.
+        # Do not filter by PAID: historically the invoice may have been unpaid as at that date; we use allocation history.
+        excluded = (InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value)
+        alloc_subq = (
+            select(
+                CreditAllocation.invoice_id,
+                func.coalesce(func.sum(CreditAllocation.amount), 0).label("allocated"),
             )
+            .where(cast(CreditAllocation.created_at, SqlDate) <= as_at_date)
+            .group_by(CreditAllocation.invoice_id)
+        ).subquery()
+        due_expr = Invoice.total - func.coalesce(alloc_subq.c.allocated, 0)
+        recv_q = (
+            select(
+                func.coalesce(
+                    func.sum(case((due_expr < 0, Decimal("0")), else_=due_expr)),
+                    0,
+                )
+            )
+            .select_from(Invoice)
+            .outerjoin(alloc_subq, Invoice.id == alloc_subq.c.invoice_id)
+            .where(Invoice.issue_date <= as_at_date)
+            .where(Invoice.status.notin_(excluded))
         )
+        recv = await self.db.execute(recv_q)
         receivables = round_money(Decimal(str(recv.scalar() or 0)))
         stock_res = await self.db.execute(
             select(
@@ -622,14 +648,19 @@ class ReportsService:
             select(
                 Payment.student_id,
                 func.coalesce(func.sum(Payment.amount), 0).label("s"),
-            ).where(Payment.status == PaymentStatus.COMPLETED.value).group_by(Payment.student_id)
+            )
+            .where(Payment.status == PaymentStatus.COMPLETED.value)
+            .where(Payment.payment_date <= as_at_date)
+            .group_by(Payment.student_id)
         )
         payments_by_student = {r[0]: Decimal(str(r[1])) for r in pay_tot.all()}
         alloc_tot = await self.db.execute(
             select(
                 CreditAllocation.student_id,
                 func.coalesce(func.sum(CreditAllocation.amount), 0).label("s"),
-            ).group_by(CreditAllocation.student_id)
+            )
+            .where(cast(CreditAllocation.created_at, SqlDate) <= as_at_date)
+            .group_by(CreditAllocation.student_id)
         )
         allocated_by_student = {r[0]: Decimal(str(r[1])) for r in alloc_tot.all()}
         credit_total = Decimal("0")
@@ -716,13 +747,21 @@ class ReportsService:
         total_assets_monthly: dict[str, Decimal] = {}
         total_liabilities_monthly: dict[str, Decimal] = {}
         net_equity_monthly: dict[str, Decimal] = {}
+        debt_to_asset_monthly: dict[str, float] = {}
+        current_ratio_monthly: dict[str, float] = {}
         for mo in months:
             y, m = int(mo[:4]), int(mo[5:7])
             last = date(y, m, monthrange(y, m)[1])
             month_data = await self._balance_sheet_as_at(last)
-            total_assets_monthly[mo] = month_data["total_assets"]
-            total_liabilities_monthly[mo] = month_data["total_liabilities"]
+            ta = month_data["total_assets"]
+            tl = month_data["total_liabilities"]
+            total_assets_monthly[mo] = ta
+            total_liabilities_monthly[mo] = tl
             net_equity_monthly[mo] = month_data["net_equity"]
+            if ta and ta > 0:
+                debt_to_asset_monthly[mo] = round(float(tl / ta * 100), 2)
+            if tl and tl > 0:
+                current_ratio_monthly[mo] = round(float(ta / tl), 2)
             for l, a in month_data["asset_lines"]:
                 asset_by_label[l][mo] = a
             for l, a in month_data["liability_lines"]:
@@ -735,6 +774,8 @@ class ReportsService:
         out["total_assets_monthly"] = total_assets_monthly
         out["total_liabilities_monthly"] = total_liabilities_monthly
         out["net_equity_monthly"] = net_equity_monthly
+        out["debt_to_asset_percent_monthly"] = debt_to_asset_monthly
+        out["current_ratio_monthly"] = current_ratio_monthly
         return out
 
     async def collection_rate_trend(

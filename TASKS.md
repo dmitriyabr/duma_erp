@@ -676,7 +676,7 @@
 - [x] Роутер /api/v1/reports/ с проверкой роли Admin/SuperAdmin.
 - [x] Отчёт Students: aged-receivables (as_at_date, строки по студентам, bucket'ы current/31-60/61-90/90+, summary). Тесты: Admin/SuperAdmin 200, User/Accountant 403.
 - [x] Отчёт Students: student-fees (term_id, grade_id опционально; по классам: students_count, total_invoiced, total_paid, balance, rate). Тесты: 200/404/403.
-- [x] Отчёты Financial: profit-loss, cash-flow, balance-sheet (параметры; экспорт PDF/Excel — позже).
+- [x] Отчёты Financial: profit-loss, cash-flow, balance-sheet (параметры; экспорт в Excel реализован).
 - [x] Отчёты Students: collection-rate, discount-analysis, top-debtors.
 - [x] Отчёты Procurement & Inventory: procurement-summary, inventory-valuation, low-stock-alert, stock-movement.
 - [x] Отчёты Compensations: compensation-summary, expense-claims-by-category.
@@ -698,7 +698,7 @@
 - [x] Страницы отчётов Compensations: Compensation Summary, Expense Claims by Category (меню, роуты, страницы).
 - [x] Страницы отчётов Analytics: Revenue per Student Trend, Payment Method Distribution, Term Comparison, KPIs & Metrics (меню, роуты, страницы).
 - [x] Скрипт наполнения БД демо-данными: `scripts/seed_demo_data.py` (реалистичные школьные данные: пользователи, классы, термы, ученики, счета, платежи, закупки, компенсации, склад).
-- [ ] Экспорт PDF/Excel для отчётов.
+- [x] Экспорт в Excel для всех отчётов (параметр `format=xlsx`, кнопка «Export to Excel» на каждой странице отчёта; PDF не требуется).
 
 **Порядок реализации (рекомендуемый):** сначала backend dashboard + один отчёт (например aged-receivables или student-fees), тесты; затем фронт дашборда и один отчёт; потом остальные отчёты.
 

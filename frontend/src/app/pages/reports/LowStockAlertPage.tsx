@@ -1,6 +1,7 @@
 import {
   Alert,
   Box,
+  Button,
   Card,
   CircularProgress,
   Table,
@@ -16,6 +17,7 @@ import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
+import { downloadReportExcel } from '../../utils/reportExcel'
 
 interface LowStockAlertRow {
   item_id: number
@@ -79,7 +81,10 @@ export const LowStockAlertPage = () => {
 
   return (
     <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>Low Stock Alert</Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+        <Typography variant="h5">Low Stock Alert</Typography>
+        <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/low-stock-alert', {}, 'low-stock-alert.xlsx')}>Export to Excel</Button>
+      </Box>
       {data != null && data.total_low_count > 0 && (
         <Alert severity="info" sx={{ mb: 2 }}>
           {data.total_low_count} item(s) at or below minimum level.

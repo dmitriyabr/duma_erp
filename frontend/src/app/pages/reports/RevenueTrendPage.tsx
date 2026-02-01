@@ -23,6 +23,7 @@ import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
+import { downloadReportExcel } from '../../utils/reportExcel'
 
 interface RevenueTrendRow {
   year: number
@@ -100,6 +101,7 @@ export const RevenueTrendPage = () => {
               </Select>
             </FormControl>
             <Button variant="contained" onClick={runReport}>Run report</Button>
+            <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/revenue-trend', { years }, 'revenue-trend.xlsx')}>Export to Excel</Button>
           </Box>
         </CardContent>
       </Card>

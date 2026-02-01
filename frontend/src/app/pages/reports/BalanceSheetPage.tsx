@@ -21,6 +21,7 @@ import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
 import { DateRangeShortcuts, getDateRangeForPreset } from '../../components/DateRangeShortcuts'
+import { downloadReportExcel } from '../../utils/reportExcel'
 
 interface AssetLine {
   label: string
@@ -47,6 +48,8 @@ interface BalanceSheetData {
   total_assets_monthly?: Record<string, string>
   total_liabilities_monthly?: Record<string, string>
   net_equity_monthly?: Record<string, string>
+  debt_to_asset_percent_monthly?: Record<string, number>
+  current_ratio_monthly?: Record<string, number>
 }
 
 const defaultRange = () => getDateRangeForPreset('this_year')
@@ -65,17 +68,19 @@ export const BalanceSheetPage = () => {
   const [error, setError] = useState<string | null>(null)
   const [forbidden, setForbidden] = useState(false)
 
-  const runReport = () => {
+  const runReport = (overrideFrom?: string, overrideTo?: string) => {
     if (!canSeeReports(user)) return
+    const from = overrideFrom ?? dateFrom
+    const to = overrideTo ?? dateTo
     setLoading(true)
     setError(null)
-    const fromD = new Date(dateFrom)
-    const toD = new Date(dateTo)
+    const fromD = new Date(from)
+    const toD = new Date(to)
     const multiMonth = fromD.getFullYear() !== toD.getFullYear() || fromD.getMonth() !== toD.getMonth()
     const params: Record<string, string> = {
-      as_at_date: dateTo,
-      date_from: dateFrom,
-      date_to: dateTo,
+      as_at_date: to,
+      date_from: from,
+      date_to: to,
     }
     if (multiMonth) params.breakdown = 'monthly'
     api
@@ -83,7 +88,11 @@ export const BalanceSheetPage = () => {
         params,
       })
       .then((res) => {
-        if (res.data?.data) setData(res.data.data)
+        if (res.data?.data) {
+          setData(res.data.data)
+          setDateFrom(from)
+          setDateTo(to)
+        }
       })
       .catch((err) => {
         if (err.response?.status === 403) setForbidden(true)
@@ -119,11 +128,30 @@ export const BalanceSheetPage = () => {
               dateFrom={dateFrom}
               dateTo={dateTo}
               onRangeChange={(from, to) => { setDateFrom(from); setDateTo(to) }}
-              onRun={runReport}
+              onRun={(from, to) => runReport(from, to)}
             />
             <TextField label="From" type="date" size="small" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
             <TextField label="To (as at)" type="date" size="small" value={dateTo} onChange={(e) => setDateTo(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
-            <Button variant="contained" onClick={runReport}>Run report</Button>
+            <Button variant="contained" onClick={() => runReport()}>Run report</Button>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => {
+                const from = dateFrom
+                const to = dateTo
+                const fromD = new Date(from)
+                const toD = new Date(to)
+                const multiMonth = fromD.getFullYear() !== toD.getFullYear() || fromD.getMonth() !== toD.getMonth()
+                downloadReportExcel('/reports/balance-sheet', {
+                  as_at_date: to,
+                  date_from: from,
+                  date_to: to,
+                  ...(multiMonth ? { breakdown: 'monthly' } : {}),
+                }, 'balance-sheet.xlsx')
+              }}
+            >
+              Export to Excel
+            </Button>
           </Box>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
             Multi-month range shows columns per month (as at end of each month).
@@ -145,27 +173,32 @@ export const BalanceSheetPage = () => {
             As at {data.as_at_date}
           </Typography>
 
-          <TableContainer component={Card} sx={{ mb: 2 }}>
+          <TableContainer component={Card}>
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell><strong>Assets</strong></TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>Line</TableCell>
                   {data.months && data.months.length > 0 ? (
                     <>
                       {data.months.map((mo) => (
-                        <TableCell key={mo} align="right"><strong>{monthLabel(mo)}</strong></TableCell>
+                        <TableCell key={mo} align="right" sx={{ fontWeight: 600 }}>{monthLabel(mo)}</TableCell>
                       ))}
-                      <TableCell align="right"><strong>Total (KES)</strong></TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 600 }}>Total (KES)</TableCell>
                     </>
                   ) : (
-                    <TableCell align="right"><strong>Amount (KES)</strong></TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>Amount (KES)</TableCell>
                   )}
                 </TableRow>
               </TableHead>
               <TableBody>
+                <TableRow sx={{ bgcolor: 'action.hover' }}>
+                  <TableCell colSpan={data.months && data.months.length > 0 ? (data.months.length + 2) : 2} sx={{ fontWeight: 600, py: 0.5 }}>
+                    ASSETS
+                  </TableCell>
+                </TableRow>
                 {data.asset_lines.map((row) => (
                   <TableRow key={row.label}>
-                    <TableCell>{row.label}</TableCell>
+                    <TableCell sx={{ pl: 3 }}>{row.label}</TableCell>
                     {data.months && data.months.length > 0 ? (
                       <>
                         {data.months.map((mo) => (
@@ -179,43 +212,26 @@ export const BalanceSheetPage = () => {
                   </TableRow>
                 ))}
                 <TableRow>
-                  <TableCell><strong>Total Assets</strong></TableCell>
+                  <TableCell sx={{ pl: 3, fontWeight: 600 }}>Total Assets</TableCell>
                   {data.months && data.months.length > 0 ? (
                     <>
                       {data.months.map((mo) => (
-                        <TableCell key={mo} align="right"><strong>{formatMoney(data.total_assets_monthly?.[mo] ?? '0')}</strong></TableCell>
+                        <TableCell key={mo} align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.total_assets_monthly?.[mo] ?? '0')}</TableCell>
                       ))}
-                      <TableCell align="right"><strong>{formatMoney(data.total_assets)}</strong></TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.total_assets)}</TableCell>
                     </>
                   ) : (
-                    <TableCell align="right"><strong>{formatMoney(data.total_assets)}</strong></TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.total_assets)}</TableCell>
                   )}
                 </TableRow>
-              </TableBody>
-            </Table>
-          </TableContainer>
-
-          <TableContainer component={Card} sx={{ mb: 2 }}>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell><strong>Liabilities</strong></TableCell>
-                  {data.months && data.months.length > 0 ? (
-                    <>
-                      {data.months.map((mo) => (
-                        <TableCell key={mo} align="right"><strong>{monthLabel(mo)}</strong></TableCell>
-                      ))}
-                      <TableCell align="right"><strong>Total (KES)</strong></TableCell>
-                    </>
-                  ) : (
-                    <TableCell align="right"><strong>Amount (KES)</strong></TableCell>
-                  )}
+                <TableRow sx={{ bgcolor: 'action.hover' }}>
+                  <TableCell colSpan={data.months && data.months.length > 0 ? (data.months.length + 2) : 2} sx={{ fontWeight: 600, py: 0.5 }}>
+                    LIABILITIES
+                  </TableCell>
                 </TableRow>
-              </TableHead>
-              <TableBody>
                 {data.liability_lines.map((row) => (
                   <TableRow key={row.label}>
-                    <TableCell>{row.label}</TableCell>
+                    <TableCell sx={{ pl: 3 }}>{row.label}</TableCell>
                     {data.months && data.months.length > 0 ? (
                       <>
                         {data.months.map((mo) => (
@@ -229,37 +245,80 @@ export const BalanceSheetPage = () => {
                   </TableRow>
                 ))}
                 <TableRow>
-                  <TableCell><strong>Total Liabilities</strong></TableCell>
+                  <TableCell sx={{ pl: 3, fontWeight: 600 }}>Total Liabilities</TableCell>
                   {data.months && data.months.length > 0 ? (
                     <>
                       {data.months.map((mo) => (
-                        <TableCell key={mo} align="right"><strong>{formatMoney(data.total_liabilities_monthly?.[mo] ?? '0')}</strong></TableCell>
+                        <TableCell key={mo} align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.total_liabilities_monthly?.[mo] ?? '0')}</TableCell>
                       ))}
-                      <TableCell align="right"><strong>{formatMoney(data.total_liabilities)}</strong></TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.total_liabilities)}</TableCell>
                     </>
                   ) : (
-                    <TableCell align="right"><strong>{formatMoney(data.total_liabilities)}</strong></TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.total_liabilities)}</TableCell>
                   )}
                 </TableRow>
+                <TableRow sx={{ bgcolor: 'action.selected', borderTop: 2, borderColor: 'divider' }}>
+                  <TableCell sx={{ fontWeight: 700 }}>NET EQUITY</TableCell>
+                  {data.months && data.months.length > 0 ? (
+                    <>
+                      {data.months.map((mo) => (
+                        <TableCell key={mo} align="right" sx={{ fontWeight: 700 }}>{formatMoney(data.net_equity_monthly?.[mo] ?? '0')}</TableCell>
+                      ))}
+                      <TableCell align="right" sx={{ fontWeight: 700 }}>{formatMoney(data.net_equity)}</TableCell>
+                    </>
+                  ) : (
+                    <TableCell align="right" sx={{ fontWeight: 700 }}>{formatMoney(data.net_equity)}</TableCell>
+                  )}
+                </TableRow>
+                {(data.debt_to_asset_percent != null || data.current_ratio != null || (data.months && data.months.length > 0 && (data.debt_to_asset_percent_monthly || data.current_ratio_monthly))) && (
+                  <>
+                    {data.months && data.months.length > 0 && data.debt_to_asset_percent_monthly ? (
+                      <TableRow>
+                        <TableCell sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>Debt-to-asset (%)</TableCell>
+                        {data.months.map((mo) => (
+                          <TableCell key={mo} align="right" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                            {data.debt_to_asset_percent_monthly?.[mo] != null ? `${data.debt_to_asset_percent_monthly[mo]}%` : '—'}
+                          </TableCell>
+                        ))}
+                        <TableCell align="right" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                          {data.debt_to_asset_percent != null ? `${data.debt_to_asset_percent}%` : '—'}
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      data.debt_to_asset_percent != null && (
+                        <TableRow>
+                          <TableCell colSpan={data.months && data.months.length > 0 ? (data.months.length + 2) : 2} sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                            Debt-to-asset ratio: {data.debt_to_asset_percent}%
+                          </TableCell>
+                        </TableRow>
+                      )
+                    )}
+                    {data.months && data.months.length > 0 && data.current_ratio_monthly ? (
+                      <TableRow>
+                        <TableCell sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>Current ratio</TableCell>
+                        {data.months.map((mo) => (
+                          <TableCell key={mo} align="right" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                            {data.current_ratio_monthly?.[mo] != null ? data.current_ratio_monthly[mo] : '—'}
+                          </TableCell>
+                        ))}
+                        <TableCell align="right" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                          {data.current_ratio != null ? data.current_ratio : '—'}
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      data.current_ratio != null && (
+                        <TableRow>
+                          <TableCell colSpan={data.months && data.months.length > 0 ? (data.months.length + 2) : 2} sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                            Current ratio: {data.current_ratio}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    )}
+                  </>
+                )}
               </TableBody>
             </Table>
           </TableContainer>
-
-          <Card>
-            <CardContent>
-              <Typography variant="subtitle2" gutterBottom><strong>Net equity</strong>: {formatMoney(data.net_equity)}</Typography>
-              {data.debt_to_asset_percent != null && (
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  Debt-to-asset ratio: {data.debt_to_asset_percent}%
-                </Typography>
-              )}
-              {data.current_ratio != null && (
-                <Typography variant="body2" color="text.secondary">
-                  Current ratio: {data.current_ratio}
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
         </>
       )}
 

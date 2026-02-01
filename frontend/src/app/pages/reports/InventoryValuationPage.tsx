@@ -20,6 +20,7 @@ import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
+import { downloadReportExcel } from '../../utils/reportExcel'
 
 interface InventoryValuationRow {
   category_id: number
@@ -100,6 +101,7 @@ export const InventoryValuationPage = () => {
               sx={{ width: 160 }}
             />
             <Button variant="contained" onClick={runReport}>Run report</Button>
+            <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/inventory-valuation', { as_at_date: asAtDate }, 'inventory-valuation.xlsx')}>Export to Excel</Button>
           </Box>
         </CardContent>
       </Card>

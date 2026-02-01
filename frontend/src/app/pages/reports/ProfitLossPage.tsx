@@ -21,6 +21,7 @@ import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
 import { DateRangeShortcuts, getDateRangeForPreset } from '../../components/DateRangeShortcuts'
+import { downloadReportExcel } from '../../utils/reportExcel'
 
 interface RevenueLine {
   label: string
@@ -51,6 +52,7 @@ interface ProfitLossData {
   net_revenue_monthly?: Record<string, string>
   total_expenses_monthly?: Record<string, string>
   net_profit_monthly?: Record<string, string>
+  profit_margin_percent_monthly?: Record<string, number>
 }
 
 const defaultRange = () => getDateRangeForPreset('this_year')
@@ -70,24 +72,30 @@ export const ProfitLossPage = () => {
   const [error, setError] = useState<string | null>(null)
   const [forbidden, setForbidden] = useState(false)
 
-  const runReport = () => {
+  const runReport = (overrideFrom?: string, overrideTo?: string) => {
     if (!canSeeReports(user)) return
+    const from = overrideFrom ?? dateFrom
+    const to = overrideTo ?? dateTo
     setLoading(true)
     setError(null)
-    const fromD = new Date(dateFrom)
-    const toD = new Date(dateTo)
+    const fromD = new Date(from)
+    const toD = new Date(to)
     const multiMonth = fromD.getFullYear() !== toD.getFullYear() ||
       fromD.getMonth() !== toD.getMonth()
     api
       .get<ApiResponse<ProfitLossData>>('/reports/profit-loss', {
         params: {
-          date_from: dateFrom,
-          date_to: dateTo,
+          date_from: from,
+          date_to: to,
           ...(multiMonth ? { breakdown: 'monthly' } : {}),
         },
       })
       .then((res) => {
-        if (res.data?.data) setData(res.data.data)
+        if (res.data?.data) {
+          setData(res.data.data)
+          setDateFrom(from)
+          setDateTo(to)
+        }
       })
       .catch((err) => {
         if (err.response?.status === 403) setForbidden(true)
@@ -123,7 +131,7 @@ export const ProfitLossPage = () => {
               dateFrom={dateFrom}
               dateTo={dateTo}
               onRangeChange={(from, to) => { setDateFrom(from); setDateTo(to) }}
-              onRun={runReport}
+              onRun={(from, to) => runReport(from, to)}
             />
             <TextField
               label="From"
@@ -143,7 +151,25 @@ export const ProfitLossPage = () => {
               InputLabelProps={{ shrink: true }}
               sx={{ width: 160 }}
             />
-            <Button variant="contained" onClick={runReport}>Run report</Button>
+            <Button variant="contained" onClick={() => runReport()}>Run report</Button>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => {
+                const from = dateFrom
+                const to = dateTo
+                const fromD = new Date(from)
+                const toD = new Date(to)
+                const multiMonth = fromD.getFullYear() !== toD.getFullYear() || fromD.getMonth() !== toD.getMonth()
+                downloadReportExcel('/reports/profit-loss', {
+                  date_from: from,
+                  date_to: to,
+                  ...(multiMonth ? { breakdown: 'monthly' } : {}),
+                }, 'profit-loss.xlsx')
+              }}
+            >
+              Export to Excel
+            </Button>
           </Box>
         </CardContent>
       </Card>
@@ -162,27 +188,32 @@ export const ProfitLossPage = () => {
             Period: {data.date_from} — {data.date_to}
           </Typography>
 
-          <TableContainer component={Card} sx={{ mb: 2 }}>
+          <TableContainer component={Card}>
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell><strong>Revenue</strong></TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>Line</TableCell>
                   {data.months && data.months.length > 0 ? (
                     <>
                       {data.months.map((mo) => (
-                        <TableCell key={mo} align="right"><strong>{monthLabel(mo)}</strong></TableCell>
+                        <TableCell key={mo} align="right" sx={{ fontWeight: 600 }}>{monthLabel(mo)}</TableCell>
                       ))}
-                      <TableCell align="right"><strong>Total (KES)</strong></TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 600 }}>Total (KES)</TableCell>
                     </>
                   ) : (
-                    <TableCell align="right"><strong>Amount (KES)</strong></TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>Amount (KES)</TableCell>
                   )}
                 </TableRow>
               </TableHead>
               <TableBody>
+                <TableRow sx={{ bgcolor: 'action.hover' }}>
+                  <TableCell colSpan={data.months && data.months.length > 0 ? (data.months.length + 2) : 2} sx={{ fontWeight: 600, py: 0.5 }}>
+                    REVENUE
+                  </TableCell>
+                </TableRow>
                 {data.revenue_lines.map((row) => (
                   <TableRow key={row.label}>
-                    <TableCell>{row.label}</TableCell>
+                    <TableCell sx={{ pl: 3 }}>{row.label}</TableCell>
                     {data.months && data.months.length > 0 ? (
                       <>
                         {data.months.map((mo) => (
@@ -196,20 +227,20 @@ export const ProfitLossPage = () => {
                   </TableRow>
                 ))}
                 <TableRow>
-                  <TableCell><strong>Gross Revenue</strong></TableCell>
+                  <TableCell sx={{ pl: 3, fontWeight: 600 }}>Gross Revenue</TableCell>
                   {data.months && data.months.length > 0 ? (
                     <>
                       {data.months.map((mo) => (
-                        <TableCell key={mo} align="right"><strong>{formatMoney(data.gross_revenue_monthly?.[mo] ?? '0')}</strong></TableCell>
+                        <TableCell key={mo} align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.gross_revenue_monthly?.[mo] ?? '0')}</TableCell>
                       ))}
-                      <TableCell align="right"><strong>{formatMoney(data.gross_revenue)}</strong></TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.gross_revenue)}</TableCell>
                     </>
                   ) : (
-                    <TableCell align="right"><strong>{formatMoney(data.gross_revenue)}</strong></TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.gross_revenue)}</TableCell>
                   )}
                 </TableRow>
                 <TableRow>
-                  <TableCell>Less: Discounts</TableCell>
+                  <TableCell sx={{ pl: 3 }}>Less: Discounts</TableCell>
                   {data.months && data.months.length > 0 ? (
                     <>
                       {data.months.map((mo) => (
@@ -222,43 +253,27 @@ export const ProfitLossPage = () => {
                   )}
                 </TableRow>
                 <TableRow>
-                  <TableCell><strong>Net Revenue</strong></TableCell>
+                  <TableCell sx={{ pl: 3, fontWeight: 600 }}>Net Revenue</TableCell>
                   {data.months && data.months.length > 0 ? (
                     <>
                       {data.months.map((mo) => (
-                        <TableCell key={mo} align="right"><strong>{formatMoney(data.net_revenue_monthly?.[mo] ?? '0')}</strong></TableCell>
+                        <TableCell key={mo} align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.net_revenue_monthly?.[mo] ?? '0')}</TableCell>
                       ))}
-                      <TableCell align="right"><strong>{formatMoney(data.net_revenue)}</strong></TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.net_revenue)}</TableCell>
                     </>
                   ) : (
-                    <TableCell align="right"><strong>{formatMoney(data.net_revenue)}</strong></TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.net_revenue)}</TableCell>
                   )}
                 </TableRow>
-              </TableBody>
-            </Table>
-          </TableContainer>
 
-          <TableContainer component={Card} sx={{ mb: 2 }}>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell><strong>Expenses</strong></TableCell>
-                  {data.months && data.months.length > 0 ? (
-                    <>
-                      {data.months.map((mo) => (
-                        <TableCell key={mo} align="right"><strong>{monthLabel(mo)}</strong></TableCell>
-                      ))}
-                      <TableCell align="right"><strong>Total (KES)</strong></TableCell>
-                    </>
-                  ) : (
-                    <TableCell align="right"><strong>Amount (KES)</strong></TableCell>
-                  )}
+                <TableRow sx={{ bgcolor: 'action.hover' }}>
+                  <TableCell colSpan={data.months && data.months.length > 0 ? (data.months.length + 2) : 2} sx={{ fontWeight: 600, py: 0.5 }}>
+                    EXPENSES
+                  </TableCell>
                 </TableRow>
-              </TableHead>
-              <TableBody>
                 {data.expense_lines.map((row) => (
                   <TableRow key={row.label}>
-                    <TableCell>{row.label}</TableCell>
+                    <TableCell sx={{ pl: 3 }}>{row.label}</TableCell>
                     {data.months && data.months.length > 0 ? (
                       <>
                         {data.months.map((mo) => (
@@ -272,32 +287,56 @@ export const ProfitLossPage = () => {
                   </TableRow>
                 ))}
                 <TableRow>
-                  <TableCell><strong>Total Expenses</strong></TableCell>
+                  <TableCell sx={{ pl: 3, fontWeight: 600 }}>Total Expenses</TableCell>
                   {data.months && data.months.length > 0 ? (
                     <>
                       {data.months.map((mo) => (
-                        <TableCell key={mo} align="right"><strong>{formatMoney(data.total_expenses_monthly?.[mo] ?? '0')}</strong></TableCell>
+                        <TableCell key={mo} align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.total_expenses_monthly?.[mo] ?? '0')}</TableCell>
                       ))}
-                      <TableCell align="right"><strong>{formatMoney(data.total_expenses)}</strong></TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.total_expenses)}</TableCell>
                     </>
                   ) : (
-                    <TableCell align="right"><strong>{formatMoney(data.total_expenses)}</strong></TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.total_expenses)}</TableCell>
                   )}
                 </TableRow>
+
+                <TableRow sx={{ bgcolor: 'action.selected', borderTop: 2, borderColor: 'divider' }}>
+                  <TableCell sx={{ fontWeight: 700 }}>NET PROFIT</TableCell>
+                  {data.months && data.months.length > 0 ? (
+                    <>
+                      {data.months.map((mo) => (
+                        <TableCell key={mo} align="right" sx={{ fontWeight: 700 }}>{formatMoney(data.net_profit_monthly?.[mo] ?? '0')}</TableCell>
+                      ))}
+                      <TableCell align="right" sx={{ fontWeight: 700 }}>{formatMoney(data.net_profit)}</TableCell>
+                    </>
+                  ) : (
+                    <TableCell align="right" sx={{ fontWeight: 700 }}>{formatMoney(data.net_profit)}</TableCell>
+                  )}
+                </TableRow>
+                {(data.profit_margin_percent != null || (data.months && data.months.length > 0 && data.profit_margin_percent_monthly)) && (
+                  <TableRow>
+                    <TableCell sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>Profit margin (%)</TableCell>
+                    {data.months && data.months.length > 0 && data.profit_margin_percent_monthly ? (
+                      <>
+                        {data.months.map((mo) => (
+                          <TableCell key={mo} align="right" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                            {data.profit_margin_percent_monthly?.[mo] != null ? `${data.profit_margin_percent_monthly?.[mo]}%` : '—'}
+                          </TableCell>
+                        ))}
+                        <TableCell align="right" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                          {data.profit_margin_percent != null ? `${data.profit_margin_percent}%` : '—'}
+                        </TableCell>
+                      </>
+                    ) : (
+                      <TableCell colSpan={2} sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                        {data.profit_margin_percent != null ? `Profit margin: ${data.profit_margin_percent}%` : '—'}
+                      </TableCell>
+                    )}
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </TableContainer>
-
-          <Card>
-            <CardContent>
-              <Typography variant="subtitle2" gutterBottom><strong>Net Profit</strong>: {formatMoney(data.net_profit)}</Typography>
-              {data.profit_margin_percent != null && (
-                <Typography variant="body2" color="text.secondary">
-                  Profit margin: {data.profit_margin_percent}%
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
         </>
       )}
 

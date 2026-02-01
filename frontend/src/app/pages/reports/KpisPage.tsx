@@ -18,6 +18,7 @@ import type { ApiResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
 import { canSeeReports } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
+import { downloadReportExcel } from '../../utils/reportExcel'
 
 interface TermRow {
   id: number
@@ -132,6 +133,18 @@ export const KpisPage = () => {
               </FormControl>
             )}
             <Button variant="contained" onClick={runReport}>Run report</Button>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => {
+                const params: Record<string, unknown> = {}
+                if (periodType === 'year') params.year = year
+                else if (periodType === 'term' && termId) params.term_id = Number(termId)
+                downloadReportExcel('/reports/kpis', params, 'kpis.xlsx')
+              }}
+            >
+              Export to Excel
+            </Button>
           </Box>
         </CardContent>
       </Card>

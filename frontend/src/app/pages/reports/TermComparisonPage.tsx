@@ -24,6 +24,7 @@ import type { ApiResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
 import { canSeeReports } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
+import { downloadReportExcel } from '../../utils/reportExcel'
 
 interface TermRow {
   id: number
@@ -150,6 +151,19 @@ export const TermComparisonPage = () => {
               disabled={!term1Id || !term2Id || term1Id === term2Id}
             >
               Compare
+            </Button>
+            <Button
+              variant="outlined"
+              size="small"
+              disabled={!term1Id || !term2Id || term1Id === term2Id}
+              onClick={() => {
+                const t1 = Number(term1Id)
+                const t2 = Number(term2Id)
+                if (Number.isNaN(t1) || Number.isNaN(t2) || t1 === t2) return
+                downloadReportExcel('/reports/term-comparison', { term1_id: t1, term2_id: t2 }, 'term-comparison.xlsx')
+              }}
+            >
+              Export to Excel
             </Button>
           </Box>
         </CardContent>

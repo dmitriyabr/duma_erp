@@ -39,14 +39,15 @@ interface DateRangeShortcutsProps {
   dateFrom: string
   dateTo: string
   onRangeChange: (from: string, to: string) => void
-  onRun?: () => void
+  /** Called after range change; if provided (from, to), use these for the report (avoids stale state). */
+  onRun?: (from?: string, to?: string) => void
 }
 
 export function DateRangeShortcuts({ dateFrom, dateTo, onRangeChange, onRun }: DateRangeShortcutsProps) {
   const apply = (preset: DateRangePreset) => {
     const { from, to } = getDateRangeForPreset(preset)
     onRangeChange(from, to)
-    onRun?.()
+    onRun?.(from, to)
   }
 
   const currentPreset = (): DateRangePreset | null => {

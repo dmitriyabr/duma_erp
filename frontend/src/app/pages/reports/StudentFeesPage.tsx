@@ -1,6 +1,7 @@
 import {
   Alert,
   Box,
+  Button,
   Card,
   CardContent,
   CircularProgress,
@@ -22,6 +23,7 @@ import type { ApiResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
 import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { formatMoney } from '../../utils/format'
+import { downloadReportExcel } from '../../utils/reportExcel'
 
 interface TermRow {
   id: number
@@ -115,9 +117,19 @@ export const StudentFeesPage = () => {
     )
   }
 
+  const handleExportExcel = () => {
+    if (!termId) return
+    const params: Record<string, unknown> = { term_id: Number(termId) }
+    if (gradeId) params.grade_id = Number(gradeId)
+    downloadReportExcel('/reports/student-fees', params, 'student-fees.xlsx')
+  }
+
   return (
     <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>Student Fees by Term</Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+        <Typography variant="h5">Student Fees by Term</Typography>
+        {termId && <Button variant="outlined" size="small" onClick={handleExportExcel}>Export to Excel</Button>}
+      </Box>
 
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
         <FormControl size="small" sx={{ minWidth: 200 }}>
