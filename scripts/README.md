@@ -20,6 +20,9 @@ uv run python scripts/seed_demo_data.py --dry-run
 
 # Записать в БД
 uv run python scripts/seed_demo_data.py --confirm
+
+# Полное наполнение: сначала очистить все данные сида (в т.ч. созданные вручную при тестах), затем наполнить заново
+uv run python scripts/seed_demo_data.py --clear --confirm
 ```
 
 Скрипт идемпотентен: если данные уже есть (например, пользователь `admin@school.demo` или классы), соответствующий блок пропускается. Для полного наполнения с нуля используйте пустую БД после миграций.

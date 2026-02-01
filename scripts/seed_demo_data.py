@@ -8,6 +8,7 @@
 Использование:
     uv run python scripts/seed_demo_data.py --dry-run   # без записи в БД
     uv run python scripts/seed_demo_data.py --confirm  # записать в БД
+    uv run python scripts/seed_demo_data.py --clear --confirm  # очистить все данные сида и наполнить заново (полное наполнение)
 
 Требования: миграции применены (alembic upgrade head), БД доступна.
 """
@@ -21,7 +22,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -39,7 +40,7 @@ from src.modules.terms.models import (
     TransportPricing,
 )
 from src.modules.items.models import Category, Item, Kit, KitItem, ItemType, PriceType
-from src.modules.discounts.models import DiscountReason, StudentDiscount, DiscountValueType, StudentDiscountAppliesTo
+from src.modules.discounts.models import Discount, DiscountReason, StudentDiscount, DiscountValueType, StudentDiscountAppliesTo
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
 from src.modules.payments.models import Payment, CreditAllocation, PaymentStatus, PaymentMethod
 from src.modules.procurement.models import (
@@ -62,8 +63,10 @@ from src.modules.compensations.models import (
     PayoutMethod,
     EmployeeBalance,
 )
-from src.modules.inventory.models import Stock, StockMovement, MovementType
-from src.modules.reservations.models import Reservation  # noqa: F401 - needed for InvoiceLine relationship
+from src.modules.inventory.models import Stock, StockMovement, MovementType, Issuance, IssuanceItem
+from src.modules.reservations.models import Reservation, ReservationItem  # noqa: F401 - Reservation for InvoiceLine
+from src.core.documents.models import DocumentSequence
+from src.core.attachments.models import Attachment
 from src.shared.utils.money import round_money
 
 # --- Реалистичные константы (школа в Кении) ---
@@ -1080,6 +1083,52 @@ async def seed_inventory_categories_and_items(session: AsyncSession) -> dict[str
     return item_id_by_sku
 
 
+async def clear_all_seed_data(session: AsyncSession) -> None:
+    """Удаляет все данные, которые создаёт сид (в порядке зависимостей FK)."""
+    tables = [
+        (CreditAllocation, "credit_allocations"),
+        (Payment, "payments"),
+        (Discount, "discounts"),
+        (ReservationItem, "reservation_items"),
+        (Reservation, "reservations"),
+        (InvoiceLine, "invoice_lines"),
+        (Invoice, "invoices"),
+        (StudentDiscount, "student_discounts"),
+        (Student, "students"),
+        (PayoutAllocation, "payout_allocations"),
+        (CompensationPayout, "compensation_payouts"),
+        (ExpenseClaim, "expense_claims"),
+        (ProcurementPayment, "procurement_payments"),
+        (EmployeeBalance, "employee_balances"),
+        (GoodsReceivedLine, "goods_received_lines"),
+        (GoodsReceivedNote, "goods_received_notes"),
+        (PurchaseOrderLine, "purchase_order_lines"),
+        (PurchaseOrder, "purchase_orders"),
+        (StockMovement, "stock_movements"),
+        (Stock, "stock"),
+        (IssuanceItem, "issuance_items"),
+        (Issuance, "issuances"),
+        (KitItem, "kit_items"),
+        (Kit, "kits"),
+        (Item, "items"),
+        (PriceSetting, "price_settings"),
+        (TransportPricing, "transport_pricings"),
+        (Term, "terms"),
+        (Category, "categories"),
+        (TransportZone, "transport_zones"),
+        (Grade, "grades"),
+        (PaymentPurpose, "payment_purposes"),
+        (DiscountReason, "discount_reasons"),
+        (DocumentSequence, "document_sequences"),
+        (Attachment, "attachments"),
+        (User, "users"),
+    ]
+    for model, name in tables:
+        r = await session.execute(delete(model))
+        print(f"  Deleted {r.rowcount} from {name}")
+    await session.flush()
+
+
 async def run_seed(session: AsyncSession, dry_run: bool) -> None:
     user_ids = await seed_users(session)
     admin_id = user_ids.get(UserRole.SUPER_ADMIN.value) or user_ids.get(UserRole.ADMIN.value)
@@ -1118,15 +1167,24 @@ async def main() -> None:
     parser = argparse.ArgumentParser(description="Seed database with realistic school demo data")
     parser.add_argument("--dry-run", action="store_true", help="Do not commit")
     parser.add_argument("--confirm", action="store_true", help="Commit changes")
+    parser.add_argument("--clear", action="store_true", help="Clear all seed-related data first (use with --confirm for full refill)")
     args = parser.parse_args()
     if not args.dry_run and not args.confirm:
         print("Use --dry-run or --confirm")
         sys.exit(1)
 
     print("Database:", settings.database_url.split("@")[-1] if "@" in settings.database_url else "?")
-    print("Mode:", "DRY-RUN" if args.dry_run else "CONFIRM")
+    print("Mode:", "DRY-RUN" if args.dry_run else "CONFIRM", "+ CLEAR" if args.clear else "")
     async with async_session() as session:
-        await run_seed(session, dry_run=args.dry_run)
+        if args.clear and args.confirm:
+            print("\nClearing all seed data...")
+            await clear_all_seed_data(session)
+            await session.commit()
+            print("Clear done. Seeding...\n")
+            async with async_session() as session2:
+                await run_seed(session2, dry_run=False)
+        else:
+            await run_seed(session, dry_run=args.dry_run)
     print("Done.")
 
 
