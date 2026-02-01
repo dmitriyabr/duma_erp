@@ -3,6 +3,8 @@
 from datetime import date
 from enum import StrEnum
 
+from decimal import Decimal
+
 from sqlalchemy import (
     BigInteger,
     Boolean,
@@ -10,6 +12,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
     func,
@@ -99,6 +102,11 @@ class Student(Base):
         String(20), nullable=False, default=StudentStatus.ACTIVE.value, index=True
     )
     enrollment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    # Cached credit balance (updated when payments/allocations change)
+    cached_credit_balance: Mapped[Decimal] = mapped_column(
+        Numeric(15, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
+    )
 
     # Other
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

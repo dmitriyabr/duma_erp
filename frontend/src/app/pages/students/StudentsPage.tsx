@@ -16,13 +16,11 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios from 'axios'
 import { useAuth } from '../../auth/AuthContext'
-import { api } from '../../services/api'
 import { isAccountant } from '../../utils/permissions'
-import type { ApiResponse, PaginatedResponse } from '../../types/api'
+import type { PaginatedResponse } from '../../types/api'
 import { DEFAULT_PAGE_SIZE } from '../../constants/pagination'
 import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { useApi } from '../../hooks/useApi'
@@ -48,25 +46,12 @@ interface StudentRow {
   status: StudentStatus
   enrollment_date?: string | null
   notes?: string | null
+  // Balance fields (optional, included when include_balance=true)
+  available_balance?: number | null
+  outstanding_debt?: number | null
+  balance?: number | null // net: available_balance - outstanding_debt
 }
 
-interface StudentBalance {
-  student_id: number
-  available_balance: number
-  outstanding_debt: number
-  balance: number // net: available_balance − outstanding_debt (computed on backend)
-}
-
-const parseNumber = (value: unknown) => {
-  if (typeof value === 'number') {
-    return value
-  }
-  if (typeof value === 'string' && value.trim() !== '') {
-    const parsed = Number(value)
-    return Number.isNaN(parsed) ? 0 : parsed
-  }
-  return 0
-}
 
 export const StudentsPage = () => {
   const navigate = useNavigate()
@@ -79,14 +64,14 @@ export const StudentsPage = () => {
   const [transportFilter, setTransportFilter] = useState<number | 'all'>('all')
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebouncedValue(search, 400)
-  const [balanceMap, setBalanceMap] = useState<Record<number, number>>({}) // student_id -> net balance (from backend)
 
   const { grades, transportZones } = useReferencedData()
 
   const requestParams = useMemo(() => {
-    const params: Record<string, string | number> = {
+    const params: Record<string, string | number | boolean> = {
       page: page + 1,
       limit,
+      include_balance: true, // Always include balance in response
     }
     if (statusFilter !== 'all') {
       params.status = statusFilter
@@ -111,39 +96,6 @@ export const StudentsPage = () => {
 
   const rows = studentsData?.items || []
   const total = studentsData?.total || 0
-
-  const fetchBalances = async (students: StudentRow[]) => {
-    if (!students.length) {
-      setBalanceMap({})
-      return
-    }
-    const ids = students.map((s) => s.id)
-    try {
-      const res = await api.post<ApiResponse<{ balances: StudentBalance[] }>>(
-        '/payments/students/balances-batch',
-        { student_ids: ids }
-      )
-      const map = (res.data.data.balances || []).reduce<Record<number, number>>(
-        (acc, b) => {
-          acc[b.student_id] = parseNumber(b.balance)
-          return acc
-        },
-        {}
-      )
-      setBalanceMap(map)
-    } catch (err) {
-      if (axios.isAxiosError(err) && err.response?.status === 401) {
-        return
-      }
-      console.error('Failed to load balances:', err)
-    }
-  }
-
-  useEffect(() => {
-    const list = studentsData?.items ?? []
-    if (list.length) fetchBalances(list)
-    else setBalanceMap({})
-  }, [studentsData])
 
   return (
     <Box>
@@ -252,7 +204,7 @@ export const StudentsPage = () => {
                   color={row.status === 'active' ? 'success' : 'default'}
                 />
               </TableCell>
-              <TableCell>{formatMoney(balanceMap[row.id] ?? 0)}</TableCell>
+              <TableCell>{formatMoney(row.balance ?? 0)}</TableCell>
               <TableCell align="right">
                 <Button size="small" onClick={() => navigate(`/students/${row.id}`)}>
                   Open

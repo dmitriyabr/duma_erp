@@ -32,6 +32,7 @@ from src.modules.payments.schemas import (
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus
 from src.modules.students.models import Student
 from src.modules.reservations.service import ReservationService
+from sqlalchemy import update
 
 
 class PaymentService:
@@ -206,6 +207,9 @@ class PaymentService:
             },
         )
 
+        # Update cached credit balance (add payment amount)
+        await self._update_student_balance_cache(payment.student_id, payment.amount)
+
         await self.db.commit()
         # Auto-allocate new balance to invoices (backend trigger)
         await self.allocate_auto(
@@ -241,11 +245,15 @@ class PaymentService:
     # --- Credit Balance Methods ---
 
     async def get_student_balance(self, student_id: int) -> StudentBalance:
-        """Get student's credit balance."""
-        # Validate student exists
-        await self._get_student(student_id)
+        """Get student's credit balance from cache."""
+        # Get student with cached balance
+        student = await self._get_student(student_id)
 
-        # Total completed payments
+        # Use cached balance (faster than SUM queries)
+        available_balance = round_money(student.cached_credit_balance)
+
+        # Calculate totals for response (needed for API compatibility, but not used in UI)
+        # These could be removed if not needed, but keeping for backward compatibility
         payments_result = await self.db.execute(
             select(func.coalesce(func.sum(Payment.amount), 0)).where(
                 Payment.student_id == student_id,
@@ -254,7 +262,6 @@ class PaymentService:
         )
         total_payments = Decimal(str(payments_result.scalar() or 0))
 
-        # Total allocations
         allocations_result = await self.db.execute(
             select(func.coalesce(func.sum(CreditAllocation.amount), 0)).where(
                 CreditAllocation.student_id == student_id
@@ -266,17 +273,24 @@ class PaymentService:
             student_id=student_id,
             total_payments=round_money(total_payments),
             total_allocated=round_money(total_allocated),
-            available_balance=round_money(total_payments - total_allocated),
+            available_balance=available_balance,  # ✅ From cache
         )
 
     async def get_student_balances_batch(
         self, student_ids: list[int]
     ) -> list[StudentBalance]:
-        """Get credit balances for multiple students in one go."""
+        """Get credit balances for multiple students in one go (uses cache)."""
         if not student_ids:
             return []
 
-        # Total completed payments per student
+        # Get students with cached balances (single query, much faster)
+        result = await self.db.execute(
+            select(Student.id, Student.cached_credit_balance)
+            .where(Student.id.in_(student_ids))
+        )
+        cached_balances = {row[0]: round_money(row[1]) for row in result.all()}
+
+        # Calculate totals for response (needed for API compatibility, but not used in UI)
         payments_result = await self.db.execute(
             select(Payment.student_id, func.coalesce(func.sum(Payment.amount), 0)).where(
                 Payment.student_id.in_(student_ids),
@@ -285,7 +299,6 @@ class PaymentService:
         )
         payments_by_student = {row[0]: Decimal(str(row[1])) for row in payments_result.all()}
 
-        # Total allocations per student
         allocations_result = await self.db.execute(
             select(CreditAllocation.student_id, func.coalesce(func.sum(CreditAllocation.amount), 0)).where(
                 CreditAllocation.student_id.in_(student_ids)
@@ -298,9 +311,7 @@ class PaymentService:
                 student_id=sid,
                 total_payments=round_money(payments_by_student.get(sid, Decimal("0"))),
                 total_allocated=round_money(allocations_by_student.get(sid, Decimal("0"))),
-                available_balance=round_money(
-                    payments_by_student.get(sid, Decimal("0")) - allocations_by_student.get(sid, Decimal("0"))
-                ),
+                available_balance=cached_balances.get(sid, Decimal("0")),
             )
             for sid in student_ids
         ]
@@ -361,6 +372,9 @@ class PaymentService:
         )
         self.db.add(allocation)
         await self.db.flush()
+
+        # Update cached credit balance (subtract allocation amount)
+        await self._update_student_balance_cache(data.student_id, -data.amount)
 
         # Update invoice paid amounts
         await self._update_invoice_paid_amounts(invoice)
@@ -458,6 +472,9 @@ class PaymentService:
             )
             self.db.add(allocation)
             await self.db.flush()
+
+            # Update cached credit balance (subtract allocation amount)
+            await self._update_student_balance_cache(data.student_id, -amount)
 
             await self._update_invoice_paid_amounts(invoice)
             await self._sync_reservations_for_invoice(invoice.id, allocated_by_id)
@@ -572,8 +589,14 @@ class PaymentService:
             comment=reason,
         )
 
+        student_id = allocation.student_id
+        allocation_amount = allocation.amount
+
         await self.db.delete(allocation)
         await self.db.flush()
+
+        # Update cached credit balance (return allocation amount)
+        await self._update_student_balance_cache(student_id, allocation_amount)
 
         # Update invoice paid amounts
         await self._update_invoice_paid_amounts(invoice)
@@ -785,3 +808,11 @@ class PaymentService:
         """Create/cancel reservations based on paid status of invoice lines."""
         reservation_service = ReservationService(self.db)
         await reservation_service.sync_for_invoice(invoice_id=invoice_id, user_id=user_id)
+
+    async def _update_student_balance_cache(self, student_id: int, delta: Decimal) -> None:
+        """Update cached credit balance for a student (add or subtract amount)."""
+        await self.db.execute(
+            update(Student)
+            .where(Student.id == student_id)
+            .values(cached_credit_balance=Student.cached_credit_balance + round_money(delta))
+        )

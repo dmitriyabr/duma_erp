@@ -20,6 +20,10 @@ export interface StudentResponse {
   status: StudentStatus
   enrollment_date?: string | null
   notes?: string | null
+  // Balance fields (optional, included when include_balance=true)
+  available_balance?: number | null
+  outstanding_debt?: number | null
+  balance?: number | null // net: available_balance - outstanding_debt
 }
 
 export interface StudentBalance {
