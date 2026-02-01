@@ -219,6 +219,22 @@ class TestProfitLoss:
         )
         assert response.status_code == 403
 
+    async def test_profit_loss_breakdown_monthly(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await _get_token(client, db_session, UserRole.ADMIN)
+        response = await client.get(
+            "/api/v1/reports/profit-loss?date_from=2026-01-01&date_to=2026-03-31&breakdown=monthly",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        d = response.json()["data"]
+        assert d["months"] == ["2026-01", "2026-02", "2026-03"]
+        assert "gross_revenue_monthly" in d
+        assert "net_profit_monthly" in d
+        assert all(len(r.get("monthly") or {}) == 3 for r in d["revenue_lines"])
+        assert all(len(e.get("monthly") or {}) == 3 for e in d["expense_lines"])
+
 
 class TestCashFlow:
     """Tests for GET /reports/cash-flow."""

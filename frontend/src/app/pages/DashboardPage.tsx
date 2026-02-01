@@ -187,7 +187,7 @@ export const DashboardPage = () => {
                   <Link
                     component="button"
                     variant="body2"
-                    onClick={() => navigate('/reports/student-fees')}
+                    onClick={() => navigate('/reports/students/student-fees')}
                     sx={{ mt: 1, fontSize: '0.75rem' }}
                   >
                     View report
@@ -203,7 +203,7 @@ export const DashboardPage = () => {
                   <Link
                     component="button"
                     variant="body2"
-                    onClick={() => navigate('/reports/collection-rate')}
+                    onClick={() => navigate('/reports/students/collection-rate')}
                     sx={{ mt: 1, fontSize: '0.75rem' }}
                   >
                     View report
@@ -232,7 +232,7 @@ export const DashboardPage = () => {
                   <Link
                     component="button"
                     variant="body2"
-                    onClick={() => navigate('/reports/aged-receivables')}
+                    onClick={() => navigate('/reports/students/aged-receivables')}
                     sx={{ mt: 1, fontSize: '0.75rem' }}
                   >
                     View report

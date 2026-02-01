@@ -57,6 +57,20 @@ from src.modules.reports.schemas import (
 )
 
 
+def _months_in_range(date_from: date, date_to: date) -> list[str]:
+    """Return list of YYYY-MM for each month in [date_from, date_to]."""
+    out: list[str] = []
+    y, m = date_from.year, date_from.month
+    end_y, end_m = date_to.year, date_to.month
+    while (y, m) <= (end_y, end_m):
+        out.append(f"{y:04d}-{m:02d}")
+        if m == 12:
+            y, m = y + 1, 1
+        else:
+            m += 1
+    return out
+
+
 class ReportsService:
     """Build report data for Admin/SuperAdmin."""
 
@@ -266,16 +280,12 @@ class ReportsService:
             ),
         }
 
-    async def profit_loss(
+    async def _profit_loss_period(
         self,
         date_from: date,
         date_to: date,
     ) -> dict:
-        """
-        Profit & Loss: revenue (invoiced by type), less discounts, expenses (procurement + compensations).
-
-        Only invoices with issue_date in [date_from, date_to] and status issued/partially_paid/paid.
-        """
+        """Compute PnL for a single period; returns raw numbers for aggregation."""
         statuses = (
             InvoiceStatus.ISSUED.value,
             InvoiceStatus.PARTIALLY_PAID.value,
@@ -296,13 +306,12 @@ class ReportsService:
         )
         rev_result = await self.db.execute(rev_q)
         rev_rows = rev_result.all()
-
         type_labels = {
             "school_fee": "School Fee",
             "transport": "Transport",
             "adhoc": "Other Fees",
         }
-        revenue_lines = []
+        revenue_lines: list[dict] = []
         gross_revenue = Decimal("0")
         total_discounts = Decimal("0")
         for inv_type, tot, disc in rev_rows:
@@ -310,15 +319,8 @@ class ReportsService:
             disc = round_money(Decimal(str(disc)))
             gross_revenue += tot
             total_discounts += disc
-            revenue_lines.append(
-                ProfitLossRevenueLine(
-                    label=type_labels.get(inv_type, inv_type or "Other"),
-                    amount=tot,
-                )
-            )
+            revenue_lines.append({"label": type_labels.get(inv_type, inv_type or "Other"), "amount": tot})
         net_revenue = round_money(gross_revenue - total_discounts)
-
-        # Expenses: procurement + compensations in period
         proc = await self.db.execute(
             select(func.coalesce(func.sum(ProcurementPayment.amount), 0)).where(
                 ProcurementPayment.status == ProcurementPaymentStatus.POSTED.value,
@@ -327,7 +329,6 @@ class ReportsService:
             )
         )
         proc_total = round_money(Decimal(str(proc.scalar() or 0)))
-
         comp = await self.db.execute(
             select(func.coalesce(func.sum(CompensationPayout.amount), 0)).where(
                 CompensationPayout.payout_date >= date_from,
@@ -335,28 +336,143 @@ class ReportsService:
             )
         )
         comp_total = round_money(Decimal(str(comp.scalar() or 0)))
-
-        expense_lines = [
-            ProfitLossExpenseLine(label="Procurement (Inventory)", amount=proc_total),
-            ProfitLossExpenseLine(label="Employee Compensations", amount=comp_total),
-        ]
         total_expenses = round_money(proc_total + comp_total)
         net_profit = round_money(net_revenue - total_expenses)
-        profit_margin_percent = (
-            round(float(net_profit / net_revenue * 100), 2) if net_revenue and net_revenue > 0 else None
-        )
-
         return {
-            "date_from": date_from,
-            "date_to": date_to,
             "revenue_lines": revenue_lines,
             "gross_revenue": gross_revenue,
             "total_discounts": total_discounts,
             "net_revenue": net_revenue,
-            "expense_lines": expense_lines,
+            "proc_total": proc_total,
+            "comp_total": comp_total,
             "total_expenses": total_expenses,
             "net_profit": net_profit,
+        }
+
+    async def profit_loss(
+        self,
+        date_from: date,
+        date_to: date,
+        breakdown_monthly: bool = False,
+    ) -> dict:
+        """
+        Profit & Loss: revenue (invoiced by type), less discounts, expenses (procurement + compensations).
+
+        Only invoices with issue_date in [date_from, date_to] and status issued/partially_paid/paid.
+        If breakdown_monthly=True, adds months list and monthly amounts per line and per total.
+        """
+        full = await self._profit_loss_period(date_from, date_to)
+        type_labels = {"school_fee": "School Fee", "transport": "Transport", "adhoc": "Other Fees"}
+        revenue_lines = [
+            ProfitLossRevenueLine(label=r["label"], amount=r["amount"])
+            for r in full["revenue_lines"]
+        ]
+        expense_lines = [
+            ProfitLossExpenseLine(label="Procurement (Inventory)", amount=full["proc_total"]),
+            ProfitLossExpenseLine(label="Employee Compensations", amount=full["comp_total"]),
+        ]
+        profit_margin_percent = (
+            round(float(full["net_profit"] / full["net_revenue"] * 100), 2)
+            if full["net_revenue"] and full["net_revenue"] > 0
+            else None
+        )
+        out: dict = {
+            "date_from": date_from,
+            "date_to": date_to,
+            "revenue_lines": revenue_lines,
+            "gross_revenue": full["gross_revenue"],
+            "total_discounts": full["total_discounts"],
+            "net_revenue": full["net_revenue"],
+            "expense_lines": expense_lines,
+            "total_expenses": full["total_expenses"],
+            "net_profit": full["net_profit"],
             "profit_margin_percent": profit_margin_percent,
+        }
+        if not breakdown_monthly:
+            return out
+        months = _months_in_range(date_from, date_to)
+        rev_by_label: dict[str, dict[str, Decimal]] = defaultdict(lambda: {})
+        gross_monthly: dict[str, Decimal] = {}
+        discounts_monthly: dict[str, Decimal] = {}
+        net_rev_monthly: dict[str, Decimal] = {}
+        proc_monthly: dict[str, Decimal] = {}
+        comp_monthly: dict[str, Decimal] = {}
+        total_exp_monthly: dict[str, Decimal] = {}
+        net_profit_monthly: dict[str, Decimal] = {}
+        for mo in months:
+            y, m = int(mo[:4]), int(mo[5:7])
+            first = date(y, m, 1)
+            last = date(y, m, monthrange(y, m)[1])
+            period = await self._profit_loss_period(first, last)
+            gross_monthly[mo] = period["gross_revenue"]
+            discounts_monthly[mo] = period["total_discounts"]
+            net_rev_monthly[mo] = period["net_revenue"]
+            proc_monthly[mo] = period["proc_total"]
+            comp_monthly[mo] = period["comp_total"]
+            total_exp_monthly[mo] = period["total_expenses"]
+            net_profit_monthly[mo] = period["net_profit"]
+            for r in period["revenue_lines"]:
+                rev_by_label[r["label"]][mo] = r["amount"]
+        for line in revenue_lines:
+            line.monthly = dict(rev_by_label.get(line.label, {}))
+        expense_lines[0].monthly = dict(proc_monthly)
+        expense_lines[1].monthly = dict(comp_monthly)
+        out["months"] = months
+        out["gross_revenue_monthly"] = gross_monthly
+        out["total_discounts_monthly"] = discounts_monthly
+        out["net_revenue_monthly"] = net_rev_monthly
+        out["total_expenses_monthly"] = total_exp_monthly
+        out["net_profit_monthly"] = net_profit_monthly
+        return out
+
+    async def _cash_flow_period(
+        self,
+        date_from: date,
+        date_to: date,
+        payment_method: str | None,
+    ) -> dict:
+        """Inflows and outflows for a single period (no opening/closing)."""
+        q_in = (
+            select(
+                Payment.payment_method,
+                func.coalesce(func.sum(Payment.amount), 0).label("amt"),
+            )
+            .where(
+                Payment.status == PaymentStatus.COMPLETED.value,
+                Payment.payment_date >= date_from,
+                Payment.payment_date <= date_to,
+            )
+            .group_by(Payment.payment_method)
+        )
+        if payment_method:
+            q_in = q_in.where(Payment.payment_method == payment_method)
+        inflow_res = await self.db.execute(q_in)
+        method_labels = {"mpesa": "M-Pesa", "bank_transfer": "Bank Transfer"}
+        inflow_rows = [(m, round_money(Decimal(str(a)))) for m, a in inflow_res.all()]
+        total_inflows = round_money(sum(a for _, a in inflow_rows))
+        proc_out = await self.db.execute(
+            select(func.coalesce(func.sum(ProcurementPayment.amount), 0)).where(
+                ProcurementPayment.status == ProcurementPaymentStatus.POSTED.value,
+                ProcurementPayment.payment_date >= date_from,
+                ProcurementPayment.payment_date <= date_to,
+            )
+        )
+        comp_out = await self.db.execute(
+            select(func.coalesce(func.sum(CompensationPayout.amount), 0)).where(
+                CompensationPayout.payout_date >= date_from,
+                CompensationPayout.payout_date <= date_to,
+            )
+        )
+        proc_amt = round_money(Decimal(str(proc_out.scalar() or 0)))
+        comp_amt = round_money(Decimal(str(comp_out.scalar() or 0)))
+        total_outflows = round_money(proc_amt + comp_amt)
+        return {
+            "inflow_rows": inflow_rows,
+            "method_labels": method_labels,
+            "total_inflows": total_inflows,
+            "proc_amt": proc_amt,
+            "comp_amt": comp_amt,
+            "total_outflows": total_outflows,
         }
 
     async def cash_flow(
@@ -364,14 +480,15 @@ class ReportsService:
         date_from: date,
         date_to: date,
         payment_method: str | None = None,
+        breakdown_monthly: bool = False,
     ) -> dict:
         """
         Cash flow: opening balance (net cash position before date_from), inflows (student payments),
         outflows (procurement + compensations), closing balance.
 
         payment_method: optional filter for student payments (mpesa, bank_transfer, or None for all).
+        If breakdown_monthly=True, adds months list and monthly amounts per line and closing_balance_monthly.
         """
-        # Opening: net cash position before date_from (all payments - proc - comp)
         pay_in = await self.db.execute(
             select(func.coalesce(func.sum(Payment.amount), 0)).where(
                 Payment.status == PaymentStatus.COMPLETED.value,
@@ -393,55 +510,24 @@ class ReportsService:
         opening_balance = round_money(
             pay_in_val - Decimal(str(proc_before.scalar() or 0)) - Decimal(str(comp_before.scalar() or 0))
         )
-
-        # Inflows in period: student payments, optionally by method
-        q_in = (
-            select(
-                Payment.payment_method,
-                func.coalesce(func.sum(Payment.amount), 0).label("amt"),
-            )
-            .where(
-                Payment.status == PaymentStatus.COMPLETED.value,
-                Payment.payment_date >= date_from,
-                Payment.payment_date <= date_to,
-            )
-            .group_by(Payment.payment_method)
-        )
-        if payment_method:
-            q_in = q_in.where(Payment.payment_method == payment_method)
-        inflow_res = await self.db.execute(q_in)
-        method_labels = {"mpesa": "M-Pesa", "bank_transfer": "Bank Transfer"}
+        full = await self._cash_flow_period(date_from, date_to, payment_method)
+        method_labels = full["method_labels"]
         inflow_lines = [
-            CashFlowInflowLine(label=method_labels.get(m, m or "Other"), amount=round_money(Decimal(str(a))))
-            for m, a in inflow_res.all()
+            CashFlowInflowLine(
+                label=method_labels.get(m, m or "Other"),
+                amount=round_money(Decimal(str(a))),
+            )
+            for m, a in full["inflow_rows"]
         ]
-        total_inflows = round_money(sum(l.amount for l in inflow_lines))
-
-        # Outflows in period
-        proc_out = await self.db.execute(
-            select(func.coalesce(func.sum(ProcurementPayment.amount), 0)).where(
-                ProcurementPayment.status == ProcurementPaymentStatus.POSTED.value,
-                ProcurementPayment.payment_date >= date_from,
-                ProcurementPayment.payment_date <= date_to,
-            )
-        )
-        comp_out = await self.db.execute(
-            select(func.coalesce(func.sum(CompensationPayout.amount), 0)).where(
-                CompensationPayout.payout_date >= date_from,
-                CompensationPayout.payout_date <= date_to,
-            )
-        )
-        proc_amt = round_money(Decimal(str(proc_out.scalar() or 0)))
-        comp_amt = round_money(Decimal(str(comp_out.scalar() or 0)))
+        total_inflows = full["total_inflows"]
         outflow_lines = [
-            CashFlowOutflowLine(label="Supplier Payments", amount=proc_amt),
-            CashFlowOutflowLine(label="Employee Compensations", amount=comp_amt),
+            CashFlowOutflowLine(label="Supplier Payments", amount=full["proc_amt"]),
+            CashFlowOutflowLine(label="Employee Compensations", amount=full["comp_amt"]),
         ]
-        total_outflows = round_money(proc_amt + comp_amt)
+        total_outflows = full["total_outflows"]
         net_cash_flow = round_money(total_inflows - total_outflows)
         closing_balance = round_money(opening_balance + net_cash_flow)
-
-        return {
+        out: dict = {
             "date_from": date_from,
             "date_to": date_to,
             "opening_balance": opening_balance,
@@ -452,13 +538,42 @@ class ReportsService:
             "net_cash_flow": net_cash_flow,
             "closing_balance": closing_balance,
         }
+        if not breakdown_monthly:
+            return out
+        months = _months_in_range(date_from, date_to)
+        inflow_by_label: dict[str, dict[str, Decimal]] = defaultdict(lambda: {})
+        total_inflows_monthly: dict[str, Decimal] = {}
+        proc_monthly: dict[str, Decimal] = {}
+        comp_monthly: dict[str, Decimal] = {}
+        total_outflows_monthly: dict[str, Decimal] = {}
+        closing_balance_monthly: dict[str, Decimal] = {}
+        cum = opening_balance
+        for mo in months:
+            y, m = int(mo[:4]), int(mo[5:7])
+            first = date(y, m, 1)
+            last = date(y, m, monthrange(y, m)[1])
+            period = await self._cash_flow_period(first, last, payment_method)
+            total_inflows_monthly[mo] = period["total_inflows"]
+            proc_monthly[mo] = period["proc_amt"]
+            comp_monthly[mo] = period["comp_amt"]
+            total_outflows_monthly[mo] = period["total_outflows"]
+            for method_key, amt in period["inflow_rows"]:
+                lbl = method_labels.get(method_key, method_key or "Other")
+                inflow_by_label[lbl][mo] = amt
+            cum = round_money(cum + period["total_inflows"] - period["total_outflows"])
+            closing_balance_monthly[mo] = cum
+        for line in inflow_lines:
+            line.monthly = dict(inflow_by_label.get(line.label, {}))
+        outflow_lines[0].monthly = dict(proc_monthly)
+        outflow_lines[1].monthly = dict(comp_monthly)
+        out["months"] = months
+        out["total_inflows_monthly"] = total_inflows_monthly
+        out["total_outflows_monthly"] = total_outflows_monthly
+        out["closing_balance_monthly"] = closing_balance_monthly
+        return out
 
-    async def balance_sheet(self, as_at_date: date) -> dict:
-        """
-        Balance sheet as at date: assets (cash position, receivables, inventory),
-        liabilities (supplier debt, credit balances, pending claims), net equity, ratios.
-        """
-        # Cash position = student payments - procurement - compensations up to as_at
+    async def _balance_sheet_as_at(self, as_at_date: date) -> dict:
+        """Compute balance sheet as at a single date; returns raw dict (no monthly)."""
         pay = await self.db.execute(
             select(func.coalesce(func.sum(Payment.amount), 0)).where(
                 Payment.status == PaymentStatus.COMPLETED.value,
@@ -481,8 +596,6 @@ class ReportsService:
             - Decimal(str(proc.scalar() or 0))
             - Decimal(str(comp.scalar() or 0))
         )
-
-        # Receivables: student debts (invoices with amount_due > 0, not paid/cancelled)
         excluded = (InvoiceStatus.PAID.value, InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value)
         recv = await self.db.execute(
             select(func.coalesce(func.sum(Invoice.amount_due), 0)).where(
@@ -490,23 +603,13 @@ class ReportsService:
             )
         )
         receivables = round_money(Decimal(str(recv.scalar() or 0)))
-
-        # Inventory at cost
         stock_res = await self.db.execute(
             select(
                 func.coalesce(func.sum(Stock.quantity_on_hand * Stock.average_cost), 0),
             )
         )
         inventory = round_money(Decimal(str(stock_res.scalar() or 0)))
-
-        asset_lines = [
-            BalanceSheetAssetLine(label="Cash", amount=cash),
-            BalanceSheetAssetLine(label="Accounts Receivable (Student Debts)", amount=receivables),
-            BalanceSheetAssetLine(label="Inventory at Cost", amount=inventory),
-        ]
         total_assets = round_money(cash + receivables + inventory)
-
-        # Liabilities: supplier debt, credit balances, pending claims
         supp = await self.db.execute(
             select(func.coalesce(func.sum(PurchaseOrder.debt_amount), 0)).where(
                 PurchaseOrder.status.notin_(
@@ -515,7 +618,6 @@ class ReportsService:
             )
         )
         supplier_debt = round_money(Decimal(str(supp.scalar() or 0)))
-
         pay_tot = await self.db.execute(
             select(
                 Payment.student_id,
@@ -536,7 +638,6 @@ class ReportsService:
                 payments_by_student.get(sid, Decimal("0")) - allocated_by_student.get(sid, Decimal("0"))
             )
         credit_balances = round_money(credit_total)
-
         pending_statuses = (
             ExpenseClaimStatus.PENDING_APPROVAL.value,
             ExpenseClaimStatus.APPROVED.value,
@@ -548,31 +649,93 @@ class ReportsService:
             )
         )
         pending_claims = round_money(Decimal(str(claims.scalar() or 0)))
-
-        liability_lines = [
-            BalanceSheetLiabilityLine(label="Accounts Payable (Supplier Debts)", amount=supplier_debt),
-            BalanceSheetLiabilityLine(label="Student Credit Balances", amount=credit_balances),
-            BalanceSheetLiabilityLine(label="Employee Payable (Pending Claims)", amount=pending_claims),
-        ]
         total_liabilities = round_money(supplier_debt + credit_balances + pending_claims)
         net_equity = round_money(total_assets - total_liabilities)
-        debt_to_asset_percent = (
-            round(float(total_liabilities / total_assets * 100), 2) if total_assets and total_assets > 0 else None
-        )
-        current_ratio = (
-            round(float(total_assets / total_liabilities), 2) if total_liabilities and total_liabilities > 0 else None
-        )
-
         return {
-            "as_at_date": as_at_date,
-            "asset_lines": asset_lines,
+            "asset_lines": [
+                ("Cash", cash),
+                ("Accounts Receivable (Student Debts)", receivables),
+                ("Inventory at Cost", inventory),
+            ],
             "total_assets": total_assets,
-            "liability_lines": liability_lines,
+            "liability_lines": [
+                ("Accounts Payable (Supplier Debts)", supplier_debt),
+                ("Student Credit Balances", credit_balances),
+                ("Employee Payable (Pending Claims)", pending_claims),
+            ],
             "total_liabilities": total_liabilities,
             "net_equity": net_equity,
+        }
+
+    async def balance_sheet(
+        self,
+        as_at_date: date,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        breakdown_monthly: bool = False,
+    ) -> dict:
+        """
+        Balance sheet as at date: assets (cash position, receivables, inventory),
+        liabilities (supplier debt, credit balances, pending claims), net equity, ratios.
+        If breakdown_monthly=True and date_from/date_to given, adds months and monthly amounts (as at each month end).
+        """
+        data = await self._balance_sheet_as_at(as_at_date)
+        asset_lines = [
+            BalanceSheetAssetLine(label=l, amount=a)
+            for l, a in data["asset_lines"]
+        ]
+        liability_lines = [
+            BalanceSheetLiabilityLine(label=l, amount=a)
+            for l, a in data["liability_lines"]
+        ]
+        debt_to_asset_percent = (
+            round(float(data["total_liabilities"] / data["total_assets"] * 100), 2)
+            if data["total_assets"] and data["total_assets"] > 0
+            else None
+        )
+        current_ratio = (
+            round(float(data["total_assets"] / data["total_liabilities"]), 2)
+            if data["total_liabilities"] and data["total_liabilities"] > 0
+            else None
+        )
+        out: dict = {
+            "as_at_date": as_at_date,
+            "asset_lines": asset_lines,
+            "total_assets": data["total_assets"],
+            "liability_lines": liability_lines,
+            "total_liabilities": data["total_liabilities"],
+            "net_equity": data["net_equity"],
             "debt_to_asset_percent": debt_to_asset_percent,
             "current_ratio": current_ratio,
         }
+        if not breakdown_monthly or not date_from or not date_to:
+            return out
+        months = _months_in_range(date_from, date_to)
+        asset_by_label: dict[str, dict[str, Decimal]] = defaultdict(lambda: {})
+        liability_by_label: dict[str, dict[str, Decimal]] = defaultdict(lambda: {})
+        total_assets_monthly: dict[str, Decimal] = {}
+        total_liabilities_monthly: dict[str, Decimal] = {}
+        net_equity_monthly: dict[str, Decimal] = {}
+        for mo in months:
+            y, m = int(mo[:4]), int(mo[5:7])
+            last = date(y, m, monthrange(y, m)[1])
+            month_data = await self._balance_sheet_as_at(last)
+            total_assets_monthly[mo] = month_data["total_assets"]
+            total_liabilities_monthly[mo] = month_data["total_liabilities"]
+            net_equity_monthly[mo] = month_data["net_equity"]
+            for l, a in month_data["asset_lines"]:
+                asset_by_label[l][mo] = a
+            for l, a in month_data["liability_lines"]:
+                liability_by_label[l][mo] = a
+        for line in asset_lines:
+            line.monthly = dict(asset_by_label.get(line.label, {}))
+        for line in liability_lines:
+            line.monthly = dict(liability_by_label.get(line.label, {}))
+        out["months"] = months
+        out["total_assets_monthly"] = total_assets_monthly
+        out["total_liabilities_monthly"] = total_liabilities_monthly
+        out["net_equity_monthly"] = net_equity_monthly
+        return out
 
     async def collection_rate_trend(
         self,

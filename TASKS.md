@@ -690,6 +690,9 @@
 - [x] Страница отчёта Aged Receivables (/reports/aged-receivables): таблица по студентам (Total, Current 0-30, 31-60, 61-90, 90+, Last Payment), summary; при 403 — сообщение о доступе.
 - [x] Страница отчёта Student Fees by Term (/reports/student-fees): выбор терма и опционально класса, таблица по классам (Class, Students, Total Invoiced, Total Paid, Balance, Rate), summary; при 403 — сообщение о доступе.
 - [x] Страницы финансовых отчётов: Profit & Loss (/reports/profit-loss), Cash Flow (/reports/cash-flow), Balance Sheet (/reports/balance-sheet) — параметры (даты), таблицы, 403; тесты API (profit-loss, cash-flow, balance-sheet).
+- [x] Отчёты с выбором дат: шорткаты (This year, This month, 30 days, 365 days), по умолчанию This year.
+- [x] Меню Reports: группировка в 5 разделов (Financial, Students, Procurement & Inventory, Compensations, Analytics) с вкладками внутри раздела.
+- [x] Финансовые отчёты помесячно: PnL, Cash Flow, Balance Sheet — при диапазоне > 1 месяца колонки по месяцам (backend breakdown=monthly, frontend таблицы с месяцами).
 - [x] Отчёты Students: Collection Rate Trend (/reports/collection-rate), Discount Analysis (/reports/discount-analysis), Top Debtors (/reports/top-debtors) — backend + тесты + страницы и навигация.
 - [x] Страницы отчётов Procurement & Inventory: Procurement Summary, Inventory Valuation, Low Stock Alert, Stock Movement Report (меню, роуты, страницы).
 - [x] Страницы отчётов Compensations: Compensation Summary, Expense Claims by Category (меню, роуты, страницы).

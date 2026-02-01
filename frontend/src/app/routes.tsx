@@ -65,6 +65,7 @@ import { RevenueTrendPage } from './pages/reports/RevenueTrendPage'
 import { StockMovementPage } from './pages/reports/StockMovementPage'
 import { TermComparisonPage } from './pages/reports/TermComparisonPage'
 import { StudentFeesPage } from './pages/reports/StudentFeesPage'
+import { ReportsSectionLayout } from './pages/reports/ReportsSectionLayout'
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useAuth()
@@ -144,24 +145,41 @@ export const AppRoutes = () => {
           <Route path="compensations/claims/:claimId" element={<ExpenseClaimDetailPage />} />
           <Route path="compensations/payouts" element={<PayoutsPage />} />
           <Route path="compensations/payouts/:payoutId" element={<PayoutDetailPage />} />
-          <Route path="reports" element={<PlaceholderPage title="Reports" />} />
-          <Route path="reports/profit-loss" element={<ProfitLossPage />} />
-          <Route path="reports/cash-flow" element={<CashFlowPage />} />
-          <Route path="reports/balance-sheet" element={<BalanceSheetPage />} />
-          <Route path="reports/aged-receivables" element={<AgedReceivablesPage />} />
-          <Route path="reports/student-fees" element={<StudentFeesPage />} />
-          <Route path="reports/collection-rate" element={<CollectionRatePage />} />
-          <Route path="reports/discount-analysis" element={<DiscountAnalysisPage />} />
-          <Route path="reports/procurement-summary" element={<ProcurementSummaryPage />} />
-          <Route path="reports/inventory-valuation" element={<InventoryValuationPage />} />
-          <Route path="reports/low-stock-alert" element={<LowStockAlertPage />} />
-          <Route path="reports/stock-movement" element={<StockMovementPage />} />
-          <Route path="reports/compensation-summary" element={<CompensationSummaryPage />} />
-          <Route path="reports/expense-claims-by-category" element={<ExpenseClaimsByCategoryPage />} />
-          <Route path="reports/revenue-trend" element={<RevenueTrendPage />} />
-          <Route path="reports/payment-method-distribution" element={<PaymentMethodDistributionPage />} />
-          <Route path="reports/term-comparison" element={<TermComparisonPage />} />
-          <Route path="reports/kpis" element={<KpisPage />} />
+          <Route path="reports">
+            <Route index element={<Navigate to="financial/profit-loss" replace />} />
+            <Route path="financial" element={<ReportsSectionLayout basePath="/reports/financial" tabs={[{ path: 'profit-loss', label: 'Profit & Loss' }, { path: 'cash-flow', label: 'Cash Flow' }, { path: 'balance-sheet', label: 'Balance Sheet' }]} />}>
+              <Route index element={<Navigate to="profit-loss" replace />} />
+              <Route path="profit-loss" element={<ProfitLossPage />} />
+              <Route path="cash-flow" element={<CashFlowPage />} />
+              <Route path="balance-sheet" element={<BalanceSheetPage />} />
+            </Route>
+            <Route path="students" element={<ReportsSectionLayout basePath="/reports/students" tabs={[{ path: 'aged-receivables', label: 'Students Debt' }, { path: 'student-fees', label: 'Student Fees by Term' }, { path: 'collection-rate', label: 'Collection Rate Trend' }, { path: 'discount-analysis', label: 'Discount Analysis' }]} />}>
+              <Route index element={<Navigate to="aged-receivables" replace />} />
+              <Route path="aged-receivables" element={<AgedReceivablesPage />} />
+              <Route path="student-fees" element={<StudentFeesPage />} />
+              <Route path="collection-rate" element={<CollectionRatePage />} />
+              <Route path="discount-analysis" element={<DiscountAnalysisPage />} />
+            </Route>
+            <Route path="procurement" element={<ReportsSectionLayout basePath="/reports/procurement" tabs={[{ path: 'summary', label: 'Procurement Summary' }, { path: 'inventory-valuation', label: 'Inventory Valuation' }, { path: 'low-stock-alert', label: 'Low Stock Alert' }, { path: 'stock-movement', label: 'Stock Movement' }]} />}>
+              <Route index element={<Navigate to="summary" replace />} />
+              <Route path="summary" element={<ProcurementSummaryPage />} />
+              <Route path="inventory-valuation" element={<InventoryValuationPage />} />
+              <Route path="low-stock-alert" element={<LowStockAlertPage />} />
+              <Route path="stock-movement" element={<StockMovementPage />} />
+            </Route>
+            <Route path="compensations" element={<ReportsSectionLayout basePath="/reports/compensations" tabs={[{ path: 'summary', label: 'Compensation Summary' }, { path: 'by-category', label: 'Expense Claims by Category' }]} />}>
+              <Route index element={<Navigate to="summary" replace />} />
+              <Route path="summary" element={<CompensationSummaryPage />} />
+              <Route path="by-category" element={<ExpenseClaimsByCategoryPage />} />
+            </Route>
+            <Route path="analytics" element={<ReportsSectionLayout basePath="/reports/analytics" tabs={[{ path: 'revenue-trend', label: 'Revenue per Student' }, { path: 'payment-method', label: 'Payment Method Distribution' }, { path: 'term-comparison', label: 'Term Comparison' }, { path: 'kpis', label: 'KPIs & Metrics' }]} />}>
+              <Route index element={<Navigate to="revenue-trend" replace />} />
+              <Route path="revenue-trend" element={<RevenueTrendPage />} />
+              <Route path="payment-method" element={<PaymentMethodDistributionPage />} />
+              <Route path="term-comparison" element={<TermComparisonPage />} />
+              <Route path="kpis" element={<KpisPage />} />
+            </Route>
+          </Route>
           <Route path="audit" element={<AuditTrailPage />} />
           <Route path="payments/new" element={<ReceivePaymentPage />} />
           <Route path="payments" element={<PaymentReceiptsPage />} />

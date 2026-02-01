@@ -20,6 +20,7 @@ import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
+import { DateRangeShortcuts, getDateRangeForPreset } from '../../components/DateRangeShortcuts'
 
 interface DiscountRow {
   reason_id: number | null
@@ -45,17 +46,12 @@ interface DiscountAnalysisData {
   summary: DiscountSummary
 }
 
-const defaultDateFrom = () => {
-  const d = new Date()
-  d.setDate(1)
-  return d.toISOString().slice(0, 10)
-}
-const defaultDateTo = () => new Date().toISOString().slice(0, 10)
+const defaultRange = () => getDateRangeForPreset('this_year')
 
 export const DiscountAnalysisPage = () => {
   const { user } = useAuth()
-  const [dateFrom, setDateFrom] = useState(defaultDateFrom)
-  const [dateTo, setDateTo] = useState(defaultDateTo)
+  const [dateFrom, setDateFrom] = useState(() => defaultRange().from)
+  const [dateTo, setDateTo] = useState(() => defaultRange().to)
   const [data, setData] = useState<DiscountAnalysisData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -102,24 +98,9 @@ export const DiscountAnalysisPage = () => {
       <Card sx={{ mb: 2 }}>
         <CardContent>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
-            <TextField
-              label="From"
-              type="date"
-              size="small"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 160 }}
-            />
-            <TextField
-              label="To"
-              type="date"
-              size="small"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 160 }}
-            />
+            <DateRangeShortcuts dateFrom={dateFrom} dateTo={dateTo} onRangeChange={(from, to) => { setDateFrom(from); setDateTo(to) }} onRun={runReport} />
+            <TextField label="From" type="date" size="small" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
+            <TextField label="To" type="date" size="small" value={dateTo} onChange={(e) => setDateTo(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
             <Button variant="contained" onClick={runReport}>Run report</Button>
           </Box>
         </CardContent>

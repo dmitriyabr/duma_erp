@@ -20,15 +20,18 @@ import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
+import { DateRangeShortcuts, getDateRangeForPreset } from '../../components/DateRangeShortcuts'
 
 interface InflowLine {
   label: string
   amount: string
+  monthly?: Record<string, string>
 }
 
 interface OutflowLine {
   label: string
   amount: string
+  monthly?: Record<string, string>
 }
 
 interface CashFlowData {
@@ -41,19 +44,23 @@ interface CashFlowData {
   total_outflows: string
   net_cash_flow: string
   closing_balance: string
+  months?: string[]
+  total_inflows_monthly?: Record<string, string>
+  total_outflows_monthly?: Record<string, string>
+  closing_balance_monthly?: Record<string, string>
 }
 
-const defaultDateFrom = () => {
-  const d = new Date()
-  d.setDate(1)
-  return d.toISOString().slice(0, 10)
+const defaultRange = () => getDateRangeForPreset('this_year')
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+function monthLabel(yyyyMm: string): string {
+  const [y, m] = yyyyMm.split('-').map(Number)
+  return `${MONTH_NAMES[m - 1]} ${y}`
 }
-const defaultDateTo = () => new Date().toISOString().slice(0, 10)
 
 export const CashFlowPage = () => {
   const { user } = useAuth()
-  const [dateFrom, setDateFrom] = useState(defaultDateFrom)
-  const [dateTo, setDateTo] = useState(defaultDateTo)
+  const [dateFrom, setDateFrom] = useState(() => defaultRange().from)
+  const [dateTo, setDateTo] = useState(() => defaultRange().to)
   const [data, setData] = useState<CashFlowData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -63,9 +70,16 @@ export const CashFlowPage = () => {
     if (!canSeeReports(user)) return
     setLoading(true)
     setError(null)
+    const fromD = new Date(dateFrom)
+    const toD = new Date(dateTo)
+    const multiMonth = fromD.getFullYear() !== toD.getFullYear() || fromD.getMonth() !== toD.getMonth()
     api
       .get<ApiResponse<CashFlowData>>('/reports/cash-flow', {
-        params: { date_from: dateFrom, date_to: dateTo },
+        params: {
+          date_from: dateFrom,
+          date_to: dateTo,
+          ...(multiMonth ? { breakdown: 'monthly' } : {}),
+        },
       })
       .then((res) => {
         if (res.data?.data) setData(res.data.data)
@@ -100,24 +114,14 @@ export const CashFlowPage = () => {
       <Card sx={{ mb: 2 }}>
         <CardContent>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
-            <TextField
-              label="From"
-              type="date"
-              size="small"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 160 }}
+            <DateRangeShortcuts
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              onRangeChange={(from, to) => { setDateFrom(from); setDateTo(to) }}
+              onRun={runReport}
             />
-            <TextField
-              label="To"
-              type="date"
-              size="small"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 160 }}
-            />
+            <TextField label="From" type="date" size="small" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
+            <TextField label="To" type="date" size="small" value={dateTo} onChange={(e) => setDateTo(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
             <Button variant="contained" onClick={runReport}>Run report</Button>
           </Box>
         </CardContent>
@@ -149,19 +153,46 @@ export const CashFlowPage = () => {
               <TableHead>
                 <TableRow>
                   <TableCell><strong>Cash Inflows</strong></TableCell>
-                  <TableCell align="right"><strong>Amount (KES)</strong></TableCell>
+                  {data.months && data.months.length > 0 ? (
+                    <>
+                      {data.months.map((mo) => (
+                        <TableCell key={mo} align="right"><strong>{monthLabel(mo)}</strong></TableCell>
+                      ))}
+                      <TableCell align="right"><strong>Total (KES)</strong></TableCell>
+                    </>
+                  ) : (
+                    <TableCell align="right"><strong>Amount (KES)</strong></TableCell>
+                  )}
                 </TableRow>
               </TableHead>
               <TableBody>
                 {data.inflow_lines.map((row) => (
                   <TableRow key={row.label}>
                     <TableCell>{row.label}</TableCell>
-                    <TableCell align="right">{formatMoney(row.amount)}</TableCell>
+                    {data.months && data.months.length > 0 ? (
+                      <>
+                        {data.months.map((mo) => (
+                          <TableCell key={mo} align="right">{formatMoney(row.monthly?.[mo] ?? '0')}</TableCell>
+                        ))}
+                        <TableCell align="right">{formatMoney(row.amount)}</TableCell>
+                      </>
+                    ) : (
+                      <TableCell align="right">{formatMoney(row.amount)}</TableCell>
+                    )}
                   </TableRow>
                 ))}
                 <TableRow>
                   <TableCell><strong>Total Inflows</strong></TableCell>
-                  <TableCell align="right"><strong>{formatMoney(data.total_inflows)}</strong></TableCell>
+                  {data.months && data.months.length > 0 ? (
+                    <>
+                      {data.months.map((mo) => (
+                        <TableCell key={mo} align="right"><strong>{formatMoney(data.total_inflows_monthly?.[mo] ?? '0')}</strong></TableCell>
+                      ))}
+                      <TableCell align="right"><strong>{formatMoney(data.total_inflows)}</strong></TableCell>
+                    </>
+                  ) : (
+                    <TableCell align="right"><strong>{formatMoney(data.total_inflows)}</strong></TableCell>
+                  )}
                 </TableRow>
               </TableBody>
             </Table>
@@ -172,24 +203,75 @@ export const CashFlowPage = () => {
               <TableHead>
                 <TableRow>
                   <TableCell><strong>Cash Outflows</strong></TableCell>
-                  <TableCell align="right"><strong>Amount (KES)</strong></TableCell>
+                  {data.months && data.months.length > 0 ? (
+                    <>
+                      {data.months.map((mo) => (
+                        <TableCell key={mo} align="right"><strong>{monthLabel(mo)}</strong></TableCell>
+                      ))}
+                      <TableCell align="right"><strong>Total (KES)</strong></TableCell>
+                    </>
+                  ) : (
+                    <TableCell align="right"><strong>Amount (KES)</strong></TableCell>
+                  )}
                 </TableRow>
               </TableHead>
               <TableBody>
                 {data.outflow_lines.map((row) => (
                   <TableRow key={row.label}>
                     <TableCell>{row.label}</TableCell>
-                    <TableCell align="right">{formatMoney(row.amount)}</TableCell>
+                    {data.months && data.months.length > 0 ? (
+                      <>
+                        {data.months.map((mo) => (
+                          <TableCell key={mo} align="right">{formatMoney(row.monthly?.[mo] ?? '0')}</TableCell>
+                        ))}
+                        <TableCell align="right">{formatMoney(row.amount)}</TableCell>
+                      </>
+                    ) : (
+                      <TableCell align="right">{formatMoney(row.amount)}</TableCell>
+                    )}
                   </TableRow>
                 ))}
                 <TableRow>
                   <TableCell><strong>Total Outflows</strong></TableCell>
-                  <TableCell align="right"><strong>{formatMoney(data.total_outflows)}</strong></TableCell>
+                  {data.months && data.months.length > 0 ? (
+                    <>
+                      {data.months.map((mo) => (
+                        <TableCell key={mo} align="right"><strong>{formatMoney(data.total_outflows_monthly?.[mo] ?? '0')}</strong></TableCell>
+                      ))}
+                      <TableCell align="right"><strong>{formatMoney(data.total_outflows)}</strong></TableCell>
+                    </>
+                  ) : (
+                    <TableCell align="right"><strong>{formatMoney(data.total_outflows)}</strong></TableCell>
+                  )}
                 </TableRow>
               </TableBody>
             </Table>
           </TableContainer>
 
+          {data.months && data.months.length > 0 && data.closing_balance_monthly && (
+            <TableContainer component={Card} sx={{ mb: 2 }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell><strong>Closing balance (end of month)</strong></TableCell>
+                    {data.months.map((mo) => (
+                      <TableCell key={mo} align="right"><strong>{monthLabel(mo)}</strong></TableCell>
+                    ))}
+                    <TableCell align="right"><strong>Final</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  <TableRow>
+                    <TableCell>Balance</TableCell>
+                    {data.months.map((mo) => (
+                      <TableCell key={mo} align="right">{formatMoney(data.closing_balance_monthly?.[mo] ?? '0')}</TableCell>
+                    ))}
+                    <TableCell align="right"><strong>{formatMoney(data.closing_balance)}</strong></TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
           <Card>
             <CardContent>
               <Typography variant="subtitle2" gutterBottom><strong>Net cash flow</strong>: {formatMoney(data.net_cash_flow)}</Typography>

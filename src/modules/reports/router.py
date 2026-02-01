@@ -85,6 +85,10 @@ async def get_student_fees(
 async def get_profit_loss(
     date_from: date = Query(..., description="Start date (inclusive)."),
     date_to: date = Query(..., description="End date (inclusive)."),
+    breakdown: str | None = Query(
+        None,
+        description="Pass 'monthly' for per-month columns in the response.",
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = ReportsUser,
 ):
@@ -96,7 +100,11 @@ async def get_profit_loss(
     if date_from > date_to:
         raise HTTPException(400, "date_from must be <= date_to")
     service = ReportsService(db)
-    data = await service.profit_loss(date_from=date_from, date_to=date_to)
+    data = await service.profit_loss(
+        date_from=date_from,
+        date_to=date_to,
+        breakdown_monthly=(breakdown == "monthly"),
+    )
     return ApiResponse(data=ProfitLossResponse(**data))
 
 
@@ -110,6 +118,10 @@ async def get_cash_flow(
     payment_method: str | None = Query(
         None,
         description="Filter student inflows by method: mpesa, bank_transfer, or omit for all.",
+    ),
+    breakdown: str | None = Query(
+        None,
+        description="Pass 'monthly' for per-month columns in the response.",
     ),
     db: AsyncSession = Depends(get_db),
     current_user: User = ReportsUser,
@@ -126,6 +138,7 @@ async def get_cash_flow(
         date_from=date_from,
         date_to=date_to,
         payment_method=payment_method,
+        breakdown_monthly=(breakdown == "monthly"),
     )
     return ApiResponse(data=CashFlowResponse(**data))
 
@@ -139,6 +152,18 @@ async def get_balance_sheet(
         None,
         description="Report date (default: today).",
     ),
+    date_from: date | None = Query(
+        None,
+        description="Start of range for monthly breakdown (use with date_to and breakdown=monthly).",
+    ),
+    date_to: date | None = Query(
+        None,
+        description="End of range for monthly breakdown (use with date_from and breakdown=monthly).",
+    ),
+    breakdown: str | None = Query(
+        None,
+        description="Pass 'monthly' with date_from/date_to for per-month columns (as at each month end).",
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = ReportsUser,
 ):
@@ -148,8 +173,15 @@ async def get_balance_sheet(
     Access: SuperAdmin, Admin only.
     """
     as_at = as_at_date or date.today()
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(400, "date_from must be <= date_to")
     service = ReportsService(db)
-    data = await service.balance_sheet(as_at_date=as_at)
+    data = await service.balance_sheet(
+        as_at_date=as_at,
+        date_from=date_from,
+        date_to=date_to,
+        breakdown_monthly=(breakdown == "monthly" and bool(date_from and date_to)),
+    )
     return ApiResponse(data=BalanceSheetResponse(**data))
 
 

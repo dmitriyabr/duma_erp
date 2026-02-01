@@ -76,6 +76,7 @@ class ProfitLossRevenueLine(BaseSchema):
 
     label: str
     amount: Decimal
+    monthly: dict[str, Decimal] | None = None  # YYYY-MM -> amount when breakdown=monthly
 
 
 class ProfitLossExpenseLine(BaseSchema):
@@ -83,6 +84,7 @@ class ProfitLossExpenseLine(BaseSchema):
 
     label: str
     amount: Decimal
+    monthly: dict[str, Decimal] | None = None  # YYYY-MM -> amount when breakdown=monthly
 
 
 class ProfitLossResponse(BaseSchema):
@@ -98,6 +100,12 @@ class ProfitLossResponse(BaseSchema):
     total_expenses: Decimal
     net_profit: Decimal
     profit_margin_percent: float | None  # net_profit / net_revenue * 100, None if no revenue
+    months: list[str] | None = None  # YYYY-MM when breakdown=monthly
+    gross_revenue_monthly: dict[str, Decimal] | None = None
+    total_discounts_monthly: dict[str, Decimal] | None = None
+    net_revenue_monthly: dict[str, Decimal] | None = None
+    total_expenses_monthly: dict[str, Decimal] | None = None
+    net_profit_monthly: dict[str, Decimal] | None = None
 
 
 # --- Cash Flow ---
@@ -107,6 +115,7 @@ class CashFlowInflowLine(BaseSchema):
 
     label: str
     amount: Decimal
+    monthly: dict[str, Decimal] | None = None  # YYYY-MM when breakdown=monthly
 
 
 class CashFlowOutflowLine(BaseSchema):
@@ -114,6 +123,7 @@ class CashFlowOutflowLine(BaseSchema):
 
     label: str
     amount: Decimal
+    monthly: dict[str, Decimal] | None = None  # YYYY-MM when breakdown=monthly
 
 
 class CashFlowResponse(BaseSchema):
@@ -128,6 +138,10 @@ class CashFlowResponse(BaseSchema):
     total_outflows: Decimal
     net_cash_flow: Decimal
     closing_balance: Decimal
+    months: list[str] | None = None  # YYYY-MM when breakdown=monthly
+    total_inflows_monthly: dict[str, Decimal] | None = None
+    total_outflows_monthly: dict[str, Decimal] | None = None
+    closing_balance_monthly: dict[str, Decimal] | None = None  # cumulative closing per month end
 
 
 # --- Balance Sheet ---
@@ -137,6 +151,7 @@ class BalanceSheetAssetLine(BaseSchema):
 
     label: str
     amount: Decimal
+    monthly: dict[str, Decimal] | None = None  # YYYY-MM when breakdown=monthly (as at month end)
 
 
 class BalanceSheetLiabilityLine(BaseSchema):
@@ -144,6 +159,7 @@ class BalanceSheetLiabilityLine(BaseSchema):
 
     label: str
     amount: Decimal
+    monthly: dict[str, Decimal] | None = None  # YYYY-MM when breakdown=monthly (as at month end)
 
 
 class BalanceSheetResponse(BaseSchema):
@@ -155,6 +171,10 @@ class BalanceSheetResponse(BaseSchema):
     liability_lines: list[BalanceSheetLiabilityLine]
     total_liabilities: Decimal
     net_equity: Decimal
+    months: list[str] | None = None  # YYYY-MM when breakdown=monthly (date_from/date_to range)
+    total_assets_monthly: dict[str, Decimal] | None = None
+    total_liabilities_monthly: dict[str, Decimal] | None = None
+    net_equity_monthly: dict[str, Decimal] | None = None
     debt_to_asset_percent: float | None  # total_liabilities / total_assets * 100
     current_ratio: float | None  # current_assets / current_liabilities
 

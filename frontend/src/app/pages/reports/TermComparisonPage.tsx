@@ -49,12 +49,20 @@ interface TermComparisonData {
   metrics: TermComparisonMetric[]
 }
 
-function formatMetricValue(v: string | number): string {
-  if (typeof v === 'number') {
-    if (Number.isInteger(v)) return String(v)
-    return formatMoney(String(v))
+function formatMetricValue(v: string | number, metricName: string): string {
+  if (v === null || v === undefined || v === '—' || v === '') return '—'
+  if (typeof v === 'string') return v
+  // Проценты — без валюты, только число и %
+  if (metricName.includes('(%)')) {
+    return `${Number(v).toFixed(2)}%`
   }
-  return String(v)
+  // Суммы в KES — всегда formatMoney (с группировкой разрядов)
+  if (metricName.includes('(KES)')) {
+    return formatMoney(v)
+  }
+  // Целые (Students Enrolled и т.п.)
+  if (Number.isInteger(v)) return String(v)
+  return formatMoney(String(v))
 }
 
 export const TermComparisonPage = () => {
@@ -175,11 +183,11 @@ export const TermComparisonPage = () => {
                 {data.metrics.map((m) => (
                   <TableRow key={m.name}>
                     <TableCell>{m.name}</TableCell>
-                    <TableCell align="right">{formatMetricValue(m.term1_value)}</TableCell>
-                    <TableCell align="right">{formatMetricValue(m.term2_value)}</TableCell>
+                    <TableCell align="right">{formatMetricValue(m.term1_value, m.name)}</TableCell>
+                    <TableCell align="right">{formatMetricValue(m.term2_value, m.name)}</TableCell>
                     <TableCell align="right">
                       {m.change_percent != null
-                        ? `${m.change_abs != null ? formatMetricValue(m.change_abs) + ' ' : ''}(${m.change_percent > 0 ? '+' : ''}${m.change_percent}%)`
+                        ? `${m.change_abs != null ? formatMetricValue(m.change_abs, m.name) + ' ' : ''}(${m.change_percent > 0 ? '+' : ''}${m.change_percent}%)`
                         : '—'}
                     </TableCell>
                   </TableRow>

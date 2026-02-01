@@ -20,15 +20,18 @@ import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
+import { DateRangeShortcuts, getDateRangeForPreset } from '../../components/DateRangeShortcuts'
 
 interface AssetLine {
   label: string
   amount: string
+  monthly?: Record<string, string>
 }
 
 interface LiabilityLine {
   label: string
   amount: string
+  monthly?: Record<string, string>
 }
 
 interface BalanceSheetData {
@@ -40,13 +43,23 @@ interface BalanceSheetData {
   net_equity: string
   debt_to_asset_percent: number | null
   current_ratio: number | null
+  months?: string[]
+  total_assets_monthly?: Record<string, string>
+  total_liabilities_monthly?: Record<string, string>
+  net_equity_monthly?: Record<string, string>
 }
 
-const defaultAsAt = () => new Date().toISOString().slice(0, 10)
+const defaultRange = () => getDateRangeForPreset('this_year')
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+function monthLabel(yyyyMm: string): string {
+  const [y, m] = yyyyMm.split('-').map(Number)
+  return `${MONTH_NAMES[m - 1]} ${y}`
+}
 
 export const BalanceSheetPage = () => {
   const { user } = useAuth()
-  const [asAtDate, setAsAtDate] = useState(defaultAsAt)
+  const [dateFrom, setDateFrom] = useState(() => defaultRange().from)
+  const [dateTo, setDateTo] = useState(() => defaultRange().to)
   const [data, setData] = useState<BalanceSheetData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -56,9 +69,18 @@ export const BalanceSheetPage = () => {
     if (!canSeeReports(user)) return
     setLoading(true)
     setError(null)
+    const fromD = new Date(dateFrom)
+    const toD = new Date(dateTo)
+    const multiMonth = fromD.getFullYear() !== toD.getFullYear() || fromD.getMonth() !== toD.getMonth()
+    const params: Record<string, string> = {
+      as_at_date: dateTo,
+      date_from: dateFrom,
+      date_to: dateTo,
+    }
+    if (multiMonth) params.breakdown = 'monthly'
     api
       .get<ApiResponse<BalanceSheetData>>('/reports/balance-sheet', {
-        params: { as_at_date: asAtDate },
+        params,
       })
       .then((res) => {
         if (res.data?.data) setData(res.data.data)
@@ -93,17 +115,19 @@ export const BalanceSheetPage = () => {
       <Card sx={{ mb: 2 }}>
         <CardContent>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
-            <TextField
-              label="As at date"
-              type="date"
-              size="small"
-              value={asAtDate}
-              onChange={(e) => setAsAtDate(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 180 }}
+            <DateRangeShortcuts
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              onRangeChange={(from, to) => { setDateFrom(from); setDateTo(to) }}
+              onRun={runReport}
             />
+            <TextField label="From" type="date" size="small" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
+            <TextField label="To (as at)" type="date" size="small" value={dateTo} onChange={(e) => setDateTo(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
             <Button variant="contained" onClick={runReport}>Run report</Button>
           </Box>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+            Multi-month range shows columns per month (as at end of each month).
+          </Typography>
         </CardContent>
       </Card>
 
@@ -126,19 +150,46 @@ export const BalanceSheetPage = () => {
               <TableHead>
                 <TableRow>
                   <TableCell><strong>Assets</strong></TableCell>
-                  <TableCell align="right"><strong>Amount (KES)</strong></TableCell>
+                  {data.months && data.months.length > 0 ? (
+                    <>
+                      {data.months.map((mo) => (
+                        <TableCell key={mo} align="right"><strong>{monthLabel(mo)}</strong></TableCell>
+                      ))}
+                      <TableCell align="right"><strong>Total (KES)</strong></TableCell>
+                    </>
+                  ) : (
+                    <TableCell align="right"><strong>Amount (KES)</strong></TableCell>
+                  )}
                 </TableRow>
               </TableHead>
               <TableBody>
                 {data.asset_lines.map((row) => (
                   <TableRow key={row.label}>
                     <TableCell>{row.label}</TableCell>
-                    <TableCell align="right">{formatMoney(row.amount)}</TableCell>
+                    {data.months && data.months.length > 0 ? (
+                      <>
+                        {data.months.map((mo) => (
+                          <TableCell key={mo} align="right">{formatMoney(row.monthly?.[mo] ?? '0')}</TableCell>
+                        ))}
+                        <TableCell align="right">{formatMoney(row.amount)}</TableCell>
+                      </>
+                    ) : (
+                      <TableCell align="right">{formatMoney(row.amount)}</TableCell>
+                    )}
                   </TableRow>
                 ))}
                 <TableRow>
                   <TableCell><strong>Total Assets</strong></TableCell>
-                  <TableCell align="right"><strong>{formatMoney(data.total_assets)}</strong></TableCell>
+                  {data.months && data.months.length > 0 ? (
+                    <>
+                      {data.months.map((mo) => (
+                        <TableCell key={mo} align="right"><strong>{formatMoney(data.total_assets_monthly?.[mo] ?? '0')}</strong></TableCell>
+                      ))}
+                      <TableCell align="right"><strong>{formatMoney(data.total_assets)}</strong></TableCell>
+                    </>
+                  ) : (
+                    <TableCell align="right"><strong>{formatMoney(data.total_assets)}</strong></TableCell>
+                  )}
                 </TableRow>
               </TableBody>
             </Table>
@@ -149,19 +200,46 @@ export const BalanceSheetPage = () => {
               <TableHead>
                 <TableRow>
                   <TableCell><strong>Liabilities</strong></TableCell>
-                  <TableCell align="right"><strong>Amount (KES)</strong></TableCell>
+                  {data.months && data.months.length > 0 ? (
+                    <>
+                      {data.months.map((mo) => (
+                        <TableCell key={mo} align="right"><strong>{monthLabel(mo)}</strong></TableCell>
+                      ))}
+                      <TableCell align="right"><strong>Total (KES)</strong></TableCell>
+                    </>
+                  ) : (
+                    <TableCell align="right"><strong>Amount (KES)</strong></TableCell>
+                  )}
                 </TableRow>
               </TableHead>
               <TableBody>
                 {data.liability_lines.map((row) => (
                   <TableRow key={row.label}>
                     <TableCell>{row.label}</TableCell>
-                    <TableCell align="right">{formatMoney(row.amount)}</TableCell>
+                    {data.months && data.months.length > 0 ? (
+                      <>
+                        {data.months.map((mo) => (
+                          <TableCell key={mo} align="right">{formatMoney(row.monthly?.[mo] ?? '0')}</TableCell>
+                        ))}
+                        <TableCell align="right">{formatMoney(row.amount)}</TableCell>
+                      </>
+                    ) : (
+                      <TableCell align="right">{formatMoney(row.amount)}</TableCell>
+                    )}
                   </TableRow>
                 ))}
                 <TableRow>
                   <TableCell><strong>Total Liabilities</strong></TableCell>
-                  <TableCell align="right"><strong>{formatMoney(data.total_liabilities)}</strong></TableCell>
+                  {data.months && data.months.length > 0 ? (
+                    <>
+                      {data.months.map((mo) => (
+                        <TableCell key={mo} align="right"><strong>{formatMoney(data.total_liabilities_monthly?.[mo] ?? '0')}</strong></TableCell>
+                      ))}
+                      <TableCell align="right"><strong>{formatMoney(data.total_liabilities)}</strong></TableCell>
+                    </>
+                  ) : (
+                    <TableCell align="right"><strong>{formatMoney(data.total_liabilities)}</strong></TableCell>
+                  )}
                 </TableRow>
               </TableBody>
             </Table>
