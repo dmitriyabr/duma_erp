@@ -231,3 +231,231 @@ class TopDebtorsResponse(BaseSchema):
     limit: int
     rows: list[TopDebtorRow]
     total_debt: Decimal
+
+
+# --- Procurement & Inventory ---
+
+class ProcurementSummaryRow(BaseSchema):
+    """One supplier row in Procurement Summary."""
+
+    supplier_name: str
+    po_count: int
+    total_amount: Decimal
+    paid: Decimal
+    outstanding: Decimal
+    status: str  # "ok" | "partial"
+
+
+class ProcurementSummaryOutstanding(BaseSchema):
+    """Outstanding debt by age bucket (0-30, 31-60, 61+ days since order)."""
+
+    current_0_30: Decimal
+    bucket_31_60: Decimal
+    bucket_61_plus: Decimal
+
+
+class ProcurementSummaryResponse(BaseSchema):
+    """Procurement Summary report for a period."""
+
+    date_from: date
+    date_to: date
+    rows: list[ProcurementSummaryRow]
+    total_po_count: int
+    total_amount: Decimal
+    total_paid: Decimal
+    total_outstanding: Decimal
+    outstanding_breakdown: ProcurementSummaryOutstanding
+
+
+class InventoryValuationRow(BaseSchema):
+    """One category row in Inventory Valuation."""
+
+    category_id: int
+    category_name: str
+    items_count: int
+    quantity: int
+    unit_cost_avg: Decimal | None
+    total_value: Decimal
+    turnover: float | None  # optional, None if not computed
+
+
+class InventoryValuationResponse(BaseSchema):
+    """Inventory Valuation as at date."""
+
+    as_at_date: date
+    rows: list[InventoryValuationRow]
+    total_items: int
+    total_quantity: int
+    total_value: Decimal
+
+
+class LowStockAlertRow(BaseSchema):
+    """One item in Low Stock Alert."""
+
+    item_id: int
+    item_name: str
+    sku_code: str
+    current: int
+    min_level: int  # 0 if not set in DB
+    status: str  # "out" | "low" | "ok"
+    suggested_order: int | None  # optional
+
+
+class LowStockAlertResponse(BaseSchema):
+    """Low Stock Alert report (items at or below min level)."""
+
+    rows: list[LowStockAlertRow]
+    total_low_count: int
+
+
+class StockMovementRow(BaseSchema):
+    """One row in Stock Movement report."""
+
+    movement_id: int
+    movement_date: date
+    movement_type: str
+    item_id: int
+    item_name: str
+    quantity: int  # signed
+    ref_display: str | None  # e.g. GRN-2026-45, ISS-2026-001
+    created_by_name: str
+    balance_after: int
+
+
+class StockMovementResponse(BaseSchema):
+    """Stock Movement report for a period."""
+
+    date_from: date
+    date_to: date
+    rows: list[StockMovementRow]
+
+
+# --- Compensations ---
+
+class CompensationSummaryRow(BaseSchema):
+    """One employee row in Compensation Summary."""
+
+    employee_id: int
+    employee_name: str
+    claims_count: int
+    total_amount: Decimal
+    approved_amount: Decimal
+    paid_amount: Decimal
+    pending_amount: Decimal
+
+
+class CompensationSummaryTotals(BaseSchema):
+    """Summary totals for Compensation Summary."""
+
+    total_claims: int
+    total_amount: Decimal
+    total_approved: Decimal
+    total_paid: Decimal
+    total_pending: Decimal
+    pending_approval_count: int
+    pending_approval_amount: Decimal
+    approved_unpaid_count: int
+    approved_unpaid_amount: Decimal
+
+
+class CompensationSummaryResponse(BaseSchema):
+    """Compensation Summary report for a period."""
+
+    date_from: date
+    date_to: date
+    rows: list[CompensationSummaryRow]
+    summary: CompensationSummaryTotals
+
+
+class ExpenseClaimsByCategoryRow(BaseSchema):
+    """One category/purpose row in Expense Claims by Category."""
+
+    purpose_id: int
+    purpose_name: str
+    amount: Decimal
+    claims_count: int
+    percent_of_total: float | None
+
+
+class ExpenseClaimsByCategoryResponse(BaseSchema):
+    """Expense Claims by Category (for pie chart) for a period."""
+
+    date_from: date
+    date_to: date
+    rows: list[ExpenseClaimsByCategoryRow]
+    total_amount: Decimal
+
+
+# --- Analytics ---
+
+class RevenueTrendRow(BaseSchema):
+    """One year in Revenue per Student trend."""
+
+    year: int
+    label: str  # e.g. "2025/2026"
+    total_revenue: Decimal
+    students_count: int
+    avg_revenue_per_student: Decimal | None
+
+
+class RevenueTrendResponse(BaseSchema):
+    """Revenue per student trend over N years."""
+
+    rows: list[RevenueTrendRow]
+    growth_percent: float | None  # year-over-year from first to last
+    years_included: int
+
+
+class PaymentMethodDistributionRow(BaseSchema):
+    """One payment method in distribution."""
+
+    payment_method: str
+    label: str  # e.g. "M-Pesa"
+    amount: Decimal
+    percent_of_total: float | None
+
+
+class PaymentMethodDistributionResponse(BaseSchema):
+    """Payment method distribution for a period (student payments)."""
+
+    date_from: date
+    date_to: date
+    rows: list[PaymentMethodDistributionRow]
+    total_amount: Decimal
+
+
+class TermComparisonMetric(BaseSchema):
+    """One metric in term-over-term comparison."""
+
+    name: str
+    term1_value: str | float | int  # display value
+    term2_value: str | float | int
+    change_abs: str | float | None
+    change_percent: float | None
+
+
+class TermComparisonResponse(BaseSchema):
+    """Term-over-term comparison (two terms)."""
+
+    term1_id: int
+    term1_display_name: str
+    term2_id: int
+    term2_display_name: str
+    metrics: list[TermComparisonMetric]
+
+
+class KpisResponse(BaseSchema):
+    """KPIs & key metrics for a period (year or term)."""
+
+    period_type: str  # "year" | "term"
+    year: int | None
+    term_id: int | None
+    term_display_name: str | None
+    active_students_count: int
+    total_revenue: Decimal
+    total_invoiced: Decimal
+    collection_rate_percent: float | None
+    total_expenses: Decimal
+    student_debt: Decimal
+    supplier_debt: Decimal
+    pending_claims_amount: Decimal

@@ -17,6 +17,16 @@ from src.modules.reports.schemas import (
     CollectionRateResponse,
     DiscountAnalysisResponse,
     TopDebtorsResponse,
+    ProcurementSummaryResponse,
+    InventoryValuationResponse,
+    LowStockAlertResponse,
+    StockMovementResponse,
+    CompensationSummaryResponse,
+    ExpenseClaimsByCategoryResponse,
+    RevenueTrendResponse,
+    PaymentMethodDistributionResponse,
+    TermComparisonResponse,
+    KpisResponse,
 )
 from src.modules.reports.service import ReportsService
 from src.shared.schemas.base import ApiResponse
@@ -203,3 +213,237 @@ async def get_top_debtors(
     service = ReportsService(db)
     data = await service.top_debtors(as_at_date=as_at, limit=limit)
     return ApiResponse(data=TopDebtorsResponse(**data))
+
+
+@router.get(
+    "/procurement-summary",
+    response_model=ApiResponse[ProcurementSummaryResponse],
+)
+async def get_procurement_summary(
+    date_from: date = Query(..., description="Start date (inclusive)."),
+    date_to: date = Query(..., description="End date (inclusive)."),
+    supplier_name: str | None = Query(None, description="Filter by supplier name (optional)."),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = ReportsUser,
+):
+    """
+    Procurement Summary: by supplier, PO count, total/paid/outstanding, outstanding by age.
+
+    Access: SuperAdmin, Admin only.
+    """
+    if date_from > date_to:
+        raise HTTPException(400, "date_from must be <= date_to")
+    service = ReportsService(db)
+    data = await service.procurement_summary(
+        date_from=date_from,
+        date_to=date_to,
+        supplier_name=supplier_name,
+    )
+    return ApiResponse(data=ProcurementSummaryResponse(**data))
+
+
+@router.get(
+    "/inventory-valuation",
+    response_model=ApiResponse[InventoryValuationResponse],
+)
+async def get_inventory_valuation(
+    as_at_date: date | None = Query(None, description="Report date (default: today)."),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = ReportsUser,
+):
+    """
+    Inventory Valuation as at date: by category (items, quantity, value).
+
+    Access: SuperAdmin, Admin only.
+    """
+    as_at = as_at_date or date.today()
+    service = ReportsService(db)
+    data = await service.inventory_valuation(as_at_date=as_at)
+    return ApiResponse(data=InventoryValuationResponse(**data))
+
+
+@router.get(
+    "/low-stock-alert",
+    response_model=ApiResponse[LowStockAlertResponse],
+)
+async def get_low_stock_alert(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = ReportsUser,
+):
+    """
+    Low Stock Alert: items at or below min level (out of stock or low).
+
+    Access: SuperAdmin, Admin only.
+    """
+    service = ReportsService(db)
+    data = await service.low_stock_alert()
+    return ApiResponse(data=LowStockAlertResponse(**data))
+
+
+@router.get(
+    "/stock-movement",
+    response_model=ApiResponse[StockMovementResponse],
+)
+async def get_stock_movement(
+    date_from: date = Query(..., description="Start date (inclusive)."),
+    date_to: date = Query(..., description="End date (inclusive)."),
+    movement_type: str | None = Query(
+        None,
+        description="Filter by type: receipt, issue, adjustment, etc. (optional).",
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = ReportsUser,
+):
+    """
+    Stock Movement report: movements in period with item, ref, user, balance.
+
+    Access: SuperAdmin, Admin only.
+    """
+    if date_from > date_to:
+        raise HTTPException(400, "date_from must be <= date_to")
+    service = ReportsService(db)
+    data = await service.stock_movement_report(
+        date_from=date_from,
+        date_to=date_to,
+        movement_type=movement_type,
+    )
+    return ApiResponse(data=StockMovementResponse(**data))
+
+
+@router.get(
+    "/compensation-summary",
+    response_model=ApiResponse[CompensationSummaryResponse],
+)
+async def get_compensation_summary(
+    date_from: date = Query(..., description="Start date (inclusive)."),
+    date_to: date = Query(..., description="End date (inclusive)."),
+    status: str | None = Query(
+        None,
+        description="Filter by claim status: draft, pending_approval, approved, rejected, partially_paid, paid (optional).",
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = ReportsUser,
+):
+    """
+    Compensation Summary: by employee, claims count, total/approved/paid/pending.
+
+    Access: SuperAdmin, Admin only.
+    """
+    if date_from > date_to:
+        raise HTTPException(400, "date_from must be <= date_to")
+    service = ReportsService(db)
+    data = await service.compensation_summary(
+        date_from=date_from,
+        date_to=date_to,
+        status=status,
+    )
+    return ApiResponse(data=CompensationSummaryResponse(**data))
+
+
+@router.get(
+    "/expense-claims-by-category",
+    response_model=ApiResponse[ExpenseClaimsByCategoryResponse],
+)
+async def get_expense_claims_by_category(
+    date_from: date = Query(..., description="Start date (inclusive)."),
+    date_to: date = Query(..., description="End date (inclusive)."),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = ReportsUser,
+):
+    """
+    Expense Claims by Category (purpose): amount and count per category, percent of total.
+
+    Access: SuperAdmin, Admin only.
+    """
+    if date_from > date_to:
+        raise HTTPException(400, "date_from must be <= date_to")
+    service = ReportsService(db)
+    data = await service.expense_claims_by_category(
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return ApiResponse(data=ExpenseClaimsByCategoryResponse(**data))
+
+
+@router.get(
+    "/revenue-trend",
+    response_model=ApiResponse[RevenueTrendResponse],
+)
+async def get_revenue_trend(
+    years: int = Query(3, ge=1, le=10, description="Number of years (default 3)."),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = ReportsUser,
+):
+    """
+    Revenue per student trend over last N years.
+
+    Access: SuperAdmin, Admin only.
+    """
+    service = ReportsService(db)
+    data = await service.revenue_trend(years=years)
+    return ApiResponse(data=RevenueTrendResponse(**data))
+
+
+@router.get(
+    "/payment-method-distribution",
+    response_model=ApiResponse[PaymentMethodDistributionResponse],
+)
+async def get_payment_method_distribution(
+    date_from: date = Query(..., description="Start date (inclusive)."),
+    date_to: date = Query(..., description="End date (inclusive)."),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = ReportsUser,
+):
+    """
+    Payment method distribution for student payments in period.
+
+    Access: SuperAdmin, Admin only.
+    """
+    if date_from > date_to:
+        raise HTTPException(400, "date_from must be <= date_to")
+    service = ReportsService(db)
+    data = await service.payment_method_distribution(
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return ApiResponse(data=PaymentMethodDistributionResponse(**data))
+
+
+@router.get(
+    "/term-comparison",
+    response_model=ApiResponse[TermComparisonResponse],
+)
+async def get_term_comparison(
+    term1_id: int = Query(..., description="First term ID."),
+    term2_id: int = Query(..., description="Second term ID."),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = ReportsUser,
+):
+    """
+    Term-over-term comparison: students, invoiced, collected, rate, avg fee, discounts.
+
+    Access: SuperAdmin, Admin only.
+    """
+    service = ReportsService(db)
+    data = await service.term_comparison(term1_id=term1_id, term2_id=term2_id)
+    return ApiResponse(data=TermComparisonResponse(**data))
+
+
+@router.get(
+    "/kpis",
+    response_model=ApiResponse[KpisResponse],
+)
+async def get_kpis(
+    year: int | None = Query(None, description="Calendar year (optional; default current)."),
+    term_id: int | None = Query(None, description="Term ID (optional; overrides year)."),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = ReportsUser,
+):
+    """
+    KPIs & key metrics for a period (year or term).
+
+    Access: SuperAdmin, Admin only.
+    """
+    service = ReportsService(db)
+    data = await service.kpis_report(year=year, term_id=term_id)
+    return ApiResponse(data=KpisResponse(**data))

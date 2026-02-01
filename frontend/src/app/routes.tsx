@@ -53,7 +53,17 @@ import { BalanceSheetPage } from './pages/reports/BalanceSheetPage'
 import { CashFlowPage } from './pages/reports/CashFlowPage'
 import { CollectionRatePage } from './pages/reports/CollectionRatePage'
 import { DiscountAnalysisPage } from './pages/reports/DiscountAnalysisPage'
+import { InventoryValuationPage } from './pages/reports/InventoryValuationPage'
+import { LowStockAlertPage } from './pages/reports/LowStockAlertPage'
+import { ProcurementSummaryPage } from './pages/reports/ProcurementSummaryPage'
 import { ProfitLossPage } from './pages/reports/ProfitLossPage'
+import { CompensationSummaryPage } from './pages/reports/CompensationSummaryPage'
+import { ExpenseClaimsByCategoryPage } from './pages/reports/ExpenseClaimsByCategoryPage'
+import { KpisPage } from './pages/reports/KpisPage'
+import { PaymentMethodDistributionPage } from './pages/reports/PaymentMethodDistributionPage'
+import { RevenueTrendPage } from './pages/reports/RevenueTrendPage'
+import { StockMovementPage } from './pages/reports/StockMovementPage'
+import { TermComparisonPage } from './pages/reports/TermComparisonPage'
 import { StudentFeesPage } from './pages/reports/StudentFeesPage'
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -142,6 +152,16 @@ export const AppRoutes = () => {
           <Route path="reports/student-fees" element={<StudentFeesPage />} />
           <Route path="reports/collection-rate" element={<CollectionRatePage />} />
           <Route path="reports/discount-analysis" element={<DiscountAnalysisPage />} />
+          <Route path="reports/procurement-summary" element={<ProcurementSummaryPage />} />
+          <Route path="reports/inventory-valuation" element={<InventoryValuationPage />} />
+          <Route path="reports/low-stock-alert" element={<LowStockAlertPage />} />
+          <Route path="reports/stock-movement" element={<StockMovementPage />} />
+          <Route path="reports/compensation-summary" element={<CompensationSummaryPage />} />
+          <Route path="reports/expense-claims-by-category" element={<ExpenseClaimsByCategoryPage />} />
+          <Route path="reports/revenue-trend" element={<RevenueTrendPage />} />
+          <Route path="reports/payment-method-distribution" element={<PaymentMethodDistributionPage />} />
+          <Route path="reports/term-comparison" element={<TermComparisonPage />} />
+          <Route path="reports/kpis" element={<KpisPage />} />
           <Route path="audit" element={<AuditTrailPage />} />
           <Route path="payments/new" element={<ReceivePaymentPage />} />
           <Route path="payments" element={<PaymentReceiptsPage />} />

@@ -5,7 +5,7 @@ from decimal import Decimal
 from collections import defaultdict
 from calendar import monthrange
 
-from sqlalchemy import select, func
+from sqlalchemy import case, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -13,15 +13,18 @@ from src.core.exceptions import NotFoundError
 from src.modules.compensations.models import CompensationPayout, ExpenseClaim, ExpenseClaimStatus
 from src.modules.discounts.models import Discount, DiscountReason
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus
-from src.modules.inventory.models import Stock
+from src.modules.inventory.models import Issuance, Stock, StockMovement, MovementType
+from src.modules.items.models import Category, Item
 from src.modules.payments.models import CreditAllocation, Payment, PaymentStatus
 from src.modules.procurement.models import (
+    GoodsReceivedNote,
+    PaymentPurpose,
     ProcurementPayment,
     ProcurementPaymentStatus,
     PurchaseOrder,
     PurchaseOrderStatus,
 )
-from src.modules.students.models import Grade, Student
+from src.modules.students.models import Grade, Student, StudentStatus
 from src.modules.terms.models import Term
 from src.shared.utils.money import round_money
 
@@ -40,6 +43,17 @@ from src.modules.reports.schemas import (
     DiscountAnalysisRow,
     DiscountAnalysisSummary,
     TopDebtorRow,
+    ProcurementSummaryRow,
+    ProcurementSummaryOutstanding,
+    InventoryValuationRow,
+    LowStockAlertRow,
+    StockMovementRow,
+    CompensationSummaryRow,
+    CompensationSummaryTotals,
+    ExpenseClaimsByCategoryRow,
+    RevenueTrendRow,
+    PaymentMethodDistributionRow,
+    TermComparisonMetric,
 )
 
 
@@ -176,7 +190,7 @@ class ReportsService:
         term_result = await self.db.execute(select(Term).where(Term.id == term_id))
         term = term_result.scalar_one_or_none()
         if not term:
-            raise NotFoundError(f"Term with id {term_id} not found")
+            raise NotFoundError("Term", term_id)
 
         statuses = (
             InvoiceStatus.ISSUED.value,
@@ -793,4 +807,865 @@ class ReportsService:
             "limit": limit,
             "rows": rows,
             "total_debt": round_money(total_debt),
+        }
+
+    async def procurement_summary(
+        self,
+        date_from: date,
+        date_to: date,
+        supplier_name: str | None = None,
+    ) -> dict:
+        """
+        Procurement Summary: by supplier, PO count, total amount, paid, outstanding, status.
+        Outstanding breakdown by age (0-30, 31-60, 61+ days since order_date).
+        Only POs with order_date in [date_from, date_to], excluding cancelled/closed.
+        """
+        if date_from > date_to:
+            raise ValueError("date_from must be <= date_to")
+        q = (
+            select(
+                PurchaseOrder.supplier_name,
+                func.count(PurchaseOrder.id).label("po_count"),
+                func.coalesce(func.sum(PurchaseOrder.expected_total), 0).label("total_amount"),
+                func.coalesce(func.sum(PurchaseOrder.paid_total), 0).label("paid"),
+                func.coalesce(func.sum(PurchaseOrder.debt_amount), 0).label("outstanding"),
+            )
+            .where(
+                PurchaseOrder.order_date >= date_from,
+                PurchaseOrder.order_date <= date_to,
+                PurchaseOrder.status.notin_(
+                    [PurchaseOrderStatus.CANCELLED.value, PurchaseOrderStatus.CLOSED.value]
+                ),
+            )
+            .group_by(PurchaseOrder.supplier_name)
+        )
+        if supplier_name:
+            q = q.where(PurchaseOrder.supplier_name.ilike(f"%{supplier_name}%"))
+        result = await self.db.execute(q)
+        raw_rows = result.all()
+
+        rows = []
+        total_po_count = 0
+        total_amount = Decimal("0")
+        total_paid = Decimal("0")
+        total_outstanding = Decimal("0")
+        for r in raw_rows:
+            sup_name, po_count, amt, paid, out = r
+            amt = round_money(Decimal(str(amt)))
+            paid = round_money(Decimal(str(paid)))
+            out = round_money(Decimal(str(out)))
+            status = "ok" if out <= 0 else "partial"
+            total_po_count += int(po_count)
+            total_amount += amt
+            total_paid += paid
+            total_outstanding += out
+            rows.append(
+                ProcurementSummaryRow(
+                    supplier_name=sup_name,
+                    po_count=int(po_count),
+                    total_amount=amt,
+                    paid=paid,
+                    outstanding=out,
+                    status=status,
+                )
+            )
+
+        # Outstanding breakdown by age (days since order_date) for POs with debt
+        as_at = date_to
+        age_q = (
+            select(
+                PurchaseOrder.order_date,
+                PurchaseOrder.debt_amount,
+            )
+            .where(
+                PurchaseOrder.order_date >= date_from,
+                PurchaseOrder.order_date <= date_to,
+                PurchaseOrder.debt_amount > 0,
+                PurchaseOrder.status.notin_(
+                    [PurchaseOrderStatus.CANCELLED.value, PurchaseOrderStatus.CLOSED.value]
+                ),
+            )
+        )
+        if supplier_name:
+            age_q = age_q.where(PurchaseOrder.supplier_name.ilike(f"%{supplier_name}%"))
+        age_res = await self.db.execute(age_q)
+        current_0_30 = Decimal("0")
+        bucket_31_60 = Decimal("0")
+        bucket_61_plus = Decimal("0")
+        for r in age_res.all():
+            order_d, debt = r[0], round_money(Decimal(str(r[1])))
+            if not order_d:
+                continue
+            days = (as_at - order_d).days
+            if days <= 30:
+                current_0_30 += debt
+            elif days <= 60:
+                bucket_31_60 += debt
+            else:
+                bucket_61_plus += debt
+
+        return {
+            "date_from": date_from,
+            "date_to": date_to,
+            "rows": rows,
+            "total_po_count": total_po_count,
+            "total_amount": round_money(total_amount),
+            "total_paid": round_money(total_paid),
+            "total_outstanding": round_money(total_outstanding),
+            "outstanding_breakdown": ProcurementSummaryOutstanding(
+                current_0_30=round_money(current_0_30),
+                bucket_31_60=round_money(bucket_31_60),
+                bucket_61_plus=round_money(bucket_61_plus),
+            ),
+        }
+
+    async def inventory_valuation(self, as_at_date: date) -> dict:
+        """
+        Inventory Valuation as at date: by category (items count, quantity, unit cost avg, total value).
+        Uses current Stock (quantity_on_hand, average_cost). Turnover not computed (None).
+        """
+        # Stock is current state; we don't have historical snapshot, so "as_at" is conceptual
+        q = (
+            select(
+                Category.id.label("category_id"),
+                Category.name.label("category_name"),
+                func.count(Stock.id).label("items_count"),
+                func.coalesce(func.sum(Stock.quantity_on_hand), 0).label("quantity"),
+                func.coalesce(func.avg(Stock.average_cost), 0).label("unit_cost_avg"),
+                func.coalesce(
+                    func.sum(Stock.quantity_on_hand * Stock.average_cost), 0
+                ).label("total_value"),
+            )
+            .select_from(Stock)
+            .join(Item, Stock.item_id == Item.id)
+            .join(Category, Item.category_id == Category.id)
+            .where(Item.item_type == "product")
+            .group_by(Category.id, Category.name)
+            .order_by(Category.name)
+        )
+        result = await self.db.execute(q)
+        raw_rows = result.all()
+
+        rows = []
+        total_items = 0
+        total_quantity = 0
+        total_value = Decimal("0")
+        for r in raw_rows:
+            cat_id, cat_name, items_count, qty, unit_avg, val = r
+            qty = int(qty)
+            unit_avg = round_money(Decimal(str(unit_avg))) if unit_avg else None
+            val = round_money(Decimal(str(val)))
+            total_items += int(items_count)
+            total_quantity += qty
+            total_value += val
+            rows.append(
+                InventoryValuationRow(
+                    category_id=int(cat_id),
+                    category_name=cat_name,
+                    items_count=int(items_count),
+                    quantity=qty,
+                    unit_cost_avg=unit_avg,
+                    total_value=val,
+                    turnover=None,
+                )
+            )
+        return {
+            "as_at_date": as_at_date,
+            "rows": rows,
+            "total_items": total_items,
+            "total_quantity": total_quantity,
+            "total_value": round_money(total_value),
+        }
+
+    async def low_stock_alert(self) -> dict:
+        """
+        Low Stock Alert: items (product type) with stock where quantity_on_hand <= 0 or below min.
+        Item has no min_stock_level in DB; use 0 as threshold: low = quantity_on_hand <= 0.
+        status: "out" (<=0), "low" (1-10), "ok" (>10). suggested_order: 0 when out, else None.
+        """
+        q = (
+            select(
+                Item.id,
+                Item.name,
+                Item.sku_code,
+                Stock.quantity_on_hand,
+            )
+            .select_from(Item)
+            .join(Stock, Item.id == Stock.item_id)
+            .where(Item.item_type == "product", Item.is_active.is_(True))
+        )
+        result = await self.db.execute(q)
+        raw_rows = result.all()
+
+        rows = []
+        low_count = 0
+        min_level = 0
+        for r in raw_rows:
+            item_id, name, sku, qty = r[0], r[1], r[2], int(r[3])
+            if qty <= 0:
+                status = "out"
+                suggested = 10  # arbitrary reorder qty
+                low_count += 1
+            elif qty <= 10:
+                status = "low"
+                suggested = 10 - qty if qty < 10 else None
+                low_count += 1
+            else:
+                status = "ok"
+                suggested = None
+            rows.append(
+                LowStockAlertRow(
+                    item_id=item_id,
+                    item_name=name,
+                    sku_code=sku,
+                    current=qty,
+                    min_level=min_level,
+                    status=status,
+                    suggested_order=suggested,
+                )
+            )
+        # Sort: out first, then low, then ok; within same status by current ascending
+        rows.sort(key=lambda x: (0 if x.status == "out" else 1 if x.status == "low" else 2, x.current))
+        return {
+            "rows": rows,
+            "total_low_count": low_count,
+        }
+
+    async def stock_movement_report(
+        self,
+        date_from: date,
+        date_to: date,
+        movement_type: str | None = None,
+    ) -> dict:
+        """
+        Stock Movement report: list movements in period with item name, ref display, user, balance.
+        ref_display: from GRN number or Issuance number when reference_type matches.
+        """
+        if date_from > date_to:
+            raise ValueError("date_from must be <= date_to")
+        q = (
+            select(
+                StockMovement.id,
+                StockMovement.created_at,
+                StockMovement.movement_type,
+                StockMovement.item_id,
+                Item.name.label("item_name"),
+                StockMovement.quantity,
+                StockMovement.quantity_after,
+                StockMovement.reference_type,
+                StockMovement.reference_id,
+                StockMovement.created_by_id,
+            )
+            .select_from(StockMovement)
+            .join(Item, StockMovement.item_id == Item.id)
+            .where(
+                func.date(StockMovement.created_at) >= date_from,
+                func.date(StockMovement.created_at) <= date_to,
+            )
+            .order_by(StockMovement.created_at.desc())
+        )
+        if movement_type:
+            q = q.where(StockMovement.movement_type == movement_type)
+        result = await self.db.execute(q)
+        raw = result.all()
+
+        # Resolve ref_display: load GRN and Issuance numbers for reference_id
+        grn_ids = [r[7] for r in raw if r[6] == "grn" and r[7]]
+        iss_ids = [r[7] for r in raw if r[6] == "issuance" and r[7]]
+        grn_map = {}
+        if grn_ids:
+            grn_res = await self.db.execute(
+                select(GoodsReceivedNote.id, GoodsReceivedNote.grn_number).where(
+                    GoodsReceivedNote.id.in_(grn_ids)
+                )
+            )
+            grn_map = {r[0]: r[1] for r in grn_res.all()}
+        iss_map = {}
+        if iss_ids:
+            iss_res = await self.db.execute(
+                select(Issuance.id, Issuance.issuance_number).where(Issuance.id.in_(iss_ids))
+            )
+            iss_map = {r[0]: r[1] for r in iss_res.all()}
+
+        from src.core.auth.models import User as AuthUser
+        user_ids = {r[9] for r in raw if r[9]}
+        user_names = {}
+        if user_ids:
+            users_q = await self.db.execute(
+                select(
+                    AuthUser.id,
+                    func.coalesce(AuthUser.full_name, "Unknown"),
+                ).where(AuthUser.id.in_(user_ids))
+            )
+            user_names = {r[0]: (r[1] or "Unknown") for r in users_q.all()}
+
+        rows = []
+        for r in raw:
+            mov_id, created_at, mtype, item_id, item_name, qty, qty_after, ref_type, ref_id, created_by_id = r
+            ref_display = None
+            if ref_type and ref_id:
+                if ref_type == "grn":
+                    ref_display = grn_map.get(ref_id)
+                elif ref_type == "issuance":
+                    ref_display = iss_map.get(ref_id)
+                if not ref_display:
+                    ref_display = f"{ref_type or 'n/a'}#{ref_id}"
+            created_date = created_at.date() if hasattr(created_at, "date") else created_at
+            if isinstance(created_date, str):
+                created_date = date.fromisoformat(created_date[:10])
+            user_name = user_names.get(created_by_id, "Unknown")
+            rows.append(
+                StockMovementRow(
+                    movement_id=mov_id,
+                    movement_date=created_date,
+                    movement_type=mtype or "",
+                    item_id=item_id,
+                    item_name=item_name,
+                    quantity=qty,
+                    ref_display=ref_display,
+                    created_by_name=user_name,
+                    balance_after=qty_after,
+                )
+            )
+        return {
+            "date_from": date_from,
+            "date_to": date_to,
+            "rows": rows,
+        }
+
+    async def compensation_summary(
+        self,
+        date_from: date,
+        date_to: date,
+        status: str | None = None,
+    ) -> dict:
+        """
+        Compensation Summary: by employee, claims count, total/approved/paid/pending.
+        Optional filter by status. Uses expense_date for period.
+        """
+        if date_from > date_to:
+            raise ValueError("date_from must be <= date_to")
+        from src.core.auth.models import User as AuthUser
+
+        q = (
+            select(
+                ExpenseClaim.employee_id,
+                AuthUser.full_name.label("employee_name"),
+                func.count(ExpenseClaim.id).label("claims_count"),
+                func.coalesce(func.sum(ExpenseClaim.amount), 0).label("total_amount"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                ExpenseClaim.status.in_(
+                                    [
+                                        ExpenseClaimStatus.APPROVED.value,
+                                        ExpenseClaimStatus.PARTIALLY_PAID.value,
+                                        ExpenseClaimStatus.PAID.value,
+                                    ]
+                                ),
+                                ExpenseClaim.amount,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("approved_amount"),
+                func.coalesce(func.sum(ExpenseClaim.paid_amount), 0).label("paid_amount"),
+                func.coalesce(func.sum(ExpenseClaim.remaining_amount), 0).label("pending_amount"),
+            )
+            .select_from(ExpenseClaim)
+            .join(AuthUser, ExpenseClaim.employee_id == AuthUser.id)
+            .where(
+                ExpenseClaim.expense_date >= date_from,
+                ExpenseClaim.expense_date <= date_to,
+                ExpenseClaim.status != ExpenseClaimStatus.REJECTED.value,
+            )
+            .group_by(ExpenseClaim.employee_id, AuthUser.full_name)
+        )
+        if status:
+            q = q.where(ExpenseClaim.status == status)
+        result = await self.db.execute(q)
+        raw_rows = result.all()
+
+        rows = []
+        total_claims = 0
+        total_amount = Decimal("0")
+        total_approved = Decimal("0")
+        total_paid = Decimal("0")
+        total_pending = Decimal("0")
+        for r in raw_rows:
+            emp_id, emp_name, cnt, amt, approved, paid, pending = r
+            amt = round_money(Decimal(str(amt)))
+            approved = round_money(Decimal(str(approved)))
+            paid = round_money(Decimal(str(paid)))
+            pending = round_money(Decimal(str(pending)))
+            total_claims += int(cnt)
+            total_amount += amt
+            total_approved += approved
+            total_paid += paid
+            total_pending += pending
+            rows.append(
+                CompensationSummaryRow(
+                    employee_id=emp_id,
+                    employee_name=emp_name or "Unknown",
+                    claims_count=int(cnt),
+                    total_amount=amt,
+                    approved_amount=approved,
+                    paid_amount=paid,
+                    pending_amount=pending,
+                )
+            )
+
+        # Pending approval: count and sum where status = pending_approval
+        pending_app_q = (
+            select(
+                func.count(ExpenseClaim.id).label("cnt"),
+                func.coalesce(func.sum(ExpenseClaim.amount), 0).label("amt"),
+            )
+            .where(
+                ExpenseClaim.expense_date >= date_from,
+                ExpenseClaim.expense_date <= date_to,
+                ExpenseClaim.status == ExpenseClaimStatus.PENDING_APPROVAL.value,
+            )
+        )
+        pending_app_res = await self.db.execute(pending_app_q)
+        pa_row = pending_app_res.one()
+        pending_approval_count = int(pa_row[0])
+        pending_approval_amount = round_money(Decimal(str(pa_row[1])))
+
+        # Approved but unpaid: approved or partially_paid with remaining_amount > 0
+        approved_unpaid_q = (
+            select(
+                func.count(ExpenseClaim.id).label("cnt"),
+                func.coalesce(func.sum(ExpenseClaim.remaining_amount), 0).label("amt"),
+            )
+            .where(
+                ExpenseClaim.expense_date >= date_from,
+                ExpenseClaim.expense_date <= date_to,
+                ExpenseClaim.status.in_(
+                    [ExpenseClaimStatus.APPROVED.value, ExpenseClaimStatus.PARTIALLY_PAID.value]
+                ),
+                ExpenseClaim.remaining_amount > 0,
+            )
+        )
+        approved_unpaid_res = await self.db.execute(approved_unpaid_q)
+        au_row = approved_unpaid_res.one()
+        approved_unpaid_count = int(au_row[0])
+        approved_unpaid_amount = round_money(Decimal(str(au_row[1])))
+
+        return {
+            "date_from": date_from,
+            "date_to": date_to,
+            "rows": rows,
+            "summary": CompensationSummaryTotals(
+                total_claims=total_claims,
+                total_amount=round_money(total_amount),
+                total_approved=round_money(total_approved),
+                total_paid=round_money(total_paid),
+                total_pending=round_money(total_pending),
+                pending_approval_count=pending_approval_count,
+                pending_approval_amount=pending_approval_amount,
+                approved_unpaid_count=approved_unpaid_count,
+                approved_unpaid_amount=approved_unpaid_amount,
+            ),
+        }
+
+    async def expense_claims_by_category(
+        self,
+        date_from: date,
+        date_to: date,
+    ) -> dict:
+        """
+        Expense Claims by Category (purpose): amount and count per purpose, percent of total.
+        Uses expense_date for period. Excludes rejected.
+        """
+        if date_from > date_to:
+            raise ValueError("date_from must be <= date_to")
+        q = (
+            select(
+                PaymentPurpose.id.label("purpose_id"),
+                PaymentPurpose.name.label("purpose_name"),
+                func.coalesce(func.sum(ExpenseClaim.amount), 0).label("amount"),
+                func.count(ExpenseClaim.id).label("claims_count"),
+            )
+            .select_from(ExpenseClaim)
+            .join(PaymentPurpose, ExpenseClaim.purpose_id == PaymentPurpose.id)
+            .where(
+                ExpenseClaim.expense_date >= date_from,
+                ExpenseClaim.expense_date <= date_to,
+                ExpenseClaim.status != ExpenseClaimStatus.REJECTED.value,
+            )
+            .group_by(PaymentPurpose.id, PaymentPurpose.name)
+            .order_by(func.sum(ExpenseClaim.amount).desc())
+        )
+        result = await self.db.execute(q)
+        raw_rows = result.all()
+
+        total_amount = Decimal("0")
+        for r in raw_rows:
+            total_amount += round_money(Decimal(str(r[2])))
+
+        rows = []
+        for r in raw_rows:
+            purpose_id, purpose_name, amt, cnt = r
+            amt = round_money(Decimal(str(amt)))
+            pct = (
+                round(float(amt / total_amount * 100), 2)
+                if total_amount and total_amount > 0 else None
+            )
+            rows.append(
+                ExpenseClaimsByCategoryRow(
+                    purpose_id=int(purpose_id),
+                    purpose_name=purpose_name or "Other",
+                    amount=amt,
+                    claims_count=int(cnt),
+                    percent_of_total=pct,
+                )
+            )
+
+        return {
+            "date_from": date_from,
+            "date_to": date_to,
+            "rows": rows,
+            "total_amount": round_money(total_amount),
+        }
+
+    async def revenue_trend(self, years: int = 3) -> dict:
+        """
+        Revenue per student trend over last N years (calendar year).
+        For each year: total revenue (student payments), count of students with at least one payment, avg per student.
+        growth_percent: (last_year_avg - first_year_avg) / first_year_avg * 100.
+        """
+        today = date.today()
+        current_year = today.year
+        rows = []
+        first_avg = None
+        last_avg = None
+        for i in range(years - 1, -1, -1):
+            y = current_year - i
+            start = date(y, 1, 1)
+            end = date(y, 12, 31)
+            rev_q = (
+                select(func.coalesce(func.sum(Payment.amount), 0)).where(
+                    Payment.status == PaymentStatus.COMPLETED.value,
+                    Payment.payment_date >= start,
+                    Payment.payment_date <= end,
+                )
+            )
+            rev_res = await self.db.execute(rev_q)
+            total_rev = round_money(Decimal(str(rev_res.scalar() or 0)))
+            cnt_q = (
+                select(func.count(func.distinct(Payment.student_id))).where(
+                    Payment.status == PaymentStatus.COMPLETED.value,
+                    Payment.payment_date >= start,
+                    Payment.payment_date <= end,
+                    Payment.student_id.isnot(None),
+                )
+            )
+            cnt_res = await self.db.execute(cnt_q)
+            students_count = int(cnt_res.scalar() or 0)
+            avg_per = round_money(total_rev / students_count) if students_count else None
+            if avg_per is not None:
+                if first_avg is None:
+                    first_avg = float(avg_per)
+                last_avg = float(avg_per)
+            rows.append(
+                RevenueTrendRow(
+                    year=y,
+                    label=f"{y}/{y + 1}",
+                    total_revenue=total_rev,
+                    students_count=students_count,
+                    avg_revenue_per_student=avg_per,
+                )
+            )
+        growth_percent = (
+            round((last_avg - first_avg) / first_avg * 100, 2)
+            if first_avg and first_avg > 0 and last_avg is not None else None
+        )
+        return {
+            "rows": rows,
+            "growth_percent": growth_percent,
+            "years_included": years,
+        }
+
+    async def payment_method_distribution(
+        self,
+        date_from: date,
+        date_to: date,
+    ) -> dict:
+        """
+        Payment method distribution for student payments in period.
+        """
+        if date_from > date_to:
+            raise ValueError("date_from must be <= date_to")
+        q = (
+            select(
+                Payment.payment_method,
+                func.coalesce(func.sum(Payment.amount), 0).label("amount"),
+            )
+            .where(
+                Payment.status == PaymentStatus.COMPLETED.value,
+                Payment.payment_date >= date_from,
+                Payment.payment_date <= date_to,
+            )
+            .group_by(Payment.payment_method)
+        )
+        result = await self.db.execute(q)
+        raw = result.all()
+        total = sum(round_money(Decimal(str(r[1]))) for r in raw)
+        method_labels = {"mpesa": "M-Pesa", "bank_transfer": "Bank Transfer", "cash": "Cash", "cheque": "Cheque"}
+        rows = []
+        for method, amt in raw:
+            amt = round_money(Decimal(str(amt)))
+            pct = round(float(amt / total * 100), 2) if total and total > 0 else None
+            rows.append(
+                PaymentMethodDistributionRow(
+                    payment_method=method or "other",
+                    label=method_labels.get((method or "").lower(), (method or "Other").title()),
+                    amount=amt,
+                    percent_of_total=pct,
+                )
+            )
+        return {
+            "date_from": date_from,
+            "date_to": date_to,
+            "rows": rows,
+            "total_amount": round_money(total),
+        }
+
+    async def term_comparison(self, term1_id: int, term2_id: int) -> dict:
+        """
+        Term-over-term comparison: students enrolled, total invoiced, total collected, collection rate, avg fee/student, discounts.
+        """
+        statuses = (
+            InvoiceStatus.ISSUED.value,
+            InvoiceStatus.PARTIALLY_PAID.value,
+            InvoiceStatus.PAID.value,
+        )
+        terms_res = await self.db.execute(
+            select(Term).where(Term.id.in_([term1_id, term2_id]))
+        )
+        terms = {t.id: t for t in terms_res.scalars().unique().all()}
+        if term1_id not in terms or term2_id not in terms:
+            raise NotFoundError("Term", f"{term1_id},{term2_id}")
+        t1, t2 = terms[term1_id], terms[term2_id]
+        metrics = []
+
+        async def get_term_metrics(term: Term) -> tuple:
+            inv_q = (
+                select(
+                    func.count(func.distinct(Invoice.student_id)).label("students"),
+                    func.coalesce(func.sum(Invoice.total), 0).label("invoiced"),
+                    func.coalesce(func.sum(Invoice.paid_total), 0).label("paid"),
+                    func.coalesce(func.sum(Invoice.discount_total), 0).label("discounts"),
+                )
+                .where(
+                    Invoice.term_id == term.id,
+                    Invoice.status.in_(statuses),
+                )
+            )
+            r = (await self.db.execute(inv_q)).one()
+            students = int(r[0])
+            invoiced = round_money(Decimal(str(r[1])))
+            paid = round_money(Decimal(str(r[2])))
+            discounts = round_money(Decimal(str(r[3])))
+            rate = round(float(paid / invoiced * 100), 2) if invoiced and invoiced > 0 else None
+            avg_fee = round_money(invoiced / students) if students else None
+            return students, invoiced, paid, rate, avg_fee, discounts
+
+        s1, inv1, paid1, rate1, avg1, disc1 = await get_term_metrics(t1)
+        s2, inv2, paid2, rate2, avg2, disc2 = await get_term_metrics(t2)
+
+        def pct_change(a: float | None, b: float | None) -> tuple:
+            if b is None or b == 0:
+                return None, None
+            if a is None:
+                return None, None
+            ch = a - b
+            pct = round((ch / float(b)) * 100, 2)
+            return ch, pct
+
+        metrics.append(
+            TermComparisonMetric(
+                name="Students Enrolled",
+                term1_value=s1,
+                term2_value=s2,
+                change_abs=s2 - s1,
+                change_percent=round((s2 - s1) / s1 * 100, 2) if s1 else None,
+            )
+        )
+        metrics.append(
+            TermComparisonMetric(
+                name="Total Invoiced (KES)",
+                term1_value=float(inv1),
+                term2_value=float(inv2),
+                change_abs=float(inv2 - inv1),
+                change_percent=round(float((inv2 - inv1) / inv1 * 100), 2) if inv1 else None,
+            )
+        )
+        metrics.append(
+            TermComparisonMetric(
+                name="Total Collected (KES)",
+                term1_value=float(paid1),
+                term2_value=float(paid2),
+                change_abs=float(paid2 - paid1),
+                change_percent=round(float((paid2 - paid1) / paid1 * 100), 2) if paid1 else None,
+            )
+        )
+        metrics.append(
+            TermComparisonMetric(
+                name="Collection Rate (%)",
+                term1_value=rate1 if rate1 is not None else "—",
+                term2_value=rate2 if rate2 is not None else "—",
+                change_abs=(rate2 - rate1) if rate1 is not None and rate2 is not None else None,
+                change_percent=(rate2 - rate1) if rate1 is not None and rate2 is not None else None,
+            )
+        )
+        metrics.append(
+            TermComparisonMetric(
+                name="Avg Fee/Student (KES)",
+                term1_value=float(avg1) if avg1 is not None else "—",
+                term2_value=float(avg2) if avg2 is not None else "—",
+                change_abs=float(avg2 - avg1) if avg1 and avg2 else None,
+                change_percent=round(float((avg2 - avg1) / avg1 * 100), 2) if avg1 and avg1 > 0 and avg2 else None,
+            )
+        )
+        metrics.append(
+            TermComparisonMetric(
+                name="Discounts Given (KES)",
+                term1_value=float(disc1),
+                term2_value=float(disc2),
+                change_abs=float(disc2 - disc1),
+                change_percent=round(float((disc2 - disc1) / disc1 * 100), 2) if disc1 else None,
+            )
+        )
+        return {
+            "term1_id": term1_id,
+            "term1_display_name": t1.display_name,
+            "term2_id": term2_id,
+            "term2_display_name": t2.display_name,
+            "metrics": metrics,
+        }
+
+    async def kpis_report(
+        self,
+        year: int | None = None,
+        term_id: int | None = None,
+    ) -> dict:
+        """
+        KPIs & key metrics for a period. If term_id given, use term dates; else use calendar year.
+        """
+        today = date.today()
+        current_year = year or today.year
+        period_type = "term" if term_id else "year"
+        term_display_name = None
+        active_term = None
+        if term_id:
+            term_res = await self.db.execute(select(Term).where(Term.id == term_id))
+            active_term = term_res.scalar_one_or_none()
+            if not active_term:
+                raise NotFoundError("Term", term_id)
+            term_display_name = active_term.display_name
+
+        if active_term and active_term.start_date and active_term.end_date:
+            date_from = active_term.start_date
+            date_to = active_term.end_date
+        else:
+            date_from = date(current_year, 1, 1)
+            date_to = date(current_year, 12, 31)
+
+        active_students = await self.db.execute(
+            select(func.count(Student.id)).where(Student.status == StudentStatus.ACTIVE.value)
+        )
+        active_students_count = int(active_students.scalar() or 0)
+
+        rev_q = (
+            select(func.coalesce(func.sum(Payment.amount), 0)).where(
+                Payment.status == PaymentStatus.COMPLETED.value,
+                Payment.payment_date >= date_from,
+                Payment.payment_date <= date_to,
+            )
+        )
+        total_revenue = round_money(Decimal(str((await self.db.execute(rev_q)).scalar() or 0)))
+
+        inv_q = (
+            select(func.coalesce(func.sum(Invoice.total), 0)).where(
+                Invoice.issue_date >= date_from,
+                Invoice.issue_date <= date_to,
+                Invoice.status.in_(
+                    [InvoiceStatus.ISSUED.value, InvoiceStatus.PARTIALLY_PAID.value, InvoiceStatus.PAID.value]
+                ),
+            )
+        )
+        total_invoiced = round_money(Decimal(str((await self.db.execute(inv_q)).scalar() or 0)))
+        paid_q = (
+            select(func.coalesce(func.sum(Invoice.paid_total), 0)).where(
+                Invoice.issue_date >= date_from,
+                Invoice.issue_date <= date_to,
+                Invoice.status.in_(
+                    [InvoiceStatus.ISSUED.value, InvoiceStatus.PARTIALLY_PAID.value, InvoiceStatus.PAID.value]
+                ),
+            )
+        )
+        total_paid = round_money(Decimal(str((await self.db.execute(paid_q)).scalar() or 0)))
+        collection_rate_percent = (
+            round(float(total_paid / total_invoiced * 100), 2) if total_invoiced and total_invoiced > 0 else None
+        )
+
+        proc_q = (
+            select(func.coalesce(func.sum(ProcurementPayment.amount), 0)).where(
+                ProcurementPayment.status == ProcurementPaymentStatus.POSTED.value,
+                ProcurementPayment.payment_date >= date_from,
+                ProcurementPayment.payment_date <= date_to,
+            )
+        )
+        comp_q = (
+            select(func.coalesce(func.sum(CompensationPayout.amount), 0)).where(
+                CompensationPayout.payout_date >= date_from,
+                CompensationPayout.payout_date <= date_to,
+            )
+        )
+        proc_amt = round_money(Decimal(str((await self.db.execute(proc_q)).scalar() or 0)))
+        comp_amt = round_money(Decimal(str((await self.db.execute(comp_q)).scalar() or 0)))
+        total_expenses = round_money(proc_amt + comp_amt)
+
+        debt_q = (
+            select(func.coalesce(func.sum(Invoice.amount_due), 0)).where(
+                Invoice.status.in_([InvoiceStatus.ISSUED.value, InvoiceStatus.PARTIALLY_PAID.value]),
+                Invoice.amount_due > 0,
+            )
+        )
+        student_debt = round_money(Decimal(str((await self.db.execute(debt_q)).scalar() or 0)))
+        supp_q = (
+            select(func.coalesce(func.sum(PurchaseOrder.debt_amount), 0)).where(
+                PurchaseOrder.status.notin_(
+                    [PurchaseOrderStatus.CANCELLED.value, PurchaseOrderStatus.CLOSED.value]
+                )
+            )
+        )
+        supplier_debt = round_money(Decimal(str((await self.db.execute(supp_q)).scalar() or 0)))
+        claims_q = (
+            select(func.coalesce(func.sum(ExpenseClaim.remaining_amount), 0)).where(
+                ExpenseClaim.status.in_(
+                    [ExpenseClaimStatus.PENDING_APPROVAL.value, ExpenseClaimStatus.APPROVED.value]
+                ),
+                ExpenseClaim.remaining_amount > 0,
+            )
+        )
+        pending_claims_amount = round_money(Decimal(str((await self.db.execute(claims_q)).scalar() or 0)))
+
+        return {
+            "period_type": period_type,
+            "year": current_year if period_type == "year" else None,
+            "term_id": term_id,
+            "term_display_name": term_display_name,
+            "active_students_count": active_students_count,
+            "total_revenue": total_revenue,
+            "total_invoiced": total_invoiced,
+            "collection_rate_percent": collection_rate_percent,
+            "total_expenses": total_expenses,
+            "student_debt": student_debt,
+            "supplier_debt": supplier_debt,
+            "pending_claims_amount": pending_claims_amount,
         }

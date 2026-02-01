@@ -19,6 +19,20 @@ The full specification is in `erp_spec.md` (Russian language).
 - **Frontend**: React/Vue.js/Next.js with Tailwind/MUI/Ant Design
 - **PDF Generation**: jsPDF, PDFKit, or WeasyPrint
 
+## Development & CI
+
+- **Backend tests**: Always run with **Python 3.11** via `uv run pytest tests/` (project uses uv; bare `python`/`python3` may be older and fail). **Never skip tests** before commit/merge.
+- **Frontend**: `npm run build` in `frontend/`.
+
+### Task completion checklist (обязательно перед «задача выполнена»)
+
+После любой реализации фичи или отчёта:
+
+1. **Документация** — обновить TASKS.md (отметить выполненные пункты), при необходимости MANAGER_REPORTS.md / ACCOUNTANT_REPORTS.md.
+2. **Тесты** — написать/обновить тесты для нового кода; прогнать `uv run pytest tests/` и `npm run build`.
+3. **Коммит** — зафиксировать изменения: `git add` нужных файлов, `git commit -m "..."` с осмысленным сообщением. **Без коммита задача не считается выполненной.**
+4. По необходимости — push, merge (по процессу проекта).
+
 ## Architecture: Four Domains
 
 ```

@@ -678,8 +678,8 @@
 - [x] Отчёт Students: student-fees (term_id, grade_id опционально; по классам: students_count, total_invoiced, total_paid, balance, rate). Тесты: 200/404/403.
 - [x] Отчёты Financial: profit-loss, cash-flow, balance-sheet (параметры; экспорт PDF/Excel — позже).
 - [x] Отчёты Students: collection-rate, discount-analysis, top-debtors.
-- [ ] Отчёты Procurement & Inventory: procurement-summary, inventory-valuation, low-stock-alert, stock-movement.
-- [ ] Отчёты Compensations: compensation-summary, expense-claims-by-category.
+- [x] Отчёты Procurement & Inventory: procurement-summary, inventory-valuation, low-stock-alert, stock-movement.
+- [x] Отчёты Compensations: compensation-summary, expense-claims-by-category.
 - [ ] Analytics: revenue-trend, payment-method-distribution, term-comparison, kpis.
 - [ ] Тесты API (dashboard, reports; User/Accountant — 403 на dashboard сводке и reports).
 
@@ -691,7 +691,10 @@
 - [x] Страница отчёта Student Fees by Term (/reports/student-fees): выбор терма и опционально класса, таблица по классам (Class, Students, Total Invoiced, Total Paid, Balance, Rate), summary; при 403 — сообщение о доступе.
 - [x] Страницы финансовых отчётов: Profit & Loss (/reports/profit-loss), Cash Flow (/reports/cash-flow), Balance Sheet (/reports/balance-sheet) — параметры (даты), таблицы, 403; тесты API (profit-loss, cash-flow, balance-sheet).
 - [x] Отчёты Students: Collection Rate Trend (/reports/collection-rate), Discount Analysis (/reports/discount-analysis), Top Debtors (/reports/top-debtors) — backend + тесты + страницы и навигация.
-- [ ] Остальные страницы отчётов (Procurement & Inventory, Compensations, Analytics) и экспорт PDF/Excel.
+- [x] Страницы отчётов Procurement & Inventory: Procurement Summary, Inventory Valuation, Low Stock Alert, Stock Movement Report (меню, роуты, страницы).
+- [x] Страницы отчётов Compensations: Compensation Summary, Expense Claims by Category (меню, роуты, страницы).
+- [x] Страницы отчётов Analytics: Revenue per Student Trend, Payment Method Distribution, Term Comparison, KPIs & Metrics (меню, роуты, страницы).
+- [ ] Экспорт PDF/Excel для отчётов.
 
 **Порядок реализации (рекомендуемый):** сначала backend dashboard + один отчёт (например aged-receivables или student-fees), тесты; затем фронт дашборда и один отчёт; потом остальные отчёты.
 
