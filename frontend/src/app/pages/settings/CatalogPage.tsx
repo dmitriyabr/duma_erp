@@ -1,31 +1,3 @@
-import AddIcon from '@mui/icons-material/Add'
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControl,
-  FormControlLabel,
-  IconButton,
-  InputLabel,
-  MenuItem,
-  Select,
-  Switch,
-  Tab,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  Tabs,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
@@ -34,6 +6,31 @@ import { useApi, useApiMutation } from '../../hooks/useApi'
 import { isAccountant } from '../../utils/permissions'
 import { api, unwrapResponse } from '../../services/api'
 import { formatMoney } from '../../utils/format'
+import {
+  Typography,
+  Alert,
+  Button,
+  Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Select,
+  Input,
+  Switch,
+  Tabs,
+  TabsList,
+  Tab,
+  TabPanel,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableHeaderCell,
+  Spinner,
+} from '../../components/ui'
+import { Plus, Trash2 } from 'lucide-react'
 
 type CatalogTab = 'items' | 'categories'
 
@@ -96,21 +93,6 @@ const emptyKitForm = {
 }
 
 const emptyCategoryForm = { name: '' }
-
-const TabPanel = ({
-  active,
-  name,
-  children,
-}: {
-  active: CatalogTab
-  name: CatalogTab
-  children: React.ReactNode
-}) => {
-  if (active !== name) {
-    return null
-  }
-  return <Box sx={{ mt: 3 }}>{children}</Box>
-}
 
 export const CatalogPage = () => {
   const location = useLocation()
@@ -179,7 +161,7 @@ export const CatalogPage = () => {
     }
   }, [location.pathname, navigate])
 
-  const handleTabChange = (_: React.SyntheticEvent, value: CatalogTab) => {
+  const handleTabChange = (value: CatalogTab) => {
     const target = tabConfig.find((tab) => tab.key === value)
     if (target) {
       navigate(target.path)
@@ -416,344 +398,347 @@ export const CatalogPage = () => {
   }
 
   return (
-    <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>
+    <div>
+      <Typography variant="h5" className="mb-4">
         Catalog
       </Typography>
 
       <Tabs value={activeTab} onChange={handleTabChange}>
-        {tabConfig.map((tab) => (
-          <Tab key={tab.key} label={tab.label} value={tab.key} />
-        ))}
-      </Tabs>
+        <TabsList>
+          {tabConfig.map((tab) => (
+            <Tab key={tab.key} value={tab.key}>
+              {tab.label}
+            </Tab>
+          ))}
+        </TabsList>
 
-      {displayTabError ? (
-        <Alert severity="error" sx={{ mt: 2 }}>
-          {displayTabError}
-        </Alert>
-      ) : null}
+        {displayTabError && (
+          <Alert severity="error" className="mt-4" onClose={() => {}}>
+            {displayTabError}
+          </Alert>
+        )}
 
-      <TabPanel active={activeTab} name="items">
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1 }}>
-          <Typography variant="h6" sx={{ fontWeight: 600 }}>
-            Catalog items
-          </Typography>
-          {!readOnly && (
-            <Button variant="contained" onClick={openCreateKit}>
-              New item
-            </Button>
-          )}
-        </Box>
+        <TabPanel value="items">
+          <div className="flex items-center justify-between mt-4">
+            <Typography variant="h6" className="font-semibold">
+              Catalog items
+            </Typography>
+            {!readOnly && (
+              <Button variant="contained" onClick={openCreateKit}>
+                New item
+              </Button>
+            )}
+          </div>
 
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mt: 2 }}>
-          <TextField
-            label="Search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            size="small"
-          />
-          <FormControl size="small" sx={{ minWidth: 180 }}>
-            <InputLabel>Category</InputLabel>
+          <div className="flex flex-wrap gap-4 mt-4">
+            <Input
+              label="Search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              className="min-w-[200px]"
+            />
             <Select
-              value={categoryFilter}
-              label="Category"
+              value={categoryFilter === 'all' ? 'all' : String(categoryFilter)}
               onChange={(event) => {
                 const value = event.target.value
                 setCategoryFilter(value === 'all' ? 'all' : Number(value))
               }}
+              label="Category"
+              className="min-w-[180px]"
             >
-              <MenuItem value="all">All</MenuItem>
+              <option value="all">All</option>
               {categories.map((category) => (
-                <MenuItem key={category.id} value={category.id}>
+                <option key={category.id} value={category.id}>
                   {category.name}
-                </MenuItem>
+                </option>
               ))}
             </Select>
-          </FormControl>
-          <FormControl size="small" sx={{ minWidth: 160 }}>
-            <InputLabel>Type</InputLabel>
             <Select
-              value={typeFilter}
-              label="Type"
+              value={typeFilter === 'all' ? 'all' : typeFilter}
               onChange={(event) => setTypeFilter(event.target.value as ItemType | 'all')}
+              label="Type"
+              className="min-w-[160px]"
             >
-              <MenuItem value="all">All</MenuItem>
+              <option value="all">All</option>
               {itemTypeOptions.map((option) => (
-                <MenuItem key={option.value} value={option.value}>
+                <option key={option.value} value={option.value}>
                   {option.label}
-                </MenuItem>
+                </option>
               ))}
             </Select>
-          </FormControl>
-          <FormControlLabel
-            control={
+            <div className="flex items-center gap-2">
               <Switch
                 checked={showInactive}
                 onChange={(event) => setShowInactive(event.target.checked)}
               />
-            }
-            label="Show inactive"
-          />
-        </Box>
+              <span className="text-sm font-medium text-slate-700">Show inactive</span>
+            </div>
+          </div>
 
-        <Table sx={{ mt: 2 }}>
-          <TableHead>
-            <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>Category</TableCell>
-              <TableCell>Price</TableCell>
-              <TableCell>Type</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell align="right">Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {filteredKits.map((kit) => (
-              <TableRow key={kit.id}>
-                <TableCell>{kit.name}</TableCell>
-                <TableCell>{kit.category_name ?? '—'}</TableCell>
-                <TableCell>{formatMoney(kit.price ?? null)}</TableCell>
-                <TableCell>{kit.item_type}</TableCell>
-                <TableCell>
-                  <Chip
-                    size="small"
-                    label={kit.is_active ? 'Active' : 'Inactive'}
-                    color={kit.is_active ? 'success' : 'default'}
-                  />
-                </TableCell>
-                <TableCell align="right">
-                  {readOnly ? (
-                    <Button size="small" onClick={() => openEditKit(kit)}>
-                      View
-                    </Button>
-                  ) : (
-                    <>
-                      <Button size="small" onClick={() => openEditKit(kit)}>
-                        Edit
-                      </Button>
-                      <Button size="small" onClick={() => requestToggleKitActive(kit)}>
-                        {kit.is_active ? 'Deactivate' : 'Activate'}
-                      </Button>
-                    </>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-            {!filteredKits.length && !kitsLoading ? (
+          <Table className="mt-4">
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={6} align="center">
-                  No catalog items found
-                </TableCell>
+                <TableHeaderCell>Name</TableHeaderCell>
+                <TableHeaderCell>Category</TableHeaderCell>
+                <TableHeaderCell>Price</TableHeaderCell>
+                <TableHeaderCell>Type</TableHeaderCell>
+                <TableHeaderCell>Status</TableHeaderCell>
+                <TableHeaderCell align="right">Actions</TableHeaderCell>
               </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
-      </TabPanel>
+            </TableHead>
+            <TableBody>
+              {filteredKits.map((kit) => (
+                <TableRow key={kit.id}>
+                  <TableCell>{kit.name}</TableCell>
+                  <TableCell>{kit.category_name ?? '—'}</TableCell>
+                  <TableCell>{formatMoney(kit.price ?? null)}</TableCell>
+                  <TableCell>{kit.item_type}</TableCell>
+                  <TableCell>
+                    <Chip
+                      size="small"
+                      label={kit.is_active ? 'Active' : 'Inactive'}
+                      color={kit.is_active ? 'success' : 'default'}
+                    />
+                  </TableCell>
+                  <TableCell align="right">
+                    <div className="flex gap-2 justify-end">
+                      {readOnly ? (
+                        <Button size="small" onClick={() => openEditKit(kit)}>
+                          View
+                        </Button>
+                      ) : (
+                        <>
+                          <Button size="small" onClick={() => openEditKit(kit)}>
+                            Edit
+                          </Button>
+                          <Button size="small" onClick={() => requestToggleKitActive(kit)}>
+                            {kit.is_active ? 'Deactivate' : 'Activate'}
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!filteredKits.length && !kitsLoading && (
+                <TableRow>
+                  <TableCell colSpan={6} align="center">
+                    No catalog items found
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TabPanel>
 
-      <TabPanel active={activeTab} name="categories">
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1 }}>
-          <Typography variant="h6" sx={{ fontWeight: 600 }}>
-            Categories
-          </Typography>
-          {!readOnly && (
-            <Button variant="contained" onClick={openCreateCategory}>
-              New category
-            </Button>
-          )}
-        </Box>
+        <TabPanel value="categories">
+          <div className="flex items-center justify-between mt-4">
+            <Typography variant="h6" className="font-semibold">
+              Categories
+            </Typography>
+            {!readOnly && (
+              <Button variant="contained" onClick={openCreateCategory}>
+                New category
+              </Button>
+            )}
+          </div>
 
-        <Table sx={{ mt: 2 }}>
-          <TableHead>
-            <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell align="right">Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {categories.map((category) => (
-              <TableRow key={category.id}>
-                <TableCell>{category.name}</TableCell>
-                <TableCell>
-                  <Chip
-                    size="small"
-                    label={category.is_active ? 'Active' : 'Inactive'}
-                    color={category.is_active ? 'success' : 'default'}
-                  />
-                </TableCell>
-                <TableCell align="right">
-                  {!readOnly && (
-                    <>
-                      <Button size="small" onClick={() => openEditCategory(category)}>
-                        Edit
-                      </Button>
-                      <Button size="small" onClick={() => requestToggleCategoryActive(category)}>
-                        {category.is_active ? 'Deactivate' : 'Activate'}
-                      </Button>
-                    </>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-            {loading ? (
+          <Table className="mt-4">
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={3} align="center">
-                  Loading…
-                </TableCell>
+                <TableHeaderCell>Name</TableHeaderCell>
+                <TableHeaderCell>Status</TableHeaderCell>
+                <TableHeaderCell align="right">Actions</TableHeaderCell>
               </TableRow>
-            ) : null}
-            {!categories.length && !loading ? (
-              <TableRow>
-                <TableCell colSpan={3} align="center">
-                  No categories found
-                </TableCell>
-              </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
-      </TabPanel>
+            </TableHead>
+            <TableBody>
+              {categories.map((category) => (
+                <TableRow key={category.id}>
+                  <TableCell>{category.name}</TableCell>
+                  <TableCell>
+                    <Chip
+                      size="small"
+                      label={category.is_active ? 'Active' : 'Inactive'}
+                      color={category.is_active ? 'success' : 'default'}
+                    />
+                  </TableCell>
+                  <TableCell align="right">
+                    {!readOnly && (
+                      <div className="flex gap-2 justify-end">
+                        <Button size="small" onClick={() => openEditCategory(category)}>
+                          Edit
+                        </Button>
+                        <Button size="small" onClick={() => requestToggleCategoryActive(category)}>
+                          {category.is_active ? 'Deactivate' : 'Activate'}
+                        </Button>
+                      </div>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {loading && (
+                <TableRow>
+                  <TableCell colSpan={3} align="center">
+                    <Spinner size="small" />
+                  </TableCell>
+                </TableRow>
+              )}
+              {!categories.length && !loading && (
+                <TableRow>
+                  <TableCell colSpan={3} align="center">
+                    No categories found
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TabPanel>
+      </Tabs>
 
-
-      <Dialog open={kitDialogOpen} onClose={resetKitDialog} fullWidth maxWidth="md">
+      <Dialog open={kitDialogOpen} onClose={resetKitDialog} maxWidth="md">
         <DialogTitle>
           {readOnly && editingKit ? 'View item' : editingKit ? 'Edit item' : 'Create item'}
         </DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <TextField
-            label="Name"
-            value={kitForm.name}
-            onChange={(event) => setKitForm({ ...kitForm, name: event.target.value })}
-            fullWidth
-            required
-            disabled={readOnly}
-          />
-          <FormControl fullWidth disabled={readOnly}>
-            <InputLabel>Category</InputLabel>
+        <DialogContent>
+          <div className="grid gap-4 mt-2">
+            <Input
+              label="Name"
+              value={kitForm.name}
+              onChange={(event) => setKitForm({ ...kitForm, name: event.target.value })}
+              required
+              disabled={readOnly}
+            />
             <Select
               value={kitForm.category_id}
-              label="Category"
               onChange={(event) => handleCategorySelect(event.target.value as number | string)}
+              label="Category"
+              disabled={readOnly}
             >
               {categories.map((category) => (
-                <MenuItem key={category.id} value={category.id}>
+                <option key={category.id} value={category.id}>
                   {category.name}
-                </MenuItem>
+                </option>
               ))}
               {!readOnly && (
-                <MenuItem value="create">
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <AddIcon fontSize="small" />
+                <option value="create">
+                  <div className="flex items-center gap-2">
+                    <Plus className="w-4 h-4" />
                     Add new category
-                  </Box>
-                </MenuItem>
+                  </div>
+                </option>
               )}
             </Select>
-          </FormControl>
-          <FormControl fullWidth disabled={!!editingKit || readOnly}>
-            <InputLabel>Type</InputLabel>
             <Select
               value={kitForm.item_type}
-              label="Type"
               onChange={(event) =>
                 setKitForm({
                   ...kitForm,
                   item_type: event.target.value as ItemType,
                 })
               }
+              label="Type"
+              disabled={!!editingKit || readOnly}
             >
               {itemTypeOptions.map((option) => (
-                <MenuItem key={option.value} value={option.value}>
+                <option key={option.value} value={option.value}>
                   {option.label}
-                </MenuItem>
+                </option>
               ))}
             </Select>
-          </FormControl>
-          <TextField
-            label="Price"
-            type="number"
-            value={kitForm.price}
-            onChange={(event) => setKitForm({ ...kitForm, price: event.target.value })}
-            fullWidth
-            required
-            disabled={readOnly}
-            inputProps={{ min: 0, step: 0.01 }}
-          />
+            <Input
+              label="Price"
+              type="number"
+              value={kitForm.price}
+              onChange={(event) => setKitForm({ ...kitForm, price: event.target.value })}
+              required
+              disabled={readOnly}
+              min={0}
+              step={0.01}
+            />
 
-          {kitForm.item_type === 'product' ? (
-            <Box sx={{ display: 'grid', gap: 1 }}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                Components
-              </Typography>
-              {kitForm.items.map((item, index) => (
-                <Box
-                  key={`kit-item-${index}`}
-                  sx={{ display: 'grid', gap: 1, gridTemplateColumns: readOnly ? '1fr 140px' : '1fr 140px auto' }}
-                >
-                  <FormControl fullWidth disabled={readOnly}>
-                    <InputLabel>Inventory item</InputLabel>
+            {kitForm.item_type === 'product' && (
+              <div className="grid gap-2">
+                <Typography variant="subtitle1" className="font-semibold">
+                  Components
+                </Typography>
+                {kitForm.items.map((item, index) => (
+                  <div
+                    key={`kit-item-${index}`}
+                    className={readOnly ? 'grid grid-cols-[1fr_140px] gap-2' : 'grid grid-cols-[1fr_140px_auto] gap-2'}
+                  >
                     <Select
                       value={item.item_id}
-                      label="Inventory item"
                       onChange={(event) =>
                         updateKitItem(index, 'item_id', event.target.value as string)
                       }
+                      label="Inventory item"
+                      disabled={readOnly}
                     >
+                      <option value="">Select item</option>
                       {inventoryItems.map((option) => (
-                        <MenuItem key={option.id} value={option.id}>
+                        <option key={option.id} value={option.id}>
                           {option.name}
-                        </MenuItem>
+                        </option>
                       ))}
                     </Select>
-                  </FormControl>
-                  <TextField
-                    label="Qty"
-                    type="number"
-                    value={item.quantity}
-                    onChange={(event) => updateKitItem(index, 'quantity', event.target.value)}
-                    onFocus={(event) => event.currentTarget.select()}
-                    disabled={readOnly}
-                    inputProps={{ min: 1, step: 1 }}
-                  />
-                  {!readOnly && (
-                    <IconButton onClick={() => removeKitItem(index)} aria-label="Remove component">
-                      <DeleteOutlineIcon />
-                    </IconButton>
-                  )}
-                </Box>
-              ))}
-              {!readOnly && (
-                <Button variant="outlined" onClick={addKitItem} sx={{ alignSelf: 'flex-start' }}>
-                  Add component
-                </Button>
-              )}
-            </Box>
-          ) : null}
+                    <Input
+                      label="Qty"
+                      type="number"
+                      value={item.quantity}
+                      onChange={(event) => updateKitItem(index, 'quantity', event.target.value)}
+                      onFocus={(event) => event.currentTarget.select()}
+                      disabled={readOnly}
+                      min={1}
+                      step={1}
+                    />
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        onClick={() => removeKitItem(index)}
+                        className="p-2 hover:bg-slate-100 rounded transition-colors self-end"
+                        aria-label="Remove component"
+                      >
+                        <Trash2 className="w-5 h-5 text-slate-500" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {!readOnly && (
+                  <Button variant="outlined" onClick={addKitItem} className="self-start">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add component
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
         </DialogContent>
         <DialogActions>
           <Button onClick={resetKitDialog}>{readOnly ? 'Close' : 'Cancel'}</Button>
           {!readOnly && (
             <Button variant="contained" onClick={submitKit} disabled={loading}>
-              Save
+              {loading ? <Spinner size="small" /> : 'Save'}
             </Button>
           )}
         </DialogActions>
       </Dialog>
 
-      <Dialog open={categoryDialogOpen} onClose={resetCategoryDialog} fullWidth maxWidth="sm">
+      <Dialog open={categoryDialogOpen} onClose={resetCategoryDialog} maxWidth="sm">
         <DialogTitle>{editingCategory ? 'Edit category' : 'Create category'}</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <TextField
-            label="Name"
-            value={categoryForm.name}
-            onChange={(event) => setCategoryForm({ name: event.target.value })}
-            fullWidth
-            required
-          />
+        <DialogContent>
+          <div className="grid gap-4 mt-2">
+            <Input
+              label="Name"
+              value={categoryForm.name}
+              onChange={(event) => setCategoryForm({ name: event.target.value })}
+              required
+            />
+          </div>
         </DialogContent>
         <DialogActions>
           <Button onClick={resetCategoryDialog}>Cancel</Button>
           <Button variant="contained" onClick={submitCategory} disabled={loading}>
-            Save
+            {loading ? <Spinner size="small" /> : 'Save'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -770,6 +755,6 @@ export const CatalogPage = () => {
         onCancel={() => setConfirmState({ open: false })}
         onConfirm={confirmToggleActive}
       />
-    </Box>
+    </div>
   )
 }

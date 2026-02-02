@@ -1,23 +1,13 @@
-import {
-  Alert,
-  Box,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TablePagination,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useMemo, useState } from 'react'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
 import { formatDateTime, formatMoney } from '../../utils/format'
+import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell, TablePagination } from '../../components/ui/Table'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface MovementRow {
   id: number
@@ -39,7 +29,6 @@ interface ItemOption {
   name: string
   sku_code: string
 }
-
 
 const movementTypeOptions = [
   { value: 'receipt', label: 'Receipt' },
@@ -91,112 +80,112 @@ export const MovementsPage = () => {
   }, [rows, search])
 
   return (
-    <Box>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+    <div>
+      <Typography variant="h4" className="mb-4">
         Movements
       </Typography>
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-        <TextField
-          label="Search"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          size="small"
-        />
-        <FormControl size="small" sx={{ minWidth: 220 }}>
-          <InputLabel>Item</InputLabel>
+      <div className="flex gap-4 mb-4 flex-wrap">
+        <div className="flex-1 min-w-[200px]">
+          <Input
+            label="Search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Item name or SKU"
+          />
+        </div>
+        <div className="min-w-[220px]">
           <Select
-            value={itemFilter}
             label="Item"
-            onChange={(event) => setItemFilter(event.target.value as number | 'all')}
+            value={itemFilter}
+            onChange={(e) => setItemFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
           >
-            <MenuItem value="all">All</MenuItem>
+            <option value="all">All</option>
             {(items || []).map((item) => (
-              <MenuItem key={item.id} value={item.id}>
+              <option key={item.id} value={item.id}>
                 {item.name} ({item.sku_code})
-              </MenuItem>
+              </option>
             ))}
           </Select>
-        </FormControl>
-        <FormControl size="small" sx={{ minWidth: 180 }}>
-          <InputLabel>Type</InputLabel>
+        </div>
+        <div className="min-w-[180px]">
           <Select
-            value={typeFilter}
             label="Type"
-            onChange={(event) => setTypeFilter(event.target.value as string | 'all')}
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
           >
-            <MenuItem value="all">All</MenuItem>
+            <option value="all">All</option>
             {movementTypeOptions.map((option) => (
-              <MenuItem key={option.value} value={option.value}>
+              <option key={option.value} value={option.value}>
                 {option.label}
-              </MenuItem>
+              </option>
             ))}
           </Select>
-        </FormControl>
-      </Box>
+        </div>
+      </div>
 
-      {error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {error && (
+        <Alert severity="error" className="mb-4">
           {error}
         </Alert>
-      ) : null}
+      )}
 
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Item</TableCell>
-            <TableCell>SKU</TableCell>
-            <TableCell>Type</TableCell>
-            <TableCell>Qty</TableCell>
-            <TableCell>Unit cost</TableCell>
-            <TableCell>Before</TableCell>
-            <TableCell>After</TableCell>
-            <TableCell>By</TableCell>
-            <TableCell>When</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {filteredRows.map((row) => (
-            <TableRow key={row.id}>
-              <TableCell>{row.item_name ?? '—'}</TableCell>
-              <TableCell>{row.item_sku ?? '—'}</TableCell>
-              <TableCell>{row.movement_type}</TableCell>
-              <TableCell>{row.quantity}</TableCell>
-              <TableCell>{row.unit_cost !== null ? formatMoney(Number(row.unit_cost)) : '—'}</TableCell>
-              <TableCell>{row.quantity_before}</TableCell>
-              <TableCell>{row.quantity_after}</TableCell>
-              <TableCell>{row.created_by_name ?? '—'}</TableCell>
-              <TableCell>{formatDateTime(row.created_at)}</TableCell>
-            </TableRow>
-          ))}
-          {loading ? (
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <Table>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={9} align="center">
-                Loading…
-              </TableCell>
+              <TableHeaderCell>Item</TableHeaderCell>
+              <TableHeaderCell>SKU</TableHeaderCell>
+              <TableHeaderCell>Type</TableHeaderCell>
+              <TableHeaderCell>Qty</TableHeaderCell>
+              <TableHeaderCell>Unit cost</TableHeaderCell>
+              <TableHeaderCell>Before</TableHeaderCell>
+              <TableHeaderCell>After</TableHeaderCell>
+              <TableHeaderCell>By</TableHeaderCell>
+              <TableHeaderCell>When</TableHeaderCell>
             </TableRow>
-          ) : null}
-          {!filteredRows.length && !loading ? (
-            <TableRow>
-              <TableCell colSpan={9} align="center">
-                No movements found
-              </TableCell>
-            </TableRow>
-          ) : null}
-        </TableBody>
-      </Table>
-
-      <TablePagination
-        component="div"
-        count={total}
-        page={page}
-        onPageChange={(_, nextPage) => setPage(nextPage)}
-        rowsPerPage={limit}
-        onRowsPerPageChange={(event) => {
-          setLimit(Number(event.target.value))
-          setPage(0)
-        }}
-      />
-    </Box>
+          </TableHead>
+          <TableBody>
+            {filteredRows.map((row) => (
+              <TableRow key={row.id}>
+                <TableCell>{row.item_name ?? '—'}</TableCell>
+                <TableCell>{row.item_sku ?? '—'}</TableCell>
+                <TableCell>{row.movement_type}</TableCell>
+                <TableCell>{row.quantity}</TableCell>
+                <TableCell>{row.unit_cost !== null ? formatMoney(Number(row.unit_cost)) : '—'}</TableCell>
+                <TableCell>{row.quantity_before}</TableCell>
+                <TableCell>{row.quantity_after}</TableCell>
+                <TableCell>{row.created_by_name ?? '—'}</TableCell>
+                <TableCell>{formatDateTime(row.created_at)}</TableCell>
+              </TableRow>
+            ))}
+            {loading && (
+              <TableRow>
+                <TableCell colSpan={9} align="center" className="py-8">
+                  <Spinner size="medium" />
+                </TableCell>
+              </TableRow>
+            )}
+            {!filteredRows.length && !loading && (
+              <TableRow>
+                <TableCell colSpan={9} align="center" className="py-8">
+                  <Typography color="secondary">No movements found</Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+        <TablePagination
+          page={page}
+          rowsPerPage={limit}
+          count={total}
+          onPageChange={setPage}
+          onRowsPerPageChange={(newLimit) => {
+            setLimit(newLimit)
+            setPage(0)
+          }}
+        />
+      </div>
+    </div>
   )
 }

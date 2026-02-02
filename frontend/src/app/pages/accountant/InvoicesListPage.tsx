@@ -1,25 +1,15 @@
-import {
-  Alert,
-  Box,
-  Button,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TablePagination,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell, TablePagination } from '../../components/ui/Table'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface InvoiceRow {
   id: number
@@ -65,95 +55,103 @@ export const InvoicesListPage = () => {
   const total = data?.total ?? 0
 
   return (
-    <Box>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+    <div>
+      <Typography variant="h4" className="mb-4">
         Students Invoices
       </Typography>
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-        <TextField
-          label="Search (invoice #, student)"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          size="small"
-          sx={{ minWidth: 200 }}
-        />
-        <FormControl size="small" sx={{ minWidth: 160 }}>
-          <InputLabel>Status</InputLabel>
+      <div className="flex gap-4 mb-4 flex-wrap items-center">
+        <div className="flex-1 min-w-[200px]">
+          <Input
+            label="Search (invoice #, student)"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Invoice number or student name"
+          />
+        </div>
+        <div className="min-w-[160px]">
           <Select
-            value={statusFilter}
             label="Status"
+            value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
             {statusOptions.map((opt) => (
-              <MenuItem key={opt.value} value={opt.value}>
+              <option key={opt.value} value={opt.value}>
                 {opt.label}
-              </MenuItem>
+              </option>
             ))}
           </Select>
-        </FormControl>
-      </Box>
+        </div>
+      </div>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Alert severity="error" className="mb-4">
           {error}
         </Alert>
       )}
 
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>Invoice #</TableCell>
-            <TableCell>Student</TableCell>
-            <TableCell>Type</TableCell>
-            <TableCell>Issue date</TableCell>
-            <TableCell>Due date</TableCell>
-            <TableCell align="right">Total</TableCell>
-            <TableCell align="right">Paid</TableCell>
-            <TableCell align="right">Due</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell></TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {loading ? (
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <Table>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={10}>Loading…</TableCell>
+              <TableHeaderCell>Invoice #</TableHeaderCell>
+              <TableHeaderCell>Student</TableHeaderCell>
+              <TableHeaderCell>Type</TableHeaderCell>
+              <TableHeaderCell>Status</TableHeaderCell>
+              <TableHeaderCell align="right">Total</TableHeaderCell>
+              <TableHeaderCell align="right">Paid</TableHeaderCell>
+              <TableHeaderCell align="right">Due</TableHeaderCell>
+              <TableHeaderCell>Issue date</TableHeaderCell>
+              <TableHeaderCell>Due date</TableHeaderCell>
+              <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
-          ) : (
-            invoices.map((row) => (
-              <TableRow key={row.id}>
-                <TableCell>{row.invoice_number}</TableCell>
-                <TableCell>{row.student_name ?? row.student_id}</TableCell>
-                <TableCell>{row.invoice_type}</TableCell>
-                <TableCell>{row.issue_date ? formatDate(row.issue_date) : '—'}</TableCell>
-                <TableCell>{row.due_date ? formatDate(row.due_date) : '—'}</TableCell>
-                <TableCell align="right">{formatMoney(Number(row.total))}</TableCell>
-                <TableCell align="right">{formatMoney(Number(row.paid_total))}</TableCell>
-                <TableCell align="right">{formatMoney(Number(row.amount_due))}</TableCell>
-                <TableCell>{row.status}</TableCell>
-                <TableCell>
-                  <Button size="small" onClick={() => navigate(`/students/${row.student_id}`)}>
+          </TableHead>
+          <TableBody>
+            {invoices.map((invoice) => (
+              <TableRow key={invoice.id}>
+                <TableCell>{invoice.invoice_number}</TableCell>
+                <TableCell>{invoice.student_name ?? '—'}</TableCell>
+                <TableCell>{invoice.invoice_type}</TableCell>
+                <TableCell>{invoice.status}</TableCell>
+                <TableCell align="right">{formatMoney(invoice.total)}</TableCell>
+                <TableCell align="right">{formatMoney(invoice.paid_total)}</TableCell>
+                <TableCell align="right">{formatMoney(invoice.amount_due)}</TableCell>
+                <TableCell>{invoice.issue_date ? formatDate(invoice.issue_date) : '—'}</TableCell>
+                <TableCell>{invoice.due_date ? formatDate(invoice.due_date) : '—'}</TableCell>
+                <TableCell align="right">
+                  <Button size="small" variant="outlined" onClick={() => navigate(`/students/${invoice.student_id}`)}>
                     View student
                   </Button>
                 </TableCell>
               </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
-      <TablePagination
-        component="div"
-        count={total}
-        page={page}
-        onPageChange={(_, p) => setPage(p)}
-        rowsPerPage={limit}
-        onRowsPerPageChange={(e) => {
-          setLimit(Number(e.target.value))
-          setPage(0)
-        }}
-        rowsPerPageOptions={[25, 50, 100]}
-      />
-    </Box>
+            ))}
+            {loading && (
+              <TableRow>
+                <TableCell colSpan={10} align="center" className="py-8">
+                  <Spinner size="medium" />
+                </TableCell>
+              </TableRow>
+            )}
+            {!invoices.length && !loading && (
+              <TableRow>
+                <TableCell colSpan={10} align="center" className="py-8">
+                  <Typography color="secondary">No invoices found</Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+        <TablePagination
+          page={page}
+          rowsPerPage={limit}
+          count={total}
+          onPageChange={setPage}
+          onRowsPerPageChange={(newLimit) => {
+            setLimit(newLimit)
+            setPage(0)
+          }}
+        />
+      </div>
+    </div>
   )
 }

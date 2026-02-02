@@ -1,21 +1,3 @@
-import {
-  Alert,
-  Autocomplete,
-  Box,
-  Button,
-  Checkbox,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControl,
-  FormControlLabel,
-  InputLabel,
-  MenuItem,
-  Select,
-  TextField,
-  Typography,
-} from '@mui/material'
 import React, { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import axios from 'axios'
@@ -24,6 +6,21 @@ import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatMoney } from '../../utils/format'
+import {
+  Typography,
+  Alert,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Select,
+  Input,
+  Textarea,
+  Checkbox,
+  Autocomplete,
+  Spinner,
+} from '../../components/ui'
 
 interface PurposeRow {
   id: number
@@ -227,26 +224,26 @@ export const ProcurementPaymentFormPage = () => {
   }
 
   return (
-    <Box>
-      <Button onClick={() => navigate(-1)} sx={{ mb: 2 }}>
+    <div>
+      <Button onClick={() => navigate(-1)} className="mb-4">
         Back
       </Button>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+      <Typography variant="h4" className="mb-4">
         {isEdit ? 'Edit payment' : 'New payment'}
       </Typography>
 
-      {(error || createPurposeError || createPaymentError) ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {(error || createPurposeError || createPaymentError) && (
+        <Alert severity="error" className="mb-4" onClose={() => setError(null)}>
           {error || createPurposeError || createPaymentError}
         </Alert>
-      ) : null}
+      )}
 
-      <Box sx={{ display: 'grid', gap: 2, maxWidth: 600 }}>
-        <Autocomplete
+      <div className="grid gap-4 max-w-[600px]">
+        <Autocomplete<PORow>
           options={poOptions}
           getOptionLabel={(option) => `${option.po_number} - ${option.supplier_name} (${formatMoney(option.expected_total)})`}
           value={selectedPO}
-          onChange={async (_, newValue) => {
+          onChange={async (newValue) => {
             setSelectedPO(newValue)
             setPoId(newValue ? newValue.id : '')
             if (newValue) {
@@ -271,7 +268,7 @@ export const ProcurementPaymentFormPage = () => {
               setPurposeId('')
             }
           }}
-          onInputChange={(_, newInputValue) => {
+          onInputChange={(newInputValue) => {
             if (newInputValue) {
               loadPOs(newInputValue)
             } else {
@@ -280,94 +277,78 @@ export const ProcurementPaymentFormPage = () => {
             }
           }}
           loading={loadingPOs}
-          renderInput={(params) => (
-            <TextField
-              {...params}
-              label="Purchase Order (optional)"
-              placeholder="Search by PO number or supplier name"
-              InputLabelProps={{ shrink: true }}
-            />
-          )}
+          label="Purchase Order (optional)"
+          placeholder="Search by PO number or supplier name"
           isOptionEqualToValue={(option, value) => option.id === value.id}
         />
-        <FormControl required>
-          <InputLabel>Category / Purpose</InputLabel>
-          <Select
-            value={purposeId}
-            label="Category / Purpose"
-            onChange={(event) => handlePurposeSelect(event.target.value)}
-          >
-            {purposes.map((purpose) => (
-              <MenuItem key={purpose.id} value={purpose.id}>
-                {purpose.name}
-              </MenuItem>
-            ))}
-            <MenuItem value="create" sx={{ fontStyle: 'italic', color: 'primary.main' }}>
-              + Add new category
-            </MenuItem>
-          </Select>
-        </FormControl>
-        <TextField
+        <Select
+          value={purposeId === '' ? '' : String(purposeId)}
+          onChange={(event) => handlePurposeSelect(event.target.value)}
+          label="Category / Purpose"
+          required
+        >
+          <option value="">Select purpose</option>
+          {purposes.map((purpose) => (
+            <option key={purpose.id} value={purpose.id}>
+              {purpose.name}
+            </option>
+          ))}
+          <option value="create" className="italic text-primary">
+            + Add new category
+          </option>
+        </Select>
+        <Input
           label="Payee name (optional)"
           value={payeeName}
           onChange={(event) => setPayeeName(event.target.value)}
         />
-        <TextField
+        <Input
           label="Payment date"
           type="date"
           value={paymentDate}
           onChange={(event) => setPaymentDate(event.target.value)}
-          InputLabelProps={{ shrink: true }}
           required
         />
-        <TextField
+        <Input
           label="Amount"
           type="number"
           value={!amount || Number(amount) === 0 ? '' : amount}
           onChange={(event) => setAmount(event.target.value)}
           onFocus={(event) => event.currentTarget.select()}
-          onWheel={(event) => event.currentTarget.blur()}
-          inputProps={{ min: 0, step: 0.01 }}
+          onWheel={(event) => (event.currentTarget as HTMLInputElement).blur()}
+          min={0}
+          step={0.01}
           required
         />
-        <FormControl required>
-          <InputLabel>Payment method</InputLabel>
-          <Select
-            value={paymentMethod}
-            label="Payment method"
-            onChange={(event) => setPaymentMethod(event.target.value)}
-          >
-            <MenuItem value="mpesa">M-Pesa</MenuItem>
-            <MenuItem value="bank">Bank Transfer</MenuItem>
-            <MenuItem value="cash">Cash</MenuItem>
-            <MenuItem value="other">Other</MenuItem>
-          </Select>
-        </FormControl>
-        <TextField
+        <Select
+          value={paymentMethod}
+          onChange={(event) => setPaymentMethod(event.target.value)}
+          label="Payment method"
+          required
+        >
+          <option value="mpesa">M-Pesa</option>
+          <option value="bank">Bank Transfer</option>
+          <option value="cash">Cash</option>
+          <option value="other">Other</option>
+        </Select>
+        <Input
           label="Reference number"
           value={referenceNumber}
           onChange={(event) => setReferenceNumber(event.target.value)}
         />
-        <TextField
+        <Textarea
           label="Reference / proof (text, optional if file uploaded)"
           value={proofText}
           onChange={(event) => setProofText(event.target.value)}
-          multiline
-          minRows={2}
+          rows={3}
           helperText="Reference or confirmation file below is required"
         />
-        <Box>
-          <Button
-            variant="outlined"
-            component="label"
-            disabled={uploadingProof}
-            sx={{ mr: 1 }}
-          >
-            {uploadingProof ? 'Uploading…' : 'Upload confirmation (image/PDF)'}
+        <div>
+          <label className="inline-block">
             <input
               ref={proofFileInputRef}
               type="file"
-              hidden
+              className="hidden"
               accept="image/*,.pdf,application/pdf"
               onChange={async (e) => {
                 const file = e.target.files?.[0]
@@ -391,64 +372,69 @@ export const ProcurementPaymentFormPage = () => {
                 }
               }}
             />
-          </Button>
+            <Button
+              variant="outlined"
+              disabled={uploadingProof}
+              onClick={() => proofFileInputRef.current?.click()}
+            >
+              {uploadingProof ? <Spinner size="small" /> : 'Upload confirmation (image/PDF)'}
+            </Button>
+          </label>
           {proofFileName && (
-            <Typography variant="body2" color="text.secondary" component="span">
+            <Typography variant="body2" color="secondary" className="ml-2 inline-block">
               {proofFileName}
             </Typography>
           )}
-        </Box>
-        <FormControlLabel
-          control={
-            <Checkbox checked={companyPaid} onChange={(event) => setCompanyPaid(event.target.checked)} />
-          }
-          label="Company paid"
-        />
-        {!companyPaid ? (
-          <FormControl>
-            <InputLabel>Employee who paid</InputLabel>
-            <Select
-              value={employeePaidId}
-              label="Employee who paid"
-              onChange={(event) => setEmployeePaidId(Number(event.target.value))}
-            >
-              <MenuItem value="">Select employee</MenuItem>
-              {users.map((user) => (
-                <MenuItem key={user.id} value={user.id}>
-                  {user.full_name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        ) : null}
-      </Box>
+        </div>
+        <div className="flex items-center gap-2">
+          <Checkbox
+            checked={companyPaid}
+            onChange={(event) => setCompanyPaid(event.target.checked)}
+          />
+          <span className="text-sm font-medium text-slate-700">Company paid</span>
+        </div>
+        {!companyPaid && (
+          <Select
+            value={employeePaidId === '' ? '' : String(employeePaidId)}
+            onChange={(event) => setEmployeePaidId(event.target.value ? Number(event.target.value) : '')}
+            label="Employee who paid"
+          >
+            <option value="">Select employee</option>
+            {users.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.full_name}
+              </option>
+            ))}
+          </Select>
+        )}
+      </div>
 
-      <Box sx={{ display: 'flex', gap: 1, mt: 3 }}>
-        <Button onClick={() => navigate(-1)}>Cancel</Button>
-        <Button variant="contained" onClick={handleSubmit} disabled={creatingPayment || isEdit}>
-          {isEdit ? 'Save (not editable)' : 'Create payment'}
+      <div className="flex gap-2 mt-6">
+        <Button variant="outlined" onClick={() => navigate(-1)}>
+          Cancel
         </Button>
-      </Box>
+        <Button variant="contained" onClick={handleSubmit} disabled={creatingPayment || isEdit}>
+          {creatingPayment ? <Spinner size="small" /> : isEdit ? 'Save (not editable)' : 'Create payment'}
+        </Button>
+      </div>
 
       <Dialog
         open={newPurposeDialogOpen}
         onClose={() => setNewPurposeDialogOpen(false)}
-        fullWidth
         maxWidth="sm"
       >
         <DialogTitle>Create new category</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <TextField
-            label="Category name"
-            value={newPurposeName}
-            onChange={(event) => setNewPurposeName(event.target.value)}
-            fullWidth
-            required
-            autoFocus
-            placeholder="e.g., Uniforms, Stationery, Furniture"
-            InputLabelProps={{ shrink: true }}
-            helperText="Category for classifying purchases and payments"
-          />
+        <DialogContent>
+          <div className="grid gap-4 mt-2">
+            <Input
+              label="Category name"
+              value={newPurposeName}
+              onChange={(event) => setNewPurposeName(event.target.value)}
+              required
+              placeholder="e.g., Uniforms, Stationery, Furniture"
+              helperText="Category for classifying purchases and payments"
+            />
+          </div>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setNewPurposeDialogOpen(false)}>Cancel</Button>
@@ -457,10 +443,10 @@ export const ProcurementPaymentFormPage = () => {
             onClick={createNewPurpose}
             disabled={creatingPurpose || !newPurposeName.trim()}
           >
-            Create & select
+            {creatingPurpose ? <Spinner size="small" /> : 'Create & select'}
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </div>
   )
 }

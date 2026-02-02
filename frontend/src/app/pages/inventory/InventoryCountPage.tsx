@@ -1,27 +1,17 @@
-import {
-  Alert,
-  Box,
-  Button,
-  FormControl,
-  FormControlLabel,
-  InputLabel,
-  MenuItem,
-  Radio,
-  RadioGroup,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useRef, useState } from 'react'
 import axios from 'axios'
+import { Trash2 } from 'lucide-react'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Radio, RadioGroup } from '../../components/ui/Radio'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface ItemOption {
   id: number
@@ -161,90 +151,95 @@ export const InventoryCountPage = () => {
   }
 
   return (
-    <Box>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+    <div>
+      <Typography variant="h4" className="mb-4">
         Inventory count
       </Typography>
 
-      {error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {error && (
+        <Alert severity="error" className="mb-4">
           {error}
         </Alert>
-      ) : null}
-      {success ? (
-        <Alert severity="success" sx={{ mb: 2 }}>
+      )}
+      {success && (
+        <Alert severity="success" className="mb-4">
           {success}
         </Alert>
-      ) : null}
+      )}
 
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Item</TableCell>
-            <TableCell>Actual quantity</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {lines.map((line) => (
-            <TableRow key={line.id}>
-              <TableCell>
-                <FormControl size="small" sx={{ minWidth: 240 }}>
-                  <InputLabel>Item</InputLabel>
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden mb-4">
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableHeaderCell>Item</TableHeaderCell>
+              <TableHeaderCell>Actual quantity</TableHeaderCell>
+              <TableHeaderCell align="right">Actions</TableHeaderCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {lines.map((line) => (
+              <TableRow key={line.id}>
+                <TableCell>
                   <Select
                     value={line.item_id ? String(line.item_id) : ''}
-                    label="Item"
-                    onChange={(event) =>
+                    onChange={(e) =>
                       updateLine(line.id, {
-                        item_id: event.target.value ? Number(event.target.value) : null,
+                        item_id: e.target.value ? Number(e.target.value) : null,
                       })
                     }
-                    displayEmpty
+                    className="min-w-[240px]"
                   >
-                    <MenuItem value="">Select item</MenuItem>
+                    <option value="">Select item</option>
                     {(items || []).map((item) => (
-                      <MenuItem key={item.id} value={String(item.id)}>
+                      <option key={item.id} value={String(item.id)}>
                         {item.name} ({item.sku_code})
-                      </MenuItem>
+                      </option>
                     ))}
                   </Select>
-                </FormControl>
-              </TableCell>
-              <TableCell>
-                <TextField
-                  size="small"
-                  type="number"
-                  value={line.actual_quantity}
-                  onChange={(event) =>
-                    updateLine(line.id, { actual_quantity: Number(event.target.value) || 0 })
-                  }
-                />
-              </TableCell>
-              <TableCell align="right">
-                <Button size="small" onClick={() => removeLine(line.id)}>
-                  Remove
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="number"
+                    value={line.actual_quantity}
+                    onChange={(e) =>
+                      updateLine(line.id, { actual_quantity: Number(e.target.value) || 0 })
+                    }
+                    className="w-32"
+                  />
+                </TableCell>
+                <TableCell align="right">
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => removeLine(line.id)}
+                    className="min-w-0"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
 
-      <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
-        <Button onClick={() => setLines((prev) => [...prev, emptyLine()])}>Add item</Button>
-        <Button variant="contained" onClick={submitCount} disabled={loading}>
-          Apply count
+      <div className="flex gap-2 mb-6">
+        <Button variant="outlined" onClick={() => setLines((prev) => [...prev, emptyLine()])}>
+          Add item
         </Button>
-      </Box>
+        <Button variant="contained" onClick={submitCount} disabled={loading}>
+          {loading ? <Spinner size="small" /> : 'Apply count'}
+        </Button>
+      </div>
 
-      <Typography variant="h5" sx={{ fontWeight: 600, mt: 4, mb: 2 }}>
+      <Typography variant="h5" className="mt-8 mb-4">
         Bulk upload from CSV
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+      <Typography variant="body2" color="secondary" className="mb-4">
         Download current stock, edit quantities (and add rows for new items), then upload. Overwrite
         zeros all stock first; Update only changes rows that appear in the file.
       </Typography>
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', mb: 2 }}>
+      <div className="flex flex-wrap gap-4 items-center mb-4">
         <Button variant="outlined" onClick={downloadCurrentStock}>
           Download current stock
         </Button>
@@ -252,7 +247,7 @@ export const InventoryCountPage = () => {
           ref={fileInputRef}
           type="file"
           accept=".csv"
-          style={{ display: 'none' }}
+          className="hidden"
           onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
         />
         <Button
@@ -262,30 +257,27 @@ export const InventoryCountPage = () => {
         >
           {selectedFile ? selectedFile.name : 'Select CSV'}
         </Button>
-        <FormControl component="fieldset">
-          <RadioGroup
-            row
-            value={bulkMode}
-            onChange={(e) => setBulkMode(e.target.value as BulkMode)}
-          >
-            <FormControlLabel value="update" control={<Radio />} label="Update only" />
-            <FormControlLabel value="overwrite" control={<Radio />} label="Overwrite warehouse" />
+        <div className="flex gap-4">
+          <RadioGroup value={bulkMode} onChange={(value) => setBulkMode(value as BulkMode)}>
+            <Radio value="update" label="Update only" />
+            <Radio value="overwrite" label="Overwrite warehouse" />
           </RadioGroup>
-        </FormControl>
+        </div>
         <Button
           variant="contained"
           onClick={submitBulkUpload}
           disabled={bulkLoading || !selectedFile}
         >
-          {bulkLoading ? 'Uploading…' : 'Upload'}
+          {bulkLoading ? <Spinner size="small" /> : 'Upload'}
         </Button>
-      </Box>
-      {bulkResult && bulkResult.errors.length > 0 ? (
-        <Alert severity="warning" sx={{ mt: 1 }}>
-          {bulkResult.errors.length} row(s) had errors: {bulkResult.errors.slice(0, 3).map((e) => `Row ${e.row}: ${e.message}`).join('; ')}
+      </div>
+      {bulkResult && bulkResult.errors.length > 0 && (
+        <Alert severity="warning" className="mt-2">
+          {bulkResult.errors.length} row(s) had errors:{' '}
+          {bulkResult.errors.slice(0, 3).map((e) => `Row ${e.row}: ${e.message}`).join('; ')}
           {bulkResult.errors.length > 3 ? ` … and ${bulkResult.errors.length - 3} more` : ''}
         </Alert>
-      ) : null}
-    </Box>
+      )}
+    </div>
   )
 }

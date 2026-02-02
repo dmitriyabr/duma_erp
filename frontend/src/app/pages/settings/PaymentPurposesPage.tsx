@@ -1,23 +1,14 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useState } from 'react'
 import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
+import { Typography } from '../../components/ui/Typography'
+import { Chip } from '../../components/ui/Chip'
+import { Alert } from '../../components/ui/Alert'
+import { Dialog, DialogTitle, DialogContent, DialogActions } from '../../components/ui/Dialog'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface PurposeRow {
   id: number
@@ -71,83 +62,88 @@ export const PaymentPurposesPage = () => {
   }
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-        <Typography variant="h4" sx={{ fontWeight: 700 }}>
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <Typography variant="h4">
           Payment purposes
         </Typography>
         <Button variant="contained" onClick={openCreate}>
           New purpose
         </Button>
-      </Box>
+      </div>
 
-      {error || saveError || validationError ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {(error || saveError || validationError) && (
+        <Alert severity="error" className="mb-4">
           {error || saveError || validationError}
         </Alert>
-      ) : null}
+      )}
 
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Name</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {(rows || []).map((row) => (
-            <TableRow key={row.id}>
-              <TableCell>{row.name}</TableCell>
-              <TableCell>
-                <Chip
-                  size="small"
-                  label={row.is_active ? 'Active' : 'Inactive'}
-                  color={row.is_active ? 'success' : 'default'}
-                />
-              </TableCell>
-              <TableCell align="right">
-                <Button size="small" onClick={() => openEdit(row)}>
-                  Edit
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-          {loading ? (
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <Table>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={3} align="center">
-                Loading…
-              </TableCell>
+              <TableHeaderCell>Name</TableHeaderCell>
+              <TableHeaderCell>Status</TableHeaderCell>
+              <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
-          ) : null}
-          {!(rows || []).length && !loading ? (
-            <TableRow>
-              <TableCell colSpan={3} align="center">
-                No payment purposes found
-              </TableCell>
-            </TableRow>
-          ) : null}
-        </TableBody>
-      </Table>
+          </TableHead>
+          <TableBody>
+            {(rows || []).map((row) => (
+              <TableRow key={row.id}>
+                <TableCell>{row.name}</TableCell>
+                <TableCell>
+                  <Chip
+                    size="small"
+                    label={row.is_active ? 'Active' : 'Inactive'}
+                    color={row.is_active ? 'success' : 'default'}
+                  />
+                </TableCell>
+                <TableCell align="right">
+                  <Button size="small" variant="outlined" onClick={() => openEdit(row)}>
+                    Edit
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+            {loading && (
+              <TableRow>
+                <TableCell colSpan={3} align="center" className="py-8">
+                  <Spinner size="medium" />
+                </TableCell>
+              </TableRow>
+            )}
+            {!rows?.length && !loading && (
+              <TableRow>
+                <TableCell colSpan={3} align="center" className="py-8">
+                  <Typography color="secondary">No purposes found</Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)}>
         <DialogTitle>{editingPurpose ? 'Edit purpose' : 'Create purpose'}</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <TextField
-            label="Name"
-            value={form.name}
-            onChange={(event) => setForm({ name: event.target.value })}
-            fullWidth
-            required
-          />
+        <DialogContent>
+          <div className="mt-2">
+            <Input
+              label="Name"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              required
+            />
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => setDialogOpen(false)}>
+            Cancel
+          </Button>
           <Button variant="contained" onClick={submitForm} disabled={saving}>
-            Save
+            {saving ? 'Saving...' : 'Save'}
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </div>
   )
 }

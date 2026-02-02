@@ -1,20 +1,14 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  Typography,
-} from '@mui/material'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { useApi } from '../../hooks/useApi'
 import { isAccountant } from '../../utils/permissions'
 import { formatDate } from '../../utils/format'
+import { Button } from '../../components/ui/Button'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
+import { Typography } from '../../components/ui/Typography'
+import { Chip } from '../../components/ui/Chip'
+import { Alert } from '../../components/ui/Alert'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface TermRow {
   id: number
@@ -39,9 +33,9 @@ export const TermsListPage = () => {
   const { data: terms, loading, error } = useApi<TermRow[]>('/terms')
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
-        <Typography variant="h4" sx={{ fontWeight: 700 }}>
+    <div>
+      <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
+        <Typography variant="h4">
           Terms
         </Typography>
         {!readOnly && (
@@ -49,61 +43,65 @@ export const TermsListPage = () => {
             New term
           </Button>
         )}
-      </Box>
+      </div>
 
-      {error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {error && (
+        <Alert severity="error" className="mb-4">
           {error}
         </Alert>
-      ) : null}
+      )}
 
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Name</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell>Dates</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {(terms || []).map((term) => (
-            <TableRow key={term.id}>
-              <TableCell>{term.display_name}</TableCell>
-              <TableCell>
-                <Chip size="small" label={term.status} color={statusColor(term.status)} />
-              </TableCell>
-              <TableCell>
-                {formatDate(term.start_date)} → {formatDate(term.end_date)}
-              </TableCell>
-              <TableCell align="right">
-                <Button size="small" onClick={() => navigate(`/billing/terms/${term.id}`)}>
-                  View
-                </Button>
-                {!readOnly && (
-                  <Button size="small" onClick={() => navigate(`/billing/terms/${term.id}/edit`)}>
-                    Edit
-                  </Button>
-                )}
-              </TableCell>
-            </TableRow>
-          ))}
-          {loading ? (
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <Table>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={4} align="center">
-                Loading…
-              </TableCell>
+              <TableHeaderCell>Name</TableHeaderCell>
+              <TableHeaderCell>Status</TableHeaderCell>
+              <TableHeaderCell>Dates</TableHeaderCell>
+              <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
-          ) : null}
-          {!(terms || []).length && !loading ? (
-            <TableRow>
-              <TableCell colSpan={4} align="center">
-                No terms found
-              </TableCell>
-            </TableRow>
-          ) : null}
-        </TableBody>
-      </Table>
-    </Box>
+          </TableHead>
+          <TableBody>
+            {(terms || []).map((term) => (
+              <TableRow key={term.id}>
+                <TableCell>{term.display_name}</TableCell>
+                <TableCell>
+                  <Chip size="small" label={term.status} color={statusColor(term.status)} />
+                </TableCell>
+                <TableCell>
+                  {formatDate(term.start_date)} → {formatDate(term.end_date)}
+                </TableCell>
+                <TableCell align="right">
+                  <div className="flex gap-2 justify-end">
+                    <Button size="small" variant="outlined" onClick={() => navigate(`/billing/terms/${term.id}`)}>
+                      View
+                    </Button>
+                    {!readOnly && (
+                      <Button size="small" variant="outlined" onClick={() => navigate(`/billing/terms/${term.id}/edit`)}>
+                        Edit
+                      </Button>
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+            {loading && (
+              <TableRow>
+                <TableCell colSpan={4} align="center" className="py-8">
+                  <Spinner size="medium" />
+                </TableCell>
+              </TableRow>
+            )}
+            {!(terms || []).length && !loading && (
+              <TableRow>
+                <TableCell colSpan={4} align="center" className="py-8">
+                  <Typography color="secondary">No terms found</Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
   )
 }

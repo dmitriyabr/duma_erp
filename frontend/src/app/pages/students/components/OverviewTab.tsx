@@ -1,23 +1,3 @@
-import {
-  Box,
-  Button,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useMemo, useState } from 'react'
 import { useAuth } from '../../../auth/AuthContext'
 import { api } from '../../../services/api'
@@ -32,6 +12,14 @@ import type {
   StudentResponse,
 } from '../types'
 import { parseNumber } from '../types'
+import { Typography } from '../../../components/ui/Typography'
+import { Button } from '../../../components/ui/Button'
+import { Chip } from '../../../components/ui/Chip'
+import { Input } from '../../../components/ui/Input'
+import { Select } from '../../../components/ui/Select'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../../components/ui/Table'
+import { Dialog, DialogTitle, DialogContent, DialogActions, DialogCloseButton } from '../../../components/ui/Dialog'
+import { Spinner } from '../../../components/ui/Spinner'
 
 interface OverviewTabProps {
   student: StudentResponse
@@ -111,151 +99,144 @@ export const OverviewTab = ({ student, studentId, onError }: OverviewTabProps) =
   }
 
   return (
-    <Box sx={{ display: 'grid', gap: 2 }}>
-      <Box
-        sx={{ display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
-      >
-        <Box>
-          <Typography variant="subtitle2" color="text.secondary">
+    <div className="grid gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
             Personal
           </Typography>
           <Typography>{student.full_name}</Typography>
-          <Typography variant="body2">Gender: {student.gender}</Typography>
+          <Typography variant="body2" className="mt-1">Gender: {student.gender}</Typography>
           <Typography variant="body2">
             Date of birth: {student.date_of_birth ? formatDate(student.date_of_birth) : '—'}
           </Typography>
           <Typography variant="body2">
             Enrollment date: {student.enrollment_date ? formatDate(student.enrollment_date) : '—'}
           </Typography>
-        </Box>
-        <Box>
-          <Typography variant="subtitle2" color="text.secondary">
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
             Guardian
           </Typography>
           <Typography>{student.guardian_name}</Typography>
-          <Typography variant="body2">{student.guardian_phone}</Typography>
+          <Typography variant="body2" className="mt-1">{student.guardian_phone}</Typography>
           <Typography variant="body2">{student.guardian_email ?? '—'}</Typography>
-        </Box>
-        <Box>
-          <Typography variant="subtitle2" color="text.secondary">
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
             Notes
           </Typography>
           <Typography variant="body2">{student.notes ?? '—'}</Typography>
-        </Box>
-      </Box>
-      <Box
-        sx={{
-          border: '1px solid',
-          borderColor: 'divider',
-          borderRadius: 2,
-          p: 2,
-          maxWidth: 520,
-        }}
-      >
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        </div>
+      </div>
+      <div className="border border-slate-200 rounded-lg p-4 max-w-[520px]">
+        <div className="flex justify-between items-center mb-2">
           <Typography variant="subtitle1">School Fees Discount</Typography>
           {!readOnly && (
             <Button size="small" onClick={() => openStudentDiscountDialog()}>
               {studentDiscounts.some((discount) => discount.is_active) ? 'Add another' : 'Set discount'}
             </Button>
           )}
-        </Box>
+        </div>
         {studentDiscounts.length ? (
-          <Table size="small" sx={{ mt: 1 }}>
-            <TableHead>
-              <TableRow>
-                <TableCell>Value</TableCell>
-                <TableCell>Reason</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell align="right">Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {studentDiscounts.map((discount) => (
-                <TableRow key={discount.id}>
-                  <TableCell>
-                    {discount.value_type === 'percentage'
-                      ? `${discount.value}%`
-                      : formatMoney(parseNumber(discount.value))}
-                  </TableCell>
-                  <TableCell>{discount.reason_name ?? discount.reason_text ?? '—'}</TableCell>
-                  <TableCell>
-                    <Chip
-                      size="small"
-                      label={discount.is_active ? 'Active' : 'Inactive'}
-                      color={discount.is_active ? 'success' : 'default'}
-                    />
-                  </TableCell>
-                  <TableCell align="right">
-                    {!readOnly && (
-                      <>
-                        <Button size="small" onClick={() => openStudentDiscountDialog(discount)}>
-                          Edit
-                        </Button>
-                        <Button size="small" onClick={() => toggleStudentDiscountStatus(discount)}>
-                          {discount.is_active ? 'Deactivate' : 'Activate'}
-                        </Button>
-                      </>
-                    )}
-                  </TableCell>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden mt-2">
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Value</TableHeaderCell>
+                  <TableHeaderCell>Reason</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
+                  <TableHeaderCell align="right">Actions</TableHeaderCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHead>
+              <TableBody>
+                {studentDiscounts.map((discount) => (
+                  <TableRow key={discount.id}>
+                    <TableCell>
+                      {discount.value_type === 'percentage'
+                        ? `${discount.value}%`
+                        : formatMoney(parseNumber(discount.value))}
+                    </TableCell>
+                    <TableCell>{discount.reason_name ?? discount.reason_text ?? '—'}</TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        label={discount.is_active ? 'Active' : 'Inactive'}
+                        color={discount.is_active ? 'success' : 'default'}
+                      />
+                    </TableCell>
+                    <TableCell align="right">
+                      {!readOnly && (
+                        <div className="flex gap-2 justify-end">
+                          <Button size="small" onClick={() => openStudentDiscountDialog(discount)}>
+                            Edit
+                          </Button>
+                          <Button size="small" variant="outlined" onClick={() => toggleStudentDiscountStatus(discount)}>
+                            {discount.is_active ? 'Deactivate' : 'Activate'}
+                          </Button>
+                        </div>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         ) : (
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          <Typography variant="body2" color="secondary" className="mt-2">
             No discount set
           </Typography>
         )}
-      </Box>
+      </div>
 
       <Dialog
         open={studentDiscountDialogOpen}
         onClose={() => setStudentDiscountDialogOpen(false)}
-        fullWidth
         maxWidth="sm"
       >
+        <DialogCloseButton onClose={() => setStudentDiscountDialogOpen(false)} />
         <DialogTitle>{editingStudentDiscount ? 'Edit discount' : 'New discount'}</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <FormControl>
-            <InputLabel>Value type</InputLabel>
+        <DialogContent>
+          <div className="space-y-4 mt-4">
             <Select
               value={studentDiscountForm.value_type}
-              label="Value type"
-              onChange={(event) =>
+              onChange={(e) =>
                 setStudentDiscountForm({
                   ...studentDiscountForm,
-                  value_type: event.target.value as DiscountValueType,
+                  value_type: e.target.value as DiscountValueType,
                 })
               }
+              label="Value type"
             >
-              <MenuItem value="percentage">Percentage</MenuItem>
-              <MenuItem value="fixed">Fixed</MenuItem>
+              <option value="percentage">Percentage</option>
+              <option value="fixed">Fixed</option>
             </Select>
-          </FormControl>
-          <TextField
-            label="Value"
-            type="number"
-            value={studentDiscountForm.value}
-            onChange={(event) =>
-              setStudentDiscountForm({ ...studentDiscountForm, value: event.target.value })
-            }
-          />
-          <TextField
-            label="Reason"
-            value={studentDiscountForm.reason_text}
-            onChange={(event) =>
-              setStudentDiscountForm({ ...studentDiscountForm, reason_text: event.target.value })
-            }
-          />
+            <Input
+              label="Value"
+              type="number"
+              value={studentDiscountForm.value}
+              onChange={(e) =>
+                setStudentDiscountForm({ ...studentDiscountForm, value: e.target.value })
+              }
+            />
+            <Input
+              label="Reason"
+              value={studentDiscountForm.reason_text}
+              onChange={(e) =>
+                setStudentDiscountForm({ ...studentDiscountForm, reason_text: e.target.value })
+              }
+            />
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setStudentDiscountDialogOpen(false)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => setStudentDiscountDialogOpen(false)}>
+            Cancel
+          </Button>
           <Button variant="contained" onClick={submitStudentDiscount} disabled={busy}>
-            Save
+            {busy ? <Spinner size="small" /> : 'Save'}
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </div>
   )
 }

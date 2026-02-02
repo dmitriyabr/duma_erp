@@ -1,27 +1,3 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControl,
-  FormControlLabel,
-  InputLabel,
-  MenuItem,
-  Select,
-  Switch,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TablePagination,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
@@ -32,6 +8,17 @@ import { useApi, useApiMutation } from '../../hooks/useApi'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { formatMoney } from '../../utils/format'
 import { canCreateItem, canManageStock } from '../../utils/permissions'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Button } from '../../components/ui/Button'
+import { Chip } from '../../components/ui/Chip'
+import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
+import { Switch } from '../../components/ui/Switch'
+import { Textarea } from '../../components/ui/Textarea'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell, TablePagination } from '../../components/ui/Table'
+import { Dialog, DialogTitle, DialogContent, DialogActions, DialogCloseButton } from '../../components/ui/Dialog'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface StockRow {
   id: number
@@ -285,18 +272,18 @@ export const StockPage = () => {
   }
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
-        <Typography variant="h4" sx={{ fontWeight: 700 }}>
+    <div>
+      <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
+        <Typography variant="h4">
           Stock
         </Typography>
-        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          {canManage ? (
+        <div className="flex gap-2 flex-wrap">
+          {canManage && (
             <Button variant="contained" onClick={() => navigate('/inventory/issue')}>
               Issue
             </Button>
-          ) : null}
-          {allowCreateItem ? (
+          )}
+          {allowCreateItem && (
             <Button
               variant="contained"
               onClick={() => {
@@ -306,128 +293,116 @@ export const StockPage = () => {
             >
               New item
             </Button>
-          ) : null}
-        </Box>
-      </Box>
+          )}
+        </div>
+      </div>
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-        <TextField
+      <div className="flex gap-4 mb-4 flex-wrap items-center">
+        <Input
           label="Search"
           value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          size="small"
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-48"
         />
-        <FormControl size="small" sx={{ minWidth: 180 }}>
-          <InputLabel>Category</InputLabel>
-          <Select
-            value={categoryFilter}
-            label="Category"
-            onChange={(event) => setCategoryFilter(event.target.value as number | 'all')}
-          >
-            <MenuItem value="all">All</MenuItem>
-            {productCategories.map((category) => (
-              <MenuItem key={category.id} value={category.id}>
-                {category.name}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        <FormControlLabel
-          control={
-            <Switch
-              size="small"
-              checked={includeZero}
-              onChange={(event) => setIncludeZero(event.target.checked)}
-            />
-          }
+        <Select
+          value={categoryFilter === 'all' ? '' : String(categoryFilter)}
+          onChange={(e) => setCategoryFilter(e.target.value === '' ? 'all' : Number(e.target.value))}
+          className="min-w-[180px]"
+        >
+          <option value="">All</option>
+          {productCategories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </Select>
+        <Switch
+          checked={includeZero}
+          onChange={(e) => setIncludeZero(e.target.checked)}
           label="Include zero"
         />
-        <FormControlLabel
-          control={
-            <Switch
-              size="small"
-              checked={lowStockOnly}
-              onChange={(event) => setLowStockOnly(event.target.checked)}
-            />
-          }
+        <Switch
+          checked={lowStockOnly}
+          onChange={(e) => setLowStockOnly(e.target.checked)}
           label={`Low stock (<= ${lowStockThreshold})`}
         />
-      </Box>
+      </div>
 
-      {(error || stockError || receiveError || writeoffError || createError) ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {(error || stockError || receiveError || writeoffError || createError) && (
+        <Alert severity="error" className="mb-4">
           {error || stockError || receiveError || writeoffError || createError}
         </Alert>
-      ) : null}
+      )}
 
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Item</TableCell>
-            <TableCell>On hand</TableCell>
-            <TableCell>Reserved</TableCell>
-            <TableCell>Available</TableCell>
-            <TableCell>Avg cost</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {filteredRows.map((row) => (
-            <TableRow key={row.id}>
-              <TableCell>{row.item_name ?? '—'}</TableCell>
-              <TableCell>{row.quantity_on_hand}</TableCell>
-              <TableCell>{row.quantity_reserved}</TableCell>
-              <TableCell>{row.quantity_available}</TableCell>
-              <TableCell>{formatMoney(Number(row.average_cost))}</TableCell>
-              <TableCell>
-                {row.quantity_available <= lowStockThreshold ? (
-                  <Chip size="small" color="warning" label="Low stock" />
-                ) : (
-                  <Chip size="small" color="success" label="OK" />
-                )}
-              </TableCell>
-              <TableCell align="right">
-                {canManage ? (
-                  <>
-                    <Button
-                      size="small"
-                      onClick={() => {
-                        setReceiveDialog(row)
-                        setReceiveOpen(true)
-                      }}
-                    >
-                      Receive
-                    </Button>
-                    <Button size="small" onClick={() => setWriteoffDialog(row)}>
-                      Write-off
-                    </Button>
-                  </>
-                ) : (
-                  '—'
-                )}
-              </TableCell>
-            </TableRow>
-          ))}
-          {loading ? (
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden mb-4">
+        <Table>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={7} align="center">
-                Loading…
-              </TableCell>
+              <TableHeaderCell>Item</TableHeaderCell>
+              <TableHeaderCell>On hand</TableHeaderCell>
+              <TableHeaderCell>Reserved</TableHeaderCell>
+              <TableHeaderCell>Available</TableHeaderCell>
+              <TableHeaderCell>Avg cost</TableHeaderCell>
+              <TableHeaderCell>Status</TableHeaderCell>
+              <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
-          ) : null}
-          {!filteredRows.length && !loading ? (
-            <TableRow>
-              <TableCell colSpan={7} align="center">
-                No stock found
-              </TableCell>
-            </TableRow>
-          ) : null}
-        </TableBody>
-      </Table>
+          </TableHead>
+          <TableBody>
+            {filteredRows.map((row) => (
+              <TableRow key={row.id}>
+                <TableCell>{row.item_name ?? '—'}</TableCell>
+                <TableCell>{row.quantity_on_hand}</TableCell>
+                <TableCell>{row.quantity_reserved}</TableCell>
+                <TableCell>{row.quantity_available}</TableCell>
+                <TableCell>{formatMoney(Number(row.average_cost))}</TableCell>
+                <TableCell>
+                  {row.quantity_available <= lowStockThreshold ? (
+                    <Chip size="small" color="warning" label="Low stock" />
+                  ) : (
+                    <Chip size="small" color="success" label="OK" />
+                  )}
+                </TableCell>
+                <TableCell align="right">
+                  {canManage ? (
+                    <div className="flex gap-2 justify-end">
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          setReceiveDialog(row)
+                          setReceiveOpen(true)
+                        }}
+                      >
+                        Receive
+                      </Button>
+                      <Button size="small" variant="outlined" onClick={() => setWriteoffDialog(row)}>
+                        Write-off
+                      </Button>
+                    </div>
+                  ) : (
+                    '—'
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+            {loading && (
+              <TableRow>
+                <TableCell colSpan={7} align="center" className="py-8">
+                  <Spinner size="small" />
+                </TableCell>
+              </TableRow>
+            )}
+            {!filteredRows.length && !loading && (
+              <TableRow>
+                <TableCell colSpan={7} align="center" className="py-8">
+                  <Typography color="secondary">No stock found</Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
       <TablePagination
-        component="div"
         count={total}
         page={page}
         onPageChange={(_, nextPage) => setPage(nextPage)}
@@ -444,147 +419,154 @@ export const StockPage = () => {
           setReceiveOpen(false)
           setReceiveDialog(null)
         }}
-        fullWidth
         maxWidth="sm"
       >
+        <DialogCloseButton onClose={() => {
+          setReceiveOpen(false)
+          setReceiveDialog(null)
+        }} />
         <DialogTitle>Receive stock</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          {receiveDialog?.item_id ? (
-            <TextField label="Item" value={receiveDialog?.item_name ?? ''} disabled />
-          ) : (
-            <FormControl>
-              <InputLabel>Item</InputLabel>
+        <DialogContent>
+          <div className="space-y-4 mt-4">
+            {receiveDialog?.item_id ? (
+              <Input label="Item" value={receiveDialog?.item_name ?? ''} disabled />
+            ) : (
               <Select
-                value={receiveItemId}
+                value={receiveItemId ? String(receiveItemId) : ''}
+                onChange={(e) => setReceiveItemId(e.target.value ? Number(e.target.value) : '')}
                 label="Item"
-                onChange={(event) => setReceiveItemId(Number(event.target.value))}
-                displayEmpty
               >
-                <MenuItem value="">Select item</MenuItem>
+                <option value="">Select item</option>
                 {(items || []).map((item) => (
-                  <MenuItem key={item.id} value={item.id}>
+                  <option key={item.id} value={item.id}>
                     {item.name} ({item.sku_code})
-                  </MenuItem>
+                  </option>
                 ))}
               </Select>
-            </FormControl>
-          )}
-          <TextField
-            label="Quantity"
-            type="number"
-            value={quantity}
-            onChange={(event) => setQuantity(event.target.value)}
-          />
-          <TextField
-            label="Unit cost"
-            type="number"
-            value={unitCost}
-            onChange={(event) => setUnitCost(event.target.value)}
-          />
-          <TextField
-            label="Notes"
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            multiline
-            minRows={2}
-          />
+            )}
+            <Input
+              label="Quantity"
+              type="number"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+            />
+            <Input
+              label="Unit cost"
+              type="number"
+              value={unitCost}
+              onChange={(e) => setUnitCost(e.target.value)}
+            />
+            <Textarea
+              label="Notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+            />
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setReceiveDialog(null)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => {
+            setReceiveOpen(false)
+            setReceiveDialog(null)
+          }}>
+            Cancel
+          </Button>
           <Button variant="contained" onClick={handleReceive} disabled={receivingStock}>
-            Receive
+            {receivingStock ? <Spinner size="small" /> : 'Receive'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={createItemOpen} onClose={() => setCreateItemOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={createItemOpen} onClose={() => setCreateItemOpen(false)} maxWidth="sm">
+        <DialogCloseButton onClose={() => setCreateItemOpen(false)} />
         <DialogTitle>New product item</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <FormControl>
-            <InputLabel>Category</InputLabel>
+        <DialogContent>
+          <div className="space-y-4 mt-4">
             <Select
-              value={newItemCategoryId}
+              value={newItemCategoryId ? String(newItemCategoryId) : ''}
+              onChange={(e) => setNewItemCategoryId(e.target.value ? Number(e.target.value) : '')}
               label="Category"
-              onChange={(event) => setNewItemCategoryId(Number(event.target.value))}
-              displayEmpty
             >
-              <MenuItem value="">Select category</MenuItem>
+              <option value="">Select category</option>
               {(categories || []).map((category) => (
-                <MenuItem key={category.id} value={category.id}>
+                <option key={category.id} value={category.id}>
                   {category.name}
-                </MenuItem>
+                </option>
               ))}
             </Select>
-          </FormControl>
-          <TextField
-            label="Name"
-            value={newItemName}
-            onChange={(event) => setNewItemName(event.target.value)}
-          />
-          <TextField
-            label="Note"
-            value="Selling price is set in Catalog"
-            disabled
-          />
-          <TextField
-            label="Opening quantity"
-            type="number"
-            value={newItemQuantity}
-            onChange={(event) => setNewItemQuantity(event.target.value)}
-          />
-          <TextField
-            label="Unit cost"
-            type="number"
-            value={newItemUnitCost}
-            onChange={(event) => setNewItemUnitCost(event.target.value)}
-          />
+            <Input
+              label="Name"
+              value={newItemName}
+              onChange={(e) => setNewItemName(e.target.value)}
+            />
+            <Input
+              label="Note"
+              value="Selling price is set in Catalog"
+              disabled
+            />
+            <Input
+              label="Opening quantity"
+              type="number"
+              value={newItemQuantity}
+              onChange={(e) => setNewItemQuantity(e.target.value)}
+            />
+            <Input
+              label="Unit cost"
+              type="number"
+              value={newItemUnitCost}
+              onChange={(e) => setNewItemUnitCost(e.target.value)}
+            />
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCreateItemOpen(false)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => setCreateItemOpen(false)}>
+            Cancel
+          </Button>
           <Button variant="contained" onClick={handleCreateItem} disabled={creatingItem}>
-            Create item
+            {creatingItem ? <Spinner size="small" /> : 'Create item'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={Boolean(writeoffDialog)} onClose={() => setWriteoffDialog(null)} fullWidth maxWidth="sm">
+      <Dialog open={Boolean(writeoffDialog)} onClose={() => setWriteoffDialog(null)} maxWidth="sm">
+        <DialogCloseButton onClose={() => setWriteoffDialog(null)} />
         <DialogTitle>Write-off</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <TextField label="Item" value={writeoffDialog?.item_name ?? ''} disabled />
-          <TextField
-            label="Quantity"
-            type="number"
-            value={quantity}
-            onChange={(event) => setQuantity(event.target.value)}
-          />
-          <FormControl>
-            <InputLabel>Reason</InputLabel>
+        <DialogContent>
+          <div className="space-y-4 mt-4">
+            <Input label="Item" value={writeoffDialog?.item_name ?? ''} disabled />
+            <Input
+              label="Quantity"
+              type="number"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+            />
             <Select
               value={reasonCategory}
+              onChange={(e) => setReasonCategory(e.target.value as WriteOffReason)}
               label="Reason"
-              onChange={(event) => setReasonCategory(event.target.value as WriteOffReason)}
             >
-              <MenuItem value="damage">Damage</MenuItem>
-              <MenuItem value="expired">Expired</MenuItem>
-              <MenuItem value="lost">Lost</MenuItem>
-              <MenuItem value="other">Other</MenuItem>
+              <option value="damage">Damage</option>
+              <option value="expired">Expired</option>
+              <option value="lost">Lost</option>
+              <option value="other">Other</option>
             </Select>
-          </FormControl>
-          <TextField
-            label="Details"
-            value={reasonDetail}
-            onChange={(event) => setReasonDetail(event.target.value)}
-            multiline
-            minRows={2}
-          />
+            <Textarea
+              label="Details"
+              value={reasonDetail}
+              onChange={(e) => setReasonDetail(e.target.value)}
+              rows={3}
+            />
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setWriteoffDialog(null)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => setWriteoffDialog(null)}>
+            Cancel
+          </Button>
           <Button variant="contained" onClick={handleWriteOff} disabled={writingOff}>
-            Write-off
+            {writingOff ? <Spinner size="small" /> : 'Write-off'}
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </div>
   )
 }

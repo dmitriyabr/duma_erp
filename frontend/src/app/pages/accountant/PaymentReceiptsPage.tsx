@@ -1,24 +1,4 @@
-import {
-  Alert,
-  Box,
-  Button,
-  FormControl,
-  IconButton,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TablePagination,
-  TableRow,
-  TextField,
-  Tooltip,
-  Typography,
-} from '@mui/material'
-import DownloadIcon from '@mui/icons-material/Download'
-import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf'
+import { Download, FileText } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { PaginatedResponse } from '../../types/api'
@@ -26,6 +6,14 @@ import { useApi } from '../../hooks/useApi'
 import { api } from '../../services/api'
 import { formatDate, formatMoney } from '../../utils/format'
 import { useAuth } from '../../auth/AuthContext'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell, TablePagination } from '../../components/ui/Table'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Tooltip } from '../../components/ui/Tooltip'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface PaymentRow {
   id: number
@@ -92,9 +80,9 @@ export const PaymentReceiptsPage = () => {
   }
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
-        <Typography variant="h4" sx={{ fontWeight: 700 }}>
+    <div>
+      <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
+        <Typography variant="h4">
           Incoming Payments
         </Typography>
         {!isAccountant && (
@@ -102,68 +90,61 @@ export const PaymentReceiptsPage = () => {
             New payment (via student)
           </Button>
         )}
-      </Box>
+      </div>
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-        <FormControl size="small" sx={{ minWidth: 140 }}>
-          <InputLabel>Status</InputLabel>
+      <div className="flex gap-4 mb-4 flex-wrap items-center">
+        <div className="min-w-[140px]">
           <Select
-            value={statusFilter}
             label="Status"
+            value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
-            <MenuItem value="all">All</MenuItem>
-            <MenuItem value="completed">Completed</MenuItem>
-            <MenuItem value="pending">Pending</MenuItem>
-            <MenuItem value="cancelled">Cancelled</MenuItem>
+            <option value="all">All</option>
+            <option value="completed">Completed</option>
+            <option value="pending">Pending</option>
+            <option value="cancelled">Cancelled</option>
           </Select>
-        </FormControl>
-        <TextField
-          label="Date from"
-          type="date"
-          value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
-          size="small"
-          InputLabelProps={{ shrink: true }}
-          sx={{ width: 160 }}
-        />
-        <TextField
-          label="Date to"
-          type="date"
-          value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
-          size="small"
-          InputLabelProps={{ shrink: true }}
-          sx={{ width: 160 }}
-        />
-      </Box>
+        </div>
+        <div className="min-w-[160px]">
+          <Input
+            label="Date from"
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+          />
+        </div>
+        <div className="min-w-[160px]">
+          <Input
+            label="Date to"
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+          />
+        </div>
+      </div>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Alert severity="error" className="mb-4">
           {error}
         </Alert>
       )}
 
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>Date</TableCell>
-            <TableCell>Receipt #</TableCell>
-            <TableCell>Student ID</TableCell>
-            <TableCell>Method</TableCell>
-            <TableCell align="right">Amount</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell align="center">File</TableCell>
-            <TableCell></TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {loading ? (
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <Table>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={8}>Loading…</TableCell>
+              <TableHeaderCell>Date</TableHeaderCell>
+              <TableHeaderCell>Receipt #</TableHeaderCell>
+              <TableHeaderCell>Student ID</TableHeaderCell>
+              <TableHeaderCell>Method</TableHeaderCell>
+              <TableHeaderCell align="right">Amount</TableHeaderCell>
+              <TableHeaderCell>Status</TableHeaderCell>
+              <TableHeaderCell align="center">File</TableHeaderCell>
+              <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
-          ) : (
-            payments.map((row) => (
+          </TableHead>
+          <TableBody>
+            {payments.map((row) => (
               <TableRow key={row.id}>
                 <TableCell>{formatDate(row.payment_date)}</TableCell>
                 <TableCell>{row.receipt_number || row.payment_number}</TableCell>
@@ -172,54 +153,68 @@ export const PaymentReceiptsPage = () => {
                 <TableCell align="right">{formatMoney(Number(row.amount))}</TableCell>
                 <TableCell>{row.status}</TableCell>
                 <TableCell align="center">
-                  {row.status === 'completed' && (
-                    <Tooltip title="Receipt PDF">
-                      <IconButton
-                        size="small"
-                        onClick={() =>
-                          downloadReceiptPdf(row.id, row.receipt_number || row.payment_number)
-                        }
-                      >
-                        <PictureAsPdfIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  )}
-                  {row.confirmation_attachment_id != null && (
-                    <Tooltip title="Download attachment">
-                      <IconButton
-                        size="small"
-                        onClick={() => downloadAttachment(row.confirmation_attachment_id!)}
-                      >
-                        <DownloadIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  )}
+                  <div className="flex gap-2 justify-center">
+                    {row.status === 'completed' && (
+                      <Tooltip title="Receipt PDF">
+                        <button
+                          className="p-1 rounded-lg hover:bg-slate-100 transition-colors"
+                          onClick={() => downloadReceiptPdf(row.id, row.receipt_number || row.payment_number)}
+                        >
+                          <FileText className="w-4 h-4 text-slate-600" />
+                        </button>
+                      </Tooltip>
+                    )}
+                    {row.confirmation_attachment_id != null && (
+                      <Tooltip title="Download attachment">
+                        <button
+                          className="p-1 rounded-lg hover:bg-slate-100 transition-colors"
+                          onClick={() => downloadAttachment(row.confirmation_attachment_id!)}
+                        >
+                          <Download className="w-4 h-4 text-slate-600" />
+                        </button>
+                      </Tooltip>
+                    )}
+                  </div>
                 </TableCell>
-                <TableCell>
+                <TableCell align="right">
                   <Button
                     size="small"
+                    variant="outlined"
                     onClick={() => navigate(`/students/${row.student_id}`)}
                   >
                     View student
                   </Button>
                 </TableCell>
               </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
-      <TablePagination
-        component="div"
-        count={total}
-        page={page}
-        onPageChange={(_, p) => setPage(p)}
-        rowsPerPage={limit}
-        onRowsPerPageChange={(e) => {
-          setLimit(Number(e.target.value))
-          setPage(0)
-        }}
-        rowsPerPageOptions={[25, 50, 100]}
-      />
-    </Box>
+            ))}
+            {loading && (
+              <TableRow>
+                <TableCell colSpan={8} align="center" className="py-8">
+                  <Spinner size="medium" />
+                </TableCell>
+              </TableRow>
+            )}
+            {!payments.length && !loading && (
+              <TableRow>
+                <TableCell colSpan={8} align="center" className="py-8">
+                  <Typography color="secondary">No payments found</Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+        <TablePagination
+          page={page}
+          rowsPerPage={limit}
+          count={total}
+          onPageChange={setPage}
+          onRowsPerPageChange={(newLimit) => {
+            setLimit(newLimit)
+            setPage(0)
+          }}
+          rowsPerPageOptions={[25, 50, 100]}
+        />
+      </div>
+    </div>
   )
 }

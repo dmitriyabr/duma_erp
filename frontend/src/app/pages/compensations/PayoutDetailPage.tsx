@@ -1,14 +1,3 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  Typography,
-} from '@mui/material'
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../../services/api'
@@ -16,6 +5,11 @@ import { useApi } from '../../hooks/useApi'
 import { openAttachmentInNewTab } from '../../utils/attachments'
 import type { ApiResponse } from '../../types/api'
 import { formatDate, formatMoney } from '../../utils/format'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Button } from '../../components/ui/Button'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface PayoutAllocation {
   id: number
@@ -44,7 +38,7 @@ interface ClaimRow {
 export const PayoutDetailPage = () => {
   const { payoutId } = useParams()
   const resolvedId = payoutId ? Number(payoutId) : null
-  const { data: payout, error } = useApi<PayoutResponse>(
+  const { data: payout, loading, error } = useApi<PayoutResponse>(
     resolvedId ? `/compensations/payouts/${resolvedId}` : null
   )
   const [claims, setClaims] = useState<Map<number, ClaimRow>>(new Map())
@@ -73,83 +67,88 @@ export const PayoutDetailPage = () => {
     loadClaims()
   }, [payout])
 
+  if (loading) {
+    return (
+      <div className="flex justify-center py-8">
+        <Spinner size="large" />
+      </div>
+    )
+  }
+
   if (!payout) {
     return (
-      <Box>
-        {error ? <Alert severity="error">{error}</Alert> : null}
-      </Box>
+      <div>
+        {error && <Alert severity="error">{error}</Alert>}
+      </div>
     )
   }
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
-        <Box>
-          <Typography variant="h4" sx={{ fontWeight: 700 }}>
+    <div>
+      <div className="flex justify-between items-start mb-4 flex-wrap gap-4">
+        <div>
+          <Typography variant="h4">
             {payout.payout_number}
           </Typography>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" color="secondary" className="mt-1">
             {formatDate(payout.payout_date)} · {formatMoney(payout.amount)}
           </Typography>
-        </Box>
-      </Box>
+        </div>
+      </div>
 
-      {error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {error && (
+        <Alert severity="error" className="mb-4">
           {error}
         </Alert>
-      ) : null}
+      )}
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 3 }}>
-        <Box>
-          <Typography variant="subtitle2" color="text.secondary">
-            Amount
-          </Typography>
-          <Typography variant="h6">{formatMoney(payout.amount)}</Typography>
-        </Box>
-        <Box>
-          <Typography variant="subtitle2" color="text.secondary">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
             Payment method
           </Typography>
           <Typography>{payout.payment_method}</Typography>
-        </Box>
-        <Box>
-          <Typography variant="subtitle2" color="text.secondary">
-            Reference number
-          </Typography>
-          <Typography>{payout.reference_number ?? '—'}</Typography>
-        </Box>
-      </Box>
+        </div>
+        {payout.reference_number && (
+          <div>
+            <Typography variant="subtitle2" color="secondary" className="mb-1">
+              Reference number
+            </Typography>
+            <Typography>{payout.reference_number}</Typography>
+          </div>
+        )}
+      </div>
 
-      {payout.proof_text ? (
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-            Proof
+      {payout.proof_text && (
+        <div className="mb-6">
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Proof / Reference
           </Typography>
-          <Typography sx={{ whiteSpace: 'pre-wrap' }}>{payout.proof_text}</Typography>
-        </Box>
-      ) : null}
-      {payout.proof_attachment_id ? (
-        <Box sx={{ mb: 3 }}>
+          <Typography className="whitespace-pre-wrap">{payout.proof_text}</Typography>
+        </div>
+      )}
+
+      {payout.proof_attachment_id && (
+        <div className="mb-6">
           <Button
             variant="outlined"
-            size="small"
             onClick={() => openAttachmentInNewTab(payout.proof_attachment_id!)}
           >
             View confirmation file
           </Button>
-        </Box>
-      ) : null}
+        </div>
+      )}
 
-      <Box>
-        <Typography variant="h6" sx={{ mb: 2 }}>
-          Allocations
-        </Typography>
+      <Typography variant="h6" className="mb-4">
+        Allocations
+      </Typography>
+
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Claim Number</TableCell>
-              <TableCell align="right">Allocated Amount</TableCell>
+              <TableHeaderCell>Claim Number</TableHeaderCell>
+              <TableHeaderCell align="right">Allocated Amount</TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -162,16 +161,16 @@ export const PayoutDetailPage = () => {
                 </TableRow>
               )
             })}
-            {!payout.allocations.length ? (
+            {!payout.allocations.length && (
               <TableRow>
-                <TableCell colSpan={2} align="center">
-                  No allocations
+                <TableCell colSpan={2} align="center" className="py-8">
+                  <Typography color="secondary">No allocations</Typography>
                 </TableCell>
               </TableRow>
-            ) : null}
+            )}
           </TableBody>
         </Table>
-      </Box>
-    </Box>
+      </div>
+    </div>
   )
 }

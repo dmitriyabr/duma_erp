@@ -1,23 +1,3 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TablePagination,
-  TableRow,
-  Typography,
-} from '@mui/material'
 import { useMemo, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
@@ -25,6 +5,13 @@ import type { PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDateTime } from '../../utils/format'
 import { canCancelIssuance } from '../../utils/permissions'
+import { Button } from '../../components/ui/Button'
+import { Select } from '../../components/ui/Select'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell, TablePagination } from '../../components/ui/Table'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Dialog, DialogTitle, DialogContent, DialogActions } from '../../components/ui/Dialog'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface IssuanceItem {
   id: number
@@ -44,7 +31,6 @@ interface IssuanceRow {
   notes?: string | null
   items: IssuanceItem[]
 }
-
 
 export const IssuancesPage = () => {
   const { user } = useAuth()
@@ -89,134 +75,140 @@ export const IssuancesPage = () => {
   }
 
   return (
-    <Box>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+    <div>
+      <Typography variant="h4" className="mb-4">
         Issuances
       </Typography>
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-        <FormControl size="small" sx={{ minWidth: 160 }}>
-          <InputLabel>Type</InputLabel>
+      <div className="flex gap-4 mb-4 flex-wrap">
+        <div className="min-w-[160px]">
           <Select
-            value={typeFilter}
             label="Type"
-            onChange={(event) => setTypeFilter(event.target.value as string | 'all')}
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
           >
-            <MenuItem value="all">All</MenuItem>
-            <MenuItem value="internal">Internal</MenuItem>
-            <MenuItem value="reservation">Reservation</MenuItem>
+            <option value="all">All</option>
+            <option value="internal">Internal</option>
+            <option value="reservation">Reservation</option>
           </Select>
-        </FormControl>
-        <FormControl size="small" sx={{ minWidth: 180 }}>
-          <InputLabel>Recipient</InputLabel>
+        </div>
+        <div className="min-w-[180px]">
           <Select
-            value={recipientFilter}
             label="Recipient"
-            onChange={(event) => setRecipientFilter(event.target.value as string | 'all')}
+            value={recipientFilter}
+            onChange={(e) => setRecipientFilter(e.target.value)}
           >
-            <MenuItem value="all">All</MenuItem>
-            <MenuItem value="employee">Employee</MenuItem>
-            <MenuItem value="department">Department</MenuItem>
-            <MenuItem value="student">Student</MenuItem>
+            <option value="all">All</option>
+            <option value="employee">Employee</option>
+            <option value="department">Department</option>
+            <option value="student">Student</option>
           </Select>
-        </FormControl>
-      </Box>
+        </div>
+      </div>
 
-      {error || cancelError ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {(error || cancelError) && (
+        <Alert severity="error" className="mb-4">
           {error || cancelError}
         </Alert>
-      ) : null}
+      )}
 
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Issuance #</TableCell>
-            <TableCell>Type</TableCell>
-            <TableCell>Recipient</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell>Issued at</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.id}>
-              <TableCell>{row.issuance_number}</TableCell>
-              <TableCell>{row.issuance_type}</TableCell>
-              <TableCell>{row.recipient_name}</TableCell>
-              <TableCell>{row.status}</TableCell>
-              <TableCell>{formatDateTime(row.issued_at)}</TableCell>
-              <TableCell align="right">
-                <Button size="small" onClick={() => setSelected(row)}>
-                  View
-                </Button>
-                {canCancel ? (
-                  <Button size="small" onClick={() => cancelIssuance(row.id)}>
-                    Cancel
-                  </Button>
-                ) : null}
-              </TableCell>
-            </TableRow>
-          ))}
-          {loading ? (
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <Table>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={6} align="center">
-                Loading…
-              </TableCell>
+              <TableHeaderCell>Issuance #</TableHeaderCell>
+              <TableHeaderCell>Type</TableHeaderCell>
+              <TableHeaderCell>Recipient</TableHeaderCell>
+              <TableHeaderCell>Status</TableHeaderCell>
+              <TableHeaderCell>Issued at</TableHeaderCell>
+              <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
-          ) : null}
-          {!rows.length && !loading ? (
-            <TableRow>
-              <TableCell colSpan={6} align="center">
-                No issuances found
-              </TableCell>
-            </TableRow>
-          ) : null}
-        </TableBody>
-      </Table>
-
-      <TablePagination
-        component="div"
-        count={total}
-        page={page}
-        onPageChange={(_, nextPage) => setPage(nextPage)}
-        rowsPerPage={limit}
-        onRowsPerPageChange={(event) => {
-          setLimit(Number(event.target.value))
-          setPage(0)
-        }}
-      />
-
-      <Dialog open={Boolean(selected)} onClose={() => setSelected(null)} fullWidth maxWidth="md">
-        <DialogTitle>Issuance details</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2 }}>
-          <Typography variant="body2">Issuance #: {selected?.issuance_number}</Typography>
-          <Typography variant="body2">Recipient: {selected?.recipient_name}</Typography>
-          <Typography variant="body2">Status: {selected?.status}</Typography>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Item</TableCell>
-                <TableCell>SKU</TableCell>
-                <TableCell>Qty</TableCell>
+          </TableHead>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow key={row.id}>
+                <TableCell>{row.issuance_number}</TableCell>
+                <TableCell>{row.issuance_type}</TableCell>
+                <TableCell>{row.recipient_name}</TableCell>
+                <TableCell>{row.status}</TableCell>
+                <TableCell>{formatDateTime(row.issued_at)}</TableCell>
+                <TableCell align="right">
+                  <div className="flex gap-2 justify-end">
+                    <Button size="small" variant="outlined" onClick={() => setSelected(row)}>
+                      View
+                    </Button>
+                    {canCancel && (
+                      <Button size="small" variant="outlined" color="error" onClick={() => cancelIssuance(row.id)}>
+                        Cancel
+                      </Button>
+                    )}
+                  </div>
+                </TableCell>
               </TableRow>
-            </TableHead>
-            <TableBody>
-              {selected?.items.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell>{item.item_name ?? '—'}</TableCell>
-                  <TableCell>{item.item_sku ?? '—'}</TableCell>
-                  <TableCell>{item.quantity}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+            ))}
+            {loading && (
+              <TableRow>
+                <TableCell colSpan={6} align="center" className="py-8">
+                  <Spinner size="medium" />
+                </TableCell>
+              </TableRow>
+            )}
+            {!rows.length && !loading && (
+              <TableRow>
+                <TableCell colSpan={6} align="center" className="py-8">
+                  <Typography color="secondary">No issuances found</Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+        <TablePagination
+          page={page}
+          rowsPerPage={limit}
+          count={total}
+          onPageChange={setPage}
+          onRowsPerPageChange={(newLimit) => {
+            setLimit(newLimit)
+            setPage(0)
+          }}
+        />
+      </div>
+
+      <Dialog open={Boolean(selected)} onClose={() => setSelected(null)} maxWidth="md" fullWidth>
+        <DialogTitle>Issuance details</DialogTitle>
+        <DialogContent>
+          <div className="grid gap-4 mt-2">
+            <Typography variant="body2">Issuance #: {selected?.issuance_number}</Typography>
+            <Typography variant="body2">Recipient: {selected?.recipient_name}</Typography>
+            <Typography variant="body2">Status: {selected?.status}</Typography>
+            <div className="mt-2">
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableHeaderCell>Item</TableHeaderCell>
+                    <TableHeaderCell>SKU</TableHeaderCell>
+                    <TableHeaderCell>Qty</TableHeaderCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {selected?.items.map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell>{item.item_name ?? '—'}</TableCell>
+                      <TableCell>{item.item_sku ?? '—'}</TableCell>
+                      <TableCell>{item.quantity}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setSelected(null)}>Close</Button>
+          <Button variant="outlined" onClick={() => setSelected(null)}>
+            Close
+          </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </div>
   )
 }

@@ -61,3 +61,22 @@ export type { TabsProps, TabsListProps, TabProps, TabPanelProps } from './Tabs'
 export { Spinner } from './Spinner'
 export type { SpinnerProps } from './Spinner'
 
+export { Tooltip } from './Tooltip'
+export type { TooltipProps } from './Tooltip'
+
+export { TableSortLabel } from './TableSortLabel'
+export type { TableSortLabelProps } from './TableSortLabel'
+
+export { Textarea } from './Textarea'
+export type { TextareaProps } from './Textarea'
+export { Radio, RadioGroup } from './Radio'
+export type { RadioProps, RadioGroupProps } from './Radio'
+export { ToggleButton, ToggleButtonGroup } from './ToggleButton'
+export type { ToggleButtonProps, ToggleButtonGroupProps } from './ToggleButton'
+export { Menu, MenuItem } from './Menu'
+export type { MenuProps, MenuItemProps } from './Menu'
+export { Switch } from './Switch'
+export type { SwitchProps } from './Switch'
+export { Autocomplete } from './Autocomplete'
+export type { AutocompleteProps } from './Autocomplete'
+

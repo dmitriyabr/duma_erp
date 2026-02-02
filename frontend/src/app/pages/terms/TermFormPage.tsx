@@ -1,21 +1,15 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api } from '../../services/api'
 import { formatMoney } from '../../utils/format'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface PriceSettingRow {
   grade: string
@@ -221,147 +215,153 @@ export const TermFormPage = () => {
   }, [year, termNumber])
 
   return (
-    <Box>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+    <div>
+      <Typography variant="h4" className="mb-4">
         {isEdit ? 'Edit term' : 'New term'}
       </Typography>
 
-      {displayError ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {displayError && (
+        <Alert severity="error" className="mb-4">
           {displayError}
         </Alert>
-      ) : null}
+      )}
 
-      <Box sx={{ display: 'grid', gap: 2, maxWidth: 520 }}>
-        <TextField
+      <div className="grid gap-4 max-w-[520px] mb-6">
+        <Input
           label="Year"
           type="number"
           value={year}
-          onChange={(event) =>
-            setYear(event.target.value === '' ? '' : Number(event.target.value))
+          onChange={(e) =>
+            setYear(e.target.value === '' ? '' : Number(e.target.value))
           }
           disabled={isEdit}
         />
-        <TextField
+        <Input
           label="Term number"
           type="number"
           value={termNumber}
-          onChange={(event) =>
-            setTermNumber(event.target.value === '' ? '' : Number(event.target.value))
+          onChange={(e) =>
+            setTermNumber(e.target.value === '' ? '' : Number(e.target.value))
           }
           disabled={isEdit}
         />
-        <TextField label="Display name" value={displayName} disabled />
-        <TextField
+        <Input label="Display name" value={displayName} disabled />
+        <Input
           label="Start date"
           type="date"
           value={startDate}
-          onChange={(event) => setStartDate(event.target.value)}
-          InputLabelProps={{ shrink: true }}
+          onChange={(e) => setStartDate(e.target.value)}
         />
-        <TextField
+        <Input
           label="End date"
           type="date"
           value={endDate}
-          onChange={(event) => setEndDate(event.target.value)}
-          InputLabelProps={{ shrink: true }}
+          onChange={(e) => setEndDate(e.target.value)}
         />
-      </Box>
+      </div>
 
-      <Box sx={{ mt: 4 }}>
-        <Typography variant="h6" sx={{ mb: 2 }}>
+      <div className="mt-6">
+        <Typography variant="h6" className="mb-4">
           School fees by grade
         </Typography>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Grade</TableCell>
-              <TableCell>Amount (KES)</TableCell>
-              <TableCell align="right">Preview</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {priceSettings.map((entry) => (
-              <TableRow key={entry.grade}>
-                <TableCell>{gradeNameMap.get(entry.grade) ?? entry.grade}</TableCell>
-                <TableCell>
-                  <TextField
-                    size="small"
-                    type="number"
-                    value={entry.school_fee_amount === 0 ? '' : entry.school_fee_amount}
-                    onChange={(event) => updatePriceSetting(entry.grade, event.target.value)}
-                    onFocus={(event) => event.currentTarget.select()}
-                    onWheel={(event) => event.currentTarget.blur()}
-                    inputProps={{ min: 0, step: 0.01 }}
-                  />
-                </TableCell>
-                <TableCell align="right">
-                  {formatMoney(entry.school_fee_amount || 0)}
-                </TableCell>
-              </TableRow>
-            ))}
-            {!priceSettings.length ? (
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          <Table>
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={3} align="center">
-                  No grades found
-                </TableCell>
+                <TableHeaderCell>Grade</TableHeaderCell>
+                <TableHeaderCell>Amount (KES)</TableHeaderCell>
+                <TableHeaderCell align="right">Preview</TableHeaderCell>
               </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
-      </Box>
+            </TableHead>
+            <TableBody>
+              {priceSettings.map((entry) => (
+                <TableRow key={entry.grade}>
+                  <TableCell>{gradeNameMap.get(entry.grade) ?? entry.grade}</TableCell>
+                  <TableCell>
+                    <Input
+                      type="number"
+                      value={entry.school_fee_amount === 0 ? '' : entry.school_fee_amount}
+                      onChange={(e) => updatePriceSetting(entry.grade, e.target.value)}
+                      onFocus={(e) => e.currentTarget.select()}
+                      onWheel={(e) => e.currentTarget.blur()}
+                      min={0}
+                      step={0.01}
+                      className="w-32"
+                    />
+                  </TableCell>
+                  <TableCell align="right">
+                    {formatMoney(entry.school_fee_amount || 0)}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!priceSettings.length && (
+                <TableRow>
+                  <TableCell colSpan={3} align="center" className="py-8">
+                    <Typography color="secondary">No grades found</Typography>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
 
-      <Box sx={{ mt: 4 }}>
-        <Typography variant="h6" sx={{ mb: 2 }}>
+      <div className="mt-6">
+        <Typography variant="h6" className="mb-4">
           Transport fees by zone
         </Typography>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Zone</TableCell>
-              <TableCell>Code</TableCell>
-              <TableCell>Amount (KES)</TableCell>
-              <TableCell align="right">Preview</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {transportPricing.map((entry) => (
-              <TableRow key={entry.zone_id}>
-                <TableCell>{entry.zone_name}</TableCell>
-                <TableCell>{entry.zone_code}</TableCell>
-                <TableCell>
-                  <TextField
-                    size="small"
-                    type="number"
-                    value={entry.transport_fee_amount === 0 ? '' : entry.transport_fee_amount}
-                    onChange={(event) => updateTransportPricing(entry.zone_id, event.target.value)}
-                    onFocus={(event) => event.currentTarget.select()}
-                    onWheel={(event) => event.currentTarget.blur()}
-                    inputProps={{ min: 0, step: 0.01 }}
-                  />
-                </TableCell>
-                <TableCell align="right">
-                  {formatMoney(entry.transport_fee_amount || 0)}
-                </TableCell>
-              </TableRow>
-            ))}
-            {!transportPricing.length ? (
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          <Table>
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={4} align="center">
-                  No transport zones found
-                </TableCell>
+                <TableHeaderCell>Zone</TableHeaderCell>
+                <TableHeaderCell>Code</TableHeaderCell>
+                <TableHeaderCell>Amount (KES)</TableHeaderCell>
+                <TableHeaderCell align="right">Preview</TableHeaderCell>
               </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
-      </Box>
+            </TableHead>
+            <TableBody>
+              {transportPricing.map((entry) => (
+                <TableRow key={entry.zone_id}>
+                  <TableCell>{entry.zone_name}</TableCell>
+                  <TableCell>{entry.zone_code}</TableCell>
+                  <TableCell>
+                    <Input
+                      type="number"
+                      value={entry.transport_fee_amount === 0 ? '' : entry.transport_fee_amount}
+                      onChange={(e) => updateTransportPricing(entry.zone_id, e.target.value)}
+                      onFocus={(e) => e.currentTarget.select()}
+                      onWheel={(e) => e.currentTarget.blur()}
+                      min={0}
+                      step={0.01}
+                      className="w-32"
+                    />
+                  </TableCell>
+                  <TableCell align="right">
+                    {formatMoney(entry.transport_fee_amount || 0)}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!transportPricing.length && (
+                <TableRow>
+                  <TableCell colSpan={4} align="center" className="py-8">
+                    <Typography color="secondary">No transport zones found</Typography>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
 
-      <Box sx={{ display: 'flex', gap: 1, mt: 3 }}>
-        <Button onClick={() => navigate(-1)}>Cancel</Button>
-        <Button variant="contained" onClick={handleSubmit} disabled={loading}>
-          Save term
+      <div className="flex gap-2 mt-6">
+        <Button variant="outlined" onClick={() => navigate(-1)}>
+          Cancel
         </Button>
-      </Box>
-    </Box>
+        <Button variant="contained" onClick={handleSubmit} disabled={loading}>
+          {loading ? <Spinner size="small" /> : 'Save term'}
+        </Button>
+      </div>
+    </div>
   )
 }

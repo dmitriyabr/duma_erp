@@ -5,7 +5,7 @@ import { accountantNavItems, navItems } from '../navigation/navItems'
 import { useAuth } from '../auth/AuthContext'
 import { cn } from '../utils/cn'
 
-const drawerWidth = 280
+export const drawerWidth = 280
 
 export const SidebarNav = () => {
   const { user } = useAuth()
@@ -29,7 +29,7 @@ export const SidebarNav = () => {
 
   return (
     <aside
-      className="fixed left-0 top-0 h-full flex-shrink-0"
+      className="fixed left-0 top-0 h-full flex-shrink-0 z-50"
       style={{ width: drawerWidth }}
     >
       <div

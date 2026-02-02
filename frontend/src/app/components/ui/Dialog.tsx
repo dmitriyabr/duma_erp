@@ -8,9 +8,18 @@ export interface DialogProps {
   open: boolean
   onClose: () => void
   children: ReactNode
+  maxWidth?: 'sm' | 'md' | 'lg' | 'xl'
+  fullWidth?: boolean
 }
 
-export const Dialog = ({ open, onClose, children }: DialogProps) => {
+const maxWidthStyles = {
+  sm: 'max-w-sm',
+  md: 'max-w-md',
+  lg: 'max-w-lg',
+  xl: 'max-w-xl',
+}
+
+export const Dialog = ({ open, onClose, children, maxWidth = 'lg', fullWidth = false }: DialogProps) => {
   useEffect(() => {
     if (open) {
       document.body.style.overflow = 'hidden'
@@ -34,7 +43,10 @@ export const Dialog = ({ open, onClose, children }: DialogProps) => {
       }}
     >
       <div className="fixed inset-0 bg-black/50" />
-      <div className="relative z-10 bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+      <div className={cn(
+        'relative z-10 bg-white rounded-2xl shadow-2xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col',
+        !fullWidth && maxWidthStyles[maxWidth]
+      )}>
         {children}
       </div>
     </div>,

@@ -52,10 +52,11 @@ export const TabsList = ({ className, children, ...props }: TabsListProps) => {
 
 export interface TabProps extends HTMLAttributes<HTMLButtonElement> {
   value: string
-  label: string
+  label?: string
+  children?: ReactNode
 }
 
-export const Tab = ({ value, label, className, ...props }: TabProps) => {
+export const Tab = ({ value, label, children, className, ...props }: TabProps) => {
   const { value: selectedValue, onChange } = useTabsContext()
   const isSelected = selectedValue === value
 
@@ -72,7 +73,7 @@ export const Tab = ({ value, label, className, ...props }: TabProps) => {
       )}
       {...props}
     >
-      {label}
+      {label || children}
       {isSelected && (
         <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t" />
       )}

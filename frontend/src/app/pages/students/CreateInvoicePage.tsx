@@ -1,24 +1,18 @@
-import {
-  Alert,
-  Box,
-  Button,
-  FormControl,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { DEFAULT_PAGE_SIZE } from '../../constants/pagination'
 import { api, unwrapResponse } from '../../services/api'
 import { formatMoney } from '../../utils/format'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
+import { Textarea } from '../../components/ui/Textarea'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
+import { Spinner } from '../../components/ui/Spinner'
+import { Trash2 } from 'lucide-react'
 
 interface KitOption {
   id: number
@@ -191,87 +185,80 @@ export const CreateInvoicePage = () => {
 
   if (isStandalone && !resolvedId) {
     return (
-      <Box>
-        <Button onClick={() => navigate(-1)} sx={{ mb: 2 }}>
+      <div>
+        <Button onClick={() => navigate(-1)} className="mb-4">
           Back
         </Button>
-        <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+        <Typography variant="h4" className="mb-4">
           Sell items to student
         </Typography>
-        {studentsListApi.error ? (
-          <Alert severity="error" sx={{ mb: 2 }}>
+        {studentsListApi.error && (
+          <Alert severity="error" className="mb-4" onClose={() => {}}>
             {studentsListApi.error}
           </Alert>
-        ) : null}
-        <FormControl size="small" sx={{ minWidth: 280, display: 'block', mb: 2 }}>
-          <Select
-            value={selectedStudentId === '' ? '' : String(selectedStudentId)}
-            onChange={(e) => setSelectedStudentId(e.target.value ? Number(e.target.value) : '')}
-            displayEmpty
-            renderValue={(v) => {
-              if (!v) return 'Select student'
-              const s = students.find((x) => String(x.id) === v)
-              return s ? `${s.full_name} (#${s.student_number})` : 'Select student'
-            }}
-          >
-            <MenuItem value="">Select student</MenuItem>
-            {students.map((s) => (
-              <MenuItem key={s.id} value={String(s.id)}>
-                {s.full_name} · #{s.student_number}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      </Box>
+        )}
+        <Select
+          value={selectedStudentId === '' ? '' : String(selectedStudentId)}
+          onChange={(e) => setSelectedStudentId(e.target.value ? Number(e.target.value) : '')}
+          className="min-w-[280px] mb-4"
+        >
+          <option value="">Select student</option>
+          {students.map((s) => (
+            <option key={s.id} value={String(s.id)}>
+              {s.full_name} · #{s.student_number}
+            </option>
+          ))}
+        </Select>
+      </div>
     )
   }
 
   return (
-    <Box>
-      <Button onClick={() => navigate(-1)} sx={{ mb: 2 }}>
+    <div>
+      <Button onClick={() => navigate(-1)} className="mb-4">
         Back
       </Button>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
+      <Typography variant="h4" className="mb-2">
         Sell item
       </Typography>
-      {student ? (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+      {student && (
+        <Typography variant="body2" color="secondary" className="mb-6">
           {student.full_name} · Student #{student.student_number}
-          {studentIdLocked ? null : (
-            <Button size="small" sx={{ ml: 1 }} onClick={() => setSelectedStudentId('')}>
+          {!studentIdLocked && (
+            <Button size="small" variant="text" className="ml-2" onClick={() => setSelectedStudentId('')}>
               Change student
             </Button>
           )}
         </Typography>
-      ) : null}
+      )}
 
-      {error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {error && (
+        <Alert severity="error" className="mb-4" onClose={() => {}}>
           {error}
         </Alert>
-      ) : null}
+      )}
 
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+      <div className="flex justify-between items-center mb-2">
         <Typography variant="subtitle1">Invoice lines</Typography>
         <Button size="small" onClick={() => setLines((prev) => [...prev, emptyLine()])}>
           Add line
         </Button>
-      </Box>
-      {!kits.length ? (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          No sellable items available. Term invoices should be issued via the “Invoice term” button.
+      </div>
+      {!kits.length && (
+        <Alert severity="warning" className="mb-4" onClose={() => {}}>
+          No sellable items available. Term invoices should be issued via the "Invoice term" button.
         </Alert>
-      ) : null}
-      <Table>
+      )}
+      <Table className="mb-4">
         <TableHead>
           <TableRow>
-            <TableCell>Catalog item</TableCell>
-            <TableCell>Qty</TableCell>
-            <TableCell>Unit price</TableCell>
-            <TableCell>Discount type</TableCell>
-            <TableCell>Discount value</TableCell>
-            <TableCell>Total</TableCell>
-            <TableCell align="right">Actions</TableCell>
+            <TableHeaderCell>Catalog item</TableHeaderCell>
+            <TableHeaderCell>Qty</TableHeaderCell>
+            <TableHeaderCell>Unit price</TableHeaderCell>
+            <TableHeaderCell>Discount type</TableHeaderCell>
+            <TableHeaderCell>Discount value</TableHeaderCell>
+            <TableHeaderCell>Total</TableHeaderCell>
+            <TableHeaderCell align="right">Actions</TableHeaderCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -280,57 +267,52 @@ export const CreateInvoicePage = () => {
             return (
               <TableRow key={line.id}>
                 <TableCell>
-                  <FormControl size="small" sx={{ minWidth: 240 }}>
-                    <Select
-                      value={line.kit_id ? String(line.kit_id) : ''}
-                      onChange={(event) =>
-                        updateLine(line.id, {
-                          kit_id: event.target.value ? Number(event.target.value) : null,
-                        })
-                      }
-                      displayEmpty
-                    >
-                      <MenuItem value="">Select item</MenuItem>
-                      {kits.map((kit) => (
-                        <MenuItem key={kit.id} value={String(kit.id)}>
-                          {kit.name}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+                  <Select
+                    value={line.kit_id ? String(line.kit_id) : ''}
+                    onChange={(event) =>
+                      updateLine(line.id, {
+                        kit_id: event.target.value ? Number(event.target.value) : null,
+                      })
+                    }
+                    className="min-w-[240px]"
+                  >
+                    <option value="">Select item</option>
+                    {kits.map((kit) => (
+                      <option key={kit.id} value={String(kit.id)}>
+                        {kit.name}
+                      </option>
+                    ))}
+                  </Select>
                 </TableCell>
                 <TableCell>
-                  <TextField
-                    size="small"
+                  <Input
                     type="number"
                     value={line.quantity}
                     onChange={(event) =>
                       updateLine(line.id, { quantity: Number(event.target.value) || 0 })
                     }
-                    inputProps={{ min: 1 }}
-                    sx={{ width: 90 }}
+                    min={1}
+                    className="w-[90px]"
                   />
                 </TableCell>
                 <TableCell>{formatMoney(unitPrice)}</TableCell>
                 <TableCell>
-                  <FormControl size="small" sx={{ minWidth: 140 }}>
-                    <Select
-                      value={line.discount_type}
-                      onChange={(event) =>
-                        updateLine(line.id, {
-                          discount_type: event.target.value as DiscountType,
-                          discount_value: '',
-                        })
-                      }
-                    >
-                      <MenuItem value="percentage">Percent</MenuItem>
-                      <MenuItem value="fixed">Amount</MenuItem>
-                    </Select>
-                  </FormControl>
+                  <Select
+                    value={line.discount_type}
+                    onChange={(event) =>
+                      updateLine(line.id, {
+                        discount_type: event.target.value as DiscountType,
+                        discount_value: '',
+                      })
+                    }
+                    className="min-w-[140px]"
+                  >
+                    <option value="percentage">Percent</option>
+                    <option value="fixed">Amount</option>
+                  </Select>
                 </TableCell>
                 <TableCell>
-                  <TextField
-                    size="small"
+                  <Input
                     type="number"
                     value={line.discount_value}
                     placeholder="0"
@@ -342,56 +324,56 @@ export const CreateInvoicePage = () => {
                     onBlur={() =>
                       updateLine(line.id, { discount_value: normalizeDiscountValue(line) })
                     }
-                    inputProps={{ min: 0 }}
-                    sx={{ width: 110 }}
+                    min={0}
+                    className="w-[110px]"
                   />
                 </TableCell>
                 <TableCell>{formatMoney(lineTotalForLine(line))}</TableCell>
                 <TableCell align="right">
-                  <Button size="small" onClick={() => removeLine(line.id)}>
-                    Remove
+                  <Button size="small" variant="text" onClick={() => removeLine(line.id)}>
+                    <Trash2 className="w-4 h-4" />
                   </Button>
                 </TableCell>
               </TableRow>
             )
           })}
-          {!lines.length ? (
+          {!lines.length && (
             <TableRow>
               <TableCell colSpan={7} align="center">
                 Add at least one line
               </TableCell>
             </TableRow>
-          ) : null}
+          )}
         </TableBody>
       </Table>
 
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+      <div className="flex justify-end mb-4">
         <Typography variant="subtitle1">Total: {formatMoney(invoiceTotal)}</Typography>
-      </Box>
+      </div>
 
-      <Box sx={{ display: 'grid', gap: 2, mt: 3, maxWidth: 420 }}>
-        <TextField
+      <div className="grid gap-4 mt-6 max-w-[420px]">
+        <Input
           label="Due date"
           type="date"
           value={dueDate}
           onChange={(event) => setDueDate(event.target.value)}
-          InputLabelProps={{ shrink: true }}
         />
-        <TextField
+        <Textarea
           label="Notes"
           value={notes}
           onChange={(event) => setNotes(event.target.value)}
-          multiline
-          minRows={2}
+          rows={3}
         />
-      </Box>
+      </div>
 
-      <Box sx={{ display: 'flex', gap: 1, mt: 3 }}>
-        <Button onClick={() => navigate(-1)}>Cancel</Button>
-        <Button variant="contained" onClick={submitInvoice} disabled={loading}>
-          Create invoice
+      <div className="flex gap-2 mt-6">
+        <Button variant="outlined" onClick={() => navigate(-1)}>
+          Cancel
         </Button>
-      </Box>
-    </Box>
+        <Button variant="contained" onClick={submitInvoice} disabled={loading}>
+          {loading ? <Spinner size="small" /> : 'Create invoice'}
+        </Button>
+      </div>
+    </div>
   )
 }

@@ -1,25 +1,16 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CircularProgress,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Card, CardContent } from '../../components/ui/Card'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface DiscountRow {
   reason_id: number | null
@@ -86,94 +77,94 @@ export const DiscountAnalysisPage = () => {
 
   if (forbidden) {
     return (
-      <Box>
-        <Typography variant="h5" sx={{ mb: 2 }}>Discount Analysis</Typography>
+      <div>
+        <Typography variant="h5" className="mb-4">Discount Analysis</Typography>
         <Alert severity="warning">
           You do not have access to reports. This section is available to Admin and SuperAdmin.
         </Alert>
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>Discount Analysis</Typography>
+    <div>
+      <Typography variant="h5" className="mb-4">Discount Analysis</Typography>
 
-      <Card sx={{ mb: 2 }}>
+      <Card className="mb-4">
         <CardContent>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
-            <TextField
-              label="From"
-              type="date"
-              size="small"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 160 }}
-            />
-            <TextField
-              label="To"
-              type="date"
-              size="small"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 160 }}
-            />
+          <div className="flex flex-wrap gap-4 items-center">
+            <div className="min-w-[160px]">
+              <Input
+                label="From"
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
+            </div>
+            <div className="min-w-[160px]">
+              <Input
+                label="To"
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
+            </div>
             <Button variant="contained" onClick={runReport}>Run report</Button>
-          </Box>
+          </div>
         </CardContent>
       </Card>
 
       {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress />
-        </Box>
+        <div className="flex justify-center py-8">
+          <Spinner size="large" />
+        </div>
       )}
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" className="mb-4">{error}</Alert>}
 
       {!loading && data && (
         <>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          <Typography variant="body2" color="secondary" className="mb-4">
             Period: {data.date_from} — {data.date_to}
           </Typography>
 
-          <TableContainer component={Card} sx={{ mb: 2 }}>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell><strong>Discount Type</strong></TableCell>
-                  <TableCell align="right"><strong>Students</strong></TableCell>
-                  <TableCell align="right"><strong>Total Amount</strong></TableCell>
-                  <TableCell align="right"><strong>Avg/Student</strong></TableCell>
-                  <TableCell align="right"><strong>% of Revenue</strong></TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {data.rows.map((row, idx) => (
-                  <TableRow key={row.reason_id ?? idx}>
-                    <TableCell>{row.reason_name}</TableCell>
-                    <TableCell align="right">{row.students_count}</TableCell>
-                    <TableCell align="right">{formatMoney(row.total_amount)}</TableCell>
-                    <TableCell align="right">
-                      {row.avg_per_student != null ? formatMoney(row.avg_per_student) : '—'}
-                    </TableCell>
-                    <TableCell align="right">
-                      {row.percent_of_revenue != null ? `${row.percent_of_revenue}%` : '—'}
-                    </TableCell>
+          <Card className="mb-4">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableHeaderCell><strong>Discount Type</strong></TableHeaderCell>
+                    <TableHeaderCell align="right"><strong>Students</strong></TableHeaderCell>
+                    <TableHeaderCell align="right"><strong>Total Amount</strong></TableHeaderCell>
+                    <TableHeaderCell align="right"><strong>Avg/Student</strong></TableHeaderCell>
+                    <TableHeaderCell align="right"><strong>% of Revenue</strong></TableHeaderCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                </TableHead>
+                <TableBody>
+                  {data.rows.map((row, idx) => (
+                    <TableRow key={row.reason_id ?? idx}>
+                      <TableCell>{row.reason_name}</TableCell>
+                      <TableCell align="right">{row.students_count}</TableCell>
+                      <TableCell align="right">{formatMoney(row.total_amount)}</TableCell>
+                      <TableCell align="right">
+                        {row.avg_per_student != null ? formatMoney(row.avg_per_student) : '—'}
+                      </TableCell>
+                      <TableCell align="right">
+                        {row.percent_of_revenue != null ? `${row.percent_of_revenue}%` : '—'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </Card>
 
           <Card>
             <CardContent>
-              <Typography variant="subtitle2" gutterBottom>
+              <Typography variant="subtitle2" className="mb-2">
                 Total: {data.summary.students_count} students, {formatMoney(data.summary.total_discount_amount)} discounts
               </Typography>
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" color="secondary">
                 Revenue in period: {formatMoney(data.summary.total_revenue)} · Discounts: {data.summary.percent_of_revenue != null ? `${data.summary.percent_of_revenue}%` : '—'} of revenue
               </Typography>
             </CardContent>
@@ -182,8 +173,8 @@ export const DiscountAnalysisPage = () => {
       )}
 
       {!loading && !data && !error && canSeeReports(user) && (
-        <Typography color="text.secondary">Select period and run report.</Typography>
+        <Typography color="secondary">Select period and run report.</Typography>
       )}
-    </Box>
+    </div>
   )
 }

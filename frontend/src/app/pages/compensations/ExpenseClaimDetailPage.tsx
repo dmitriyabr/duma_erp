@@ -1,15 +1,3 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
@@ -17,6 +5,13 @@ import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
 import { isSuperAdmin } from '../../utils/permissions'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Button } from '../../components/ui/Button'
+import { Chip } from '../../components/ui/Chip'
+import { Textarea } from '../../components/ui/Textarea'
+import { Dialog, DialogTitle, DialogContent, DialogActions, DialogCloseButton } from '../../components/ui/Dialog'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface ClaimResponse {
   id: number
@@ -94,125 +89,142 @@ export const ExpenseClaimDetailPage = () => {
     }
   }
 
-  if (!claim) {
+  if (loading) {
     return (
-      <Box>
-        {error || approveError || rejectError || validationError ? (
-          <Alert severity="error">{error || approveError || rejectError || validationError}</Alert>
-        ) : null}
-      </Box>
+      <div className="flex justify-center py-8">
+        <Spinner size="large" />
+      </div>
     )
   }
 
-  const canApprove = userIsSuperAdmin && (claim.status === 'pending_approval' || claim.status === 'draft')
-  const canReject = userIsSuperAdmin && (claim.status === 'pending_approval' || claim.status === 'draft')
+  if (!claim) {
+    return (
+      <div>
+        {(error || approveError || rejectError || validationError) && (
+          <Alert severity="error">
+            {error || approveError || rejectError || validationError}
+          </Alert>
+        )}
+      </div>
+    )
+  }
+
+  const canApprove = userIsSuperAdmin && claim.status === 'pending_approval'
+  const canReject = userIsSuperAdmin && claim.status === 'pending_approval'
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
-        <Box>
-          <Typography variant="h4" sx={{ fontWeight: 700 }}>
+    <div>
+      <div className="flex justify-between items-start mb-4 flex-wrap gap-4">
+        <div>
+          <Typography variant="h4">
             {claim.claim_number}
           </Typography>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" color="secondary" className="mt-1">
             {formatDate(claim.expense_date)} · {formatMoney(claim.amount)}
           </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        </div>
+        <div className="flex gap-2 items-center">
           <Chip label={claim.status} color={statusColor(claim.status)} />
-          {canApprove ? (
+          {canApprove && (
             <Button variant="contained" color="success" onClick={() => setApproveDialogOpen(true)}>
               Approve
             </Button>
-          ) : null}
-          {canReject ? (
-            <Button variant="contained" color="error" onClick={() => setRejectDialogOpen(true)}>
+          )}
+          {canReject && (
+            <Button variant="outlined" color="error" onClick={() => setRejectDialogOpen(true)}>
               Reject
             </Button>
-          ) : null}
-        </Box>
-      </Box>
+          )}
+        </div>
+      </div>
 
-      {error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+      {(error || approveError || rejectError || validationError) && (
+        <Alert severity="error" className="mb-4">
+          {error || approveError || rejectError || validationError}
         </Alert>
-      ) : null}
+      )}
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 3 }}>
-        <Box>
-          <Typography variant="subtitle2" color="text.secondary">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
             Amount
           </Typography>
           <Typography variant="h6">{formatMoney(claim.amount)}</Typography>
-        </Box>
-        <Box>
-          <Typography variant="subtitle2" color="text.secondary">
-            Paid Amount
-          </Typography>
-          <Typography variant="h6">{formatMoney(claim.paid_amount)}</Typography>
-        </Box>
-        <Box>
-          <Typography variant="subtitle2" color="text.secondary">
-            Remaining Amount
-          </Typography>
-          <Typography variant="h6" color={claim.remaining_amount > 0 ? 'error' : 'inherit'}>
-            {formatMoney(claim.remaining_amount)}
-          </Typography>
-        </Box>
-        <Box>
-          <Typography variant="subtitle2" color="text.secondary">
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
             Status
           </Typography>
-          <Typography>{claim.status}</Typography>
-        </Box>
-      </Box>
+          <Chip label={claim.status} color={statusColor(claim.status)} />
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Paid amount
+          </Typography>
+          <Typography>{formatMoney(claim.paid_amount)}</Typography>
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Remaining amount
+          </Typography>
+          <Typography className={claim.remaining_amount > 0 ? 'text-error' : ''}>
+            {formatMoney(claim.remaining_amount)}
+          </Typography>
+        </div>
+      </div>
 
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+      <div className="mb-6">
+        <Typography variant="subtitle2" color="secondary" className="mb-1">
           Description
         </Typography>
-        <Typography sx={{ whiteSpace: 'pre-wrap' }}>{claim.description}</Typography>
-      </Box>
+        <Typography>{claim.description}</Typography>
+      </div>
 
-      <Dialog open={approveDialogOpen} onClose={() => setApproveDialogOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={approveDialogOpen} onClose={() => setApproveDialogOpen(false)} maxWidth="md">
+        <DialogCloseButton onClose={() => setApproveDialogOpen(false)} />
         <DialogTitle>Approve expense claim</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <TextField
+        <DialogContent>
+          <Textarea
             label="Reason (optional)"
             value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            multiline
-            minRows={2}
+            onChange={(e) => setReason(e.target.value)}
+            rows={3}
+            placeholder="Optional approval reason"
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setApproveDialogOpen(false)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => setApproveDialogOpen(false)}>
+            Cancel
+          </Button>
           <Button variant="contained" color="success" onClick={handleApprove} disabled={approving}>
-            Approve
+            {approving ? <Spinner size="small" /> : 'Approve'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={rejectDialogOpen} onClose={() => setRejectDialogOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={rejectDialogOpen} onClose={() => setRejectDialogOpen(false)} maxWidth="md">
+        <DialogCloseButton onClose={() => setRejectDialogOpen(false)} />
         <DialogTitle>Reject expense claim</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <TextField
+        <DialogContent>
+          <Textarea
             label="Rejection reason"
             value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            multiline
-            minRows={3}
+            onChange={(e) => setReason(e.target.value)}
+            rows={3}
             required
+            error={validationError || undefined}
+            placeholder="Enter rejection reason"
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" color="error" onClick={handleReject} disabled={loading || !reason.trim()}>
-            Reject
+          <Button variant="outlined" onClick={() => setRejectDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button variant="outlined" color="error" onClick={handleReject} disabled={_rejecting}>
+            {_rejecting ? <Spinner size="small" /> : 'Reject'}
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </div>
   )
 }

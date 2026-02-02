@@ -1,22 +1,3 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Menu,
-  MenuItem,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
@@ -25,6 +6,15 @@ import { isAccountant } from '../../utils/permissions'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api, unwrapResponse } from '../../services/api'
 import { formatDate, formatMoney } from '../../utils/format'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Button } from '../../components/ui/Button'
+import { Chip } from '../../components/ui/Chip'
+import { Input } from '../../components/ui/Input'
+import { Menu, MenuItem } from '../../components/ui/Menu'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
+import { Dialog, DialogTitle, DialogContent, DialogActions, DialogCloseButton } from '../../components/ui/Dialog'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface PriceSettingRow {
   grade: string
@@ -179,115 +169,127 @@ export const TermDetailPage = () => {
     }
   }
 
+  if (termApi.loading) {
+    return (
+      <div className="flex justify-center py-8">
+        <Spinner size="large" />
+      </div>
+    )
+  }
+
   if (!term) {
     return (
-      <Box>
-        {error ? <Alert severity="error">{error}</Alert> : null}
-      </Box>
+      <div>
+        {error && <Alert severity="error">{error}</Alert>}
+      </div>
     )
   }
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
-        <Box>
-          <Typography variant="h4" sx={{ fontWeight: 700 }}>
+    <div>
+      <div className="flex justify-between items-start mb-4 flex-wrap gap-4">
+        <div>
+          <Typography variant="h4">
             {term.display_name}
           </Typography>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" color="secondary" className="mt-1">
             {formatDate(term.start_date)} → {formatDate(term.end_date)}
           </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        </div>
+        <div className="flex gap-2 items-center flex-wrap">
           <Chip label={term.status} color={statusColor(term.status)} />
           {!readOnly && (
             <>
               <Button variant="outlined" onClick={() => navigate(`/billing/terms/${term.id}/edit`)}>
                 Edit
               </Button>
-              {term.status !== 'Active' && term.status !== 'Closed' ? (
+              {term.status !== 'Active' && term.status !== 'Closed' && (
                 <Button variant="contained" onClick={handleActivate} disabled={loading}>
-                  Activate
+                  {loading ? <Spinner size="small" /> : 'Activate'}
                 </Button>
-              ) : null}
-              {term.status === 'Active' ? (
+              )}
+              {term.status === 'Active' && (
                 <Button variant="contained" color="warning" onClick={handleClose} disabled={loading}>
-                  Close
+                  {loading ? <Spinner size="small" /> : 'Close'}
                 </Button>
-              ) : null}
+              )}
               <Button variant="outlined" onClick={openMenu}>
                 Generate invoices
               </Button>
             </>
           )}
-        </Box>
-      </Box>
+        </div>
+      </div>
 
-      {error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {error && (
+        <Alert severity="error" className="mb-4">
           {error}
         </Alert>
-      ) : null}
+      )}
 
-      <Box sx={{ mt: 3 }}>
-        <Typography variant="h6" sx={{ mb: 2 }}>
+      <div className="mt-6">
+        <Typography variant="h6" className="mb-4">
           School fees by grade
         </Typography>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Grade</TableCell>
-              <TableCell align="right">Amount</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {term.price_settings.map((entry) => (
-              <TableRow key={entry.grade}>
-                <TableCell>{gradeNameMap.get(entry.grade) ?? entry.grade}</TableCell>
-                <TableCell align="right">{formatMoney(entry.school_fee_amount)}</TableCell>
-              </TableRow>
-            ))}
-            {!term.price_settings.length ? (
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          <Table>
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={2} align="center">
-                  No pricing data
-                </TableCell>
+                <TableHeaderCell>Grade</TableHeaderCell>
+                <TableHeaderCell align="right">Amount</TableHeaderCell>
               </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
-      </Box>
+            </TableHead>
+            <TableBody>
+              {term.price_settings.map((entry) => (
+                <TableRow key={entry.grade}>
+                  <TableCell>{gradeNameMap.get(entry.grade) ?? entry.grade}</TableCell>
+                  <TableCell align="right">{formatMoney(entry.school_fee_amount)}</TableCell>
+                </TableRow>
+              ))}
+              {!term.price_settings.length && (
+                <TableRow>
+                  <TableCell colSpan={2} align="center" className="py-8">
+                    <Typography color="secondary">No pricing data</Typography>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
 
-      <Box sx={{ mt: 4 }}>
-        <Typography variant="h6" sx={{ mb: 2 }}>
+      <div className="mt-6">
+        <Typography variant="h6" className="mb-4">
           Transport fees by zone
         </Typography>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Zone</TableCell>
-              <TableCell>Code</TableCell>
-              <TableCell align="right">Amount</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {term.transport_pricings.map((entry) => (
-              <TableRow key={entry.zone_id}>
-                <TableCell>{entry.zone_name}</TableCell>
-                <TableCell>{entry.zone_code}</TableCell>
-                <TableCell align="right">{formatMoney(entry.transport_fee_amount)}</TableCell>
-              </TableRow>
-            ))}
-            {!term.transport_pricings.length ? (
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          <Table>
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={3} align="center">
-                  No transport pricing data
-                </TableCell>
+                <TableHeaderCell>Zone</TableHeaderCell>
+                <TableHeaderCell>Code</TableHeaderCell>
+                <TableHeaderCell align="right">Amount</TableHeaderCell>
               </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
-      </Box>
+            </TableHead>
+            <TableBody>
+              {term.transport_pricings.map((entry) => (
+                <TableRow key={entry.zone_id}>
+                  <TableCell>{entry.zone_name}</TableCell>
+                  <TableCell>{entry.zone_code}</TableCell>
+                  <TableCell align="right">{formatMoney(entry.transport_fee_amount)}</TableCell>
+                </TableRow>
+              ))}
+              {!term.transport_pricings.length && (
+                <TableRow>
+                  <TableCell colSpan={3} align="center" className="py-8">
+                    <Typography color="secondary">No transport pricing data</Typography>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
 
       <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={closeMenu}>
         <MenuItem onClick={generateAll}>All students</MenuItem>
@@ -307,43 +309,55 @@ export const TermDetailPage = () => {
           setStudentDialogOpen(false)
           setStudentIdError(null)
         }}
-        fullWidth
         maxWidth="sm"
       >
+        <DialogCloseButton onClose={() => {
+          setStudentDialogOpen(false)
+          setStudentIdError(null)
+        }} />
         <DialogTitle>Generate invoices for student</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          {studentIdError ? (
-            <Alert severity="error" onClose={() => setStudentIdError(null)}>
-              {studentIdError}
-            </Alert>
-          ) : null}
-          <TextField
-            label="Student ID"
-            value={studentId}
-            onChange={(event) => setStudentId(event.target.value)}
-            type="number"
-          />
+        <DialogContent>
+          <div className="space-y-4 mt-4">
+            {studentIdError && (
+              <Alert severity="error" onClose={() => setStudentIdError(null)}>
+                {studentIdError}
+              </Alert>
+            )}
+            <Input
+              label="Student ID"
+              value={studentId}
+              onChange={(e) => setStudentId(e.target.value)}
+              type="number"
+            />
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setStudentDialogOpen(false)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => setStudentDialogOpen(false)}>
+            Cancel
+          </Button>
           <Button variant="contained" onClick={generateSingle} disabled={loading}>
-            Generate
+            {loading ? <Spinner size="small" /> : 'Generate'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={resultDialogOpen} onClose={() => setResultDialogOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={resultDialogOpen} onClose={() => setResultDialogOpen(false)} maxWidth="sm">
+        <DialogCloseButton onClose={() => setResultDialogOpen(false)} />
         <DialogTitle>Invoice generation result</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 1, mt: 1 }}>
-          <Typography>School fee invoices: {result?.school_fee_invoices_created ?? 0}</Typography>
-          <Typography>Transport invoices: {result?.transport_invoices_created ?? 0}</Typography>
-          <Typography>Students skipped: {result?.students_skipped ?? 0}</Typography>
-          <Typography>Total processed: {result?.total_students_processed ?? 0}</Typography>
+        <DialogContent>
+          <div className="space-y-2 mt-4">
+            <Typography>School fee invoices: {result?.school_fee_invoices_created ?? 0}</Typography>
+            <Typography>Transport invoices: {result?.transport_invoices_created ?? 0}</Typography>
+            <Typography>Students skipped: {result?.students_skipped ?? 0}</Typography>
+            <Typography>Total processed: {result?.total_students_processed ?? 0}</Typography>
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setResultDialogOpen(false)}>Close</Button>
+          <Button variant="outlined" onClick={() => setResultDialogOpen(false)}>
+            Close
+          </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </div>
   )
 }

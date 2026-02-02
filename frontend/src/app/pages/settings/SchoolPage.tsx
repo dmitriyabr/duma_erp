@@ -1,21 +1,14 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Checkbox,
-  CircularProgress,
-  Divider,
-  FormControlLabel,
-  Grid,
-  Typography,
-  TextField,
-} from '@mui/material'
-import CloudUploadIcon from '@mui/icons-material/CloudUpload'
+import { Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api, unwrapResponse } from '../../services/api'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Checkbox } from '../../components/ui/Checkbox'
+import { Card, CardContent } from '../../components/ui/Card'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface SchoolSettingsData {
   id: number
@@ -102,10 +95,9 @@ export const SchoolPage = () => {
   }
 
   const handleCheckbox = (field: 'use_paybill' | 'use_bank_transfer') => (
-    _e: React.ChangeEvent<HTMLInputElement>,
-    checked: boolean
+    e: React.ChangeEvent<HTMLInputElement>
   ) => {
-    setForm((prev) => ({ ...prev, [field]: checked }))
+    setForm((prev) => ({ ...prev, [field]: e.target.checked }))
   }
 
   const displayError = error ?? saveMutation.error ?? logoUploadMutation.error ?? stampUploadMutation.error
@@ -179,22 +171,22 @@ export const SchoolPage = () => {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight={200}>
-        <CircularProgress />
-      </Box>
+      <div className="flex justify-center items-center min-h-[200px]">
+        <Spinner size="large" />
+      </div>
     )
   }
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-        <Typography variant="h4" sx={{ fontWeight: 700 }}>
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <Typography variant="h4">
           School settings
         </Typography>
         <Button variant="contained" onClick={handleSave} disabled={saveMutation.loading}>
-          {saveMutation.loading ? 'Saving…' : 'Save'}
+          {saveMutation.loading ? <Spinner size="small" /> : 'Save'}
         </Button>
-      </Box>
+      </div>
 
       {displayError && (
         <Alert
@@ -204,201 +196,187 @@ export const SchoolPage = () => {
             logoUploadMutation.reset()
             stampUploadMutation.reset()
           }}
-          sx={{ mb: 2 }}
+          className="mb-4"
         >
           {displayError}
         </Alert>
       )}
       {success && (
-        <Alert severity="success" onClose={() => setSuccess(false)} sx={{ mb: 2 }}>
+        <Alert severity="success" onClose={() => setSuccess(false)} className="mb-4">
           Settings saved.
         </Alert>
       )}
 
       <Card>
         <CardContent>
-          <Typography variant="h6" gutterBottom>
+          <Typography variant="h6" className="mb-4">
             School info (for invoices & receipts)
           </Typography>
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <TextField
-                fullWidth
-                label="School name"
-                value={form.school_name}
-                onChange={handleChange('school_name')}
-              />
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <TextField
-                fullWidth
-                label="Phone"
-                value={form.school_phone}
-                onChange={handleChange('school_phone')}
-              />
-            </Grid>
-            <Grid size={12}>
-              <TextField
-                fullWidth
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Input
+              label="School name"
+              value={form.school_name}
+              onChange={handleChange('school_name')}
+            />
+            <Input
+              label="Phone"
+              value={form.school_phone}
+              onChange={handleChange('school_phone')}
+            />
+            <div className="md:col-span-2">
+              <Input
                 label="Address"
                 value={form.school_address}
                 onChange={handleChange('school_address')}
               />
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <TextField
-                fullWidth
+            </div>
+            <div className="md:col-span-2">
+              <Input
                 label="Email"
                 type="email"
                 value={form.school_email}
                 onChange={handleChange('school_email')}
               />
-            </Grid>
-          </Grid>
+            </div>
+          </div>
 
-          <Divider sx={{ my: 3 }} />
+          <div className="border-t border-slate-200 my-6" />
 
-          <Typography variant="h6" gutterBottom>
+          <Typography variant="h6" className="mb-4">
             M-Pesa
           </Typography>
-          <Grid container spacing={2}>
-            <Grid size={12}>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={form.use_paybill}
-                    onChange={handleCheckbox('use_paybill')}
-                  />
-                }
-                label="Use M-Pesa on invoices"
-              />
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <TextField
-                fullWidth
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="md:col-span-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
+                  checked={form.use_paybill}
+                  onChange={handleCheckbox('use_paybill')}
+                />
+                <Typography variant="body2">Use M-Pesa on invoices</Typography>
+              </label>
+            </div>
+            <div className="md:col-span-2">
+              <Input
                 label="Paybill"
                 value={form.mpesa_business_number}
                 onChange={handleChange('mpesa_business_number')}
                 placeholder="e.g. 123456"
               />
-            </Grid>
-          </Grid>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            </div>
+          </div>
+          <Typography variant="body2" color="secondary" className="mt-2">
             Account number on invoice will be student admission number.
           </Typography>
 
-          <Divider sx={{ my: 3 }} />
+          <div className="border-t border-slate-200 my-6" />
 
-          <Typography variant="h6" gutterBottom>
+          <Typography variant="h6" className="mb-4">
             Bank transfer
           </Typography>
-          <Grid container spacing={2}>
-            <Grid size={12}>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={form.use_bank_transfer}
-                    onChange={handleCheckbox('use_bank_transfer')}
-                  />
-                }
-                label="Use bank transfer on invoices"
-              />
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <TextField
-                fullWidth
-                label="Bank name"
-                value={form.bank_name}
-                onChange={handleChange('bank_name')}
-              />
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <TextField
-                fullWidth
-                label="Account name"
-                value={form.bank_account_name}
-                onChange={handleChange('bank_account_name')}
-              />
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <TextField
-                fullWidth
-                label="Account number"
-                value={form.bank_account_number}
-                onChange={handleChange('bank_account_number')}
-              />
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <TextField
-                fullWidth
-                label="Branch"
-                value={form.bank_branch}
-                onChange={handleChange('bank_branch')}
-              />
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <TextField
-                fullWidth
-                label="Swift code"
-                value={form.bank_swift_code}
-                onChange={handleChange('bank_swift_code')}
-              />
-            </Grid>
-          </Grid>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="md:col-span-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
+                  checked={form.use_bank_transfer}
+                  onChange={handleCheckbox('use_bank_transfer')}
+                />
+                <Typography variant="body2">Use bank transfer on invoices</Typography>
+              </label>
+            </div>
+            <Input
+              label="Bank name"
+              value={form.bank_name}
+              onChange={handleChange('bank_name')}
+            />
+            <Input
+              label="Account name"
+              value={form.bank_account_name}
+              onChange={handleChange('bank_account_name')}
+            />
+            <Input
+              label="Account number"
+              value={form.bank_account_number}
+              onChange={handleChange('bank_account_number')}
+            />
+            <Input
+              label="Branch"
+              value={form.bank_branch}
+              onChange={handleChange('bank_branch')}
+            />
+            <Input
+              label="Swift code"
+              value={form.bank_swift_code}
+              onChange={handleChange('bank_swift_code')}
+            />
+          </div>
 
-          <Divider sx={{ my: 3 }} />
+          <div className="border-t border-slate-200 my-6" />
 
-          <Typography variant="h6" gutterBottom>
+          <Typography variant="h6" className="mb-4">
             Logo & stamp (for PDF)
           </Typography>
-          <Grid container spacing={3}>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <Typography variant="body2" color="secondary" className="mb-2">
                 Logo (invoices & receipts)
               </Typography>
               {logoPreview && (
-                <Box
-                  component="img"
+                <img
                   src={logoPreview}
                   alt="Logo"
-                  sx={{ maxWidth: 200, maxHeight: 100, objectFit: 'contain', mb: 1, display: 'block' }}
+                  className="max-w-[200px] max-h-[100px] object-contain mb-2 block"
                 />
               )}
-              <Button
-                variant="outlined"
-                component="label"
-                startIcon={<CloudUploadIcon />}
-                disabled={logoUploadMutation.loading}
-              >
-                {logoUploadMutation.loading ? 'Uploading…' : 'Upload logo'}
-                <input type="file" hidden accept="image/*" onChange={handleLogoUpload} />
-              </Button>
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
+              <label className="inline-block">
+                <input type="file" className="hidden" accept="image/*" onChange={handleLogoUpload} disabled={logoUploadMutation.loading} />
+                <Button
+                  variant="outlined"
+                  type="button"
+                  disabled={logoUploadMutation.loading}
+                  className="cursor-pointer"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    const input = e.currentTarget.parentElement?.querySelector('input[type="file"]') as HTMLInputElement
+                    input?.click()
+                  }}
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  {logoUploadMutation.loading ? 'Uploading…' : 'Upload logo'}
+                </Button>
+              </label>
+            </div>
+            <div>
+              <Typography variant="body2" color="secondary" className="mb-2">
                 Stamp (receipts)
               </Typography>
               {stampPreview && (
-                <Box
-                  component="img"
+                <img
                   src={stampPreview}
                   alt="Stamp"
-                  sx={{ maxWidth: 120, maxHeight: 120, objectFit: 'contain', mb: 1, display: 'block' }}
+                  className="max-w-[120px] max-h-[120px] object-contain mb-2 block"
                 />
               )}
-              <Button
-                variant="outlined"
-                component="label"
-                startIcon={<CloudUploadIcon />}
-                disabled={stampUploadMutation.loading}
-              >
-                {stampUploadMutation.loading ? 'Uploading…' : 'Upload stamp'}
-                <input type="file" hidden accept="image/*" onChange={handleStampUpload} />
-              </Button>
-            </Grid>
-          </Grid>
+              <label className="inline-block">
+                <input type="file" className="hidden" accept="image/*" onChange={handleStampUpload} disabled={stampUploadMutation.loading} />
+                <Button
+                  variant="outlined"
+                  type="button"
+                  disabled={stampUploadMutation.loading}
+                  className="cursor-pointer"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    const input = e.currentTarget.parentElement?.querySelector('input[type="file"]') as HTMLInputElement
+                    input?.click()
+                  }}
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  {stampUploadMutation.loading ? 'Uploading…' : 'Upload stamp'}
+                </Button>
+              </label>
+            </div>
+          </div>
         </CardContent>
       </Card>
-    </Box>
+    </div>
   )
 }

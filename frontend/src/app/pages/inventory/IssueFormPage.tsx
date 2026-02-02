@@ -1,31 +1,20 @@
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import {
-  Alert,
-  Box,
-  Button,
-  FormControl,
-  FormControlLabel,
-  IconButton,
-  InputLabel,
-  MenuItem,
-  Radio,
-  RadioGroup,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
+import { Trash2 } from 'lucide-react'
 import type { ApiResponse, PaginatedResponse } from '../../types/api'
 import { MAX_DROPDOWN_SIZE } from '../../constants/pagination'
 import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
+import { Textarea } from '../../components/ui/Textarea'
+import { Radio, RadioGroup } from '../../components/ui/Radio'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface ItemOption {
   id: number
@@ -202,175 +191,175 @@ export const IssueFormPage = () => {
   }
 
   return (
-    <Box>
-      <Button onClick={() => navigate(-1)} sx={{ mb: 2 }}>
+    <div>
+      <Button onClick={() => navigate(-1)} className="mb-4">
         Back
       </Button>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+      <Typography variant="h4" className="mb-4">
         Issue stock
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+      <Typography variant="body2" color="secondary" className="mb-4">
         Issue multiple items to a recipient in one go. Select recipient and add lines (item + quantity).
       </Typography>
 
-      {error || saveError ? (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+      {(error || saveError) && (
+        <Alert severity="error" className="mb-4" onClose={() => setError(null)}>
           {error || saveError}
         </Alert>
-      ) : null}
+      )}
 
-      <Box sx={{ display: 'grid', gap: 2, maxWidth: 560, mb: 3 }}>
+      <div className="grid gap-4 max-w-[560px] mb-6">
         <Typography variant="subtitle2">
-          Recipient <Box component="span" sx={{ color: 'error.main' }}>*</Box>
+          Recipient <span className="text-error">*</span>
         </Typography>
-        <FormControl component="fieldset">
-          <RadioGroup
-            row
-            value={recipientType}
-            onChange={(e) => {
-              setRecipientType(e.target.value as RecipientTypeOption)
-              setRecipientId('')
-              setRecipientNameOther('')
-            }}
-          >
-            <FormControlLabel value="student" control={<Radio />} label="Student" />
-            <FormControlLabel value="employee" control={<Radio />} label="Employee" />
-            <FormControlLabel value="other" control={<Radio />} label="Other" />
-          </RadioGroup>
-        </FormControl>
+        <RadioGroup
+          row
+          value={recipientType}
+          onChange={(value) => {
+            setRecipientType(value as RecipientTypeOption)
+            setRecipientId('')
+            setRecipientNameOther('')
+          }}
+        >
+          <Radio value="student" label="Student" />
+          <Radio value="employee" label="Employee" />
+          <Radio value="other" label="Other" />
+        </RadioGroup>
         {recipientType === 'student' && (
-          <FormControl fullWidth size="small" required>
-            <InputLabel>Student *</InputLabel>
-            <Select
-              value={recipientId}
-              label="Student *"
-              onChange={(e) => setRecipientId(e.target.value as string)}
-              displayEmpty
-            >
-              <MenuItem value="">Select student</MenuItem>
-              {(students || []).map((s) => (
-                <MenuItem key={s.id} value={String(s.id)}>
-                  {s.first_name} {s.last_name} ({s.student_number})
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <Select
+            value={recipientId}
+            onChange={(e) => setRecipientId(e.target.value)}
+            label="Student *"
+            required
+          >
+            <option value="">Select student</option>
+            {(students || []).map((s) => (
+              <option key={s.id} value={String(s.id)}>
+                {s.first_name} {s.last_name} ({s.student_number})
+              </option>
+            ))}
+          </Select>
         )}
         {recipientType === 'employee' && (
-          <FormControl fullWidth size="small" required>
-            <InputLabel>Employee *</InputLabel>
-            <Select
-              value={recipientId}
-              label="Employee *"
-              onChange={(e) => setRecipientId(e.target.value as string)}
-              displayEmpty
-            >
-              <MenuItem value="">Select employee</MenuItem>
-              {(users || []).map((u) => (
-                <MenuItem key={u.id} value={String(u.id)}>
-                  {u.full_name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <Select
+            value={recipientId}
+            onChange={(e) => setRecipientId(e.target.value)}
+            label="Employee *"
+            required
+          >
+            <option value="">Select employee</option>
+            {(users || []).map((u) => (
+              <option key={u.id} value={String(u.id)}>
+                {u.full_name}
+              </option>
+            ))}
+          </Select>
         )}
         {recipientType === 'other' && (
-          <TextField
+          <Input
             label="Recipient name *"
             value={recipientNameOther}
             onChange={(e) => setRecipientNameOther(e.target.value)}
             placeholder="e.g. Kitchen, Maintenance"
-            InputLabelProps={{ shrink: true }}
             required
           />
         )}
-        <TextField
+        <Textarea
           label="Notes"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          multiline
-          minRows={2}
+          rows={3}
         />
-      </Box>
+      </div>
 
-      <Box sx={{ mb: 2 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+      <div className="mb-4">
+        <div className="flex justify-between items-center mb-2">
           <Typography variant="h6">Items to issue</Typography>
           <Button size="small" onClick={addLine}>
             Add line
           </Button>
-        </Box>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Item</TableCell>
-              <TableCell>Quantity</TableCell>
-              <TableCell align="right">Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {lines.map((line) => (
-              <TableRow key={line.id}>
-                <TableCell>
-                  <FormControl size="small" sx={{ minWidth: 260 }}>
-                    <InputLabel>Item</InputLabel>
+        </div>
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Item</TableHeaderCell>
+                <TableHeaderCell>Quantity</TableHeaderCell>
+                <TableHeaderCell align="right">Actions</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {lines.map((line) => (
+                <TableRow key={line.id}>
+                  <TableCell>
                     <Select
                       value={line.item_id ? String(line.item_id) : ''}
-                      label="Item"
                       onChange={(e) =>
                         updateLine(line.id, {
                           item_id: e.target.value ? Number(e.target.value) : null,
                         })
                       }
-                      displayEmpty
+                      className="min-w-[260px]"
                     >
-                      <MenuItem value="">Select item</MenuItem>
+                      <option value="">Select item</option>
                       {(items || []).map((item) => (
-                        <MenuItem key={item.id} value={String(item.id)}>
+                        <option key={item.id} value={String(item.id)}>
                           {item.name} ({item.sku_code})
-                        </MenuItem>
+                        </option>
                       ))}
                     </Select>
-                  </FormControl>
-                </TableCell>
-                <TableCell>
-                  <TextField
-                    size="small"
-                    type="number"
-                    value={line.quantity === 0 ? '' : line.quantity}
-                    onChange={(e) => {
-                      updateLine(line.id, { quantity: Number(e.target.value) || 0 })
-                      setLineErrors((prev) => ({ ...prev, [line.id]: '' }))
-                    }}
-                    onFocus={(e) => e.currentTarget.select()}
-                    onWheel={(e) => (e.target as HTMLInputElement).blur()}
-                    inputProps={{ min: 1 }}
-                    sx={{ width: 100 }}
-                    error={Boolean(lineErrors[line.id])}
-                    helperText={lineErrors[line.id]}
-                  />
-                </TableCell>
-                <TableCell align="right">
-                  <IconButton size="small" onClick={() => removeLine(line.id)}>
-                    <DeleteOutlineIcon />
-                  </IconButton>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </Box>
+                  </TableCell>
+                  <TableCell>
+                    <div>
+                      <Input
+                        type="number"
+                        value={line.quantity === 0 ? '' : line.quantity}
+                        onChange={(e) => {
+                          updateLine(line.id, { quantity: Number(e.target.value) || 0 })
+                          setLineErrors((prev) => ({ ...prev, [line.id]: '' }))
+                        }}
+                        onFocus={(e) => e.currentTarget.select()}
+                        onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                        min={1}
+                        error={Boolean(lineErrors[line.id])}
+                        className="w-24"
+                      />
+                      {lineErrors[line.id] && (
+                        <Typography variant="caption" color="error" className="mt-1 block">
+                          {lineErrors[line.id]}
+                        </Typography>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell align="right">
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => removeLine(line.id)}
+                      className="min-w-0"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
 
-      <Box sx={{ display: 'flex', gap: 1, mt: 3 }}>
-        <Button onClick={() => navigate(-1)}>Cancel</Button>
+      <div className="flex gap-2 mt-6">
+        <Button variant="outlined" onClick={() => navigate(-1)}>
+          Cancel
+        </Button>
         <Button
           variant="contained"
           onClick={handleSubmit}
           disabled={loading || !recipientValid || !lines.some((l) => l.item_id && l.quantity > 0)}
         >
-          {loading ? 'Submitting…' : 'Issue stock'}
+          {loading ? <Spinner size="small" /> : 'Issue stock'}
         </Button>
-      </Box>
-    </Box>
+      </div>
+    </div>
   )
 }

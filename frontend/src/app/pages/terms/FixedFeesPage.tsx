@@ -1,30 +1,18 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { isAccountant } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
+import { Typography } from '../../components/ui/Typography'
+import { Chip } from '../../components/ui/Chip'
+import { Alert } from '../../components/ui/Alert'
+import { Dialog, DialogTitle, DialogContent, DialogActions } from '../../components/ui/Dialog'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface FixedFeeRow {
   id: number
@@ -100,9 +88,9 @@ export const FixedFeesPage = () => {
   }
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-        <Typography variant="h4" sx={{ fontWeight: 700 }}>
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <Typography variant="h4">
           Fixed Fees
         </Typography>
         {!readOnly && (
@@ -110,127 +98,124 @@ export const FixedFeesPage = () => {
             New fee
           </Button>
         )}
-      </Box>
+      </div>
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-        <FormControl size="small" sx={{ minWidth: 160 }}>
-          <InputLabel>Status</InputLabel>
+      <div className="flex gap-4 mb-4">
+        <div className="min-w-[160px]">
           <Select
-            value={statusFilter}
             label="Status"
-            onChange={(event) => setStatusFilter(event.target.value as 'all' | 'active' | 'inactive')}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
           >
-            <MenuItem value="all">All</MenuItem>
-            <MenuItem value="active">Active</MenuItem>
-            <MenuItem value="inactive">Inactive</MenuItem>
+            <option value="all">All</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
           </Select>
-        </FormControl>
-      </Box>
+        </div>
+      </div>
 
-      {error || saveError ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {(error || saveError) && (
+        <Alert severity="error" className="mb-4">
           {error || saveError}
         </Alert>
-      ) : null}
+      )}
 
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Fee type</TableCell>
-            <TableCell>Display name</TableCell>
-            <TableCell>Amount</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {filteredRows.map((row) => (
-            <TableRow key={row.id}>
-              <TableCell>{row.fee_type}</TableCell>
-              <TableCell>{row.display_name}</TableCell>
-              <TableCell>{formatMoney(row.amount)}</TableCell>
-              <TableCell>
-                <Chip
-                  size="small"
-                  label={row.is_active ? 'Active' : 'Inactive'}
-                  color={row.is_active ? 'success' : 'default'}
-                />
-              </TableCell>
-              <TableCell align="right">
-                {!readOnly && (
-                  <Button size="small" onClick={() => openEdit(row)}>
-                    Edit
-                  </Button>
-                )}
-              </TableCell>
-            </TableRow>
-          ))}
-          {loading ? (
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <Table>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={5} align="center">
-                Loading…
-              </TableCell>
+              <TableHeaderCell>Fee type</TableHeaderCell>
+              <TableHeaderCell>Display name</TableHeaderCell>
+              <TableHeaderCell>Amount</TableHeaderCell>
+              <TableHeaderCell>Status</TableHeaderCell>
+              <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
-          ) : null}
-          {!filteredRows.length && !loading ? (
-            <TableRow>
-              <TableCell colSpan={5} align="center">
-                No fixed fees found
-              </TableCell>
-            </TableRow>
-          ) : null}
-        </TableBody>
-      </Table>
+          </TableHead>
+          <TableBody>
+            {filteredRows.map((row) => (
+              <TableRow key={row.id}>
+                <TableCell>{row.fee_type}</TableCell>
+                <TableCell>{row.display_name}</TableCell>
+                <TableCell>{formatMoney(row.amount)}</TableCell>
+                <TableCell>
+                  <Chip
+                    size="small"
+                    label={row.is_active ? 'Active' : 'Inactive'}
+                    color={row.is_active ? 'success' : 'default'}
+                  />
+                </TableCell>
+                <TableCell align="right">
+                  {!readOnly && (
+                    <Button size="small" variant="outlined" onClick={() => openEdit(row)}>
+                      Edit
+                    </Button>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+            {loading && (
+              <TableRow>
+                <TableCell colSpan={5} align="center" className="py-8">
+                  <Spinner size="medium" />
+                </TableCell>
+              </TableRow>
+            )}
+            {!filteredRows.length && !loading && (
+              <TableRow>
+                <TableCell colSpan={5} align="center" className="py-8">
+                  <Typography color="secondary">No fixed fees found</Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{editingFee ? 'Edit fixed fee' : 'Create fixed fee'}</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <TextField
-            label="Fee type"
-            value={form.fee_type}
-            onChange={(event) => setForm({ ...form, fee_type: event.target.value })}
-            fullWidth
-            required
-            disabled={!!editingFee}
-          />
-          <TextField
-            label="Display name"
-            value={form.display_name}
-            onChange={(event) => setForm({ ...form, display_name: event.target.value })}
-            fullWidth
-            required
-          />
-          <TextField
-            label="Amount"
-            value={form.amount}
-            onChange={(event) => setForm({ ...form, amount: event.target.value })}
-            fullWidth
-            type="number"
-            required
-          />
-          {editingFee ? (
-            <FormControl fullWidth>
-              <InputLabel>Status</InputLabel>
+        <DialogContent>
+          <div className="grid gap-4 mt-2">
+            <Input
+              label="Fee type"
+              value={form.fee_type}
+              onChange={(e) => setForm({ ...form, fee_type: e.target.value })}
+              required
+              disabled={!!editingFee}
+            />
+            <Input
+              label="Display name"
+              value={form.display_name}
+              onChange={(e) => setForm({ ...form, display_name: e.target.value })}
+              required
+            />
+            <Input
+              label="Amount"
+              type="number"
+              value={form.amount}
+              onChange={(e) => setForm({ ...form, amount: e.target.value })}
+              required
+            />
+            {editingFee && (
               <Select
-                value={form.is_active ? 'active' : 'inactive'}
                 label="Status"
-                onChange={(event) =>
-                  setForm({ ...form, is_active: event.target.value === 'active' })
-                }
+                value={form.is_active ? 'active' : 'inactive'}
+                onChange={(e) => setForm({ ...form, is_active: e.target.value === 'active' })}
               >
-                <MenuItem value="active">Active</MenuItem>
-                <MenuItem value="inactive">Inactive</MenuItem>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
               </Select>
-            </FormControl>
-          ) : null}
+            )}
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => setDialogOpen(false)}>
+            Cancel
+          </Button>
           <Button variant="contained" onClick={submitForm} disabled={saving}>
-            Save
+            {saving ? 'Saving...' : 'Save'}
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </div>
   )
 }

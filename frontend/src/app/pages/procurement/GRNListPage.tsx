@@ -1,26 +1,16 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TablePagination,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
 import { formatDate } from '../../utils/format'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell, TablePagination } from '../../components/ui/Table'
+import { Typography } from '../../components/ui/Typography'
+import { Chip } from '../../components/ui/Chip'
+import { Alert } from '../../components/ui/Alert'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface GRNRow {
   id: number
@@ -70,110 +60,111 @@ export const GRNListPage = () => {
   }
 
   return (
-    <Box>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+    <div>
+      <Typography variant="h4" className="mb-4">
         Goods Received
       </Typography>
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-        <TextField
-          label="PO ID"
-          value={poIdFilter}
-          onChange={(event) => setPoIdFilter(event.target.value)}
-          size="small"
-          type="number"
-        />
-        <FormControl size="small" sx={{ minWidth: 180 }}>
-          <InputLabel>Status</InputLabel>
+      <div className="flex gap-4 mb-4 flex-wrap">
+        <div className="min-w-[120px]">
+          <Input
+            label="PO ID"
+            type="number"
+            value={poIdFilter}
+            onChange={(e) => setPoIdFilter(e.target.value)}
+          />
+        </div>
+        <div className="min-w-[180px]">
           <Select
-            value={statusFilter}
             label="Status"
-            onChange={(event) => setStatusFilter(event.target.value)}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
           >
             {statusOptions.map((option) => (
-              <MenuItem key={option.value} value={option.value}>
+              <option key={option.value} value={option.value}>
                 {option.label}
-              </MenuItem>
+              </option>
             ))}
           </Select>
-        </FormControl>
-        <TextField
-          label="Date from"
-          type="date"
-          value={dateFrom}
-          onChange={(event) => setDateFrom(event.target.value)}
-          size="small"
-          InputLabelProps={{ shrink: true }}
-        />
-        <TextField
-          label="Date to"
-          type="date"
-          value={dateTo}
-          onChange={(event) => setDateTo(event.target.value)}
-          size="small"
-          InputLabelProps={{ shrink: true }}
-        />
-      </Box>
+        </div>
+        <div className="min-w-[160px]">
+          <Input
+            label="Date from"
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+          />
+        </div>
+        <div className="min-w-[160px]">
+          <Input
+            label="Date to"
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+          />
+        </div>
+      </div>
 
-      {error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {error && (
+        <Alert severity="error" className="mb-4">
           {error}
         </Alert>
-      ) : null}
+      )}
 
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>GRN Number</TableCell>
-            <TableCell>PO ID</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell>Received date</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {grns.map((grn) => (
-            <TableRow key={grn.id}>
-              <TableCell>{grn.grn_number}</TableCell>
-              <TableCell>{grn.po_id}</TableCell>
-              <TableCell>
-                <Chip size="small" label={grn.status} color={statusColor(grn.status)} />
-              </TableCell>
-              <TableCell>{formatDate(grn.received_date)}</TableCell>
-              <TableCell align="right">
-                <Button size="small" onClick={() => navigate(`/procurement/grn/${grn.id}`)}>
-                  View
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-          {loading ? (
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <Table>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={5} align="center">
-                Loading…
-              </TableCell>
+              <TableHeaderCell>GRN Number</TableHeaderCell>
+              <TableHeaderCell>PO ID</TableHeaderCell>
+              <TableHeaderCell>Status</TableHeaderCell>
+              <TableHeaderCell>Received date</TableHeaderCell>
+              <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
-          ) : null}
-          {!grns.length && !loading ? (
-            <TableRow>
-              <TableCell colSpan={5} align="center">
-                No GRNs found
-              </TableCell>
-            </TableRow>
-          ) : null}
-        </TableBody>
-      </Table>
-      <TablePagination
-        component="div"
-        count={total}
-        page={page}
-        onPageChange={(_, nextPage) => setPage(nextPage)}
-        rowsPerPage={limit}
-        onRowsPerPageChange={(event) => {
-          setLimit(Number(event.target.value))
-          setPage(0)
-        }}
-      />
-    </Box>
+          </TableHead>
+          <TableBody>
+            {grns.map((grn) => (
+              <TableRow key={grn.id}>
+                <TableCell>{grn.grn_number}</TableCell>
+                <TableCell>{grn.po_id}</TableCell>
+                <TableCell>
+                  <Chip size="small" label={grn.status} color={statusColor(grn.status)} />
+                </TableCell>
+                <TableCell>{formatDate(grn.received_date)}</TableCell>
+                <TableCell align="right">
+                  <Button size="small" variant="outlined" onClick={() => navigate(`/procurement/grn/${grn.id}`)}>
+                    View
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+            {loading && (
+              <TableRow>
+                <TableCell colSpan={5} align="center" className="py-8">
+                  <Spinner size="medium" />
+                </TableCell>
+              </TableRow>
+            )}
+            {!grns.length && !loading && (
+              <TableRow>
+                <TableCell colSpan={5} align="center" className="py-8">
+                  <Typography color="secondary">No GRNs found</Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+        <TablePagination
+          page={page}
+          rowsPerPage={limit}
+          count={total}
+          onPageChange={setPage}
+          onRowsPerPageChange={(newLimit) => {
+            setLimit(newLimit)
+            setPage(0)
+          }}
+        />
+      </div>
+    </div>
   )
 }

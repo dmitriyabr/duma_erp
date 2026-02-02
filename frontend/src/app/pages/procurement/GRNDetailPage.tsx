@@ -1,16 +1,4 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  Typography,
-} from '@mui/material'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
@@ -18,6 +6,12 @@ import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDate } from '../../utils/format'
 import { canApproveGRN, isAccountant } from '../../utils/permissions'
+import { Button } from '../../components/ui/Button'
+import { Chip } from '../../components/ui/Chip'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface GRNLine {
   id: number
@@ -57,7 +51,7 @@ export const GRNDetailPage = () => {
     open: false,
   })
 
-  const { data: grn, refetch: refetchGRN } = useApi<GRNResponse>(
+  const { data: grn, loading, refetch: refetchGRN } = useApi<GRNResponse>(
     resolvedId ? `/procurement/grns/${resolvedId}` : null
   )
   const { data: poData } = useApi<{ lines: POLine[] }>(
@@ -68,9 +62,11 @@ export const GRNDetailPage = () => {
   const busy = approving || cancelling
 
   // Update PO lines map when PO data loads
-  if (poData && poData.lines.length > 0 && poLines.size === 0) {
-    setPoLines(new Map(poData.lines.map((line) => [line.id, line])))
-  }
+  useEffect(() => {
+    if (poData && poData.lines.length > 0 && poLines.size === 0) {
+      setPoLines(new Map(poData.lines.map((line) => [line.id, line])))
+    }
+  }, [poData, poLines.size])
 
   const handleApprove = async () => {
     if (!resolvedId) return
@@ -96,11 +92,19 @@ export const GRNDetailPage = () => {
     }
   }
 
+  if (loading) {
+    return (
+      <div className="flex justify-center py-8">
+        <Spinner size="large" />
+      </div>
+    )
+  }
+
   if (!grn) {
     return (
-      <Box>
-        {error ? <Alert severity="error">{error}</Alert> : null}
-      </Box>
+      <div>
+        {error && <Alert severity="error">{error}</Alert>}
+      </div>
     )
   }
 
@@ -109,71 +113,73 @@ export const GRNDetailPage = () => {
   const canCancel = !readOnly && grn.status === 'draft'
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
-        <Box>
-          <Typography variant="h4" sx={{ fontWeight: 700 }}>
+    <div>
+      <div className="flex justify-between items-start mb-4 flex-wrap gap-4">
+        <div>
+          <Typography variant="h4">
             {grn.grn_number}
           </Typography>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" color="secondary" className="mt-1">
             PO #{grn.po_id} · {formatDate(grn.received_date)}
           </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        </div>
+        <div className="flex gap-2 items-center">
           <Chip
             label={grn.status}
             color={grn.status === 'approved' ? 'success' : grn.status === 'cancelled' ? 'default' : 'warning'}
           />
-          {canApprove ? (
+          {canApprove && (
             <Button variant="contained" disabled={busy} onClick={() => setConfirmState({ open: true, action: 'approve' })}>
               Approve
             </Button>
-          ) : null}
-          {canCancel ? (
+          )}
+          {canCancel && (
             <Button variant="outlined" color="error" disabled={busy} onClick={() => setConfirmState({ open: true, action: 'cancel' })}>
               Cancel
             </Button>
-          ) : null}
+          )}
           <Button variant="outlined" onClick={() => navigate(`/procurement/orders/${grn.po_id}`)}>
             View PO
           </Button>
-        </Box>
-      </Box>
+        </div>
+      </div>
 
-      {error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {error && (
+        <Alert severity="error" className="mb-4">
           {error}
         </Alert>
-      ) : null}
+      )}
 
-      {grn.notes ? (
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle2" color="text.secondary">
+      {grn.notes && (
+        <div className="mb-6">
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
             Notes
           </Typography>
           <Typography>{grn.notes}</Typography>
-        </Box>
-      ) : null}
+        </div>
+      )}
 
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Description</TableCell>
-            <TableCell align="right">Quantity received</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {grn.lines.map((line) => {
-            const poLine = poLines.get(line.po_line_id)
-            return (
-              <TableRow key={line.id}>
-                <TableCell>{poLine?.description ?? '—'}</TableCell>
-                <TableCell align="right">{line.quantity_received}</TableCell>
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableHeaderCell>Description</TableHeaderCell>
+              <TableHeaderCell align="right">Quantity received</TableHeaderCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {grn.lines.map((line) => {
+              const poLine = poLines.get(line.po_line_id)
+              return (
+                <TableRow key={line.id}>
+                  <TableCell>{poLine?.description ?? '—'}</TableCell>
+                  <TableCell align="right">{line.quantity_received}</TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+      </div>
 
       <ConfirmDialog
         open={confirmState.open && confirmState.action === 'approve'}
@@ -192,6 +198,6 @@ export const GRNDetailPage = () => {
         onCancel={() => setConfirmState({ open: false })}
         onConfirm={handleCancel}
       />
-    </Box>
+    </div>
   )
 }

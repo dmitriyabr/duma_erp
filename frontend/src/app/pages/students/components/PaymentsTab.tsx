@@ -1,25 +1,6 @@
-import {
-  Box,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
-import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { FileText } from 'lucide-react'
 import { useAuth } from '../../../auth/AuthContext'
 import { INVOICE_LIST_LIMIT, PAYMENTS_LIST_LIMIT } from '../../../constants/pagination'
 import { useApi, useApiMutation } from '../../../hooks/useApi'
@@ -36,6 +17,13 @@ import type {
   PaymentResponse,
 } from '../types'
 import { parseNumber } from '../types'
+import { Typography } from '../../../components/ui/Typography'
+import { Button } from '../../../components/ui/Button'
+import { Input } from '../../../components/ui/Input'
+import { Select } from '../../../components/ui/Select'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../../components/ui/Table'
+import { Dialog, DialogTitle, DialogContent, DialogActions, DialogCloseButton } from '../../../components/ui/Dialog'
+import { Spinner } from '../../../components/ui/Spinner'
 
 interface PaymentsTabProps {
   studentId: number
@@ -174,10 +162,10 @@ export const PaymentsTab = ({
   }
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+    <div>
+      <div className="flex justify-between items-center mb-4">
         <Typography variant="h6">Payments</Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        <div className="flex gap-2">
           <Button variant="outlined" onClick={openManualAllocation}>
             Allocate credit
           </Button>
@@ -187,105 +175,114 @@ export const PaymentsTab = ({
           >
             Record payment
           </Button>
-        </Box>
-      </Box>
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Payment #</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell>Amount</TableCell>
-            <TableCell>Method</TableCell>
-            <TableCell>Date</TableCell>
-            <TableCell>Receipt</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {payments.map((payment) => (
-            <TableRow key={payment.id}>
-              <TableCell>{payment.payment_number}</TableCell>
-              <TableCell>{payment.status}</TableCell>
-              <TableCell>{formatMoney(parseNumber(payment.amount))}</TableCell>
-              <TableCell>{payment.payment_method}</TableCell>
-              <TableCell>{formatDate(payment.payment_date)}</TableCell>
-              <TableCell>{payment.receipt_number ?? '—'}</TableCell>
-              <TableCell align="right">
-                <Button size="small" onClick={() => setSelectedPayment(payment)}>
-                  View
-                </Button>
-                {payment.status === 'completed' ? (
-                  <Button
-                    size="small"
-                    startIcon={<PictureAsPdfIcon />}
-                    onClick={() => downloadReceiptPdf(payment)}
-                    disabled={downloadingReceiptId === payment.id}
-                  >
-                    {downloadingReceiptId === payment.id ? '…' : 'Receipt PDF'}
-                  </Button>
-                ) : null}
-                {canCancelPayment(user) && payment.status === 'pending' ? (
-                  <Button size="small" onClick={() => cancelPayment(payment.id)}>
-                    Cancel
-                  </Button>
-                ) : null}
-              </TableCell>
-            </TableRow>
-          ))}
-          {!payments.length ? (
+        </div>
+      </div>
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <Table>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={7} align="center">
-                No payments yet
-              </TableCell>
+              <TableHeaderCell>Payment #</TableHeaderCell>
+              <TableHeaderCell>Status</TableHeaderCell>
+              <TableHeaderCell>Amount</TableHeaderCell>
+              <TableHeaderCell>Method</TableHeaderCell>
+              <TableHeaderCell>Date</TableHeaderCell>
+              <TableHeaderCell>Receipt</TableHeaderCell>
+              <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
-          ) : null}
-        </TableBody>
-      </Table>
+          </TableHead>
+          <TableBody>
+            {payments.map((payment) => (
+              <TableRow key={payment.id}>
+                <TableCell>{payment.payment_number}</TableCell>
+                <TableCell>{payment.status}</TableCell>
+                <TableCell>{formatMoney(parseNumber(payment.amount))}</TableCell>
+                <TableCell>{payment.payment_method}</TableCell>
+                <TableCell>{formatDate(payment.payment_date)}</TableCell>
+                <TableCell>{payment.receipt_number ?? '—'}</TableCell>
+                <TableCell align="right">
+                  <div className="flex gap-2 justify-end">
+                    <Button size="small" onClick={() => setSelectedPayment(payment)}>
+                      View
+                    </Button>
+                    {payment.status === 'completed' && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => downloadReceiptPdf(payment)}
+                        disabled={downloadingReceiptId === payment.id}
+                      >
+                        <FileText className="h-4 w-4 mr-1" />
+                        {downloadingReceiptId === payment.id ? '…' : 'Receipt PDF'}
+                      </Button>
+                    )}
+                    {canCancelPayment(user) && payment.status === 'pending' && (
+                      <Button size="small" variant="outlined" onClick={() => cancelPayment(payment.id)}>
+                        Cancel
+                      </Button>
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+            {!payments.length && (
+              <TableRow>
+                <TableCell colSpan={7} align="center" className="py-8">
+                  <Typography color="secondary">No payments yet</Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
       {/* Payment Detail Dialog */}
       <Dialog
         open={Boolean(selectedPayment)}
         onClose={() => setSelectedPayment(null)}
-        fullWidth
         maxWidth="sm"
       >
+        <DialogCloseButton onClose={() => setSelectedPayment(null)} />
         <DialogTitle>Payment details</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 1 }}>
-          <Typography variant="body2">Payment #: {selectedPayment?.payment_number ?? '—'}</Typography>
-          <Typography variant="body2">Receipt #: {selectedPayment?.receipt_number ?? '—'}</Typography>
-          <Typography variant="body2">
-            Amount: {formatMoney(parseNumber(selectedPayment?.amount))}
-          </Typography>
-          <Typography variant="body2">Method: {selectedPayment?.payment_method ?? '—'}</Typography>
-          <Typography variant="body2">
-            Date: {selectedPayment?.payment_date ? formatDate(selectedPayment.payment_date) : '—'}
-          </Typography>
-          <Typography variant="body2">Reference: {selectedPayment?.reference ?? '—'}</Typography>
-          {selectedPayment?.confirmation_attachment_id ? (
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={() => openAttachmentInNewTab(selectedPayment!.confirmation_attachment_id!)}
-            >
-              View confirmation file
-            </Button>
-          ) : null}
-          {selectedPayment?.status === 'completed' ? (
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<PictureAsPdfIcon />}
-              onClick={() => selectedPayment && downloadReceiptPdf(selectedPayment)}
-              disabled={downloadingReceiptId === selectedPayment?.id}
-            >
-              {downloadingReceiptId === selectedPayment?.id ? 'Downloading…' : 'Download receipt PDF'}
-            </Button>
-          ) : null}
-          <Typography variant="body2">Notes: {selectedPayment?.notes ?? '—'}</Typography>
-          <Typography variant="body2">Status: {selectedPayment?.status ?? '—'}</Typography>
+        <DialogContent>
+          <div className="space-y-2 mt-4">
+            <Typography variant="body2">Payment #: {selectedPayment?.payment_number ?? '—'}</Typography>
+            <Typography variant="body2">Receipt #: {selectedPayment?.receipt_number ?? '—'}</Typography>
+            <Typography variant="body2">
+              Amount: {formatMoney(parseNumber(selectedPayment?.amount))}
+            </Typography>
+            <Typography variant="body2">Method: {selectedPayment?.payment_method ?? '—'}</Typography>
+            <Typography variant="body2">
+              Date: {selectedPayment?.payment_date ? formatDate(selectedPayment.payment_date) : '—'}
+            </Typography>
+            <Typography variant="body2">Reference: {selectedPayment?.reference ?? '—'}</Typography>
+            {selectedPayment?.confirmation_attachment_id && (
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => openAttachmentInNewTab(selectedPayment!.confirmation_attachment_id!)}
+              >
+                View confirmation file
+              </Button>
+            )}
+            {selectedPayment?.status === 'completed' && (
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => selectedPayment && downloadReceiptPdf(selectedPayment)}
+                disabled={downloadingReceiptId === selectedPayment?.id}
+              >
+                <FileText className="h-4 w-4 mr-1" />
+                {downloadingReceiptId === selectedPayment?.id ? 'Downloading…' : 'Download receipt PDF'}
+              </Button>
+            )}
+            <Typography variant="body2">Notes: {selectedPayment?.notes ?? '—'}</Typography>
+            <Typography variant="body2">Status: {selectedPayment?.status ?? '—'}</Typography>
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setSelectedPayment(null)}>Close</Button>
+          <Button variant="outlined" onClick={() => setSelectedPayment(null)}>
+            Close
+          </Button>
         </DialogActions>
       </Dialog>
 
@@ -293,60 +290,59 @@ export const PaymentsTab = ({
       <Dialog
         open={allocationDialogOpen}
         onClose={() => setAllocationDialogOpen(false)}
-        fullWidth
         maxWidth="sm"
       >
+        <DialogCloseButton onClose={() => setAllocationDialogOpen(false)} />
         <DialogTitle>Allocate credit</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <FormControl>
-            <InputLabel>Invoice</InputLabel>
+        <DialogContent>
+          <div className="space-y-4 mt-4">
             <Select
               value={allocationForm.invoice_id}
-              label="Invoice"
-              onChange={(event) => {
-                const nextInvoice = event.target.value
+              onChange={(e) => {
+                const nextInvoice = e.target.value
                 setAllocationForm({ ...allocationForm, invoice_id: nextInvoice, invoice_line_id: '' })
                 loadInvoiceLinesForAllocation(nextInvoice)
               }}
+              label="Invoice"
             >
+              <option value="">Select invoice</option>
               {openInvoicesForAllocation.map((invoice) => (
-                <MenuItem key={invoice.id} value={String(invoice.id)}>
+                <option key={invoice.id} value={String(invoice.id)}>
                   {invoice.invoice_number} · {formatMoney(parseNumber(invoice.amount_due))}
-                </MenuItem>
+                </option>
               ))}
             </Select>
-          </FormControl>
-          <FormControl>
-            <InputLabel>Invoice line (optional)</InputLabel>
             <Select
               value={allocationForm.invoice_line_id}
-              label="Invoice line (optional)"
-              onChange={(event) =>
-                setAllocationForm({ ...allocationForm, invoice_line_id: event.target.value })
+              onChange={(e) =>
+                setAllocationForm({ ...allocationForm, invoice_line_id: e.target.value })
               }
+              label="Invoice line (optional)"
             >
-              <MenuItem value="">Any line</MenuItem>
+              <option value="">Any line</option>
               {allocationLines.map((line) => (
-                <MenuItem key={line.id} value={String(line.id)}>
+                <option key={line.id} value={String(line.id)}>
                   {line.description} · {formatMoney(parseNumber(line.remaining_amount))}
-                </MenuItem>
+                </option>
               ))}
             </Select>
-          </FormControl>
-          <TextField
-            label="Amount"
-            type="number"
-            value={allocationForm.amount}
-            onChange={(event) => setAllocationForm({ ...allocationForm, amount: event.target.value })}
-          />
+            <Input
+              label="Amount"
+              type="number"
+              value={allocationForm.amount}
+              onChange={(e) => setAllocationForm({ ...allocationForm, amount: e.target.value })}
+            />
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setAllocationDialogOpen(false)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => setAllocationDialogOpen(false)}>
+            Cancel
+          </Button>
           <Button variant="contained" onClick={submitManualAllocation} disabled={loading}>
-            Allocate
+            {loading ? <Spinner size="small" /> : 'Allocate'}
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </div>
   )
 }
