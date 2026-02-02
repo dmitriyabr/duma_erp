@@ -3,7 +3,7 @@
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import func, select, and_, or_
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -14,7 +14,6 @@ from src.shared.utils.money import round_money
 from src.modules.payments.models import (
     CreditAllocation,
     Payment,
-    PaymentMethod,
     PaymentStatus,
 )
 from src.modules.payments.schemas import (
@@ -49,7 +48,7 @@ class PaymentService:
     ) -> Payment:
         """Create a new payment (credit top-up)."""
         # Validate student exists
-        student = await self._get_student(data.student_id)
+        await self._get_student(data.student_id)
 
         # Generate payment number
         number_gen = DocumentNumberGenerator(self.db)
@@ -786,23 +785,36 @@ class PaymentService:
             invoice.status = InvoiceStatus.ISSUED.value  # reverted to unpaid
 
         # Also update line paid amounts if we have line-level allocations
-        for line in invoice.lines:
-            line_result = await self.db.execute(
-                select(func.coalesce(func.sum(CreditAllocation.amount), 0)).where(
-                    CreditAllocation.invoice_line_id == line.id
+        # OPTIMIZATION: Batch query instead of N+1 queries in loop
+        if invoice.lines:
+            line_ids = [line.id for line in invoice.lines]
+
+            # Get all line-level allocations in one query (GROUP BY)
+            line_allocations_result = await self.db.execute(
+                select(
+                    CreditAllocation.invoice_line_id,
+                    func.coalesce(func.sum(CreditAllocation.amount), 0),
                 )
+                .where(CreditAllocation.invoice_line_id.in_(line_ids))
+                .group_by(CreditAllocation.invoice_line_id)
             )
-            line_paid = Decimal(str(line_result.scalar() or 0))
+            line_paid_map = {
+                row[0]: Decimal(str(row[1])) for row in line_allocations_result.all()
+            }
 
-            # If no line-level allocations, distribute proportionally
-            if line_paid == 0 and total_paid > 0:
-                # Proportional distribution based on net_amount
-                if invoice.total > 0:
-                    proportion = line.net_amount / invoice.total
-                    line_paid = round_money(total_paid * proportion)
+            # Update each line with batch data
+            for line in invoice.lines:
+                line_paid = line_paid_map.get(line.id, Decimal("0"))
 
-            line.paid_amount = round_money(line_paid)
-            line.remaining_amount = round_money(line.net_amount - line_paid)
+                # If no line-level allocations, distribute proportionally
+                if line_paid == 0 and total_paid > 0:
+                    # Proportional distribution based on net_amount
+                    if invoice.total > 0:
+                        proportion = line.net_amount / invoice.total
+                        line_paid = round_money(total_paid * proportion)
+
+                line.paid_amount = round_money(line_paid)
+                line.remaining_amount = round_money(line.net_amount - line_paid)
 
     async def _sync_reservations_for_invoice(self, invoice_id: int, user_id: int) -> None:
         """Create/cancel reservations based on paid status of invoice lines."""
