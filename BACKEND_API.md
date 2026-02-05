@@ -55,11 +55,11 @@
 
 - **Invoices:** `draft → issued → partially_paid → paid` (есть `cancelled`, `void`)
 - **Payments:** `pending → completed | cancelled`
-- **Allocation priority:** 1) счета с `requires_full_payment` (Kit) — в первую очередь, допускается частичная оплата (выдача/резерв сработает только при полной); 2) счета с `partial_ok` — остаток распределяется пропорционально по `amount_due`.
+- **Allocation priority:** 1) счета с `requires_full_payment` (Kit) — в первую очередь, допускается частичная оплата; 2) счета с `partial_ok` — остаток распределяется пропорционально по `amount_due`.
 - **Credit balance:** вычисляется как `SUM(completed payments) - SUM(allocations)`
 - **Auto-allocation (бэкенд):** запускается при завершении платежа (`POST .../complete`) и при любом выставлении счёта в Issued: одиночное (POST `.../issue`), массовая генерация (`generate-term-invoices`), генерация по студенту (`generate-term-invoices/student`). Фронт не вызывает аллокацию после complete — всё делает бэкенд.
 - **Employee balance:** при запросе баланса сотрудника (`GET .../payouts/employees/{id}/balance`) баланс всегда пересчитывается по одобренным claims и выплатам (approved claims − payouts).
-- **Reservation:** создаётся при полной оплате line с Kit (product), выдача частями.
+- **Reservation:** создаётся сразу после issue инвойса по строкам с Kit (product), до оплаты; выдача может быть частичной или полной.
 - **Catalog:** продажи идут через `Kit` (invoice lines используют только `kit_id`).
   - Для **editable uniform kits** фактический состав строки хранится в `InvoiceLineComponent`, а цена и правила оплаты — на уровне `Kit`.
 - **Stock:** остатки не могут уходить в минус.

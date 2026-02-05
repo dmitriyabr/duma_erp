@@ -238,10 +238,11 @@ class InvoiceLineComponent(Base):
 
     # Relationships
     line: Mapped["InvoiceLine"] = relationship("InvoiceLine", backref="components")
+    item: Mapped["Item"] = relationship("Item")
 
 
 # Import at the end to avoid circular imports
 from src.modules.students.models import Student
 from src.modules.terms.models import Term
-from src.modules.items.models import Kit
+from src.modules.items.models import Item, Kit
 from src.core.auth.models import User

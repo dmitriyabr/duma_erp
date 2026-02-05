@@ -688,3 +688,136 @@ class TestItemEndpoints:
         assert data["data"]["sku_code"] == "KIT-001"
         assert data["data"]["price"] == "45.00"
         assert len(data["data"]["items"]) == 1
+
+    async def test_create_editable_kit(self, client: AsyncClient, db_session: AsyncSession):
+        """Test creating an editable kit with is_editable_components=True."""
+        token = await self._get_admin_token(client, db_session)
+
+        # Create category
+        cat_response = await client.post(
+            "/api/v1/items/categories",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"name": "Uniform Category"},
+        )
+        category_id = cat_response.json()["data"]["id"]
+
+        # Create items
+        item1_response = await client.post(
+            "/api/v1/items",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "category_id": category_id,
+                "sku_code": "SHIRT-S",
+                "name": "Shirt Size S",
+                "item_type": "product",
+                "price_type": "standard",
+                "price": "50.00",
+            },
+        )
+        item1_id = item1_response.json()["data"]["id"]
+
+        item2_response = await client.post(
+            "/api/v1/items",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "category_id": category_id,
+                "sku_code": "PANTS-S",
+                "name": "Pants Size S",
+                "item_type": "product",
+                "price_type": "standard",
+                "price": "40.00",
+            },
+        )
+        item2_id = item2_response.json()["data"]["id"]
+
+        # Create editable kit
+        response = await client.post(
+            "/api/v1/items/kits",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "category_id": category_id,
+                "sku_code": "UNIFORM-S",
+                "name": "Uniform Kit S",
+                "item_type": "product",
+                "price_type": "standard",
+                "price": "90.00",
+                "is_editable_components": True,
+                "items": [
+                    {"item_id": item1_id, "quantity": 1},
+                    {"item_id": item2_id, "quantity": 1},
+                ],
+            },
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["success"] is True
+        assert data["data"]["is_editable_components"] is True
+        assert len(data["data"]["items"]) == 2
+
+    async def test_create_variant_and_add_items(self, db_session: AsyncSession):
+        """Test creating an item variant and adding items to it."""
+        admin_id = await self._create_super_admin(db_session)
+        category_id, item1_id, item2_id = await self._create_category_and_items(db_session, admin_id)
+        service = ItemService(db_session)
+
+        # Create variant
+        from src.modules.items.schemas import ItemVariantCreate
+        variant = await service.create_variant(
+            ItemVariantCreate(name="Shirt Sizes", item_ids=[item1_id, item2_id]),
+            created_by_id=admin_id,
+        )
+
+        assert variant.id is not None
+        assert variant.name == "Shirt Sizes"
+        assert len(variant.items) == 2
+
+        # Get items for variant
+        items = await service.get_items_for_variant(variant.id)
+        assert len(items) == 2
+        item_ids = {item.id for item in items}
+        assert item_ids == {item1_id, item2_id}
+
+    async def test_create_kit_with_variant_component(self, db_session: AsyncSession):
+        """Test creating a kit with a variant component (source_type='variant')."""
+        admin_id = await self._create_super_admin(db_session)
+        category_id, item1_id, item2_id = await self._create_category_and_items(db_session, admin_id)
+        service = ItemService(db_session)
+
+        # Create variant
+        from src.modules.items.schemas import ItemVariantCreate
+        variant = await service.create_variant(
+            ItemVariantCreate(name="Shirt Sizes", item_ids=[item1_id, item2_id]),
+            created_by_id=admin_id,
+        )
+
+        # Create kit with variant component
+        from src.modules.items.schemas import KitItemCreate
+
+        kit = await service.create_kit(
+            KitCreate(
+                category_id=category_id,
+                sku_code="KIT-VARIANT",
+                name="Kit with Variant",
+                item_type=ItemType.PRODUCT,
+                price_type=PriceType.STANDARD,
+                price=Decimal("100.00"),
+                items=[
+                    KitItemCreate(
+                        source_type="variant",
+                        variant_id=variant.id,
+                        default_item_id=item1_id,
+                        quantity=1,
+                    )
+                ],
+            ),
+            created_by_id=admin_id,
+        )
+
+        kit = await service.get_kit_by_id(kit.id, with_items=True)
+        assert len(kit.kit_items) == 1
+        kit_item = kit.kit_items[0]
+        assert kit_item.source_type == "variant"
+        assert kit_item.variant_id == variant.id
+        assert kit_item.default_item_id == item1_id
+        assert kit_item.item_id is None  # Should be None for variant source_type

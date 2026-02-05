@@ -11,7 +11,7 @@ from src.core.exceptions import NotFoundError, ValidationError
 from src.core.documents.number_generator import DocumentNumberGenerator
 from src.modules.inventory.models import Issuance, IssuanceItem, IssuanceStatus, IssuanceType, RecipientType
 from src.modules.inventory.service import InventoryService
-from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceLineComponent
+from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceLineComponent, InvoiceStatus
 from src.modules.items.models import Item, ItemType, Kit, KitItem
 from src.modules.reservations.models import Reservation, ReservationItem, ReservationStatus
 from src.modules.students.models import Student
@@ -83,7 +83,13 @@ class ReservationService:
         return reservations, total
 
     async def sync_for_invoice(self, invoice_id: int, user_id: int) -> None:
-        """Sync reservations for all lines in an invoice based on paid status."""
+        """Sync reservations for all lines in an invoice.
+        
+        Логика:
+        - При issue инвойса: создаются резервации для всех product‑китов (до оплаты).
+        - При отмене инвойса (cancelled/void): резервации автоматически отменяются.
+        - При неполной оплате: резервации остаются (можно выдавать до оплаты).
+        """
         result = await self.db.execute(
             select(Invoice)
             .where(Invoice.id == invoice_id)
@@ -96,25 +102,33 @@ class ReservationService:
         if not invoice:
             raise NotFoundError(f"Invoice with id {invoice_id} not found")
 
-        for line in invoice.lines:
-            existing = await self.get_by_invoice_line_id(line.id)
-            is_fully_paid = line.remaining_amount <= Decimal("0.00")
-
-            if is_fully_paid:
-                if not existing:
-                    await self.create_from_line(line.id, created_by_id=user_id, commit=False)
-            else:
+        # Если инвойс отменён или аннулирован — отменяем все резервации
+        if invoice.status in (InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value):
+            for line in invoice.lines:
+                existing = await self.get_by_invoice_line_id(line.id)
                 if existing and existing.status != ReservationStatus.CANCELLED.value:
-                    await self.cancel_reservation(existing.id, cancelled_by_id=user_id, commit=False)
+                    await self.cancel_reservation(
+                        existing.id,
+                        cancelled_by_id=user_id,
+                        reason=f"Invoice {invoice_id} was {invoice.status}",
+                        commit=False,
+                    )
+            return
+
+        # Для issued/partially_paid/paid инвойсов — создаём резервации для product‑китов
+        for line in invoice.lines:
+            if not line.kit or line.kit.item_type != ItemType.PRODUCT.value:
+                continue
+
+            existing = await self.get_by_invoice_line_id(line.id)
+            if not existing:
+                await self.create_from_line(line.id, created_by_id=user_id, commit=False)
 
     async def create_from_line(
         self, invoice_line_id: int, created_by_id: int, commit: bool = True
     ) -> Reservation | None:
-        """Create a reservation from a fully paid invoice line."""
+        """Create a reservation from an invoice line (independent of payment status)."""
         line = await self._get_invoice_line(invoice_line_id)
-
-        if line.remaining_amount > Decimal("0.00"):
-            return None
 
         existing = await self.get_by_invoice_line_id(invoice_line_id)
         if existing:
@@ -187,6 +201,11 @@ class ReservationService:
         # Build map for quick access
         item_map = {ri.id: ri for ri in reservation.items}
 
+        # Filter out items with quantity 0 and validate at least one item to issue
+        items_to_issue = [(rid, qty) for rid, qty in items if qty > 0]
+        if not items_to_issue:
+            raise ValidationError("At least one item with quantity > 0 must be provided")
+
         issuance = await self._create_issuance(
             reservation=reservation,
             student=student,
@@ -194,7 +213,7 @@ class ReservationService:
             notes=notes,
         )
 
-        for reservation_item_id, quantity in items:
+        for reservation_item_id, quantity in items_to_issue:
             if reservation_item_id not in item_map:
                 raise ValidationError(f"Reservation item {reservation_item_id} not found")
             reservation_item = item_map[reservation_item_id]
@@ -367,10 +386,10 @@ class ReservationService:
                     item_id_to_use = kit_item.item_id
                 elif kit_item.source_type == "variant":
                     item_id_to_use = kit_item.default_item_id
-                
+
                 if not item_id_to_use:
                     continue
-                
+
                 # Verify item exists and is a product
                 item_result = await self.db.execute(
                     select(Item).where(Item.id == item_id_to_use)
@@ -378,7 +397,7 @@ class ReservationService:
                 item = item_result.scalar_one_or_none()
                 if not item or item.item_type != ItemType.PRODUCT.value:
                     continue
-                
+
                 quantity_required = kit_item.quantity * line.quantity
                 items.append((item_id_to_use, quantity_required))
 
