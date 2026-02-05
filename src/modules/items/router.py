@@ -15,6 +15,10 @@ from src.modules.items.schemas import (
     ItemPriceHistoryResponse,
     ItemResponse,
     ItemUpdate,
+    ItemVariantCreate,
+    ItemVariantItemResponse,
+    ItemVariantResponse,
+    ItemVariantUpdate,
     KitCreate,
     KitItemResponse,
     KitPriceHistoryResponse,
@@ -211,12 +215,17 @@ async def create_kit(
             price=kit.price,
             requires_full_payment=kit.requires_full_payment,
             is_active=kit.is_active,
+            is_editable_components=kit.is_editable_components,
             items=[
                 KitItemResponse(
                     id=ki.id,
+                    source_type=ki.source_type,
                     item_id=ki.item_id,
+                    variant_id=ki.variant_id,
+                    default_item_id=ki.default_item_id,
                     item_name=ki.item.name if ki.item else None,
-                    item_sku=ki.item.sku_code if ki.item else None,
+                    variant_name=ki.variant.name if ki.variant else None,
+                    default_item_name=ki.default_item.name if ki.default_item else None,
                     quantity=ki.quantity,
                 )
                 for ki in kit.kit_items
@@ -251,12 +260,17 @@ async def list_kits(
                 price=kit.price,
                 requires_full_payment=kit.requires_full_payment,
                 is_active=kit.is_active,
+                is_editable_components=kit.is_editable_components,
                 items=[
                     KitItemResponse(
                         id=ki.id,
+                        source_type=ki.source_type,
                         item_id=ki.item_id,
+                        variant_id=ki.variant_id,
+                        default_item_id=ki.default_item_id,
                         item_name=ki.item.name if ki.item else None,
-                        item_sku=ki.item.sku_code if ki.item else None,
+                        variant_name=ki.variant.name if ki.variant else None,
+                        default_item_name=ki.default_item.name if ki.default_item else None,
                         quantity=ki.quantity,
                     )
                     for ki in kit.kit_items
@@ -292,12 +306,17 @@ async def get_kit(
             price=kit.price,
             requires_full_payment=kit.requires_full_payment,
             is_active=kit.is_active,
+            is_editable_components=kit.is_editable_components,
             items=[
                 KitItemResponse(
                     id=ki.id,
+                    source_type=ki.source_type,
                     item_id=ki.item_id,
+                    variant_id=ki.variant_id,
+                    default_item_id=ki.default_item_id,
                     item_name=ki.item.name if ki.item else None,
-                    item_sku=ki.item.sku_code if ki.item else None,
+                    variant_name=ki.variant.name if ki.variant else None,
+                    default_item_name=ki.default_item.name if ki.default_item else None,
                     quantity=ki.quantity,
                 )
                 for ki in kit.kit_items
@@ -334,12 +353,17 @@ async def update_kit(
             price=kit.price,
             requires_full_payment=kit.requires_full_payment,
             is_active=kit.is_active,
+            is_editable_components=kit.is_editable_components,
             items=[
                 KitItemResponse(
                     id=ki.id,
+                    source_type=ki.source_type,
                     item_id=ki.item_id,
+                    variant_id=ki.variant_id,
+                    default_item_id=ki.default_item_id,
                     item_name=ki.item.name if ki.item else None,
-                    item_sku=ki.item.sku_code if ki.item else None,
+                    variant_name=ki.variant.name if ki.variant else None,
+                    default_item_name=ki.default_item.name if ki.default_item else None,
                     quantity=ki.quantity,
                 )
                 for ki in kit.kit_items
@@ -372,6 +396,143 @@ async def get_kit_price_history(
             )
             for h in history
         ],
+    )
+
+
+# --- Item Variant Endpoints ---
+
+
+@router.post(
+    "/variants",
+    response_model=ApiResponse[ItemVariantResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_variant(
+    data: ItemVariantCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+):
+    """Create a new item variant. Requires SUPER_ADMIN role."""
+    service = ItemService(db)
+    variant = await service.create_variant(data, current_user.id)
+    items = await service.get_items_for_variant(variant.id)
+    return ApiResponse(
+        success=True,
+        message="Variant created successfully",
+        data=ItemVariantResponse(
+            id=variant.id,
+            name=variant.name,
+            is_active=variant.is_active,
+            items=[
+                ItemVariantItemResponse(
+                    id=item.id,
+                    name=item.name,
+                    sku_code=item.sku_code,
+                )
+                for item in items
+            ],
+        ),
+    )
+
+
+@router.get(
+    "/variants",
+    response_model=ApiResponse[list[ItemVariantResponse]],
+)
+async def list_variants(
+    include_inactive: bool = False,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
+):
+    """List all item variants."""
+    service = ItemService(db)
+    variants = await service.list_variants(include_inactive=include_inactive)
+    responses: list[ItemVariantResponse] = []
+    for variant in variants:
+        items = await service.get_items_for_variant(variant.id)
+        responses.append(
+            ItemVariantResponse(
+                id=variant.id,
+                name=variant.name,
+                is_active=variant.is_active,
+                items=[
+                    ItemVariantItemResponse(
+                        id=item.id,
+                        name=item.name,
+                        sku_code=item.sku_code,
+                    )
+                    for item in items
+                ],
+            )
+        )
+    return ApiResponse(success=True, data=responses)
+
+
+@router.get(
+    "/variants/{variant_id}",
+    response_model=ApiResponse[ItemVariantResponse],
+)
+async def get_variant(
+    variant_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
+):
+    """Get a single variant by ID."""
+    service = ItemService(db)
+    variant = await service.get_variant_by_id(variant_id)
+    items = await service.get_items_for_variant(variant.id)
+    return ApiResponse(
+        success=True,
+        data=ItemVariantResponse(
+            id=variant.id,
+            name=variant.name,
+            is_active=variant.is_active,
+            items=[
+                ItemVariantItemResponse(
+                    id=item.id,
+                    name=item.name,
+                    sku_code=item.sku_code,
+                )
+                for item in items
+            ],
+        ),
+    )
+
+
+@router.patch(
+    "/variants/{variant_id}",
+    response_model=ApiResponse[ItemVariantResponse],
+)
+async def update_variant(
+    variant_id: int,
+    data: ItemVariantUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+):
+    """Update a variant and its items. Requires SUPER_ADMIN role."""
+    service = ItemService(db)
+    variant = await service.update_variant(variant_id, data, current_user.id)
+    items = await service.get_items_for_variant(variant.id)
+    return ApiResponse(
+        success=True,
+        message="Variant updated successfully",
+        data=ItemVariantResponse(
+            id=variant.id,
+            name=variant.name,
+            is_active=variant.is_active,
+            items=[
+                ItemVariantItemResponse(
+                    id=item.id,
+                    name=item.name,
+                    sku_code=item.sku_code,
+                )
+                for item in items
+            ],
+        ),
     )
 
 

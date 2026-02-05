@@ -35,7 +35,7 @@ import { isAccountant } from '../../utils/permissions'
 import { api, unwrapResponse } from '../../services/api'
 import { formatMoney } from '../../utils/format'
 
-type CatalogTab = 'items' | 'categories'
+type CatalogTab = 'items' | 'categories' | 'variants'
 
 type ItemType = 'product' | 'service'
 
@@ -47,9 +47,13 @@ interface CategoryRow {
 
 interface KitItemRow {
   id: number
-  item_id: number
+  source_type: 'item' | 'variant'
+  item_id?: number | null
+  variant_id?: number | null
+  default_item_id?: number | null
   item_name?: string | null
-  item_sku?: string | null
+  variant_name?: string | null
+  default_item_name?: string | null
   quantity: number
 }
 
@@ -64,6 +68,8 @@ interface KitRow {
   price?: number | null
   requires_full_payment: boolean
   is_active: boolean
+   // When true, this kit can have its inventory components overridden per sale (uniform kits)
+  is_editable_components?: boolean
   items: KitItemRow[]
 }
 
@@ -77,6 +83,19 @@ interface InventoryItemRow {
   is_active: boolean
 }
 
+interface VariantGroupItemRow {
+  id: number
+  name: string
+  sku_code: string
+}
+
+interface VariantRow {
+  id: number
+  name: string
+  is_active: boolean
+  items: VariantGroupItemRow[]
+}
+
 const itemTypeOptions: { label: string; value: ItemType }[] = [
   { label: 'Product', value: 'product' },
   { label: 'Service', value: 'service' },
@@ -85,6 +104,7 @@ const itemTypeOptions: { label: string; value: ItemType }[] = [
 const tabConfig: { key: CatalogTab; label: string; path: string }[] = [
   { key: 'items', label: 'Items', path: '/billing/catalog/items' },
   { key: 'categories', label: 'Categories', path: '/billing/catalog/categories' },
+  { key: 'variants', label: 'Variants', path: '/billing/catalog/variants' },
 ]
 
 const emptyKitForm = {
@@ -92,10 +112,13 @@ const emptyKitForm = {
   category_id: '',
   item_type: 'product' as ItemType,
   price: '',
-  items: [{ item_id: '', quantity: 1 }],
+  is_editable_components: false,
+  items: [{ source_type: 'item' as const, item_id: '', variant_id: '', default_item_id: '', quantity: 1 }],
 }
 
 const emptyCategoryForm = { name: '' }
+
+const emptyVariantForm = { name: '', item_ids: [] as number[] }
 
 const TabPanel = ({
   active,
@@ -131,6 +154,10 @@ export const CatalogPage = () => {
   const [editingCategory, setEditingCategory] = useState<CategoryRow | null>(null)
   const [categoryForm, setCategoryForm] = useState({ ...emptyCategoryForm })
 
+  const [variantDialogOpen, setVariantDialogOpen] = useState(false)
+  const [editingVariant, setEditingVariant] = useState<VariantRow | null>(null)
+  const [variantForm, setVariantForm] = useState({ ...emptyVariantForm })
+
   const [confirmState, setConfirmState] = useState<{
     open: boolean
     kit?: KitRow
@@ -148,9 +175,11 @@ export const CatalogPage = () => {
   const inventoryApi = useApi<InventoryItemRow[]>('/items', {
     params: { item_type: 'product', include_inactive: false },
   })
+  const variantsApi = useApi<VariantRow[]>('/items/variants')
   const kitMutation = useApiMutation<unknown>()
   const categoryMutation = useApiMutation<CategoryRow | unknown>()
   const toggleMutation = useApiMutation<unknown>()
+  const variantMutation = useApiMutation<unknown>()
 
   const categories = categoriesApi.data ?? []
   const kits = useMemo(
@@ -158,14 +187,22 @@ export const CatalogPage = () => {
     [kitsApi.data]
   )
   const inventoryItems = inventoryApi.data ?? []
+  const variants = variantsApi.data ?? []
   const tabError =
     categoriesApi.error ??
     kitsApi.error ??
     inventoryApi.error ??
+    variantsApi.error ??
     kitMutation.error ??
     categoryMutation.error ??
-    toggleMutation.error
-  const loading = categoriesApi.loading || categoryMutation.loading || kitMutation.loading || toggleMutation.loading
+    toggleMutation.error ??
+    variantMutation.error
+  const loading =
+    categoriesApi.loading ||
+    categoryMutation.loading ||
+    kitMutation.loading ||
+    toggleMutation.loading ||
+    variantMutation.loading
   const kitsLoading = kitsApi.loading
 
   const activeTab = useMemo<CatalogTab>(() => {
@@ -219,13 +256,17 @@ export const CatalogPage = () => {
       category_id: String(kit.category_id),
       item_type: kit.item_type,
       price: kit.price?.toString() ?? '',
+      is_editable_components: Boolean(kit.is_editable_components),
       items:
         kit.item_type === 'product' && kit.items.length
           ? kit.items.map((item) => ({
-              item_id: String(item.item_id),
+              source_type: item.source_type,
+              item_id: item.item_id ? String(item.item_id) : '',
+              variant_id: item.variant_id ? String(item.variant_id) : '',
+              default_item_id: item.default_item_id ? String(item.default_item_id) : '',
               quantity: item.quantity,
             }))
-          : [{ item_id: '', quantity: 1 }],
+          : [{ source_type: 'item' as const, item_id: '', variant_id: '', default_item_id: '', quantity: 1 }],
     })
     setKitDialogOpen(true)
   }
@@ -259,8 +300,26 @@ export const CatalogPage = () => {
     const itemsPayload =
       kitForm.item_type === 'product'
         ? kitForm.items
-            .filter((item) => item.item_id)
-            .map((item) => ({ item_id: Number(item.item_id), quantity: item.quantity }))
+            .filter((item) => 
+              (item.source_type === 'item' && item.item_id) ||
+              (item.source_type === 'variant' && item.variant_id && item.default_item_id)
+            )
+            .map((item) => {
+              if (item.source_type === 'item') {
+                return {
+                  source_type: 'item' as const,
+                  item_id: Number(item.item_id),
+                  quantity: item.quantity,
+                }
+              } else {
+                return {
+                  source_type: 'variant' as const,
+                  variant_id: Number(item.variant_id),
+                  default_item_id: Number(item.default_item_id),
+                  quantity: item.quantity,
+                }
+              }
+            })
         : []
     if (kitForm.item_type === 'product' && !itemsPayload.length) {
       setValidationError('Product items must include at least one component.')
@@ -275,6 +334,7 @@ export const CatalogPage = () => {
               category_id: categoryId,
               name: kitForm.name.trim(),
               price: priceValue,
+              is_editable_components: Boolean(kitForm.is_editable_components),
               items: kitForm.item_type === 'product' ? itemsPayload : undefined,
             })
             .then((r) => ({ data: { data: unwrapResponse(r) } }))
@@ -287,6 +347,7 @@ export const CatalogPage = () => {
               item_type: kitForm.item_type,
               price_type: 'standard',
               price: priceValue,
+              is_editable_components: Boolean(kitForm.is_editable_components),
               items: kitForm.item_type === 'product' ? itemsPayload : [],
             })
             .then((r) => ({ data: { data: unwrapResponse(r) } }))
@@ -319,6 +380,27 @@ export const CatalogPage = () => {
     setEditingCategory(null)
   }
 
+  const openCreateVariant = () => {
+    setEditingVariant(null)
+    setVariantForm({ ...emptyVariantForm })
+    setVariantDialogOpen(true)
+  }
+
+  const openEditVariant = (variant: VariantRow) => {
+    setEditingVariant(variant)
+    setVariantForm({
+      name: variant.name,
+      item_ids: variant.items.map((i) => i.id),
+    })
+    setVariantDialogOpen(true)
+  }
+
+  const resetVariantDialog = () => {
+    setVariantDialogOpen(false)
+    setEditingVariant(null)
+    setVariantForm({ ...emptyVariantForm })
+  }
+
   const submitCategory = async () => {
     if (!categoryForm.name.trim()) {
       setValidationError('Enter a category name.')
@@ -346,6 +428,49 @@ export const CatalogPage = () => {
       resetCategoryDialog()
       categoriesApi.refetch()
     }
+  }
+
+  const submitVariant = async () => {
+    if (!variantForm.name.trim()) {
+      setValidationError('Enter a variant name.')
+      return
+    }
+    setValidationError(null)
+    variantMutation.reset()
+
+    const payload = {
+      name: variantForm.name.trim(),
+      item_ids: variantForm.item_ids,
+    }
+
+    const ok = editingVariant
+      ? await variantMutation.execute(() =>
+          api
+            .patch(`/items/variants/${editingVariant.id}`, payload)
+            .then((r) => ({ data: { data: unwrapResponse(r) } }))
+        )
+      : await variantMutation.execute(() =>
+          api
+            .post('/items/variants', payload)
+            .then((r) => ({ data: { data: unwrapResponse(r) } }))
+        )
+
+    if (ok != null) {
+      resetVariantDialog()
+      variantsApi.refetch()
+    }
+  }
+
+  const toggleItemInVariant = (itemId: number) => {
+    setVariantForm((prev) => {
+      const exists = prev.item_ids.includes(itemId)
+      return {
+        ...prev,
+        item_ids: exists
+          ? prev.item_ids.filter((id) => id !== itemId)
+          : [...prev.item_ids, itemId],
+      }
+    })
   }
 
   const requestToggleCategoryActive = (category: CategoryRow) => {
@@ -386,15 +511,24 @@ export const CatalogPage = () => {
     setKitForm((prev) => ({ ...prev, category_id: String(value) }))
   }
 
-  const updateKitItem = (index: number, field: 'item_id' | 'quantity', value: string | number) => {
+  const updateKitItem = (index: number, field: 'source_type' | 'item_id' | 'variant_id' | 'default_item_id' | 'quantity', value: string | number) => {
     setKitForm((prev) => {
       const nextItems = [...prev.items]
       const item = { ...nextItems[index] }
       if (field === 'quantity') {
         const nextValue = Number(value)
         item.quantity = Number.isNaN(nextValue) || nextValue < 1 ? 1 : nextValue
+      } else if (field === 'source_type') {
+        item.source_type = value as 'item' | 'variant'
+        // Reset fields when switching source_type
+        if (value === 'item') {
+          item.variant_id = ''
+          item.default_item_id = ''
+        } else {
+          item.item_id = ''
+        }
       } else {
-        item.item_id = value as string
+        item[field] = value as string
       }
       nextItems[index] = item
       return { ...prev, items: nextItems }
@@ -404,14 +538,14 @@ export const CatalogPage = () => {
   const removeKitItem = (index: number) => {
     setKitForm((prev) => {
       const nextItems = prev.items.filter((_, idx) => idx !== index)
-      return { ...prev, items: nextItems.length ? nextItems : [{ item_id: '', quantity: 1 }] }
+      return { ...prev, items: nextItems.length ? nextItems : [{ source_type: 'item' as const, item_id: '', variant_id: '', default_item_id: '', quantity: 1 }] }
     })
   }
 
   const addKitItem = () => {
     setKitForm((prev) => ({
       ...prev,
-      items: [...prev.items, { item_id: '', quantity: 1 }],
+      items: [...prev.items, { source_type: 'item' as const, item_id: '', variant_id: '', default_item_id: '', quantity: 1 }],
     }))
   }
 
@@ -613,6 +747,63 @@ export const CatalogPage = () => {
         </Table>
       </TabPanel>
 
+      <TabPanel active={activeTab} name="variants">
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1 }}>
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+            Variants
+          </Typography>
+          {!readOnly && (
+            <Button variant="contained" onClick={openCreateVariant}>
+              New variant
+            </Button>
+          )}
+        </Box>
+
+        <Table sx={{ mt: 2 }}>
+          <TableHead>
+            <TableRow>
+              <TableCell>Name</TableCell>
+              <TableCell>Items</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell align="right">Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {variants.map((variant) => (
+              <TableRow key={variant.id}>
+                <TableCell>{variant.name}</TableCell>
+                <TableCell>
+                  {variant.items.length
+                    ? variant.items.map((item) => item.sku_code).join(', ')
+                    : 'No items'}
+                </TableCell>
+                <TableCell>
+                  <Chip
+                    size="small"
+                    label={variant.is_active ? 'Active' : 'Inactive'}
+                    color={variant.is_active ? 'success' : 'default'}
+                  />
+                </TableCell>
+                <TableCell align="right">
+                  {!readOnly && (
+                    <Button size="small" onClick={() => openEditVariant(variant)}>
+                      Edit
+                    </Button>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+            {!variants.length && !loading ? (
+              <TableRow>
+                <TableCell colSpan={4} align="center">
+                  No variants found
+                </TableCell>
+              </TableRow>
+            ) : null}
+          </TableBody>
+        </Table>
+      </TabPanel>
+
 
       <Dialog open={kitDialogOpen} onClose={resetKitDialog} fullWidth maxWidth="md">
         <DialogTitle>
@@ -679,46 +870,113 @@ export const CatalogPage = () => {
             inputProps={{ min: 0, step: 0.01 }}
           />
 
+          <FormControlLabel
+            control={
+              <Switch
+                checked={Boolean(kitForm.is_editable_components)}
+                onChange={(event) =>
+                  setKitForm((prev) => ({
+                    ...prev,
+                    is_editable_components: event.target.checked,
+                  }))
+                }
+                disabled={readOnly}
+              />
+            }
+            label="Allow configuring components per sale (uniform kit)"
+          />
+
           {kitForm.item_type === 'product' ? (
             <Box sx={{ display: 'grid', gap: 1 }}>
               <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
                 Components
               </Typography>
               {kitForm.items.map((item, index) => (
-                <Box
-                  key={`kit-item-${index}`}
-                  sx={{ display: 'grid', gap: 1, gridTemplateColumns: readOnly ? '1fr 140px' : '1fr 140px auto' }}
-                >
+                <Box key={`kit-item-${index}`} sx={{ display: 'grid', gap: 1, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
                   <FormControl fullWidth disabled={readOnly}>
-                    <InputLabel>Inventory item</InputLabel>
+                    <InputLabel>Source type</InputLabel>
                     <Select
-                      value={item.item_id}
-                      label="Inventory item"
+                      value={item.source_type}
+                      label="Source type"
                       onChange={(event) =>
-                        updateKitItem(index, 'item_id', event.target.value as string)
+                        updateKitItem(index, 'source_type', event.target.value as 'item' | 'variant')
                       }
                     >
-                      {inventoryItems.map((option) => (
-                        <MenuItem key={option.id} value={option.id}>
-                          {option.name}
-                        </MenuItem>
-                      ))}
+                      <MenuItem value="item">Inventory item</MenuItem>
+                      <MenuItem value="variant">Variant</MenuItem>
                     </Select>
                   </FormControl>
-                  <TextField
-                    label="Qty"
-                    type="number"
-                    value={item.quantity}
-                    onChange={(event) => updateKitItem(index, 'quantity', event.target.value)}
-                    onFocus={(event) => event.currentTarget.select()}
-                    disabled={readOnly}
-                    inputProps={{ min: 1, step: 1 }}
-                  />
-                  {!readOnly && (
-                    <IconButton onClick={() => removeKitItem(index)} aria-label="Remove component">
-                      <DeleteOutlineIcon />
-                    </IconButton>
+                  {item.source_type === 'item' ? (
+                    <FormControl fullWidth disabled={readOnly}>
+                      <InputLabel>Inventory item</InputLabel>
+                      <Select
+                        value={item.item_id}
+                        label="Inventory item"
+                        onChange={(event) =>
+                          updateKitItem(index, 'item_id', event.target.value as string)
+                        }
+                      >
+                        {inventoryItems.map((option) => (
+                          <MenuItem key={option.id} value={option.id}>
+                            {option.name}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  ) : (
+                    <>
+                      <FormControl fullWidth disabled={readOnly}>
+                        <InputLabel>Variant</InputLabel>
+                        <Select
+                          value={item.variant_id}
+                          label="Variant"
+                          onChange={(event) => {
+                            updateKitItem(index, 'variant_id', event.target.value as string)
+                            updateKitItem(index, 'default_item_id', '') // Reset default_item when variant changes
+                          }}
+                        >
+                          {variants.filter(v => v.is_active).map((variant) => (
+                            <MenuItem key={variant.id} value={variant.id}>
+                              {variant.name}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      <FormControl fullWidth disabled={readOnly || !item.variant_id}>
+                        <InputLabel>Default item</InputLabel>
+                        <Select
+                          value={item.default_item_id}
+                          label="Default item"
+                          onChange={(event) =>
+                            updateKitItem(index, 'default_item_id', event.target.value as string)
+                          }
+                        >
+                          {variants.find(v => v.id === Number(item.variant_id))?.items.map((variantItem) => (
+                            <MenuItem key={variantItem.id} value={variantItem.id}>
+                              {variantItem.name} ({variantItem.sku_code})
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </>
                   )}
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <TextField
+                      label="Qty"
+                      type="number"
+                      value={item.quantity}
+                      onChange={(event) => updateKitItem(index, 'quantity', event.target.value)}
+                      onFocus={(event) => event.currentTarget.select()}
+                      disabled={readOnly}
+                      inputProps={{ min: 1, step: 1 }}
+                      sx={{ flex: 1 }}
+                    />
+                    {!readOnly && (
+                      <IconButton onClick={() => removeKitItem(index)} aria-label="Remove component">
+                        <DeleteOutlineIcon />
+                      </IconButton>
+                    )}
+                  </Box>
                 </Box>
               ))}
               {!readOnly && (
@@ -755,6 +1013,69 @@ export const CatalogPage = () => {
           <Button variant="contained" onClick={submitCategory} disabled={loading}>
             Save
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={variantDialogOpen} onClose={resetVariantDialog} fullWidth maxWidth="md">
+        <DialogTitle>{editingVariant ? 'Edit variant group' : 'Create variant group'}</DialogTitle>
+        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
+          <TextField
+            label="Name"
+            value={variantForm.name}
+            onChange={(event) => setVariantForm({ ...variantForm, name: event.target.value })}
+            fullWidth
+            required
+          />
+          <Box sx={{ mt: 1 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+              Items in this group
+            </Typography>
+            <Box sx={{ maxHeight: 280, overflowY: 'auto', border: '1px solid #eee', borderRadius: 1, p: 1 }}>
+              {inventoryItems.map((item) => {
+                const checked = variantForm.item_ids.includes(item.id)
+                return (
+                  <Box
+                    key={item.id}
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      py: 0.5,
+                    }}
+                  >
+                    <Box>
+                      <Typography variant="body2">
+                        {item.name} · {item.sku_code}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {item.category_name ?? 'No category'}
+                      </Typography>
+                    </Box>
+                    <Button
+                      size="small"
+                      variant={checked ? 'contained' : 'outlined'}
+                      onClick={() => toggleItemInVariant(item.id)}
+                    >
+                      {checked ? 'Remove' : 'Add'}
+                    </Button>
+                  </Box>
+                )
+              })}
+              {!inventoryItems.length ? (
+                <Typography variant="body2" color="text.secondary">
+                  No inventory items found.
+                </Typography>
+              ) : null}
+            </Box>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={resetVariantDialog}>Cancel</Button>
+          {!readOnly && (
+            <Button variant="contained" onClick={submitVariant} disabled={loading}>
+              Save
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
 

@@ -131,10 +131,26 @@ export interface ItemOption {
   price: number
 }
 
+export interface KitItemOption {
+  id: number
+  source_type: 'item' | 'variant'
+  item_id?: number | null
+  variant_id?: number | null
+  default_item_id?: number | null
+  item_name?: string | null
+  variant_name?: string | null
+  default_item_name?: string | null
+  quantity: number
+}
+
 export interface KitOption {
   id: number
   name: string
   price: number
+  price_type?: string // For filtering standard price kits
+  // When true, kit allows overriding its inventory components per invoice line (uniform kits)
+  is_editable_components?: boolean
+  items?: KitItemOption[] // Default components with variant groups
 }
 
 export interface GradeOption {

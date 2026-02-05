@@ -113,6 +113,7 @@ export const AppRoutes = () => {
           <Route path="billing/catalog" element={<CatalogPage />} />
           <Route path="billing/catalog/items" element={<CatalogPage />} />
           <Route path="billing/catalog/categories" element={<CatalogPage />} />
+          <Route path="billing/catalog/variants" element={<CatalogPage />} />
           <Route path="billing/invoices" element={<InvoicesListPage />} />
           <Route path="billing/invoices/new" element={<CreateInvoicePage />} />
           <Route path="billing/payments" element={<PlaceholderPage title="Payments" />} />

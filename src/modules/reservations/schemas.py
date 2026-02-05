@@ -42,7 +42,7 @@ class ReservationIssueItem(BaseModel):
     """Item issue request for reservation."""
 
     reservation_item_id: int
-    quantity: int = Field(..., gt=0)
+    quantity: int = Field(..., ge=0)  # Allow 0 for items not being issued
 
 
 class ReservationIssueRequest(BaseModel):
