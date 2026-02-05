@@ -29,3 +29,4 @@ class TestDashboardPerformance:
         
         print(f"\n✓ Dashboard loaded in {elapsed:.3f}s")
 
+
