@@ -105,7 +105,7 @@ class ItemPriceHistoryResponse(BaseModel):
 class KitItemCreate(BaseModel):
     """Schema for kit item in kit creation."""
 
-    source_type: Literal["item", "variant"]
+    source_type: Literal["item", "variant"] = "item"  # Default to 'item' for backward compatibility
     item_id: int | None = None  # If source_type = 'item'
     variant_id: int | None = None  # If source_type = 'variant'
     default_item_id: int | None = None  # If source_type = 'variant'
@@ -164,7 +164,7 @@ class KitCreate(BaseModel):
 class KitItemUpdate(BaseModel):
     """Schema for updating kit items."""
 
-    source_type: Literal["item", "variant"]
+    source_type: Literal["item", "variant"] = "item"  # Default to 'item' for backward compatibility
     item_id: int | None = None
     variant_id: int | None = None
     default_item_id: int | None = None

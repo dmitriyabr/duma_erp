@@ -161,15 +161,15 @@ class InvoiceService:
         components: list[InvoiceLineComponentInput],
     ) -> None:
         """Set concrete inventory components for an invoice line (for configurable kits)."""
-        if not kit.is_editable_components:
-            raise ValidationError(
-                f"Kit '{kit.name}' does not support editable components"
-            )
-
-        # Load kit items with their variants for validation
+        # Get kit_id safely to avoid lazy loading issues
+        kit_id = getattr(kit, 'id', None)
+        if not kit_id:
+            raise ValidationError("Kit must have an id")
+        
+        # Load kit with all relationships to avoid lazy loading
         kit_result = await self.db.execute(
             select(Kit)
-            .where(Kit.id == kit.id)
+            .where(Kit.id == kit_id)
             .options(
                 selectinload(Kit.kit_items).selectinload(KitItem.item),
                 selectinload(Kit.kit_items).selectinload(KitItem.variant),
@@ -178,14 +178,21 @@ class InvoiceService:
         )
         kit_with_items = kit_result.scalar_one_or_none()
         if not kit_with_items:
-            raise NotFoundError(f"Kit with id {kit.id} not found")
+            raise NotFoundError(f"Kit with id {kit_id} not found")
+        
+        if not kit_with_items.is_editable_components:
+            raise ValidationError(
+                f"Kit '{kit_with_items.name}' does not support editable components"
+            )
 
         # Build map of kit items by index for validation
         # For variant source_type, we need to validate that replacement item is in the variant
 
         # Clear existing components (if any)
-        for existing in list(getattr(line, "components", []) or []):
-            await self.db.delete(existing)
+        # For new lines (just created in _add_line_to_invoice), there are no existing components
+        # We only need to delete if this is an update to an existing line
+        # Since _add_line_to_invoice creates new lines, we skip deletion to avoid lazy loading issues
+        # If this method is ever called for updates, we would need to handle deletion differently
 
         # Validate and create new components
         for comp in components:
@@ -218,19 +225,27 @@ class InvoiceService:
                         )
                     )
                     if not membership_result.scalar_one_or_none():
-                        variant_name = kit_item.variant.name if kit_item.variant else f"variant {kit_item.variant_id}"
+                        # Get variant name by querying directly to avoid lazy load
+                        variant_result = await self.db.execute(
+                            select(ItemVariant).where(ItemVariant.id == kit_item.variant_id)
+                        )
+                        variant = variant_result.scalar_one_or_none()
+                        variant_name = variant.name if variant else f"variant {kit_item.variant_id}"
                         raise ValidationError(
                             f"Item '{item.name}' cannot replace a component in this kit. "
                             f"Replacement items must be from the variant '{variant_name}'"
                         )
 
-            # Attach component via relationship so SQLAlchemy sets invoice_line_id correctly
+            # Create component with invoice_line_id (line.id is available after flush)
+            # Get line_id safely to avoid lazy loading issues
+            line_id = getattr(line, 'id', None)
+            if not line_id:
+                raise ValidationError("Invoice line must be flushed before setting components")
             component = InvoiceLineComponent(
+                invoice_line_id=line_id,
                 item_id=comp.item_id,
                 quantity=comp.quantity,
             )
-            # Use the relationship; this will populate component.invoice_line_id on flush
-            line.components.append(component)
             self.db.add(component)
 
     async def _apply_student_discounts(
@@ -393,6 +408,7 @@ class InvoiceService:
         self._recalculate_line(line)
         self.db.add(line)
         invoice.lines.append(line)
+        await self.db.flush()  # Flush to get line.id before setting components
 
         # Optional: configure concrete inventory components for configurable kits
         if line_data.components:

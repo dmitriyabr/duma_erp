@@ -343,6 +343,7 @@ class ReservationService:
             .where(InvoiceLine.id == line_id)
             .options(
                 selectinload(InvoiceLine.invoice),
+                selectinload(InvoiceLine.components).selectinload(InvoiceLineComponent.item),
                 selectinload(InvoiceLine.kit).selectinload(Kit.kit_items).selectinload(KitItem.item),
                 selectinload(InvoiceLine.kit).selectinload(Kit.kit_items).selectinload(KitItem.default_item),
             )
@@ -376,8 +377,11 @@ class ReservationService:
             return items
 
         # Fallback to kit definition
-        if line.kit:
+        if line.kit and hasattr(line.kit, "kit_items"):
             if line.kit.item_type != ItemType.PRODUCT.value:
+                return items
+            # Ensure kit_items are loaded (should be via selectinload, but check)
+            if not line.kit.kit_items:
                 return items
             for kit_item in line.kit.kit_items:
                 # Determine which item_id to use based on source_type

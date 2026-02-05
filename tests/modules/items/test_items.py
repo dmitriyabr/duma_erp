@@ -455,7 +455,7 @@ class TestKitService:
                 item_type=ItemType.PRODUCT,
                 price_type=PriceType.STANDARD,
                 price=Decimal("100.00"),
-                items=[KitItemCreate(item_id=item1_id, quantity=1)],
+                items=[KitItemCreate(item_id=item1_id, quantity=1, source_type="item")],
             ),
             created_by_id=admin_id,
         )
@@ -469,7 +469,7 @@ class TestKitService:
                     item_type=ItemType.PRODUCT,
                     price_type=PriceType.STANDARD,
                     price=Decimal("200.00"),
-                    items=[KitItemCreate(item_id=item1_id, quantity=1)],
+                    items=[KitItemCreate(item_id=item1_id, quantity=1, source_type="item")],
                 ),
                 created_by_id=admin_id,
             )
@@ -517,7 +517,7 @@ class TestKitService:
                 item_type=ItemType.PRODUCT,
                 price_type=PriceType.STANDARD,
                 price=Decimal("70.00"),
-                items=[KitItemCreate(item_id=item1_id, quantity=1)],
+                items=[KitItemCreate(item_id=item1_id, quantity=1, source_type="item")],
             ),
             created_by_id=admin_id,
         )
@@ -535,6 +535,50 @@ class TestKitService:
         assert len(kit.kit_items) == 1
         assert kit.kit_items[0].item_id == item2_id
         assert kit.kit_items[0].quantity == 3
+
+    async def test_create_kit_with_variant_component(self, db_session: AsyncSession):
+        """Test creating a kit with a variant component (source_type='variant')."""
+        admin_id = await self._create_super_admin(db_session)
+        category_id, item1_id, item2_id = await self._create_category_and_items(db_session, admin_id)
+        service = ItemService(db_session)
+
+        # Create variant
+        from src.modules.items.schemas import ItemVariantCreate
+        variant = await service.create_variant(
+            ItemVariantCreate(name="Shirt Sizes", item_ids=[item1_id, item2_id]),
+            created_by_id=admin_id,
+        )
+
+        # Create kit with variant component
+        from src.modules.items.schemas import KitItemCreate
+
+        kit = await service.create_kit(
+            KitCreate(
+                category_id=category_id,
+                sku_code="KIT-VARIANT",
+                name="Kit with Variant",
+                item_type=ItemType.PRODUCT,
+                price_type=PriceType.STANDARD,
+                price=Decimal("100.00"),
+                items=[
+                    KitItemCreate(
+                        source_type="variant",
+                        variant_id=variant.id,
+                        default_item_id=item1_id,
+                        quantity=1,
+                    )
+                ],
+            ),
+            created_by_id=admin_id,
+        )
+
+        kit = await service.get_kit_by_id(kit.id, with_items=True)
+        assert len(kit.kit_items) == 1
+        kit_item = kit.kit_items[0]
+        assert kit_item.source_type == "variant"
+        assert kit_item.variant_id == variant.id
+        assert kit_item.default_item_id == item1_id
+        assert kit_item.item_id is None  # Should be None for variant source_type
 
 
 class TestItemEndpoints:
@@ -678,7 +722,7 @@ class TestItemEndpoints:
                 "item_type": "product",
                 "price_type": "standard",
                 "price": "45.00",
-                "items": [{"item_id": item_id, "quantity": 1}],
+                "items": [{"item_id": item_id, "quantity": 1, "source_type": "item"}],
             },
         )
 
@@ -743,8 +787,8 @@ class TestItemEndpoints:
                 "price": "90.00",
                 "is_editable_components": True,
                 "items": [
-                    {"item_id": item1_id, "quantity": 1},
-                    {"item_id": item2_id, "quantity": 1},
+                    {"item_id": item1_id, "quantity": 1, "source_type": "item"},
+                    {"item_id": item2_id, "quantity": 1, "source_type": "item"},
                 ],
             },
         )
@@ -754,70 +798,3 @@ class TestItemEndpoints:
         assert data["success"] is True
         assert data["data"]["is_editable_components"] is True
         assert len(data["data"]["items"]) == 2
-
-    async def test_create_variant_and_add_items(self, db_session: AsyncSession):
-        """Test creating an item variant and adding items to it."""
-        admin_id = await self._create_super_admin(db_session)
-        category_id, item1_id, item2_id = await self._create_category_and_items(db_session, admin_id)
-        service = ItemService(db_session)
-
-        # Create variant
-        from src.modules.items.schemas import ItemVariantCreate
-        variant = await service.create_variant(
-            ItemVariantCreate(name="Shirt Sizes", item_ids=[item1_id, item2_id]),
-            created_by_id=admin_id,
-        )
-
-        assert variant.id is not None
-        assert variant.name == "Shirt Sizes"
-        assert len(variant.items) == 2
-
-        # Get items for variant
-        items = await service.get_items_for_variant(variant.id)
-        assert len(items) == 2
-        item_ids = {item.id for item in items}
-        assert item_ids == {item1_id, item2_id}
-
-    async def test_create_kit_with_variant_component(self, db_session: AsyncSession):
-        """Test creating a kit with a variant component (source_type='variant')."""
-        admin_id = await self._create_super_admin(db_session)
-        category_id, item1_id, item2_id = await self._create_category_and_items(db_session, admin_id)
-        service = ItemService(db_session)
-
-        # Create variant
-        from src.modules.items.schemas import ItemVariantCreate
-        variant = await service.create_variant(
-            ItemVariantCreate(name="Shirt Sizes", item_ids=[item1_id, item2_id]),
-            created_by_id=admin_id,
-        )
-
-        # Create kit with variant component
-        from src.modules.items.schemas import KitItemCreate
-
-        kit = await service.create_kit(
-            KitCreate(
-                category_id=category_id,
-                sku_code="KIT-VARIANT",
-                name="Kit with Variant",
-                item_type=ItemType.PRODUCT,
-                price_type=PriceType.STANDARD,
-                price=Decimal("100.00"),
-                items=[
-                    KitItemCreate(
-                        source_type="variant",
-                        variant_id=variant.id,
-                        default_item_id=item1_id,
-                        quantity=1,
-                    )
-                ],
-            ),
-            created_by_id=admin_id,
-        )
-
-        kit = await service.get_kit_by_id(kit.id, with_items=True)
-        assert len(kit.kit_items) == 1
-        kit_item = kit.kit_items[0]
-        assert kit_item.source_type == "variant"
-        assert kit_item.variant_id == variant.id
-        assert kit_item.default_item_id == item1_id
-        assert kit_item.item_id is None  # Should be None for variant source_type

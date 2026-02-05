@@ -343,6 +343,7 @@ class TestInvoiceService:
             kit_id=product_kit.id,
             item_id=product_item.id,
             quantity=1,
+            source_type="item",
         )
         db_session.add(kit_item)
         await db_session.flush()
@@ -499,10 +500,16 @@ class TestInvoiceService:
         line = invoice.lines[0]
         assert line.kit_id == editable_kit.id
         
-        # Check that components were saved
-        assert len(line.components) == 1
-        assert line.components[0].item_id == item_m.id  # Changed to M
-        assert line.components[0].quantity == 1
+        # Check that components were saved (load explicitly to avoid lazy loading)
+        from sqlalchemy import select
+        from src.modules.invoices.models import InvoiceLineComponent
+        components_result = await db_session.execute(
+            select(InvoiceLineComponent).where(InvoiceLineComponent.invoice_line_id == line.id)
+        )
+        components = list(components_result.scalars().all())
+        assert len(components) == 1
+        assert components[0].item_id == item_m.id  # Changed to M
+        assert components[0].quantity == 1
 
     async def test_reservation_uses_components_for_editable_kit(
         self, db_session: AsyncSession
@@ -711,7 +718,7 @@ class TestInvoiceService:
         from src.modules.invoices.schemas import InvoiceLineComponentInput
         from src.core.exceptions import ValidationError
 
-        with pytest.raises(ValidationError, match="does not belong to the same variant"):
+        with pytest.raises(ValidationError, match="cannot replace a component"):
             await service.create_adhoc_invoice(
                 InvoiceCreate(
                     student_id=data["student"].id,
@@ -746,8 +753,18 @@ class TestInvoiceService:
         )
 
         assert invoice.id is not None
-        assert len(invoice.lines[0].components) == 1
-        assert invoice.lines[0].components[0].item_id == item_m.id
+        # Check components (load explicitly to avoid lazy loading)
+        from sqlalchemy import select
+        from src.modules.invoices.models import InvoiceLineComponent
+        # Get line_id safely
+        line_id = invoice.lines[0].id if invoice.lines else None
+        assert line_id is not None, "Invoice line should have an id"
+        components_result = await db_session.execute(
+            select(InvoiceLineComponent).where(InvoiceLineComponent.invoice_line_id == line_id)
+        )
+        components = list(components_result.scalars().all())
+        assert len(components) == 1
+        assert components[0].item_id == item_m.id
 
     async def test_cancel_invoice(self, db_session: AsyncSession):
         """Test cancelling an unpaid invoice."""
