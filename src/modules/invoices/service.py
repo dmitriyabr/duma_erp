@@ -11,15 +11,30 @@ from src.core.audit.service import AuditService
 from src.core.documents.number_generator import DocumentNumberGenerator
 from src.core.exceptions import NotFoundError, ValidationError
 from src.shared.utils.money import round_money
-from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
+from src.modules.invoices.models import (
+    Invoice,
+    InvoiceLine,
+    InvoiceLineComponent,
+    InvoiceStatus,
+    InvoiceType,
+)
 from src.modules.invoices.schemas import (
     InvoiceCreate,
     InvoiceFilters,
     InvoiceLineCreate,
+    InvoiceLineComponentInput,
     OutstandingTotalItem,
     TermInvoiceGenerationResult,
 )
-from src.modules.items.models import Kit, PriceType
+from src.modules.items.models import (
+    Item,
+    ItemType,
+    ItemVariant,
+    ItemVariantMembership,
+    Kit,
+    KitItem,
+    PriceType,
+)
 from src.modules.students.models import Grade, Student, StudentStatus
 from src.modules.terms.models import PriceSetting, Term, TermStatus, TransportPricing
 from src.modules.discounts.models import (
@@ -138,6 +153,85 @@ class InvoiceService:
                 invoice.status = InvoiceStatus.PARTIALLY_PAID.value
             else:
                 invoice.status = InvoiceStatus.ISSUED.value
+
+    async def _set_line_components(
+        self,
+        line: InvoiceLine,
+        kit: Kit,
+        components: list[InvoiceLineComponentInput],
+    ) -> None:
+        """Set concrete inventory components for an invoice line (for configurable kits)."""
+        if not kit.is_editable_components:
+            raise ValidationError(
+                f"Kit '{kit.name}' does not support editable components"
+            )
+
+        # Load kit items with their variants for validation
+        kit_result = await self.db.execute(
+            select(Kit)
+            .where(Kit.id == kit.id)
+            .options(
+                selectinload(Kit.kit_items).selectinload(KitItem.item),
+                selectinload(Kit.kit_items).selectinload(KitItem.variant),
+                selectinload(Kit.kit_items).selectinload(KitItem.default_item),
+            )
+        )
+        kit_with_items = kit_result.scalar_one_or_none()
+        if not kit_with_items:
+            raise NotFoundError(f"Kit with id {kit.id} not found")
+
+        # Build map of kit items by index for validation
+        # For variant source_type, we need to validate that replacement item is in the variant
+
+        # Clear existing components (if any)
+        for existing in list(getattr(line, "components", []) or []):
+            await self.db.delete(existing)
+
+        # Validate and create new components
+        for comp in components:
+            if comp.quantity <= 0:
+                raise ValidationError("Component quantity must be positive")
+
+            item_result = await self.db.execute(
+                select(Item).where(Item.id == comp.item_id)
+            )
+            item = item_result.scalar_one_or_none()
+            if not item:
+                raise NotFoundError(f"Item with id {comp.item_id} not found")
+            if item.item_type != ItemType.PRODUCT.value:
+                raise ValidationError(
+                    f"Item '{item.name}' is not a product and cannot be used in a kit component"
+                )
+
+            # Validate variant: if kit item source_type is 'variant',
+            # replacement item must be in that variant
+            # Find corresponding kit_item (by position in components list)
+            kit_item_index = components.index(comp)
+            if kit_item_index < len(kit_with_items.kit_items):
+                kit_item = kit_with_items.kit_items[kit_item_index]
+                if kit_item.source_type == "variant":
+                    # Verify that selected item is in the variant
+                    membership_result = await self.db.execute(
+                        select(ItemVariantMembership).where(
+                            ItemVariantMembership.variant_id == kit_item.variant_id,
+                            ItemVariantMembership.item_id == comp.item_id,
+                        )
+                    )
+                    if not membership_result.scalar_one_or_none():
+                        variant_name = kit_item.variant.name if kit_item.variant else f"variant {kit_item.variant_id}"
+                        raise ValidationError(
+                            f"Item '{item.name}' cannot replace a component in this kit. "
+                            f"Replacement items must be from the variant '{variant_name}'"
+                        )
+
+            # Attach component via relationship so SQLAlchemy sets invoice_line_id correctly
+            component = InvoiceLineComponent(
+                item_id=comp.item_id,
+                quantity=comp.quantity,
+            )
+            # Use the relationship; this will populate component.invoice_line_id on flush
+            line.components.append(component)
+            self.db.add(component)
 
     async def _apply_student_discounts(
         self,
@@ -299,6 +393,11 @@ class InvoiceService:
         self._recalculate_line(line)
         self.db.add(line)
         invoice.lines.append(line)
+
+        # Optional: configure concrete inventory components for configurable kits
+        if line_data.components:
+            await self._set_line_components(line, kit, line_data.components)
+
         return line
 
     async def add_line(

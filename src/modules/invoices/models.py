@@ -216,6 +216,30 @@ class InvoiceLine(Base):
         return self.remaining_amount == Decimal("0.00")
 
 
+class InvoiceLineComponent(Base):
+    """Actual inventory item component for an invoice line (for configurable kits)."""
+
+    __tablename__ = "invoice_line_components"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    invoice_line_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("invoice_lines.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    item_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("items.id"),
+        nullable=False,
+        index=True,
+    )
+    quantity: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
+
+    # Relationships
+    line: Mapped["InvoiceLine"] = relationship("InvoiceLine", backref="components")
+
+
 # Import at the end to avoid circular imports
 from src.modules.students.models import Student
 from src.modules.terms.models import Term

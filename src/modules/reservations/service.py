@@ -11,8 +11,8 @@ from src.core.exceptions import NotFoundError, ValidationError
 from src.core.documents.number_generator import DocumentNumberGenerator
 from src.modules.inventory.models import Issuance, IssuanceItem, IssuanceStatus, IssuanceType, RecipientType
 from src.modules.inventory.service import InventoryService
-from src.modules.invoices.models import Invoice, InvoiceLine
-from src.modules.items.models import ItemType, Kit, KitItem
+from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceLineComponent
+from src.modules.items.models import Item, ItemType, Kit, KitItem
 from src.modules.reservations.models import Reservation, ReservationItem, ReservationStatus
 from src.modules.students.models import Student
 
@@ -89,6 +89,7 @@ class ReservationService:
             .where(Invoice.id == invoice_id)
             .options(
                 selectinload(Invoice.lines).selectinload(InvoiceLine.kit),
+                selectinload(Invoice.lines).selectinload(InvoiceLine.components).selectinload(InvoiceLineComponent.item),
             )
         )
         invoice = result.scalar_one_or_none()
@@ -324,6 +325,7 @@ class ReservationService:
             .options(
                 selectinload(InvoiceLine.invoice),
                 selectinload(InvoiceLine.kit).selectinload(Kit.kit_items).selectinload(KitItem.item),
+                selectinload(InvoiceLine.kit).selectinload(Kit.kit_items).selectinload(KitItem.default_item),
             )
         )
         line = result.scalar_one_or_none()
@@ -339,16 +341,46 @@ class ReservationService:
         return student
 
     async def _build_reservation_items(self, line: InvoiceLine) -> list[tuple[int, int]]:
+        """Build list of (item_id, quantity_required) for reservation from an invoice line.
+
+        If configurable components are defined for the line (invoice_line_components),
+        they take precedence over the static Kit.kit_items definition.
+        """
         items: list[tuple[int, int]] = []
 
+        # Prefer explicit components if present
+        if hasattr(line, "components") and line.components:
+            for comp in line.components:
+                if comp.quantity <= 0:
+                    continue
+                items.append((comp.item_id, comp.quantity))
+            return items
+
+        # Fallback to kit definition
         if line.kit:
             if line.kit.item_type != ItemType.PRODUCT.value:
                 return items
             for kit_item in line.kit.kit_items:
-                if kit_item.item.item_type != ItemType.PRODUCT.value:
+                # Determine which item_id to use based on source_type
+                item_id_to_use: int | None = None
+                if kit_item.source_type == "item":
+                    item_id_to_use = kit_item.item_id
+                elif kit_item.source_type == "variant":
+                    item_id_to_use = kit_item.default_item_id
+                
+                if not item_id_to_use:
                     continue
+                
+                # Verify item exists and is a product
+                item_result = await self.db.execute(
+                    select(Item).where(Item.id == item_id_to_use)
+                )
+                item = item_result.scalar_one_or_none()
+                if not item or item.item_type != ItemType.PRODUCT.value:
+                    continue
+                
                 quantity_required = kit_item.quantity * line.quantity
-                items.append((kit_item.item_id, quantity_required))
+                items.append((item_id_to_use, quantity_required))
 
         return items
 

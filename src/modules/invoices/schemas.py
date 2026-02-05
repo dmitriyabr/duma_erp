@@ -11,6 +11,13 @@ from src.modules.invoices.models import InvoiceStatus, InvoiceType
 # --- Invoice Line Schemas ---
 
 
+class InvoiceLineComponentInput(BaseModel):
+    """Actual inventory item component for an invoice line (for configurable kits)."""
+
+    item_id: int
+    quantity: int = Field(1, ge=1)
+
+
 class InvoiceLineCreate(BaseModel):
     """Schema for creating an invoice line."""
 
@@ -19,6 +26,8 @@ class InvoiceLineCreate(BaseModel):
     # unit_price is auto-determined from kit, but can be overridden
     unit_price_override: Decimal | None = None
     discount_amount: Decimal = Field(default=Decimal("0.00"), ge=0)
+    # Optional per-line components for configurable kits (uniform etc.)
+    components: list[InvoiceLineComponentInput] | None = None
 
 
 class InvoiceLineResponse(BaseModel):
