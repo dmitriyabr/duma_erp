@@ -1,5 +1,6 @@
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import {
   Alert,
   Box,
@@ -243,15 +244,7 @@ export const CatalogPage = () => {
     })
   }, [kits, search, categoryFilter, typeFilter])
 
-  const openCreateKit = () => {
-    setEditingKit(null)
-    setKitForm({ ...emptyKitForm })
-    setKitDialogOpen(true)
-  }
-
-  const openEditKit = (kit: KitRow) => {
-    setEditingKit(kit)
-    setKitForm({
+  const buildKitFormFromKit = (kit: KitRow) => ({
       name: kit.name,
       category_id: String(kit.category_id),
       item_type: kit.item_type,
@@ -267,7 +260,24 @@ export const CatalogPage = () => {
               quantity: item.quantity,
             }))
           : [{ source_type: 'item' as 'item' | 'variant', item_id: '', variant_id: '', default_item_id: '', quantity: 1 }],
-    })
+  })
+
+  const openCreateKit = () => {
+    setEditingKit(null)
+    setKitForm({ ...emptyKitForm })
+    setKitDialogOpen(true)
+  }
+
+  const openEditKit = (kit: KitRow) => {
+    setEditingKit(kit)
+    setKitForm(buildKitFormFromKit(kit))
+    setKitDialogOpen(true)
+  }
+
+  const openCopyKit = (kit: KitRow) => {
+    // Create a new kit prefilled from the selected one (no editingKit → POST)
+    setEditingKit(null)
+    setKitForm(buildKitFormFromKit(kit))
     setKitDialogOpen(true)
   }
 
@@ -664,6 +674,9 @@ export const CatalogPage = () => {
                     <>
                       <Button size="small" onClick={() => openEditKit(kit)}>
                         Edit
+                      </Button>
+                      <Button size="small" startIcon={<ContentCopyIcon fontSize="small" />} onClick={() => openCopyKit(kit)}>
+                        Copy
                       </Button>
                       <Button size="small" onClick={() => requestToggleKitActive(kit)}>
                         {kit.is_active ? 'Deactivate' : 'Activate'}
