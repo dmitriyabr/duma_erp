@@ -6,7 +6,6 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.audit.models import AuditLog
-from src.core.auth.models import User
 
 
 class AuditAction(StrEnum):
@@ -141,6 +140,8 @@ async def list_audit_entries(
     List audit log entries with optional filters.
     Returns (list of (AuditLog, user_full_name), total_count).
     """
+    from src.core.auth.models import User
+
     q = (
         select(AuditLog, User.full_name)
         .outerjoin(User, AuditLog.user_id == User.id)
