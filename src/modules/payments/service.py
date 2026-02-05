@@ -206,8 +206,8 @@ class PaymentService:
             },
         )
 
-        # Update cached credit balance (add payment amount)
-        await self._update_student_balance_cache(payment.student_id, payment.amount)
+        # Update cached credit balance (recalculate)
+        await self._update_student_balance_cache(payment.student_id)
 
         await self.db.commit()
         # Auto-allocate new balance to invoices (backend trigger)
@@ -372,8 +372,8 @@ class PaymentService:
         self.db.add(allocation)
         await self.db.flush()
 
-        # Update cached credit balance (subtract allocation amount)
-        await self._update_student_balance_cache(data.student_id, -data.amount)
+        # Update cached credit balance (recalculate)
+        await self._update_student_balance_cache(data.student_id)
 
         # Update invoice paid amounts
         await self._update_invoice_paid_amounts(invoice)
@@ -472,8 +472,8 @@ class PaymentService:
             self.db.add(allocation)
             await self.db.flush()
 
-            # Update cached credit balance (subtract allocation amount)
-            await self._update_student_balance_cache(data.student_id, -amount)
+            # Update cached credit balance (recalculate)
+            await self._update_student_balance_cache(data.student_id)
 
             await self._update_invoice_paid_amounts(invoice)
             await self._sync_reservations_for_invoice(invoice.id, allocated_by_id)
@@ -589,13 +589,12 @@ class PaymentService:
         )
 
         student_id = allocation.student_id
-        allocation_amount = allocation.amount
 
         await self.db.delete(allocation)
         await self.db.flush()
 
-        # Update cached credit balance (return allocation amount)
-        await self._update_student_balance_cache(student_id, allocation_amount)
+        # Update cached credit balance (recalculate)
+        await self._update_student_balance_cache(student_id)
 
         # Update invoice paid amounts
         await self._update_invoice_paid_amounts(invoice)
@@ -821,10 +820,29 @@ class PaymentService:
         reservation_service = ReservationService(self.db)
         await reservation_service.sync_for_invoice(invoice_id=invoice_id, user_id=user_id)
 
-    async def _update_student_balance_cache(self, student_id: int, delta: Decimal) -> None:
-        """Update cached credit balance for a student (add or subtract amount)."""
+    async def _update_student_balance_cache(self, student_id: int) -> None:
+        """Recalculate and update cached credit balance for a student."""
+        # Calculate total completed payments
+        payments_result = await self.db.execute(
+            select(func.coalesce(func.sum(Payment.amount), 0)).where(
+                Payment.student_id == student_id,
+                Payment.status == PaymentStatus.COMPLETED.value,
+            )
+        )
+        total_payments = Decimal(str(payments_result.scalar() or 0))
+
+        # Calculate total allocations
+        allocations_result = await self.db.execute(
+            select(func.coalesce(func.sum(CreditAllocation.amount), 0)).where(
+                CreditAllocation.student_id == student_id
+            )
+        )
+        total_allocated = Decimal(str(allocations_result.scalar() or 0))
+
+        # Update cached balance
+        new_balance = round_money(total_payments - total_allocated)
         await self.db.execute(
             update(Student)
             .where(Student.id == student_id)
-            .values(cached_credit_balance=Student.cached_credit_balance + round_money(delta))
+            .values(cached_credit_balance=new_balance)
         )
