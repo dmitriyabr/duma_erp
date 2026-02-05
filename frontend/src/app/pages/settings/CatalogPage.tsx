@@ -113,7 +113,7 @@ const emptyKitForm = {
   item_type: 'product' as ItemType,
   price: '',
   is_editable_components: false,
-  items: [{ source_type: 'item' as const, item_id: '', variant_id: '', default_item_id: '', quantity: 1 }],
+  items: [{ source_type: 'item' as 'item' | 'variant', item_id: '', variant_id: '', default_item_id: '', quantity: 1 }],
 }
 
 const emptyCategoryForm = { name: '' }
@@ -260,13 +260,13 @@ export const CatalogPage = () => {
       items:
         kit.item_type === 'product' && kit.items.length
           ? kit.items.map((item) => ({
-              source_type: item.source_type,
+              source_type: item.source_type as 'item' | 'variant',
               item_id: item.item_id ? String(item.item_id) : '',
               variant_id: item.variant_id ? String(item.variant_id) : '',
               default_item_id: item.default_item_id ? String(item.default_item_id) : '',
               quantity: item.quantity,
             }))
-          : [{ source_type: 'item' as const, item_id: '', variant_id: '', default_item_id: '', quantity: 1 }],
+          : [{ source_type: 'item' as 'item' | 'variant', item_id: '', variant_id: '', default_item_id: '', quantity: 1 }],
     })
     setKitDialogOpen(true)
   }
@@ -538,14 +538,14 @@ export const CatalogPage = () => {
   const removeKitItem = (index: number) => {
     setKitForm((prev) => {
       const nextItems = prev.items.filter((_, idx) => idx !== index)
-      return { ...prev, items: nextItems.length ? nextItems : [{ source_type: 'item' as const, item_id: '', variant_id: '', default_item_id: '', quantity: 1 }] }
+      return { ...prev, items: nextItems.length ? nextItems : [{ source_type: 'item' as 'item' | 'variant', item_id: '', variant_id: '', default_item_id: '', quantity: 1 }] }
     })
   }
 
   const addKitItem = () => {
     setKitForm((prev) => ({
       ...prev,
-      items: [...prev.items, { source_type: 'item' as const, item_id: '', variant_id: '', default_item_id: '', quantity: 1 }],
+      items: [...prev.items, { source_type: 'item' as 'item' | 'variant', item_id: '', variant_id: '', default_item_id: '', quantity: 1 }],
     }))
   }
 
