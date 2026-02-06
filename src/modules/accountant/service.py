@@ -14,6 +14,7 @@ from src.modules.payments.models import CreditAllocation, Payment, PaymentStatus
 from src.modules.procurement.models import ProcurementPayment, ProcurementPaymentStatus
 from src.modules.students.models import Student
 from src.shared.utils.money import round_money
+from src.modules.bank_statements.models import BankStatementImport, BankTransaction, BankTransactionMatch
 
 
 async def list_student_payments_for_export(
@@ -153,6 +154,137 @@ def build_student_payments_csv(
             receipt_link,
             att_link,
         ])
+    return out.getvalue()
+
+
+async def list_bank_transfers_for_export(
+    db: AsyncSession,
+    *,
+    date_from: date,
+    date_to: date,
+    limit: int = 20000,
+) -> list[BankTransaction]:
+    q = (
+        select(BankTransaction)
+        .outerjoin(
+            BankTransactionMatch,
+            BankTransactionMatch.bank_transaction_id == BankTransaction.id,
+        )
+        .where(BankTransaction.amount < 0)
+        .where(BankTransaction.value_date >= date_from)
+        .where(BankTransaction.value_date <= date_to)
+        .options(
+            selectinload(BankTransaction.match).selectinload(BankTransactionMatch.procurement_payment),
+            selectinload(BankTransaction.match).selectinload(BankTransactionMatch.compensation_payout),
+        )
+        .order_by(BankTransaction.value_date, BankTransaction.id)
+        .limit(limit)
+    )
+    result = await db.execute(q)
+    return list(result.scalars().unique().all())
+
+
+def build_bank_transfers_csv(
+    rows: list[BankTransaction],
+    app_base_url: str = "",
+) -> str:
+    out = StringIO()
+    writer = csv.writer(out)
+    writer.writerow(
+        [
+            "Value Date",
+            "Description",
+            "Reference",
+            "Type",
+            "Amount",
+            "Matched entity type",
+            "Matched document#",
+            "Proof link",
+        ]
+    )
+    for t in rows:
+        match = t.match
+        entity_type = ""
+        entity_number = ""
+        proof_link = ""
+        if match and match.procurement_payment_id and match.procurement_payment:
+            entity_type = "procurement_payment"
+            entity_number = match.procurement_payment.payment_number
+            if app_base_url and match.procurement_payment.proof_attachment_id:
+                proof_link = f"{app_base_url}/attachment/{match.procurement_payment.proof_attachment_id}/download"
+        elif match and match.compensation_payout_id and match.compensation_payout:
+            entity_type = "compensation_payout"
+            entity_number = match.compensation_payout.payout_number
+            if app_base_url and match.compensation_payout.proof_attachment_id:
+                proof_link = f"{app_base_url}/attachment/{match.compensation_payout.proof_attachment_id}/download"
+
+        writer.writerow(
+            [
+                t.value_date.isoformat(),
+                t.description,
+                t.account_owner_reference or "",
+                t.txn_type or "",
+                str(t.amount),
+                entity_type,
+                entity_number,
+                proof_link,
+            ]
+        )
+    return out.getvalue()
+
+
+async def list_bank_statement_imports_for_export(
+    db: AsyncSession,
+    *,
+    date_from: date,
+    date_to: date,
+    limit: int = 5000,
+) -> list[BankStatementImport]:
+    q = (
+        select(BankStatementImport)
+        .where(BankStatementImport.range_from.is_not(None))
+        .where(BankStatementImport.range_to.is_not(None))
+        .where(BankStatementImport.range_to >= date_from)
+        .where(BankStatementImport.range_from <= date_to)
+        .order_by(BankStatementImport.created_at.desc())
+        .limit(limit)
+    )
+    result = await db.execute(q)
+    return list(result.scalars().all())
+
+
+def build_bank_statement_imports_csv(
+    rows: list[BankStatementImport],
+    app_base_url: str = "",
+) -> str:
+    out = StringIO()
+    writer = csv.writer(out)
+    writer.writerow(
+        [
+            "Import ID",
+            "File name",
+            "Range from",
+            "Range to",
+            "Download link",
+            "Created at",
+        ]
+    )
+    for imp in rows:
+        link = (
+            f"{app_base_url}/attachment/{imp.attachment_id}/download"
+            if app_base_url
+            else ""
+        )
+        writer.writerow(
+            [
+                imp.id,
+                imp.file_name,
+                imp.range_from.isoformat() if imp.range_from else "",
+                imp.range_to.isoformat() if imp.range_to else "",
+                link,
+                imp.created_at.isoformat(),
+            ]
+        )
     return out.getvalue()
 
 

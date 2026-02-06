@@ -53,6 +53,7 @@ export const accountantNavItems: NavItem[] = [
       { label: 'Procurement Payments', path: '/procurement/payments', roles: ['Accountant'] },
       { label: 'Employee Expenses Claims', path: '/compensations/claims', roles: ['Accountant'] },
       { label: 'Employee Payouts', path: '/compensations/payouts', roles: ['Accountant'] },
+      { label: 'Bank Statements', path: '/accountant/bank-statements', roles: ['Accountant'] },
     ],
   },
   { label: 'Data Export', path: '/accountant/export', icon: <FileDownloadIcon />, roles: ['Accountant'] },
@@ -110,6 +111,7 @@ export const navItems: NavItem[] = [
       { label: 'Purchase Orders', path: '/procurement/orders', roles: viewRoles },
       { label: 'Goods Received', path: '/procurement/grn', roles: viewRoles },
       { label: 'Payments', path: '/procurement/payments', roles: viewRoles },
+      { label: 'Bank Reconciliation', path: '/bank-reconciliation', roles: adminRoles },
     ],
   },
   {

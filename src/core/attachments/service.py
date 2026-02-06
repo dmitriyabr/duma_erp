@@ -19,6 +19,9 @@ ALLOWED_CONTENT_TYPES = {
     "image/gif",
     "image/webp",
     "application/pdf",
+    "text/csv",
+    "application/csv",
+    "application/vnd.ms-excel",
 }
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
@@ -71,7 +74,7 @@ async def save_attachment(
     content_type = file.content_type or ""
     if content_type not in ALLOWED_CONTENT_TYPES:
         raise ValidationError(
-            f"Allowed types: images (JPEG, PNG, GIF, WebP) and PDF. Got: {content_type}"
+            f"Allowed types: images (JPEG, PNG, GIF, WebP), PDF, and CSV. Got: {content_type}"
         )
 
     content = await file.read()

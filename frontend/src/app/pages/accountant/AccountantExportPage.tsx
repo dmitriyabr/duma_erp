@@ -13,16 +13,19 @@ function getDefaultDateRange(): { start: string; end: string } {
 }
 
 type ExportType = 'student-payments' | 'procurement-payments' | 'student-balance-changes'
+type ExportTypeExtended = ExportType | 'bank-transfers' | 'bank-statement-files'
 
 export const AccountantExportPage = () => {
   const [datesPayments, setDatesPayments] = useState(getDefaultDateRange)
   const [datesProcurement, setDatesProcurement] = useState(getDefaultDateRange)
   const [datesBalanceChanges, setDatesBalanceChanges] = useState(getDefaultDateRange)
+  const [datesBankTransfers, setDatesBankTransfers] = useState(getDefaultDateRange)
+  const [datesBankFiles, setDatesBankFiles] = useState(getDefaultDateRange)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const handleExport = async (
-    type: ExportType,
+    type: ExportTypeExtended,
     startDate: string,
     endDate: string,
   ) => {
@@ -187,6 +190,82 @@ export const AccountantExportPage = () => {
           </Box>
           <Typography variant="caption" color="text.secondary">
             Columns: Date, Student ID, Student Name, Type, Reference, Amount (+ in / − out)
+          </Typography>
+        </Box>
+
+        <Box>
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+            Bank Transfers (Outgoing)
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 0.5 }}>
+            <TextField
+              label="Start date"
+              type="date"
+              value={datesBankTransfers.start}
+              onChange={(e) => setDatesBankTransfers((p) => ({ ...p, start: e.target.value }))}
+              size="small"
+              InputLabelProps={{ shrink: true }}
+              sx={{ width: 180 }}
+            />
+            <TextField
+              label="End date"
+              type="date"
+              value={datesBankTransfers.end}
+              onChange={(e) => setDatesBankTransfers((p) => ({ ...p, end: e.target.value }))}
+              size="small"
+              InputLabelProps={{ shrink: true }}
+              sx={{ width: 180 }}
+            />
+            <Button
+              variant="outlined"
+              onClick={() =>
+                handleExport('bank-transfers', datesBankTransfers.start, datesBankTransfers.end)
+              }
+              disabled={loading}
+            >
+              {loading ? 'Exporting…' : 'Download CSV'}
+            </Button>
+          </Box>
+          <Typography variant="caption" color="text.secondary">
+            Columns: Value Date, Description, Reference, Type, Amount, Matched document#, Proof link
+          </Typography>
+        </Box>
+
+        <Box>
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+            Bank Statement Files
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 0.5 }}>
+            <TextField
+              label="Start date"
+              type="date"
+              value={datesBankFiles.start}
+              onChange={(e) => setDatesBankFiles((p) => ({ ...p, start: e.target.value }))}
+              size="small"
+              InputLabelProps={{ shrink: true }}
+              sx={{ width: 180 }}
+            />
+            <TextField
+              label="End date"
+              type="date"
+              value={datesBankFiles.end}
+              onChange={(e) => setDatesBankFiles((p) => ({ ...p, end: e.target.value }))}
+              size="small"
+              InputLabelProps={{ shrink: true }}
+              sx={{ width: 180 }}
+            />
+            <Button
+              variant="outlined"
+              onClick={() =>
+                handleExport('bank-statement-files', datesBankFiles.start, datesBankFiles.end)
+              }
+              disabled={loading}
+            >
+              {loading ? 'Exporting…' : 'Download CSV'}
+            </Button>
+          </Box>
+          <Typography variant="caption" color="text.secondary">
+            Columns: Import ID, File name, Range from/to, Download link
           </Typography>
         </Box>
       </Box>
