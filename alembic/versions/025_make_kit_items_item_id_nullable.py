@@ -34,3 +34,4 @@ def downgrade() -> None:
     # Make item_id NOT NULL again
     op.alter_column("kit_items", "item_id", nullable=False)
 
+

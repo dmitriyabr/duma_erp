@@ -185,7 +185,7 @@
 - `PATCH /discounts/student/{discount_id}`
 
 ### 5.8. Attachments (подтверждения платежей)
-- `POST /attachments` — загрузка файла подтверждения (image/PDF). Тело: `multipart/form-data`, поле `file`. Допустимые типы: image/jpeg, image/png, image/gif, image/webp, application/pdf. Макс. 10 MB. Ответ: `{ id, file_name, content_type, file_size, created_at }`. Роль: Admin, User.
+- `POST /attachments` — загрузка файла (image/PDF/CSV). Тело: `multipart/form-data`, поле `file`. Допустимые типы: image/jpeg, image/png, image/gif, image/webp, application/pdf, text/csv. Макс. 10 MB. Ответ: `{ id, file_name, content_type, file_size, created_at }`. Роль: SuperAdmin, Admin, User.
 - `GET /attachments/{attachment_id}` — метаданные вложения.
 - `GET /attachments/{attachment_id}/download` — скачать файл (для просмотра подтверждения). Роль: любой авторизованный.
 
@@ -257,6 +257,28 @@
 - `GET /compensations/payouts` — filters: `employee_id`, `date_from`, `date_to`, `page`, `limit`
 - `GET /compensations/payouts/{payout_id}`
 - `GET /compensations/payouts/employees/{employee_id}/balance`
+
+### 5.14. Bank statements / Reconciliation
+
+Импорт банковской выписки (Stanbic CSV), хранение файла в storage/S3 и сверка транзакций с:
+- `ProcurementPayment` где `company_paid=true`
+- `CompensationPayout`
+
+- `POST /bank-statements/imports` — upload CSV (`multipart/form-data`, поле `file`). Роли: SuperAdmin, Admin.
+- `GET /bank-statements/imports` — список импортов (включая вычисленный `range_from/range_to`).
+- `GET /bank-statements/imports/{import_id}` — детали + строки выписки (пагинация `page/limit`, фильтры `only_unmatched`, `txn_type`). Возвращает только **исходящие** транзакции (debits).
+- `GET /bank-statements/transactions` — общий список **исходящих** bank transfers (debits), фильтры: `date_from`, `date_to`, `txn_type` (например `TRF`, `CHG`, `TAX`), `matched`, `entity_type`, `search`, `page`, `limit`.
+- `GET /bank-statements/txn-types` — список доступных `txn_type` (Type) для outgoing транзакций, опционально фильтры `date_from/date_to`.
+- `POST /bank-statements/imports/{import_id}/auto-match` — авто‑матчинг (amount/date + эвристики по reference). Роли: SuperAdmin, Admin.
+- `GET /bank-statements/imports/{import_id}/reconciliation` — summary по импорту: unmatched transactions + unmatched payments/payouts.
+- `GET /bank-statements/imports/{import_id}/reconciliation?ignore_range=true` — то же, но **без** фильтра по `Range From/To` из выписки (удобно для свежесозданных документов вне диапазона).
+- `POST /bank-statements/transactions/{bank_transaction_id}/match` — manual match (body: `entity_type`, `entity_id`). Роли: SuperAdmin, Admin.
+- `DELETE /bank-statements/transactions/{bank_transaction_id}/match` — убрать match. Роли: SuperAdmin, Admin.
+
+### 5.xx. Accountant exports (CSV)
+
+- `GET /accountant/export/bank-transfers` — outgoing bank transfers (debits) за период + matched document numbers (CSV).
+- `GET /accountant/export/bank-statement-files` — список импортированных выписок за период + download links (CSV).
 
 ---
 

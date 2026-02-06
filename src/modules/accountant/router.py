@@ -13,9 +13,13 @@ from src.core.config import settings
 from src.core.database.session import get_db
 from src.modules.accountant.schemas import AuditTrailEntryResponse
 from src.modules.accountant.service import (
+    build_bank_statement_imports_csv,
+    build_bank_transfers_csv,
     build_procurement_payments_csv,
     build_student_balance_changes_csv,
     build_student_payments_csv,
+    list_bank_statement_imports_for_export,
+    list_bank_transfers_for_export,
     list_procurement_payments_for_export,
     list_student_balance_changes_for_export,
     list_student_payments_for_export,
@@ -157,6 +161,50 @@ async def export_student_balance_changes(
     )
     content = build_student_balance_changes_csv(rows, date_from=start_date)
     filename = f"student_balance_changes_{start_date}_{end_date}.csv"
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/export/bank-transfers")
+async def export_bank_transfers(
+    start_date: date = Query(..., description="Start date (inclusive)"),
+    end_date: date = Query(..., description="End date (inclusive)"),
+    format: str = Query("csv", description="Format: csv"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = AccountantOrAdmin,
+):
+    """Export outgoing bank transfers (debits) with matched document numbers for date range as CSV."""
+    if format.lower() != "csv":
+        return Response(content="Only CSV format is supported", status_code=400)
+    rows = await list_bank_transfers_for_export(db, date_from=start_date, date_to=end_date)
+    app_base_url = settings.frontend_url.rstrip("/")
+    content = build_bank_transfers_csv(rows, app_base_url=app_base_url)
+    filename = f"bank_transfers_{start_date}_{end_date}.csv"
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/export/bank-statement-files")
+async def export_bank_statement_files(
+    start_date: date = Query(..., description="Start date (inclusive)"),
+    end_date: date = Query(..., description="End date (inclusive)"),
+    format: str = Query("csv", description="Format: csv"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = AccountantOrAdmin,
+):
+    """Export list of imported bank statement files for date range as CSV, including download links."""
+    if format.lower() != "csv":
+        return Response(content="Only CSV format is supported", status_code=400)
+    rows = await list_bank_statement_imports_for_export(db, date_from=start_date, date_to=end_date)
+    app_base_url = settings.frontend_url.rstrip("/")
+    content = build_bank_statement_imports_csv(rows, app_base_url=app_base_url)
+    filename = f"bank_statement_files_{start_date}_{end_date}.csv"
     return Response(
         content=content,
         media_type="text/csv",

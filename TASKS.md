@@ -788,8 +788,20 @@
 
 ---
 
+## Фаза 12: Bank reconciliation (выписки банка)
+
+> Решения: Выписку храним как файл (Attachment в storage/S3) + парсим транзакции в БД «как в CSV»; транзакции могут пересекаться между выгрузками → дедуп по fingerprint + связь import↔transaction. Date range для reconciliation считается по min/max `Value Date` из транзакций (не доверяем Range From/To в header CSV).
+
+- [x] Модели и миграции: imports, transactions, matches
+- [x] API импорта Stanbic CSV (upload + parse + сохранение)
+- [x] Auto-match: транзакции ↔ ProcurementPayment(company_paid) / CompensationPayout (amount/date + reference)
+- [x] Reconciliation view: unmatched transactions + unmatched payments/payouts
+- [x] UI: Admin/SuperAdmin — Bank reconciliation (import + auto-match + manual match); Accountant — Bank transfers (общая таблица + фильтры)
+- [x] Тесты парсинга и матчинг‑эвристик
+- [x] Документация: BACKEND_API.md (+ accountant exports bank transfers + statement files)
+
 ## Примечания
 
 - Задачи с `[ОБСУДИТЬ]` требуют уточнения требований перед началом работы
 - Блоки `> Решения:` содержат принятые решения для справки
-- Тесты: 302 passed (все бэкенд-тесты проходят, включая тесты для editable kits, вариантов и резерваций)
+- Тесты: 308 passed (все бэкенд-тесты проходят, включая тесты для editable kits, вариантов и резерваций)

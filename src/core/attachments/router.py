@@ -23,7 +23,7 @@ async def upload_attachment(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)),
 ):
-    """Upload a confirmation file (image or PDF). Returns attachment id for use in payment/payout forms."""
+    """Upload a file (image/PDF/CSV). Returns attachment id for use in forms and exports."""
     attachment = await save_attachment(db, file, current_user.id)
     await db.commit()
     return ApiResponse(

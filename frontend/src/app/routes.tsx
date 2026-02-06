@@ -44,6 +44,8 @@ import { PayoutsPage } from './pages/compensations/PayoutsPage'
 import { PayoutDetailPage } from './pages/compensations/PayoutDetailPage'
 import { AuditTrailPage } from './pages/accountant/AuditTrailPage'
 import { AccountantExportPage } from './pages/accountant/AccountantExportPage'
+import { BankReconciliationPage } from './pages/accountant/BankReconciliationPage'
+import { BankStatementsPage } from './pages/accountant/BankStatementsPage'
 import { InvoicesListPage } from './pages/accountant/InvoicesListPage'
 import { PaymentReceiptsPage } from './pages/accountant/PaymentReceiptsPage'
 import { AttachmentDownloadPage } from './pages/AttachmentDownloadPage'
@@ -185,6 +187,8 @@ export const AppRoutes = () => {
           <Route path="payments/new" element={<ReceivePaymentPage />} />
           <Route path="payments" element={<PaymentReceiptsPage />} />
           <Route path="accountant/export" element={<AccountantExportPage />} />
+          <Route path="accountant/bank-statements" element={<BankStatementsPage />} />
+          <Route path="bank-reconciliation" element={<BankReconciliationPage />} />
           <Route path="accountant/documents" element={<PlaceholderPage title="Documents" />} />
           <Route path="settings" element={<PlaceholderPage title="Settings" />} />
           <Route path="settings/users" element={<UsersPage />} />
