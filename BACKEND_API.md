@@ -269,7 +269,7 @@
 - `GET /bank-statements/imports/{import_id}` — детали + строки выписки (пагинация `page/limit`, фильтры `only_unmatched`, `txn_type`). Возвращает только **исходящие** транзакции (debits).
 - `GET /bank-statements/transactions` — общий список **исходящих** bank transfers (debits), фильтры: `date_from`, `date_to`, `txn_type` (например `TRF`, `CHG`, `TAX`), `matched`, `entity_type`, `search`, `page`, `limit`.
 - `GET /bank-statements/txn-types` — список доступных `txn_type` (Type) для outgoing транзакций, опционально фильтры `date_from/date_to`.
-- `POST /bank-statements/imports/{import_id}/auto-match` — авто‑матчинг (amount/date + эвристики по reference). Роли: SuperAdmin, Admin.
+- `POST /bank-statements/imports/{import_id}/auto-match` — авто‑матчинг (amount/date + эвристики по reference). Роли: SuperAdmin, Admin. Один `ProcurementPayment` / `CompensationPayout` может быть сматчен максимум с одной транзакцией; уже сматченные документы пропускаются.
 - `GET /bank-statements/imports/{import_id}/reconciliation` — summary по импорту: unmatched transactions + unmatched payments/payouts.
 - `GET /bank-statements/imports/{import_id}/reconciliation?ignore_range=true` — то же, но **без** фильтра по `Range From/To` из выписки (удобно для свежесозданных документов вне диапазона).
 - `POST /bank-statements/transactions/{bank_transaction_id}/match` — manual match (body: `entity_type`, `entity_id`). Роли: SuperAdmin, Admin.
