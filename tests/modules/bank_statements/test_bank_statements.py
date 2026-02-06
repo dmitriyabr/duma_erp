@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth.models import UserRole
@@ -48,6 +48,20 @@ def _sample_csv() -> bytes:
         "Date,Description,Value Date,Debit,Credit,Account owner reference,Type\n"
         "10/01/2026,BOL MOBILE PAYMENTS MARKETING TEAM TPS SUSPENSE ACCOUNT NAM FT26010WS6WVBNK,10/01/2026,\"-8000\",,MARKETING TEAM,TRF\n"
         "09/01/2026,BOL MOBILE PAYMENTS STAFF EXPENSE R E TPS SUSPENSE ACCOUNT NAM FT26009GWTM7BNK,09/01/2026,\"-42203\",,STAFF EXPENSE RE,TRF\n"
+    ).encode("utf-8")
+
+
+def _sample_csv_duplicate_amount() -> bytes:
+    return (
+        "Transactions Report\n"
+        "Account Name:,IGNISHA EDUCATION LIMITED\n"
+        "Account No:,0100017036593 - SBICKENX\n"
+        "Currency:,KES - Kenyan Shilling\n"
+        "Range From:,30/01/2026\n"
+        "Range To:,06/02/2026\n"
+        "Date,Description,Value Date,Debit,Credit,Account owner reference,Type\n"
+        "10/01/2026,VENDOR PAYMENT FT26010WS6WVBNK,10/01/2026,\"-8000\",,MARKETING TEAM,TRF\n"
+        "10/01/2026,VENDOR PAYMENT SECOND FT26010WS6WVBNK,10/01/2026,\"-8000\",,MARKETING TEAM,TRF\n"
     ).encode("utf-8")
 
 
@@ -218,6 +232,62 @@ class TestBankStatementImportFlow:
         matches = list((await db_session.execute(select(BankTransactionMatch))).scalars().all())
         assert any(x.procurement_payment_id == payment.id for x in matches)
         assert any(x.compensation_payout_id == payout.id for x in matches)
+
+    async def test_auto_match_skips_already_used_procurement_payment(
+        self, client: AsyncClient, db_session: AsyncSession, storage_tmp_path
+    ):
+        token = await _get_admin_token(db_session)
+
+        purpose = PaymentPurpose(name="DupTest", is_active=True)
+        db_session.add(purpose)
+        await db_session.flush()
+
+        admin_user = await db_session.scalar(
+            select(User).where(User.email == "bank_stmt_admin@test.com")
+        )
+        assert admin_user is not None
+
+        payment = ProcurementPayment(
+            payment_number="PP-2026-000002",
+            purpose_id=purpose.id,
+            payee_name="Vendor",
+            payment_date=date(2026, 1, 10),
+            amount=8000,
+            payment_method=ProcurementPaymentMethod.BANK.value,
+            reference_number="FT26010WS6WVBNK",
+            created_by_id=admin_user.id,
+            company_paid=True,
+        )
+        db_session.add(payment)
+        await db_session.commit()
+
+        resp = await client.post(
+            "/api/v1/bank-statements/imports",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": ("stmt.csv", _sample_csv_duplicate_amount(), "text/csv")},
+        )
+        assert resp.status_code == 201
+        import_id = resp.json()["data"]["id"]
+
+        m = await client.post(
+            f"/api/v1/bank-statements/imports/{import_id}/auto-match",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert m.status_code == 200
+        body = m.json()["data"]
+        assert body["matched"] == 1
+        assert body["matched"] + body["ambiguous"] + body["no_candidates"] == 2
+
+        match_count = int(
+            (
+                await db_session.execute(
+                    select(func.count())
+                    .select_from(BankTransactionMatch)
+                    .where(BankTransactionMatch.procurement_payment_id == payment.id)
+                )
+            ).scalar_one()
+        )
+        assert match_count == 1
 
     async def test_accountant_cannot_upload_or_match(
         self, client: AsyncClient, db_session: AsyncSession, storage_tmp_path

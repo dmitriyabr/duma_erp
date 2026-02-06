@@ -10,6 +10,7 @@ from decimal import Decimal, InvalidOperation
 from fastapi import UploadFile
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from src.core.attachments.service import get_attachment_content, save_attachment
@@ -516,6 +517,13 @@ class BankStatementService:
 
         window = window_days
 
+        matched_procurement_subq = select(BankTransactionMatch.procurement_payment_id).where(
+            BankTransactionMatch.procurement_payment_id.is_not(None)
+        )
+        matched_payout_subq = select(BankTransactionMatch.compensation_payout_id).where(
+            BankTransactionMatch.compensation_payout_id.is_not(None)
+        )
+
         txns = list(
             (
                 await db.execute(
@@ -541,6 +549,8 @@ class BankStatementService:
         matched = 0
         ambiguous = 0
         no_candidates = 0
+        used_procurement_payment_ids: set[int] = set()
+        used_compensation_payout_ids: set[int] = set()
 
         for txn in txns:
             amount_abs = (txn.amount.copy_abs()).quantize(Decimal("0.01"))
@@ -548,29 +558,44 @@ class BankStatementService:
             date_min = d0 - timedelta(days=window)
             date_max = d0 + timedelta(days=window)
 
+            procurement_stmt = (
+                select(ProcurementPayment)
+                .where(ProcurementPayment.company_paid.is_(True))
+                .where(ProcurementPayment.status == ProcurementPaymentStatus.POSTED.value)
+                .where(ProcurementPayment.amount == amount_abs)
+                .where(ProcurementPayment.payment_date.between(date_min, date_max))
+                .where(~ProcurementPayment.id.in_(matched_procurement_subq))
+            )
+            if used_procurement_payment_ids:
+                procurement_stmt = procurement_stmt.where(
+                    ~ProcurementPayment.id.in_(used_procurement_payment_ids)
+                )
+
             procurement_candidates = list(
                 (
                     await db.execute(
-                        select(ProcurementPayment)
-                        .where(ProcurementPayment.company_paid.is_(True))
-                        .where(
-                            ProcurementPayment.status
-                            == ProcurementPaymentStatus.POSTED.value
-                        )
-                        .where(ProcurementPayment.amount == amount_abs)
-                        .where(ProcurementPayment.payment_date.between(date_min, date_max))
+                        procurement_stmt
                     )
                 )
                 .scalars()
                 .all()
             )
 
+            payout_stmt = (
+                select(CompensationPayout)
+                .where(CompensationPayout.amount == amount_abs)
+                .where(CompensationPayout.payout_date.between(date_min, date_max))
+                .where(~CompensationPayout.id.in_(matched_payout_subq))
+            )
+            if used_compensation_payout_ids:
+                payout_stmt = payout_stmt.where(
+                    ~CompensationPayout.id.in_(used_compensation_payout_ids)
+                )
+
             payout_candidates = list(
                 (
                     await db.execute(
-                        select(CompensationPayout)
-                        .where(CompensationPayout.amount == amount_abs)
-                        .where(CompensationPayout.payout_date.between(date_min, date_max))
+                        payout_stmt
                     )
                 )
                 .scalars()
@@ -600,6 +625,11 @@ class BankStatementService:
                 ambiguous += 1
                 continue
 
+            if best[1] == "procurement":
+                used_procurement_payment_ids.add(best[2])
+            else:
+                used_compensation_payout_ids.add(best[2])
+
             match = BankTransactionMatch(
                 bank_transaction_id=txn.id,
                 procurement_payment_id=best[2] if best[1] == "procurement" else None,
@@ -608,8 +638,15 @@ class BankStatementService:
                 confidence=Decimal(str(best[0])),
                 matched_by_id=matched_by_id,
             )
-            db.add(match)
-            matched += 1
+            try:
+                async with db.begin_nested():
+                    db.add(match)
+                    await db.flush()
+                matched += 1
+            except IntegrityError:
+                # Most commonly: another txn (or concurrent run) already matched the same doc.
+                # Treat as ambiguous and continue without failing the whole auto-match run.
+                ambiguous += 1
 
         return matched, ambiguous, no_candidates
 
