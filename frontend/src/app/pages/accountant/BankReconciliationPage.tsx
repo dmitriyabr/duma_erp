@@ -133,6 +133,11 @@ export const BankReconciliationPage = () => {
   const [manualMatchTxnId, setManualMatchTxnId] = useState<number | null>(null)
   const [manualMatchType, setManualMatchType] = useState<MatchedEntityType>('procurement_payment')
   const [manualMatchEntityId, setManualMatchEntityId] = useState<number | ''>('')
+  const [manualMatchEntity, setManualMatchEntity] = useState<{
+    type: MatchedEntityType
+    id: number
+  } | null>(null)
+  const [manualMatchTxnForEntityId, setManualMatchTxnForEntityId] = useState<number | ''>('')
 
   const { data: imports, loading: importsLoading, error: importsError, refetch: refetchImports } =
     useApi<BankStatementImportListItem[]>('/bank-statements/imports')
@@ -265,17 +270,25 @@ export const BankReconciliationPage = () => {
     await refetchReconciliation()
   }, [refetchImports, refetchDetail, refetchReconciliation])
 
-  useEffect(() => {
-    const onFocus = () => void refreshAll()
-    window.addEventListener('focus', onFocus)
-    return () => window.removeEventListener('focus', onFocus)
-  }, [refreshAll])
-
   const normMoney = (value: string): string => {
     const cleaned = value.replace(/,/g, '').trim()
     const n = Number.parseFloat(cleaned)
     if (Number.isNaN(n)) return cleaned
     return n.toFixed(2)
+  }
+
+  const moneyNumber = (value: string): number | null => {
+    const cleaned = value.replace(/,/g, '').trim()
+    const n = Number.parseFloat(cleaned)
+    if (Number.isNaN(n)) return null
+    return n
+  }
+
+  const withinOne = (a: string, b: string): boolean => {
+    const an = moneyNumber(a)
+    const bn = moneyNumber(b)
+    if (an == null || bn == null) return false
+    return Math.abs(an - bn) <= 1.0 + 1e-9
   }
 
   const absMoney = (value: string): string => {
@@ -289,8 +302,12 @@ export const BankReconciliationPage = () => {
     const row = importDetail?.rows.items.find((r) => r.transaction.id === manualMatchTxnId)
     if (!row) return { procurement: [] as UnmatchedProcurementPayment[], payouts: [] as UnmatchedCompensationPayout[] }
     const target = absMoney(row.transaction.amount)
-    const procurement = (reconciliation?.unmatched_procurement_payments || []).filter((p) => normMoney(p.amount) === target)
-    const payouts = (reconciliation?.unmatched_compensation_payouts || []).filter((p) => normMoney(p.amount) === target)
+    const procurement = (reconciliation?.unmatched_procurement_payments || []).filter((p) =>
+      withinOne(normMoney(p.amount), target)
+    )
+    const payouts = (reconciliation?.unmatched_compensation_payouts || []).filter((p) =>
+      withinOne(normMoney(p.amount), target)
+    )
     return { procurement, payouts }
   }, [manualMatchTxnId, importDetail, reconciliation])
 
@@ -305,6 +322,65 @@ export const BankReconciliationPage = () => {
   const closeManualMatch = () => {
     setManualMatchTxnId(null)
     setManualMatchEntityId('')
+  }
+
+  const openManualMatchForEntity = (type: MatchedEntityType, id: number) => {
+    setManualMatchEntity({ type, id })
+    setManualMatchTxnForEntityId('')
+    setError(null)
+    setSuccess(null)
+  }
+
+  const closeManualMatchForEntity = () => {
+    setManualMatchEntity(null)
+    setManualMatchTxnForEntityId('')
+  }
+
+  const txnCandidatesForEntity = useMemo(() => {
+    if (!manualMatchEntity) return []
+
+    const entity =
+      manualMatchEntity.type === 'procurement_payment'
+        ? (reconciliation?.unmatched_procurement_payments || []).find((p) => p.id === manualMatchEntity.id)
+        : (reconciliation?.unmatched_compensation_payouts || []).find((p) => p.id === manualMatchEntity.id)
+
+    if (!entity) return []
+
+    const entityAmount = normMoney(entity.amount)
+
+    return (importDetail?.rows.items || [])
+      .filter((r) => !r.transaction.match)
+      .filter((r) => withinOne(absMoney(r.transaction.amount), entityAmount))
+      .map((r) => {
+        const desc = r.transaction.description.length > 80
+          ? `${r.transaction.description.slice(0, 80)}…`
+          : r.transaction.description
+        return {
+          id: r.transaction.id,
+          label: `${r.transaction.value_date} • ${r.transaction.txn_type || '—'} • ${absMoney(r.transaction.amount)} • ${desc}`,
+        }
+      })
+  }, [manualMatchEntity, importDetail, reconciliation])
+
+  const submitManualMatchForEntity = async () => {
+    if (!manualMatchEntity) return
+    if (!manualMatchTxnForEntityId || typeof manualMatchTxnForEntityId !== 'number') {
+      setError('Select a bank transaction to match.')
+      return
+    }
+    setError(null)
+    setSuccess(null)
+    const result = await manualMatchMutation.execute(() =>
+      api.post(`/bank-statements/transactions/${manualMatchTxnForEntityId}/match`, {
+        entity_type: manualMatchEntity.type,
+        entity_id: manualMatchEntity.id,
+      })
+    )
+    if (!result) return
+    setSuccess(`Matched transaction #${manualMatchTxnForEntityId} to ${result.entity_type} #${result.entity_id}.`)
+    closeManualMatchForEntity()
+    await refetchDetail()
+    await refetchReconciliation()
   }
 
   const submitManualMatch = async () => {
@@ -610,7 +686,7 @@ export const BankReconciliationPage = () => {
                 <TableCell>Number</TableCell>
                 <TableCell>Payee</TableCell>
                 <TableCell align="right">Amount</TableCell>
-                <TableCell>Link</TableCell>
+                <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -620,10 +696,18 @@ export const BankReconciliationPage = () => {
                   <TableCell>{p.payment_number}</TableCell>
                   <TableCell>{p.payee_name || '—'}</TableCell>
                   <TableCell align="right">{p.amount}</TableCell>
-                  <TableCell>
-                    <Button size="small" component={RouterLink} to={`/procurement/payments/${p.id}`}>
-                      Open
-                    </Button>
+                  <TableCell align="right">
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, flexWrap: 'wrap' }}>
+                      <Button
+                        size="small"
+                        onClick={() => openManualMatchForEntity('procurement_payment', p.id)}
+                      >
+                        Manual match
+                      </Button>
+                      <Button size="small" component={RouterLink} to={`/procurement/payments/${p.id}`}>
+                        Open
+                      </Button>
+                    </Box>
                   </TableCell>
                 </TableRow>
               ))}
@@ -646,7 +730,7 @@ export const BankReconciliationPage = () => {
                 <TableCell>Date</TableCell>
                 <TableCell>Number</TableCell>
                 <TableCell align="right">Amount</TableCell>
-                <TableCell>Link</TableCell>
+                <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -655,10 +739,18 @@ export const BankReconciliationPage = () => {
                   <TableCell>{p.payout_date}</TableCell>
                   <TableCell>{p.payout_number}</TableCell>
                   <TableCell align="right">{p.amount}</TableCell>
-                  <TableCell>
-                    <Button size="small" component={RouterLink} to={`/compensations/payouts/${p.id}`}>
-                      Open
-                    </Button>
+                  <TableCell align="right">
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, flexWrap: 'wrap' }}>
+                      <Button
+                        size="small"
+                        onClick={() => openManualMatchForEntity('compensation_payout', p.id)}
+                      >
+                        Manual match
+                      </Button>
+                      <Button size="small" component={RouterLink} to={`/compensations/payouts/${p.id}`}>
+                        Open
+                      </Button>
+                    </Box>
                   </TableCell>
                 </TableRow>
               ))}
@@ -676,7 +768,7 @@ export const BankReconciliationPage = () => {
         <DialogTitle>Manual match</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Pick an unmatched internal document with the same amount. This is a read-write operation (Admin/SuperAdmin).
+            Pick an unmatched internal document by amount (± 1.00). This is a read-write operation (Admin/SuperAdmin).
           </Typography>
           <Box sx={{ display: 'grid', gap: 2 }}>
             <Box>
@@ -727,7 +819,7 @@ export const BankReconciliationPage = () => {
                 ))}
               </Select>
               <Typography variant="caption" color="text.secondary">
-                Candidates are filtered from “unmatched” lists by exact amount match.
+                Candidates are filtered from “unmatched” lists by amount (± 1.00).
               </Typography>
             </Box>
           </Box>
@@ -735,6 +827,51 @@ export const BankReconciliationPage = () => {
         <DialogActions>
           <Button onClick={closeManualMatch}>Cancel</Button>
           <Button variant="contained" onClick={submitManualMatch} disabled={manualMatchMutation.loading}>
+            {manualMatchMutation.loading ? 'Matching…' : 'Match'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={manualMatchEntity !== null} onClose={closeManualMatchForEntity} maxWidth="sm" fullWidth>
+        <DialogTitle>Manual match</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Pick an unmatched bank transaction to match to this document (amount tolerance: ± 1.00).
+          </Typography>
+          <Box sx={{ display: 'grid', gap: 2 }}>
+            <Box>
+              <Typography variant="body2" sx={{ mb: 0.5 }}>
+                Bank transaction
+              </Typography>
+              <Select
+                size="small"
+                fullWidth
+                displayEmpty
+                value={manualMatchTxnForEntityId}
+                onChange={(e) => setManualMatchTxnForEntityId(e.target.value as number)}
+              >
+                <MenuItem value="">
+                  <em>Select…</em>
+                </MenuItem>
+                {txnCandidatesForEntity.map((opt) => (
+                  <MenuItem key={opt.id} value={opt.id}>
+                    {opt.label}
+                  </MenuItem>
+                ))}
+              </Select>
+              <Typography variant="caption" color="text.secondary">
+                Candidates are filtered to unmatched statement rows by amount (± 1.00).
+              </Typography>
+            </Box>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeManualMatchForEntity}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={submitManualMatchForEntity}
+            disabled={manualMatchMutation.loading}
+          >
             {manualMatchMutation.loading ? 'Matching…' : 'Match'}
           </Button>
         </DialogActions>

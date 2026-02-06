@@ -37,6 +37,7 @@ EXPECTED_STANBIC_COLUMNS = [
 
 DEFAULT_CURRENCY = "KES"
 DEFAULT_MATCH_WINDOW_DAYS = 3
+MANUAL_MATCH_AMOUNT_TOLERANCE = Decimal("1.00")
 
 
 def _parse_ddmmyyyy(value: str) -> date:
@@ -154,6 +155,17 @@ def parse_stanbic_csv(content: str) -> tuple[dict, list[dict], list[str]]:
 
 
 class BankStatementService:
+    def _amount_close_enough(
+        self,
+        *,
+        expected_abs_amount: Decimal,
+        actual_abs_amount: Decimal,
+        tolerance: Decimal = MANUAL_MATCH_AMOUNT_TOLERANCE,
+    ) -> bool:
+        expected = expected_abs_amount.quantize(Decimal("0.01"))
+        actual = actual_abs_amount.quantize(Decimal("0.01"))
+        return (expected - actual).copy_abs() <= tolerance
+
     async def import_stanbic_statement(
         self,
         db: AsyncSession,
@@ -681,10 +693,11 @@ class BankStatementService:
                 raise ValidationError("Procurement payment is not marked as company paid")
             if payment.status == ProcurementPaymentStatus.CANCELLED.value:
                 raise ValidationError("Procurement payment is cancelled")
-            if payment.amount.quantize(Decimal("0.01")) != txn.amount.copy_abs().quantize(
-                Decimal("0.01")
+            if not self._amount_close_enough(
+                expected_abs_amount=payment.amount,
+                actual_abs_amount=txn.amount.copy_abs(),
             ):
-                raise ValidationError("Amount mismatch")
+                raise ValidationError("Amount mismatch (tolerance: 1.00)")
             match = BankTransactionMatch(
                 bank_transaction_id=bank_transaction_id,
                 procurement_payment_id=payment.id,
@@ -699,10 +712,11 @@ class BankStatementService:
             )
             if not payout:
                 raise NotFoundError("Compensation payout not found")
-            if payout.amount.quantize(Decimal("0.01")) != txn.amount.copy_abs().quantize(
-                Decimal("0.01")
+            if not self._amount_close_enough(
+                expected_abs_amount=payout.amount,
+                actual_abs_amount=txn.amount.copy_abs(),
             ):
-                raise ValidationError("Amount mismatch")
+                raise ValidationError("Amount mismatch (tolerance: 1.00)")
             match = BankTransactionMatch(
                 bank_transaction_id=bank_transaction_id,
                 procurement_payment_id=None,
