@@ -31,6 +31,13 @@ from src.modules.students.models import Student
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus
 from src.modules.reservations.models import Reservation, ReservationItem
 
+# Import all models to ensure SQLAlchemy can resolve all relationships
+from src.modules.items.models import Item, Category, Kit, KitItem
+from src.modules.inventory.models import Stock, StockMovement, Issuance, IssuanceItem
+from src.modules.terms.models import Term, TransportZone
+from src.modules.discounts.models import Discount
+from src.core.auth.models import User
+
 
 async def count_records(session: AsyncSession) -> dict:
     """Подсчитывает количество записей в каждой таблице."""
