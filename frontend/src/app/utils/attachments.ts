@@ -12,3 +12,21 @@ export async function openAttachmentInNewTab(attachmentId: number): Promise<void
   // Revoke after a delay so the new tab can load the blob
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
+
+export async function downloadAttachment(attachmentId: number): Promise<void> {
+  const response = await api.get(`/attachments/${attachmentId}/download`, {
+    responseType: 'blob',
+  })
+
+  const disposition = response.headers['content-disposition']
+  const match = disposition?.match(/filename="?([^";]+)"?/)
+  const filename = match?.[1] ?? `attachment-${attachmentId}`
+
+  const blob = response.data as Blob
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}

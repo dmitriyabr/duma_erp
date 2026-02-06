@@ -22,10 +22,10 @@ import DownloadIcon from '@mui/icons-material/Download'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
-import { api } from '../../services/api'
 import { USERS_LIST_LIMIT } from '../../constants/pagination'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
+import { downloadAttachment } from '../../utils/attachments'
 import { formatDate, formatMoney } from '../../utils/format'
 import { isSuperAdmin } from '../../utils/permissions'
 
@@ -110,20 +110,6 @@ export const ExpenseClaimsListPage = () => {
   const claims = claimsData?.items || []
   const total = claimsData?.total || 0
   const employees = employeesData?.items || []
-
-  const downloadAttachment = async (attachmentId: number) => {
-    try {
-      const res = await api.get(`/attachments/${attachmentId}/download`, { responseType: 'blob' })
-      const url = URL.createObjectURL(new Blob([res.data]))
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `attachment_${attachmentId}`
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      // ignore
-    }
-  }
 
   return (
     <Box>
