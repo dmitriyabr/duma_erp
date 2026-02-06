@@ -100,7 +100,7 @@ export const PurchaseOrderDetailPage = () => {
   const { data: po, refetch: refetchPO } = useApi<POResponse>(
     resolvedId ? `/procurement/purchase-orders/${resolvedId}` : null
   )
-  const { data: grnsData } = useApi<PaginatedResponse<GRNRow>>(
+  const { data: grnsData, refetch: refetchGRNs } = useApi<PaginatedResponse<GRNRow>>(
     resolvedId ? '/procurement/grns' : null,
     { params: { po_id: resolvedId, limit: 100 } },
     [resolvedId]
@@ -193,6 +193,7 @@ export const PurchaseOrderDetailPage = () => {
     if (result) {
       setReceiveDialogOpen(false)
       await refetchPO()
+      await refetchGRNs()
     } else {
       setError('Failed to create GRN.')
     }

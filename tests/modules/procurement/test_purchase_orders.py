@@ -55,6 +55,7 @@ class TestPurchaseOrderEndpoints:
         return response.json()["data"]["id"]
 
     async def test_create_purchase_order(self, client: AsyncClient, db_session: AsyncSession):
+        db_session.autoflush = False
         token = await self._get_admin_token(client, db_session)
         item_id = await self._create_product_item(client, token)
         purpose_id = await self._create_payment_purpose(client, token)

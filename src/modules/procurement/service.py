@@ -214,6 +214,10 @@ class PurchaseOrderService:
 
     async def _recalculate_totals(self, po_id: int) -> None:
         """Recalculate totals for a purchase order."""
+        # We run with AsyncSession(autoflush=False) in production. Flush explicitly so
+        # newly added/updated PO lines are visible to the queries below.
+        await self.db.flush()
+
         result = await self.db.execute(
             select(PurchaseOrder)
             .where(PurchaseOrder.id == po_id)
