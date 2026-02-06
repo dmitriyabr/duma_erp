@@ -64,6 +64,10 @@
 `GRN: draft → approved | cancelled`
 `ProcurementPayment: posted → cancelled`
 
+- **Rollback receiving (SUPER_ADMIN):** если GRN уже был approved, но позже обнаружили ошибку, можно сделать откат через `POST /procurement/grns/{grn_id}/rollback`.
+  - Операция отменяет этот GRN, откатывает `quantity_received` по линиям PO и (если `track_to_warehouse=true`) создаёт компенсационные `StockMovement(receipt)` с отрицательным количеством, чтобы вернуть склад и average cost.
+  - Ограничения безопасности: по затронутым items не должно быть более поздних `receipt` movements. Если по PO уже есть оплаты (`paid_total > 0`), откат всё равно возможен — после rollback `debt_amount` может стать отрицательным (аванс поставщику: “paid, not received”).
+
 ### Compensation
 `ExpenseClaim: pending_approval → approved/rejected → partially_paid → paid`
 `CompensationPayout` создаётся и распределяет сумму FIFO по claim.

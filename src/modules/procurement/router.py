@@ -12,6 +12,8 @@ from src.core.database.session import get_db
 from src.modules.procurement.schemas import (
     BulkUploadPOError,
     CancelPurchaseOrderRequest,
+    RollbackPurchaseOrderReceivingRequest,
+    RollbackGRNRequest,
     ParsePOLinesResponse,
     ParsedPOLine,
     GoodsReceivedFilters,
@@ -360,6 +362,28 @@ async def cancel_purchase_order(
 
 
 @router.post(
+    "/purchase-orders/{po_id}/rollback-receiving",
+    response_model=ApiResponse[PurchaseOrderResponse],
+)
+async def rollback_purchase_order_receiving(
+    po_id: int,
+    data: RollbackPurchaseOrderReceivingRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+):
+    """Rollback receiving (approved GRNs) for a purchase order (SUPER_ADMIN only)."""
+    service = GoodsReceivedService(db)
+    po = await service.rollback_purchase_order_receiving(
+        po_id, rolled_back_by_id=current_user.id, reason=data.reason
+    )
+    return ApiResponse(
+        success=True,
+        message="Receiving rolled back successfully",
+        data=_po_to_response(po),
+    )
+
+
+@router.post(
     "/grns",
     response_model=ApiResponse[GoodsReceivedNoteResponse],
     status_code=status.HTTP_201_CREATED,
@@ -469,6 +493,26 @@ async def cancel_grn(
     return ApiResponse(
         success=True,
         message="GRN cancelled successfully",
+        data=_grn_to_response(grn),
+    )
+
+
+@router.post(
+    "/grns/{grn_id}/rollback",
+    response_model=ApiResponse[GoodsReceivedNoteResponse],
+)
+async def rollback_grn(
+    grn_id: int,
+    data: RollbackGRNRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+):
+    """Rollback an approved GRN (SUPER_ADMIN only)."""
+    service = GoodsReceivedService(db)
+    grn = await service.rollback_grn(grn_id, rolled_back_by_id=current_user.id, reason=data.reason)
+    return ApiResponse(
+        success=True,
+        message="GRN rolled back successfully",
         data=_grn_to_response(grn),
     )
 

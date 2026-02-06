@@ -138,6 +138,18 @@ class CancelPurchaseOrderRequest(BaseSchema):
     reason: str = Field(..., min_length=1)
 
 
+class RollbackPurchaseOrderReceivingRequest(BaseSchema):
+    """Schema for rolling back receiving (SuperAdmin only)."""
+
+    reason: str = Field(..., min_length=1)
+
+
+class RollbackGRNRequest(BaseSchema):
+    """Schema for rolling back an approved GRN (SuperAdmin only)."""
+
+    reason: str = Field(..., min_length=1)
+
+
 class PaymentPurposeCreate(BaseSchema):
     """Schema for creating a payment purpose."""
 

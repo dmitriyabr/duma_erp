@@ -535,6 +535,7 @@ export const PurchaseOrderDetailPage = () => {
           </DialogActions>
         </Dialog>
       ) : null}
+
     </Box>
   )
 }

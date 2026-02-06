@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from src.core.documents.number_generator import get_document_number
 from src.core.exceptions import NotFoundError, ValidationError
+from src.modules.inventory.models import MovementType, StockMovement
 from src.modules.inventory.schemas import ReceiveStockRequest
 from src.modules.inventory.service import InventoryService
 from src.modules.procurement.models import (
@@ -246,10 +247,25 @@ class PurchaseOrderService:
     def _update_status_from_quantities(
         self, purchase_order: PurchaseOrder, total_expected_qty: int, total_received_qty: int
     ) -> None:
-        if purchase_order.status in (
-            PurchaseOrderStatus.CANCELLED.value,
-            PurchaseOrderStatus.CLOSED.value,
+        # Cancelled is terminal.
+        if purchase_order.status == PurchaseOrderStatus.CANCELLED.value:
+            return
+
+        # If PO was manually closed by cancelling all remaining quantities,
+        # keep it closed even if payments change later.
+        if (
+            purchase_order.status == PurchaseOrderStatus.CLOSED.value
+            and total_expected_qty == 0
         ):
+            return
+
+        if total_received_qty <= 0:
+            # No received quantities: keep draft/ordered, otherwise downgrade to ordered.
+            if purchase_order.status not in (
+                PurchaseOrderStatus.DRAFT.value,
+                PurchaseOrderStatus.ORDERED.value,
+            ):
+                purchase_order.status = PurchaseOrderStatus.ORDERED.value
             return
 
         if total_expected_qty > 0 and total_received_qty >= total_expected_qty:
@@ -259,8 +275,7 @@ class PurchaseOrderService:
                 purchase_order.status = PurchaseOrderStatus.RECEIVED.value
             return
 
-        if total_received_qty > 0:
-            purchase_order.status = PurchaseOrderStatus.PARTIALLY_RECEIVED.value
+        purchase_order.status = PurchaseOrderStatus.PARTIALLY_RECEIVED.value
 
     async def bulk_upload_from_csv(
         self, content: bytes | str, created_by_id: int
@@ -609,6 +624,135 @@ class GoodsReceivedService:
         grn.status = GoodsReceivedStatus.CANCELLED.value
         await self.db.commit()
         return await self.get_grn_by_id(grn.id)
+
+    async def rollback_purchase_order_receiving(
+        self, po_id: int, *, rolled_back_by_id: int, reason: str
+    ) -> PurchaseOrder:
+        """
+        Rollback receiving for a PO by cancelling all APPROVED GRNs and reverting:
+        - PO line.quantity_received
+        - inventory receipt movements (if track_to_warehouse=True)
+
+        Safety:
+        - Blocks rollback if there are later receipt movements for the same item
+          (outside of GRNs being rolled back), to avoid corrupting average cost.
+        """
+        if not (reason and reason.strip()):
+            raise ValidationError("Reason is required")
+
+        po = await self.po_service.get_purchase_order_by_id(po_id)
+
+        approved_grns = list(
+            (
+                await self.db.execute(
+                    select(GoodsReceivedNote)
+                    .where(GoodsReceivedNote.po_id == po_id)
+                    .where(GoodsReceivedNote.status == GoodsReceivedStatus.APPROVED.value)
+                    .options(selectinload(GoodsReceivedNote.lines))
+                    .order_by(GoodsReceivedNote.created_at.desc(), GoodsReceivedNote.id.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not approved_grns:
+            return po
+
+        # Roll back newest GRNs first so "later receipt movement" checks work.
+        for grn in approved_grns:
+            await self._rollback_grn_instance(
+                grn, rolled_back_by_id=rolled_back_by_id, reason=reason, commit=False
+            )
+
+        await self.po_service._recalculate_totals(po.id)
+        await self.db.commit()
+        return await self.po_service.get_purchase_order_by_id(po.id)
+
+    async def rollback_grn(
+        self, grn_id: int, *, rolled_back_by_id: int, reason: str
+    ) -> GoodsReceivedNote:
+        """Rollback a single approved GRN (SUPER_ADMIN only)."""
+        grn = await self.get_grn_by_id(grn_id)
+        if grn.status != GoodsReceivedStatus.APPROVED.value:
+            raise ValidationError("Only approved GRNs can be rolled back")
+
+        await self._rollback_grn_instance(grn, rolled_back_by_id=rolled_back_by_id, reason=reason, commit=True)
+        return await self.get_grn_by_id(grn_id)
+
+    async def _rollback_grn_instance(
+        self,
+        grn: GoodsReceivedNote,
+        *,
+        rolled_back_by_id: int,
+        reason: str,
+        commit: bool,
+    ) -> None:
+        if not (reason and reason.strip()):
+            raise ValidationError("Reason is required")
+
+        po = await self.po_service.get_purchase_order_by_id(grn.po_id)
+
+        po_lines = {line.id: line for line in po.lines}
+
+        for line in grn.lines:
+            po_line = po_lines.get(line.po_line_id)
+            if not po_line:
+                raise ValidationError("GRN line does not belong to purchase order")
+            if po_line.quantity_received < line.quantity_received:
+                raise ValidationError("Cannot rollback: PO line received quantity is inconsistent")
+            po_line.quantity_received -= line.quantity_received
+
+            if po.track_to_warehouse and line.item_id:
+                receipt_movement = await self.db.scalar(
+                    select(StockMovement)
+                    .where(StockMovement.item_id == line.item_id)
+                    .where(StockMovement.movement_type == MovementType.RECEIPT.value)
+                    .where(StockMovement.reference_type == "grn")
+                    .where(StockMovement.reference_id == grn.id)
+                    .order_by(StockMovement.created_at.desc(), StockMovement.id.desc())
+                )
+                if receipt_movement:
+                    later_receipts = await self.db.scalar(
+                        select(func.count())
+                        .select_from(StockMovement)
+                        .where(StockMovement.item_id == line.item_id)
+                        .where(StockMovement.movement_type == MovementType.RECEIPT.value)
+                        .where(
+                            (StockMovement.created_at > receipt_movement.created_at)
+                            | (
+                                (StockMovement.created_at == receipt_movement.created_at)
+                                & (StockMovement.id > receipt_movement.id)
+                            )
+                        )
+                    )
+                    if int(later_receipts or 0) > 0:
+                        raise ValidationError(
+                            "Cannot rollback: item has later receipt movements; "
+                            "rollback would corrupt average cost"
+                        )
+
+                unit_cost = (receipt_movement.unit_cost if receipt_movement else None) or po_line.unit_price
+                await self.inventory.apply_receipt_signed(
+                    item_id=line.item_id,
+                    quantity_delta=-line.quantity_received,
+                    unit_cost=unit_cost,
+                    reference_type="grn_rollback",
+                    reference_id=grn.id,
+                    notes=f"Rollback GRN {grn.grn_number}: {reason.strip()}",
+                    created_by_id=rolled_back_by_id,
+                    audit_action="inventory.receive.rollback",
+                    commit=False,
+                )
+
+        grn.status = GoodsReceivedStatus.CANCELLED.value
+        if grn.notes:
+            grn.notes = f"{grn.notes}\n[ROLLED BACK] {reason.strip()}"
+        else:
+            grn.notes = f"[ROLLED BACK] {reason.strip()}"
+
+        await self.po_service._recalculate_totals(po.id)
+        if commit:
+            await self.db.commit()
 
     async def get_grn_by_id(self, grn_id: int) -> GoodsReceivedNote:
         """Get GRN by ID."""

@@ -241,6 +241,7 @@
 - `GET /procurement/grns/{grn_id}`
 - `POST /procurement/grns/{grn_id}/approve`
 - `POST /procurement/grns/{grn_id}/cancel`
+- `POST /procurement/grns/{grn_id}/rollback` — **SUPER_ADMIN only**. Откат approved GRN: отменяет этот GRN, откатывает `quantity_received` по линиям PO и (если `track_to_warehouse=true`) создаёт компенсационные stock movements, чтобы вернуть склад. Ограничения: для затронутых items не должно быть более поздних `receipt`-движений (иначе нельзя безопасно восстановить average cost). Если по PO уже есть оплаты (`paid_total > 0`), откат всё равно возможен — в этом случае после rollback `debt_amount` может стать отрицательным (это фактически аванс поставщику: “paid, not received”).
 - `POST /procurement/payment-purposes`
 - `GET /procurement/payment-purposes`
 - `PUT /procurement/payment-purposes/{purpose_id}`
