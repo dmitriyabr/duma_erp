@@ -25,6 +25,11 @@
 - **PurchaseOrder** → **GRN** → **ProcurementPayment** — цепочка закупки.
 - **PaymentPurpose**: справочник назначения платежа.
 
+### Bank Statements / Reconciliation
+- **BankStatementImport**: загруженная выписка (CSV как Attachment) + вычисленный диапазон `range_from/range_to` по min/max `Value Date`.
+- **BankTransaction**: каноническая транзакция (дедуп между перекрывающимися выписками).
+- **BankTransactionMatch**: связь bank transaction ↔ `ProcurementPayment(company_paid=true)` или ↔ `CompensationPayout`.
+
 ### Employee Compensations
 - **ExpenseClaim**: заявка на компенсацию (обычно из employee_paid платежа).
 - **CompensationPayout**: выплаты сотруднику с FIFO‑аллокацией по claims.
@@ -62,6 +67,12 @@
 ### Compensation
 `ExpenseClaim: pending_approval → approved/rejected → partially_paid → paid`
 `CompensationPayout` создаётся и распределяет сумму FIFO по claim.
+
+### Bank reconciliation
+`BankStatementImport` создаётся загрузкой CSV (Admin/SuperAdmin) и парсит транзакции в `BankTransaction` (debits/credits).
+Для reconciliation используем только **исходящие** транзакции (debits). Матчинг:
+- auto‑match по сумме/дате + эвристики по reference (только если однозначный кандидат),
+- manual match/unmatch (Admin/SuperAdmin).
 
 ## 3. Ключевые бизнес‑правила
 
