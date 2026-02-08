@@ -5,13 +5,14 @@ import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDate } from '../../utils/format'
-import { canApproveGRN, isAccountant } from '../../utils/permissions'
+import { canApproveGRN, isAccountant, isSuperAdmin } from '../../utils/permissions'
 import { Button } from '../../components/ui/Button'
 import { Chip } from '../../components/ui/Chip'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
 import { Typography } from '../../components/ui/Typography'
 import { Alert } from '../../components/ui/Alert'
 import { Spinner } from '../../components/ui/Spinner'
+import { Dialog, DialogTitle, DialogContent, DialogActions } from '../../components/ui/Dialog'
 
 interface GRNLine {
   id: number
@@ -50,6 +51,8 @@ export const GRNDetailPage = () => {
   const [confirmState, setConfirmState] = useState<{ open: boolean; action?: 'approve' | 'cancel' }>({
     open: false,
   })
+  const [rollbackDialogOpen, setRollbackDialogOpen] = useState(false)
+  const [rollbackReason, setRollbackReason] = useState('')
 
   const { data: grn, loading, refetch: refetchGRN } = useApi<GRNResponse>(
     resolvedId ? `/procurement/grns/${resolvedId}` : null
@@ -59,7 +62,8 @@ export const GRNDetailPage = () => {
   )
   const { execute: approveGRN, loading: approving } = useApiMutation()
   const { execute: cancelGRN, loading: cancelling } = useApiMutation()
-  const busy = approving || cancelling
+  const { execute: rollbackGRN, loading: rollingBack } = useApiMutation()
+  const busy = approving || cancelling || rollingBack
 
   // Update PO lines map when PO data loads
   useEffect(() => {
@@ -92,6 +96,24 @@ export const GRNDetailPage = () => {
     }
   }
 
+  const handleRollback = async () => {
+    if (!resolvedId || !rollbackReason.trim()) {
+      setError('Enter rollback reason.')
+      return
+    }
+    setError(null)
+    const result = await rollbackGRN(() =>
+      api.post(`/procurement/grns/${resolvedId}/rollback`, { reason: rollbackReason.trim() })
+    )
+    if (result) {
+      setRollbackDialogOpen(false)
+      setRollbackReason('')
+      await refetchGRN()
+    } else {
+      setError('Failed to rollback GRN.')
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex justify-center py-8">
@@ -111,6 +133,7 @@ export const GRNDetailPage = () => {
   const readOnly = isAccountant(user)
   const canApprove = !readOnly && grn.status === 'draft' && canApproveGRN(user)
   const canCancel = !readOnly && grn.status === 'draft'
+  const canRollback = !readOnly && isSuperAdmin(user) && grn.status === 'approved'
 
   return (
     <div>
@@ -136,6 +159,19 @@ export const GRNDetailPage = () => {
           {canCancel && (
             <Button variant="outlined" color="error" disabled={busy} onClick={() => setConfirmState({ open: true, action: 'cancel' })}>
               Cancel
+            </Button>
+          )}
+          {canRollback && (
+            <Button
+              variant="outlined"
+              color="warning"
+              disabled={busy}
+              onClick={() => {
+                setRollbackReason('')
+                setRollbackDialogOpen(true)
+              }}
+            >
+              Rollback
             </Button>
           )}
           <Button variant="outlined" onClick={() => navigate(`/procurement/orders/${grn.po_id}`)}>
@@ -198,6 +234,41 @@ export const GRNDetailPage = () => {
         onCancel={() => setConfirmState({ open: false })}
         onConfirm={handleCancel}
       />
+
+      <Dialog open={rollbackDialogOpen} onClose={() => setRollbackDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Rollback GRN</DialogTitle>
+        <DialogContent className="space-y-4">
+          <Typography variant="body2" color="secondary">
+            This will cancel this approved GRN, revert PO received quantities, and (if tracked) revert warehouse stock receipts.
+            Cancel procurement payments first if any exist.
+          </Typography>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              Reason <span className="text-error">*</span>
+            </label>
+            <textarea
+              value={rollbackReason}
+              onChange={(e) => setRollbackReason(e.target.value)}
+              rows={3}
+              required
+              className="w-full px-4 py-2.5 rounded-lg border-2 border-slate-200 hover:border-primary-light focus:border-primary focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:outline-none transition-all duration-200"
+            />
+          </div>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="outlined" onClick={() => setRollbackDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={handleRollback}
+            disabled={!rollbackReason.trim() || busy}
+          >
+            {rollingBack ? 'Rolling back…' : 'Rollback'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </div>
   )
 }

@@ -13,13 +13,7 @@ import { Textarea } from '../../components/ui/Textarea'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
 import { Spinner } from '../../components/ui/Spinner'
 import { Trash2 } from 'lucide-react'
-
-interface KitOption {
-  id: number
-  name: string
-  price: number
-  price_type: string
-}
+import type { ItemOption, KitOption } from './types'
 
 interface StudentResponse {
   id: number
@@ -39,12 +33,18 @@ interface InvoiceDetail {
 
 type DiscountType = 'percentage' | 'fixed'
 
+interface LineComponentDraft {
+  item_id: number | ''
+  quantity: number
+}
+
 interface DraftLine {
   id: string
   kit_id: number | null
   quantity: number
   discount_type: DiscountType
   discount_value: number | ''
+  components: LineComponentDraft[]
 }
 
 const emptyLine = (): DraftLine => ({
@@ -53,6 +53,7 @@ const emptyLine = (): DraftLine => ({
   quantity: 1,
   discount_type: 'percentage',
   discount_value: '',
+  components: [],
 })
 
 const getDefaultDueDate = () => {
@@ -79,6 +80,10 @@ export const CreateInvoicePage = () => {
   const [validationError, setValidationError] = useState<string | null>(null)
 
   const kitsApi = useApi<KitOption[]>('/items/kits', { params: { include_inactive: false } })
+  const inventoryApi = useApi<ItemOption[]>('/items', {
+    params: { item_type: 'product', include_inactive: false },
+  })
+  const variantsApi = useApi<Array<{ id: number; name: string; items: Array<{ id: number; name: string; sku_code: string }> }>>('/items/variants', { params: { include_inactive: false } })
   const studentsListApi = useApi<{ items: StudentOption[]; total: number }>(
     isStandalone ? '/students' : null,
     isStandalone ? { params: { page: 1, limit: DEFAULT_PAGE_SIZE, status: 'active' } } : undefined,
@@ -89,6 +94,7 @@ export const CreateInvoicePage = () => {
   )
   const createMutation = useApiMutation<InvoiceDetail>()
   const students = studentsListApi.data?.items ?? []
+  const inventoryItems = inventoryApi.data ?? []
 
   const kits = useMemo(
     () => (kitsApi.data ?? []).filter((kit) => kit.price_type === 'standard'),
@@ -98,13 +104,38 @@ export const CreateInvoicePage = () => {
   const error =
     validationError ??
     kitsApi.error ??
+    inventoryApi.error ??
     studentApi.error ??
     studentsListApi.error ??
     createMutation.error
   const loading = createMutation.loading
 
   const updateLine = (lineId: string, updates: Partial<DraftLine>) => {
-    setLines((prev) => prev.map((line) => (line.id === lineId ? { ...line, ...updates } : line)))
+    setLines((prev) => prev.map((line) => {
+      if (line.id === lineId) {
+        const updated = { ...line, ...updates }
+        // If kit changed and it's editable, initialize components from kit's default items
+        if (updates.kit_id !== undefined && updates.kit_id !== null) {
+          const selectedKit = kits.find((k) => k.id === updates.kit_id)
+          if (selectedKit?.is_editable_components && selectedKit.items && selectedKit.items.length > 0) {
+            updated.components = selectedKit.items.map((ki) => {
+              // Determine item_id based on source_type
+              const itemId = ki.source_type === 'item' 
+                ? ki.item_id 
+                : ki.default_item_id
+              return {
+                item_id: itemId ?? '',
+                quantity: ki.quantity,
+              }
+            })
+          } else {
+            updated.components = []
+          }
+        }
+        return updated
+      }
+      return line
+    }))
   }
 
   const removeLine = (lineId: string) => {
@@ -154,6 +185,42 @@ export const CreateInvoicePage = () => {
     kits,
   ])
 
+  const updateLineComponents = (
+    lineId: string,
+    updater: (prev: LineComponentDraft[]) => LineComponentDraft[]
+  ) => {
+    setLines((prev) =>
+      prev.map((line) =>
+        line.id === lineId
+          ? {
+              ...line,
+              components: updater(line.components),
+            }
+          : line
+      )
+    )
+  }
+
+  // Components are fixed by kit definition; we only allow changing the concrete item (model),
+  // not removing components or changing their quantity.
+  const updateComponentRow = (
+    lineId: string,
+    index: number,
+    field: keyof LineComponentDraft,
+    value: number | ''
+  ) => {
+    if (field !== 'item_id') {
+      return
+    }
+    updateLineComponents(lineId, (prev) => {
+      const next = [...prev]
+      const current = next[index] ?? { item_id: '', quantity: 1 }
+      current.item_id = value
+      next[index] = current
+      return next
+    })
+  }
+
   const submitInvoice = async () => {
     if (!resolvedId) return
     setValidationError(null)
@@ -166,17 +233,43 @@ export const CreateInvoicePage = () => {
       setValidationError('Each line must have a catalog item selected.')
       return
     }
+    // Optional basic validation for configurable kits: ensure at least one component if required
+    const kitsById = new Map(kits.map((k) => [k.id, k]))
+    for (const line of lines) {
+      if (!line.kit_id) continue
+      const kit = kitsById.get(line.kit_id)
+      if (kit?.is_editable_components) {
+        const effectiveComponents = line.components.filter((c) => c.item_id && c.quantity > 0)
+        if (!effectiveComponents.length) {
+          setValidationError('Configured kits must have at least one component item.')
+          return
+        }
+      }
+    }
     const result = await createMutation.execute(() =>
       api
         .post('/invoices', {
           student_id: resolvedId,
           due_date: dueDate || null,
           notes: notes.trim() || null,
-          lines: lines.map((line) => ({
-            kit_id: line.kit_id,
-            quantity: line.quantity,
-            discount_amount: discountAmountForLine(line),
-          })),
+          lines: lines.map((line) => {
+            const kit = line.kit_id ? kitsById.get(line.kit_id) : null
+            const base = {
+              kit_id: line.kit_id,
+              quantity: line.quantity,
+              discount_amount: discountAmountForLine(line),
+            }
+            if (kit?.is_editable_components) {
+              const components = line.components
+                .filter((c) => c.item_id && c.quantity > 0)
+                .map((c) => ({
+                  item_id: c.item_id as number,
+                  quantity: c.quantity,
+                }))
+              return { ...base, components }
+            }
+            return base
+          }),
         })
         .then((r) => ({ data: { data: unwrapResponse<InvoiceDetail>(r) } }))
     )
@@ -264,6 +357,8 @@ export const CreateInvoicePage = () => {
         <TableBody>
           {lines.map((line) => {
             const unitPrice = unitPriceForLine(line)
+            const kit = line.kit_id ? kits.find((k) => k.id === line.kit_id) : null
+            const isConfigurable = Boolean(kit?.is_editable_components)
             return (
               <TableRow key={line.id}>
                 <TableCell>

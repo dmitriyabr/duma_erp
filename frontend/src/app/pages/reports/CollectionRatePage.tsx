@@ -20,6 +20,7 @@ import { Button } from '../../components/ui/Button'
 import { Card, CardContent } from '../../components/ui/Card'
 import { Select } from '../../components/ui/Select'
 import { Spinner } from '../../components/ui/Spinner'
+import { downloadReportExcel } from '../../utils/reportExcel'
 
 interface MonthRow {
   year_month: string
@@ -99,6 +100,9 @@ export const CollectionRatePage = () => {
               </Select>
             </div>
             <Button variant="contained" onClick={runReport}>Run report</Button>
+            <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/collection-rate', { months }, 'collection-rate.xlsx')}>
+              Export to Excel
+            </Button>
           </div>
         </CardContent>
       </Card>

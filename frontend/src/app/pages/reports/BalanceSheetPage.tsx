@@ -11,15 +11,19 @@ import { Input } from '../../components/ui/Input'
 import { Card, CardContent } from '../../components/ui/Card'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
 import { Spinner } from '../../components/ui/Spinner'
+import { DateRangeShortcuts, getDateRangeForPreset } from '../../components/DateRangeShortcuts'
+import { downloadReportExcel } from '../../utils/reportExcel'
 
 interface AssetLine {
   label: string
   amount: string
+  monthly?: Record<string, string>
 }
 
 interface LiabilityLine {
   label: string
   amount: string
+  monthly?: Record<string, string>
 }
 
 interface BalanceSheetData {
@@ -31,28 +35,55 @@ interface BalanceSheetData {
   net_equity: string
   debt_to_asset_percent: number | null
   current_ratio: number | null
+  months?: string[]
+  total_assets_monthly?: Record<string, string>
+  total_liabilities_monthly?: Record<string, string>
+  net_equity_monthly?: Record<string, string>
+  debt_to_asset_percent_monthly?: Record<string, number>
+  current_ratio_monthly?: Record<string, number>
 }
 
-const defaultAsAt = () => new Date().toISOString().slice(0, 10)
+const defaultRange = () => getDateRangeForPreset('this_year')
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+function monthLabel(yyyyMm: string): string {
+  const [y, m] = yyyyMm.split('-').map(Number)
+  return `${MONTH_NAMES[m - 1]} ${y}`
+}
 
 export const BalanceSheetPage = () => {
   const { user } = useAuth()
-  const [asAtDate, setAsAtDate] = useState(defaultAsAt)
+  const [dateFrom, setDateFrom] = useState(() => defaultRange().from)
+  const [dateTo, setDateTo] = useState(() => defaultRange().to)
   const [data, setData] = useState<BalanceSheetData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [forbidden, setForbidden] = useState(false)
 
-  const runReport = () => {
+  const runReport = (overrideFrom?: string, overrideTo?: string) => {
     if (!canSeeReports(user)) return
+    const from = overrideFrom ?? dateFrom
+    const to = overrideTo ?? dateTo
     setLoading(true)
     setError(null)
+    const fromD = new Date(from)
+    const toD = new Date(to)
+    const multiMonth = fromD.getFullYear() !== toD.getFullYear() || fromD.getMonth() !== toD.getMonth()
+    const params: Record<string, string> = {
+      as_at_date: to,
+      date_from: from,
+      date_to: to,
+    }
+    if (multiMonth) params.breakdown = 'monthly'
     api
       .get<ApiResponse<BalanceSheetData>>('/reports/balance-sheet', {
-        params: { as_at_date: asAtDate },
+        params,
       })
       .then((res) => {
-        if (res.data?.data) setData(res.data.data)
+        if (res.data?.data) {
+          setData(res.data.data)
+          setDateFrom(from)
+          setDateTo(to)
+        }
       })
       .catch((err) => {
         if (err.response?.status === 403) setForbidden(true)
@@ -84,16 +115,55 @@ export const BalanceSheetPage = () => {
       <Card className="mb-4">
         <CardContent>
           <div className="flex flex-wrap gap-4 items-center">
-            <div className="min-w-[180px]">
+            <DateRangeShortcuts
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              onRangeChange={(from, to) => {
+                setDateFrom(from)
+                setDateTo(to)
+              }}
+              onRun={(from, to) => runReport(from, to)}
+            />
+            <div className="min-w-[160px]">
               <Input
-                label="As at date"
+                label="From"
                 type="date"
-                value={asAtDate}
-                onChange={(e) => setAsAtDate(e.target.value)}
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
               />
             </div>
-            <Button variant="contained" onClick={runReport}>Run report</Button>
+            <div className="min-w-[160px]">
+              <Input
+                label="To (as at)"
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
+            </div>
+            <Button variant="contained" onClick={() => runReport()}>Run report</Button>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => {
+                const from = dateFrom
+                const to = dateTo
+                const fromD = new Date(from)
+                const toD = new Date(to)
+                const multiMonth = fromD.getFullYear() !== toD.getFullYear() || fromD.getMonth() !== toD.getMonth()
+                downloadReportExcel('/reports/balance-sheet', {
+                  as_at_date: to,
+                  date_from: from,
+                  date_to: to,
+                  ...(multiMonth ? { breakdown: 'monthly' } : {}),
+                }, 'balance-sheet.xlsx')
+              }}
+            >
+              Export to Excel
+            </Button>
           </div>
+          <Typography variant="caption" color="secondary" className="block mt-2">
+            Multi-month range shows columns per month (as at end of each month).
+          </Typography>
         </CardContent>
       </Card>
 
@@ -111,71 +181,6 @@ export const BalanceSheetPage = () => {
             As at {data.as_at_date}
           </Typography>
 
-          <Card className="mb-4">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableHeaderCell><strong>Assets</strong></TableHeaderCell>
-                    <TableHeaderCell align="right"><strong>Amount (KES)</strong></TableHeaderCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {data.asset_lines.map((row) => (
-                    <TableRow key={row.label}>
-                      <TableCell>{row.label}</TableCell>
-                      <TableCell align="right">{formatMoney(row.amount)}</TableCell>
-                    </TableRow>
-                  ))}
-                  <TableRow>
-                    <TableCell><strong>Total Assets</strong></TableCell>
-                    <TableCell align="right"><strong>{formatMoney(data.total_assets)}</strong></TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </div>
-          </Card>
-
-          <Card className="mb-4">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableHeaderCell><strong>Liabilities</strong></TableHeaderCell>
-                    <TableHeaderCell align="right"><strong>Amount (KES)</strong></TableHeaderCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {data.liability_lines.map((row) => (
-                    <TableRow key={row.label}>
-                      <TableCell>{row.label}</TableCell>
-                      <TableCell align="right">{formatMoney(row.amount)}</TableCell>
-                    </TableRow>
-                  ))}
-                  <TableRow>
-                    <TableCell><strong>Total Liabilities</strong></TableCell>
-                    <TableCell align="right"><strong>{formatMoney(data.total_liabilities)}</strong></TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </div>
-          </Card>
-
-          <Card>
-            <CardContent>
-              <Typography variant="subtitle2" className="mb-2"><strong>Net equity</strong>: {formatMoney(data.net_equity)}</Typography>
-              {data.debt_to_asset_percent != null && (
-                <Typography variant="body2" color="secondary" className="mb-2">
-                  Debt-to-asset ratio: {data.debt_to_asset_percent}%
-                </Typography>
-              )}
-              {data.current_ratio != null && (
-                <Typography variant="body2" color="secondary">
-                  Current ratio: {data.current_ratio}
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
         </>
       )}
 

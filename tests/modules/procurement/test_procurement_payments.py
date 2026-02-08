@@ -144,3 +144,67 @@ class TestProcurementPayments:
         claims_data = claims_response.json()["data"]
         assert claims_data["total"] == 1
         assert claims_data["items"][0]["employee_id"] == employee_id
+
+    async def test_cancel_payment_reopens_closed_po(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await self._get_admin_token(client, db_session)
+        purpose_id = await self._create_payment_purpose(client, token, "Procurement")
+        item_id = await self._create_product_item(client, token)
+
+        po_data = await self._create_po(client, token, item_id, purpose_id)
+        po_id = po_data["id"]
+        po_line_id = po_data["lines"][0]["id"]
+
+        # Fully receive the PO via GRN.
+        grn_response = await client.post(
+            "/api/v1/procurement/grns",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"po_id": po_id, "lines": [{"po_line_id": po_line_id, "quantity_received": 1}]},
+        )
+        assert grn_response.status_code == 201
+        grn_id = grn_response.json()["data"]["id"]
+
+        approve_response = await client.post(
+            f"/api/v1/procurement/grns/{grn_id}/approve",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert approve_response.status_code == 200
+
+        # Pay the received value -> PO becomes closed.
+        pay_response = await client.post(
+            "/api/v1/procurement/payments",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "po_id": po_id,
+                "purpose_id": purpose_id,
+                "payment_date": "2026-01-25",
+                "amount": "10.00",
+                "payment_method": "bank",
+                "proof_text": "Proof",
+                "company_paid": True,
+            },
+        )
+        assert pay_response.status_code == 201
+        payment_id = pay_response.json()["data"]["id"]
+
+        po_after_pay = await client.get(
+            f"/api/v1/procurement/purchase-orders/{po_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert po_after_pay.status_code == 200
+        assert po_after_pay.json()["data"]["status"] == "closed"
+
+        cancel_response = await client.post(
+            f"/api/v1/procurement/payments/{payment_id}/cancel",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"reason": "Test cancel"},
+        )
+        assert cancel_response.status_code == 200
+
+        po_after_cancel = await client.get(
+            f"/api/v1/procurement/purchase-orders/{po_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert po_after_cancel.status_code == 200
+        assert po_after_cancel.json()["data"]["status"] == "received"

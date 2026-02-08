@@ -111,6 +111,7 @@ export const PurchaseOrderFormPage = () => {
   const [newItemName, setNewItemName] = useState('')
   const [newItemSku, setNewItemSku] = useState('')
   const [currentLineForNewItem, setCurrentLineForNewItem] = useState<POLineDraft | null>(null)
+  const [creatingItem, setCreatingItem] = useState(false)
 
   const [newPurposeDialogOpen, setNewPurposeDialogOpen] = useState(false)
   const [newPurposeName, setNewPurposeName] = useState('')
@@ -123,7 +124,7 @@ export const PurchaseOrderFormPage = () => {
     '/procurement/payment-purposes',
     { params: { include_inactive: true } }
   )
-  const { data: itemsData } = useApi<InventoryItemRow[]>(
+  const { data: itemsData, refetch: refetchItems } = useApi<InventoryItemRow[]>(
     '/items',
     { params: { item_type: 'product', include_inactive: false } }
   )
@@ -137,8 +138,12 @@ export const PurchaseOrderFormPage = () => {
   const { execute: savePO, loading: saving } = useApiMutation<POResponse>()
 
   const purposes = purposesData || []
-  const inventoryItems = itemsData || []
+  const [inventoryItems, setInventoryItems] = useState<InventoryItemRow[]>([])
   const categories = categoriesData || []
+
+  useEffect(() => {
+    setInventoryItems(itemsData || [])
+  }, [itemsData])
 
   useEffect(() => {
     if (poData && isEdit) {
@@ -230,6 +235,7 @@ export const PurchaseOrderFormPage = () => {
         setError('Category not found.')
         return
       }
+      setCreatingItem(true)
       const skuPrefix = category.name.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) || 'CAT'
       const existingItems = inventoryItems.filter((item) => item.sku_code.startsWith(skuPrefix))
       const maxNum = existingItems.reduce((max, item) => {
@@ -241,6 +247,7 @@ export const PurchaseOrderFormPage = () => {
         return max
       }, 0)
       const newSku = `${skuPrefix}-${String(maxNum + 1).padStart(6, '0')}`
+      setNewItemSku(newSku)
 
       const response = await api.post<ApiResponse<{ id: number }>>('/items', {
         category_id: Number(newItemCategoryId),
@@ -258,14 +265,22 @@ export const PurchaseOrderFormPage = () => {
         category_id: Number(newItemCategoryId),
         category_name: category.name,
       }
+      setInventoryItems((prev) => [...prev, newItem])
       updateLine(currentLineForNewItem.id, {
         item_id: newItem.id,
         description: newItem.name,
         line_type: 'inventory',
       })
+      void refetchItems()
       setNewItemDialogOpen(false)
+      setCurrentLineForNewItem(null)
+      setNewItemCategoryId('')
+      setNewItemName('')
+      setNewItemSku('')
     } catch {
       setError('Failed to create item.')
+    } finally {
+      setCreatingItem(false)
     }
   }
 
@@ -647,8 +662,12 @@ export const PurchaseOrderFormPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setNewItemDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={createNewItemAndAssign} disabled={saving}>
-            {saving ? <Spinner size="small" /> : 'Create & assign'}
+          <Button
+            variant="contained"
+            onClick={createNewItemAndAssign}
+            disabled={creatingItem || !newItemCategoryId || !newItemName.trim()}
+          >
+            {creatingItem ? <Spinner size="small" /> : 'Create & assign'}
           </Button>
         </DialogActions>
       </Dialog>

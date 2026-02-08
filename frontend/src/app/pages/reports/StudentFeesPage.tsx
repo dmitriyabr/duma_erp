@@ -10,6 +10,8 @@ import { Select } from '../../components/ui/Select'
 import { Card, CardContent } from '../../components/ui/Card'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
 import { Spinner } from '../../components/ui/Spinner'
+import { Button } from '../../components/ui/Button'
+import { downloadReportExcel } from '../../utils/reportExcel'
 
 interface TermRow {
   id: number
@@ -103,9 +105,23 @@ export const StudentFeesPage = () => {
     )
   }
 
+  const handleExportExcel = () => {
+    if (!termId) return
+    const params: Record<string, unknown> = { term_id: Number(termId) }
+    if (gradeId) params.grade_id = Number(gradeId)
+    downloadReportExcel('/reports/student-fees', params, 'student-fees.xlsx')
+  }
+
   return (
     <div>
-      <Typography variant="h5" className="mb-4">Student Fees by Term</Typography>
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+        <Typography variant="h5">Student Fees by Term</Typography>
+        {termId && (
+          <Button variant="outlined" size="small" onClick={handleExportExcel}>
+            Export to Excel
+          </Button>
+        )}
+      </div>
 
       <div className="flex flex-wrap gap-4 mb-4">
         <div className="min-w-[200px]">

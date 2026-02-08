@@ -55,7 +55,9 @@ export const SidebarNav = () => {
             {availableItems.map((item) => {
               const hasChildren = !!item.children?.length
               const isChildActive = item.children?.some(
-                (child) => location.pathname === child.path
+                (child) =>
+                  location.pathname === child.path ||
+                  (child.path !== item.path && location.pathname.startsWith(child.path + '/'))
               )
               const isActive = location.pathname === item.path || isChildActive
               const isGroupOpen = openGroups[item.label] ?? !!isChildActive
@@ -118,7 +120,9 @@ export const SidebarNav = () => {
                           if (!role || !child.roles.includes(role)) {
                             return null
                           }
-                          const isChildItemActive = location.pathname === child.path
+                          const isChildItemActive =
+                            location.pathname === child.path ||
+                            location.pathname.startsWith(child.path + '/')
                           return (
                             <li key={child.label}>
                               <NavLink

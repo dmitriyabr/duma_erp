@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
 import { api } from '../../services/api'
+import { downloadAttachment } from '../../utils/attachments'
 import { formatDate, formatMoney } from '../../utils/format'
 import { useAuth } from '../../auth/AuthContext'
 import { Button } from '../../components/ui/Button'
@@ -58,20 +59,6 @@ export const PaymentReceiptsPage = () => {
       const a = document.createElement('a')
       a.href = url
       a.download = `receipt_${receiptNumber || paymentId}.pdf`
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      // ignore
-    }
-  }
-
-  const downloadAttachment = async (attachmentId: number) => {
-    try {
-      const res = await api.get(`/attachments/${attachmentId}/download`, { responseType: 'blob' })
-      const url = URL.createObjectURL(new Blob([res.data]))
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `attachment_${attachmentId}`
       a.click()
       URL.revokeObjectURL(url)
     } catch {

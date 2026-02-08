@@ -17,16 +17,19 @@ function getDefaultDateRange(): { start: string; end: string } {
 }
 
 type ExportType = 'student-payments' | 'procurement-payments' | 'student-balance-changes'
+type ExportTypeExtended = ExportType | 'bank-transfers' | 'bank-statement-files'
 
 export const AccountantExportPage = () => {
   const [datesPayments, setDatesPayments] = useState(getDefaultDateRange)
   const [datesProcurement, setDatesProcurement] = useState(getDefaultDateRange)
   const [datesBalanceChanges, setDatesBalanceChanges] = useState(getDefaultDateRange)
+  const [datesBankTransfers, setDatesBankTransfers] = useState(getDefaultDateRange)
+  const [datesBankFiles, setDatesBankFiles] = useState(getDefaultDateRange)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const handleExport = async (
-    type: ExportType,
+    type: ExportTypeExtended,
     startDate: string,
     endDate: string,
   ) => {
@@ -171,6 +174,81 @@ export const AccountantExportPage = () => {
               {loading ? <Spinner size="small" /> : 'Export CSV'}
             </Button>
           </div>
+          <Typography variant="caption" color="secondary" className="block">
+            Columns: Date, Student ID, Student Name, Type, Reference, Amount (+ in / − out)
+          </Typography>
+        </div>
+
+        <div>
+          <Typography variant="subtitle1" className="mb-2 font-semibold">
+            Bank Transfers (Outgoing)
+          </Typography>
+          <div className="flex gap-4 items-center flex-wrap mb-2">
+            <div className="min-w-[180px]">
+              <Input
+                label="Start date"
+                type="date"
+                value={datesBankTransfers.start}
+                onChange={(e) => setDatesBankTransfers((p) => ({ ...p, start: e.target.value }))}
+              />
+            </div>
+            <div className="min-w-[180px]">
+              <Input
+                label="End date"
+                type="date"
+                value={datesBankTransfers.end}
+                onChange={(e) => setDatesBankTransfers((p) => ({ ...p, end: e.target.value }))}
+              />
+            </div>
+            <Button
+              variant="outlined"
+              onClick={() =>
+                handleExport('bank-transfers', datesBankTransfers.start, datesBankTransfers.end)
+              }
+              disabled={loading}
+            >
+              {loading ? <Spinner size="small" /> : 'Download CSV'}
+            </Button>
+          </div>
+          <Typography variant="caption" color="secondary" className="block">
+            Columns: Value Date, Description, Reference, Type, Amount, Matched document#, Proof link
+          </Typography>
+        </div>
+
+        <div>
+          <Typography variant="subtitle1" className="mb-2 font-semibold">
+            Bank Statement Files
+          </Typography>
+          <div className="flex gap-4 items-center flex-wrap mb-2">
+            <div className="min-w-[180px]">
+              <Input
+                label="Start date"
+                type="date"
+                value={datesBankFiles.start}
+                onChange={(e) => setDatesBankFiles((p) => ({ ...p, start: e.target.value }))}
+              />
+            </div>
+            <div className="min-w-[180px]">
+              <Input
+                label="End date"
+                type="date"
+                value={datesBankFiles.end}
+                onChange={(e) => setDatesBankFiles((p) => ({ ...p, end: e.target.value }))}
+              />
+            </div>
+            <Button
+              variant="outlined"
+              onClick={() =>
+                handleExport('bank-statement-files', datesBankFiles.start, datesBankFiles.end)
+              }
+              disabled={loading}
+            >
+              {loading ? <Spinner size="small" /> : 'Download CSV'}
+            </Button>
+          </div>
+          <Typography variant="caption" color="secondary" className="block">
+            Columns: Import ID, File name, Range from/to, Download link
+          </Typography>
         </div>
       </div>
     </div>

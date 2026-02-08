@@ -163,7 +163,7 @@ export const DashboardPage = () => {
                     </Typography>
                   )}
                   <button
-                    onClick={() => navigate('/reports/student-fees')}
+                    onClick={() => navigate('/reports/students/student-fees')}
                     className="mt-2 text-xs text-primary hover:underline"
                   >
                     View report
@@ -179,7 +179,7 @@ export const DashboardPage = () => {
                     {dashboard.collection_rate_percent != null ? `${dashboard.collection_rate_percent}%` : '—'}
                   </Typography>
                   <button
-                    onClick={() => navigate('/reports/collection-rate')}
+                    onClick={() => navigate('/reports/students/collection-rate')}
                     className="mt-2 text-xs text-primary hover:underline"
                   >
                     View report
@@ -214,7 +214,7 @@ export const DashboardPage = () => {
                     {dashboard.student_debts_count} students
                   </Typography>
                   <button
-                    onClick={() => navigate('/reports/aged-receivables')}
+                    onClick={() => navigate('/reports/students/aged-receivables')}
                     className="mt-2 text-xs text-primary hover:underline"
                   >
                     View report

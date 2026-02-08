@@ -118,6 +118,80 @@ class TestGoodsReceivedEndpoints:
         assert stock_response.status_code == 200
         assert stock_response.json()["data"]["quantity_on_hand"] == 2
 
+    async def test_superadmin_can_rollback_po_receiving(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await self._get_admin_token(client, db_session, role=UserRole.SUPER_ADMIN)
+        item_id = await self._create_product_item(client, token)
+        po_data = await self._create_po(client, token, item_id, track_to_warehouse=True, quantity_expected=2)
+        po_id = po_data["id"]
+        po_line_id = po_data["lines"][0]["id"]
+
+        grn_response = await client.post(
+            "/api/v1/procurement/grns",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"po_id": po_id, "lines": [{"po_line_id": po_line_id, "quantity_received": 2}]},
+        )
+        assert grn_response.status_code == 201
+        grn_id = grn_response.json()["data"]["id"]
+
+        approve_response = await client.post(
+            f"/api/v1/procurement/grns/{grn_id}/approve",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert approve_response.status_code == 200
+
+        payment_response = await client.post(
+            "/api/v1/procurement/payments",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "po_id": po_id,
+                "payment_date": "2026-02-01",
+                "amount": "25.00",
+                "payment_method": "bank_transfer",
+                "proof_text": "Advance payment before receiving rollback",
+            },
+        )
+        assert payment_response.status_code == 201
+
+        stock_response = await client.get(
+            f"/api/v1/inventory/stock/{item_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert stock_response.status_code == 200
+        assert stock_response.json()["data"]["quantity_on_hand"] == 2
+
+        rollback_response = await client.post(
+            f"/api/v1/procurement/grns/{grn_id}/rollback",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"reason": "Wrong items received"},
+        )
+        assert rollback_response.status_code == 200
+        assert rollback_response.json()["data"]["status"] == "cancelled"
+
+        po_after = await client.get(
+            f"/api/v1/procurement/purchase-orders/{po_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert po_after.status_code == 200
+        assert po_after.json()["data"]["status"] == "ordered"
+        assert po_after.json()["data"]["lines"][0]["quantity_received"] == 0
+        assert po_after.json()["data"]["paid_total"] == "25.00"
+
+        stock_after = await client.get(
+            f"/api/v1/inventory/stock/{item_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert stock_after.status_code == 200
+        assert stock_after.json()["data"]["quantity_on_hand"] == 0
+
+        grn_after = await client.get(
+            f"/api/v1/procurement/grns/{grn_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert grn_after.status_code == 200
+        assert grn_after.json()["data"]["status"] == "cancelled"
+
     async def test_admin_cannot_approve_own_grn(
         self, client: AsyncClient, db_session: AsyncSession
     ):

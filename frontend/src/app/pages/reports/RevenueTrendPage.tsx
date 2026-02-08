@@ -1,0 +1,159 @@
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CircularProgress,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Typography,
+} from '@mui/material'
+import { useEffect, useState } from 'react'
+import { useAuth } from '../../auth/AuthContext'
+import { api } from '../../services/api'
+import type { ApiResponse } from '../../types/api'
+import { canSeeReports } from '../../utils/permissions'
+import { formatMoney } from '../../utils/format'
+import { downloadReportExcel } from '../../utils/reportExcel'
+
+interface RevenueTrendRow {
+  year: number
+  label: string
+  total_revenue: string
+  students_count: number
+  avg_revenue_per_student: string | null
+}
+
+interface RevenueTrendData {
+  rows: RevenueTrendRow[]
+  growth_percent: number | null
+  years_included: number
+}
+
+export const RevenueTrendPage = () => {
+  const { user } = useAuth()
+  const [years, setYears] = useState(3)
+  const [data, setData] = useState<RevenueTrendData | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [forbidden, setForbidden] = useState(false)
+
+  const runReport = () => {
+    if (!canSeeReports(user)) return
+    setLoading(true)
+    setError(null)
+    api
+      .get<ApiResponse<RevenueTrendData>>('/reports/revenue-trend', {
+        params: { years },
+      })
+      .then((res) => {
+        if (res.data?.data) setData(res.data.data)
+      })
+      .catch((err) => {
+        if (err.response?.status === 403) setForbidden(true)
+        else setError(err.response?.data?.detail ?? 'Failed to load report')
+      })
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    if (canSeeReports(user)) runReport()
+    else setForbidden(true)
+  }, [user])
+
+  if (forbidden) {
+    return (
+      <Box>
+        <Typography variant="h5" sx={{ mb: 2 }}>Revenue per Student Trend</Typography>
+        <Alert severity="warning">
+          You do not have access to reports. This section is available to Admin and SuperAdmin.
+        </Alert>
+      </Box>
+    )
+  }
+
+  return (
+    <Box>
+      <Typography variant="h5" sx={{ mb: 2 }}>Revenue per Student Trend</Typography>
+
+      <Card sx={{ mb: 2 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
+            <FormControl size="small" sx={{ minWidth: 120 }}>
+              <InputLabel>Years</InputLabel>
+              <Select
+                value={years}
+                label="Years"
+                onChange={(e) => setYears(Number(e.target.value))}
+              >
+                {[1, 2, 3, 4, 5, 10].map((n) => (
+                  <MenuItem key={n} value={n}>{n}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Button variant="contained" onClick={runReport}>Run report</Button>
+            <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/revenue-trend', { years }, 'revenue-trend.xlsx')}>Export to Excel</Button>
+          </Box>
+        </CardContent>
+      </Card>
+
+      {loading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+          <CircularProgress />
+        </Box>
+      )}
+
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+      {!loading && data && (
+        <>
+          {data.growth_percent != null && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Growth over period: {data.growth_percent > 0 ? '+' : ''}{data.growth_percent}%
+            </Typography>
+          )}
+
+          <TableContainer component={Card}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell><strong>Year</strong></TableCell>
+                  <TableCell align="right"><strong>Total revenue (KES)</strong></TableCell>
+                  <TableCell align="right"><strong>Students (paid)</strong></TableCell>
+                  <TableCell align="right"><strong>Avg per student (KES)</strong></TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {data.rows.map((row) => (
+                  <TableRow key={row.year}>
+                    <TableCell>{row.label}</TableCell>
+                    <TableCell align="right">{formatMoney(row.total_revenue)}</TableCell>
+                    <TableCell align="right">{row.students_count}</TableCell>
+                    <TableCell align="right">
+                      {row.avg_revenue_per_student != null
+                        ? formatMoney(row.avg_revenue_per_student)
+                        : '—'}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </>
+      )}
+
+      {!loading && !data && !error && canSeeReports(user) && (
+        <Typography color="text.secondary">Select years and run report.</Typography>
+      )}
+    </Box>
+  )
+}

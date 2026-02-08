@@ -3,9 +3,9 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
-import { api } from '../../services/api'
 import { useAuth } from '../../auth/AuthContext'
 import { formatDate, formatMoney } from '../../utils/format'
+import { downloadAttachment } from '../../utils/attachments'
 import { isAccountant } from '../../utils/permissions'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
@@ -62,20 +62,6 @@ export const ProcurementPaymentsListPage = () => {
 
   const payments = data?.items || []
   const total = data?.total || 0
-
-  const downloadAttachment = async (attachmentId: number) => {
-    try {
-      const res = await api.get(`/attachments/${attachmentId}/download`, { responseType: 'blob' })
-      const url = URL.createObjectURL(new Blob([res.data]))
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `attachment_${attachmentId}`
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      // ignore
-    }
-  }
 
   return (
     <div>

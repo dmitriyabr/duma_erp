@@ -11,15 +11,19 @@ import { Input } from '../../components/ui/Input'
 import { Card, CardContent } from '../../components/ui/Card'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
 import { Spinner } from '../../components/ui/Spinner'
+import { DateRangeShortcuts, getDateRangeForPreset } from '../../components/DateRangeShortcuts'
+import { downloadReportExcel } from '../../utils/reportExcel'
 
 interface RevenueLine {
   label: string
   amount: string
+  monthly?: Record<string, string>
 }
 
 interface ExpenseLine {
   label: string
   amount: string
+  monthly?: Record<string, string>
 }
 
 interface ProfitLossData {
@@ -33,34 +37,56 @@ interface ProfitLossData {
   total_expenses: string
   net_profit: string
   profit_margin_percent: number | null
+  months?: string[]
+  gross_revenue_monthly?: Record<string, string>
+  total_discounts_monthly?: Record<string, string>
+  net_revenue_monthly?: Record<string, string>
+  total_expenses_monthly?: Record<string, string>
+  net_profit_monthly?: Record<string, string>
+  profit_margin_percent_monthly?: Record<string, number>
 }
 
-const defaultDateFrom = () => {
-  const d = new Date()
-  d.setDate(1)
-  return d.toISOString().slice(0, 10)
+const defaultRange = () => getDateRangeForPreset('this_year')
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+function monthLabel(yyyyMm: string): string {
+  const [y, m] = yyyyMm.split('-').map(Number)
+  return `${MONTH_NAMES[m - 1]} ${y}`
 }
-const defaultDateTo = () => new Date().toISOString().slice(0, 10)
 
 export const ProfitLossPage = () => {
   const { user } = useAuth()
-  const [dateFrom, setDateFrom] = useState(defaultDateFrom)
-  const [dateTo, setDateTo] = useState(defaultDateTo)
+  const [dateFrom, setDateFrom] = useState(() => defaultRange().from)
+  const [dateTo, setDateTo] = useState(() => defaultRange().to)
   const [data, setData] = useState<ProfitLossData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [forbidden, setForbidden] = useState(false)
 
-  const runReport = () => {
+  const runReport = (overrideFrom?: string, overrideTo?: string) => {
     if (!canSeeReports(user)) return
+    const from = overrideFrom ?? dateFrom
+    const to = overrideTo ?? dateTo
     setLoading(true)
     setError(null)
+    const fromD = new Date(from)
+    const toD = new Date(to)
+    const multiMonth = fromD.getFullYear() !== toD.getFullYear() ||
+      fromD.getMonth() !== toD.getMonth()
     api
       .get<ApiResponse<ProfitLossData>>('/reports/profit-loss', {
-        params: { date_from: dateFrom, date_to: dateTo },
+        params: {
+          date_from: from,
+          date_to: to,
+          ...(multiMonth ? { breakdown: 'monthly' } : {}),
+        },
       })
       .then((res) => {
-        if (res.data?.data) setData(res.data.data)
+        if (res.data?.data) {
+          setData(res.data.data)
+          setDateFrom(from)
+          setDateTo(to)
+        }
       })
       .catch((err) => {
         if (err.response?.status === 403) setForbidden(true)
@@ -92,6 +118,15 @@ export const ProfitLossPage = () => {
       <Card className="mb-4">
         <CardContent>
           <div className="flex flex-wrap gap-4 items-center">
+            <DateRangeShortcuts
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              onRangeChange={(from, to) => {
+                setDateFrom(from)
+                setDateTo(to)
+              }}
+              onRun={(from, to) => runReport(from, to)}
+            />
             <div className="min-w-[160px]">
               <Input
                 label="From"
@@ -108,7 +143,25 @@ export const ProfitLossPage = () => {
                 onChange={(e) => setDateTo(e.target.value)}
               />
             </div>
-            <Button variant="contained" onClick={runReport}>Run report</Button>
+            <Button variant="contained" onClick={() => runReport()}>Run report</Button>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => {
+                const from = dateFrom
+                const to = dateTo
+                const fromD = new Date(from)
+                const toD = new Date(to)
+                const multiMonth = fromD.getFullYear() !== toD.getFullYear() || fromD.getMonth() !== toD.getMonth()
+                downloadReportExcel('/reports/profit-loss', {
+                  date_from: from,
+                  date_to: to,
+                  ...(multiMonth ? { breakdown: 'monthly' } : {}),
+                }, 'profit-loss.xlsx')
+              }}
+            >
+              Export to Excel
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -127,74 +180,6 @@ export const ProfitLossPage = () => {
             Period: {data.date_from} — {data.date_to}
           </Typography>
 
-          <Card className="mb-4">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableHeaderCell><strong>Revenue</strong></TableHeaderCell>
-                    <TableHeaderCell align="right"><strong>Amount (KES)</strong></TableHeaderCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {data.revenue_lines.map((row) => (
-                    <TableRow key={row.label}>
-                      <TableCell>{row.label}</TableCell>
-                      <TableCell align="right">{formatMoney(row.amount)}</TableCell>
-                    </TableRow>
-                  ))}
-                  <TableRow>
-                    <TableCell><strong>Gross Revenue</strong></TableCell>
-                    <TableCell align="right"><strong>{formatMoney(data.gross_revenue)}</strong></TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell>Less: Discounts</TableCell>
-                    <TableCell align="right">-{formatMoney(data.total_discounts)}</TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell><strong>Net Revenue</strong></TableCell>
-                    <TableCell align="right"><strong>{formatMoney(data.net_revenue)}</strong></TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </div>
-          </Card>
-
-          <Card className="mb-4">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableHeaderCell><strong>Expenses</strong></TableHeaderCell>
-                    <TableHeaderCell align="right"><strong>Amount (KES)</strong></TableHeaderCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {data.expense_lines.map((row) => (
-                    <TableRow key={row.label}>
-                      <TableCell>{row.label}</TableCell>
-                      <TableCell align="right">{formatMoney(row.amount)}</TableCell>
-                    </TableRow>
-                  ))}
-                  <TableRow>
-                    <TableCell><strong>Total Expenses</strong></TableCell>
-                    <TableCell align="right"><strong>{formatMoney(data.total_expenses)}</strong></TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </div>
-          </Card>
-
-          <Card>
-            <CardContent>
-              <Typography variant="subtitle2" className="mb-2"><strong>Net Profit</strong>: {formatMoney(data.net_profit)}</Typography>
-              {data.profit_margin_percent != null && (
-                <Typography variant="body2" color="secondary">
-                  Profit margin: {data.profit_margin_percent}%
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
         </>
       )}
 

@@ -55,14 +55,15 @@
 
 - **Invoices:** `draft → issued → partially_paid → paid` (есть `cancelled`, `void`)
 - **Payments:** `pending → completed | cancelled`
-- **Allocation priority:** 1) счета с `requires_full_payment` (Kit) — в первую очередь, допускается частичная оплата (выдача/резерв сработает только при полной); 2) счета с `partial_ok` — остаток распределяется пропорционально по `amount_due`.
+- **Allocation priority:** 1) счета с `requires_full_payment` (Kit) — в первую очередь, допускается частичная оплата; 2) счета с `partial_ok` — остаток распределяется пропорционально по `amount_due`.
 - **Credit balance:** вычисляется как `SUM(completed payments) - SUM(allocations)`
 - **Auto-allocation (бэкенд):** запускается при завершении платежа (`POST .../complete`) и при любом выставлении счёта в Issued: одиночное (POST `.../issue`), массовая генерация (`generate-term-invoices`), генерация по студенту (`generate-term-invoices/student`). Фронт не вызывает аллокацию после complete — всё делает бэкенд.
 - **Employee balance:** при запросе баланса сотрудника (`GET .../payouts/employees/{id}/balance`) баланс всегда пересчитывается по одобренным claims и выплатам (approved claims − payouts).
-- **Reservation:** создаётся при полной оплате line с Kit (product), выдача частями
-- **Catalog:** продажи идут через `Kit` (invoice lines используют только `kit_id`)
-- **Stock:** остатки не могут уходить в минус
-- **Cancellations:** по причине, данные не удаляются
+- **Reservation:** создаётся сразу после issue инвойса по строкам с Kit (product), до оплаты; выдача может быть частичной или полной.
+- **Catalog:** продажи идут через `Kit` (invoice lines используют только `kit_id`).
+  - Для **editable uniform kits** фактический состав строки хранится в `InvoiceLineComponent`, а цена и правила оплаты — на уровне `Kit`.
+- **Stock:** остатки не могут уходить в минус.
+- **Cancellations:** по причине, данные не удаляются.
 
 ## 4. Enum‑значения (сокращённо)
 
@@ -134,11 +135,15 @@
 - `GET /items/{item_id}`
 - `PATCH /items/{item_id}`
 - `GET /items/{item_id}/price-history`
-- `POST /items/kits`
+- `POST /items/kits` — создание кита (поддерживает editable kits с `items.source_type = 'item' | 'variant'` и полем `is_editable_components`)
 - `GET /items/kits`
 - `GET /items/kits/{kit_id}`
 - `PATCH /items/kits/{kit_id}`
 - `GET /items/kits/{kit_id}/price-history`
+- `POST /items/variants` — создать группу взаимозаменяемых items (модель/линейка размеров)
+- `GET /items/variants` — список variants (с их items)
+- `GET /items/variants/{variant_id}` — вариант с его items
+- `PATCH /items/variants/{variant_id}` — обновить имя/активность и полный список `item_ids`
 
 ### 5.5. Students & Grades
 - `POST /students/grades`
@@ -180,7 +185,7 @@
 - `PATCH /discounts/student/{discount_id}`
 
 ### 5.8. Attachments (подтверждения платежей)
-- `POST /attachments` — загрузка файла подтверждения (image/PDF). Тело: `multipart/form-data`, поле `file`. Допустимые типы: image/jpeg, image/png, image/gif, image/webp, application/pdf. Макс. 10 MB. Ответ: `{ id, file_name, content_type, file_size, created_at }`. Роль: Admin, User.
+- `POST /attachments` — загрузка файла (image/PDF/CSV). Тело: `multipart/form-data`, поле `file`. Допустимые типы: image/jpeg, image/png, image/gif, image/webp, application/pdf, text/csv. Макс. 10 MB. Ответ: `{ id, file_name, content_type, file_size, created_at }`. Роль: SuperAdmin, Admin, User.
 - `GET /attachments/{attachment_id}` — метаданные вложения.
 - `GET /attachments/{attachment_id}/download` — скачать файл (для просмотра подтверждения). Роль: любой авторизованный.
 
@@ -236,6 +241,7 @@
 - `GET /procurement/grns/{grn_id}`
 - `POST /procurement/grns/{grn_id}/approve`
 - `POST /procurement/grns/{grn_id}/cancel`
+- `POST /procurement/grns/{grn_id}/rollback` — **SUPER_ADMIN only**. Откат approved GRN: отменяет этот GRN, откатывает `quantity_received` по линиям PO и (если `track_to_warehouse=true`) создаёт компенсационные stock movements, чтобы вернуть склад. Ограничения: для затронутых items не должно быть более поздних `receipt`-движений (иначе нельзя безопасно восстановить average cost). Если по PO уже есть оплаты (`paid_total > 0`), откат всё равно возможен — в этом случае после rollback `debt_amount` может стать отрицательным (это фактически аванс поставщику: “paid, not received”).
 - `POST /procurement/payment-purposes`
 - `GET /procurement/payment-purposes`
 - `PUT /procurement/payment-purposes/{purpose_id}`
@@ -252,6 +258,28 @@
 - `GET /compensations/payouts` — filters: `employee_id`, `date_from`, `date_to`, `page`, `limit`
 - `GET /compensations/payouts/{payout_id}`
 - `GET /compensations/payouts/employees/{employee_id}/balance`
+
+### 5.14. Bank statements / Reconciliation
+
+Импорт банковской выписки (Stanbic CSV), хранение файла в storage/S3 и сверка транзакций с:
+- `ProcurementPayment` где `company_paid=true`
+- `CompensationPayout`
+
+- `POST /bank-statements/imports` — upload CSV (`multipart/form-data`, поле `file`). Роли: SuperAdmin, Admin.
+- `GET /bank-statements/imports` — список импортов (включая вычисленный `range_from/range_to`).
+- `GET /bank-statements/imports/{import_id}` — детали + строки выписки (пагинация `page/limit`, фильтры `only_unmatched`, `txn_type`). Возвращает только **исходящие** транзакции (debits).
+- `GET /bank-statements/transactions` — общий список **исходящих** bank transfers (debits), фильтры: `date_from`, `date_to`, `txn_type` (например `TRF`, `CHG`, `TAX`), `matched`, `entity_type`, `search`, `page`, `limit`.
+- `GET /bank-statements/txn-types` — список доступных `txn_type` (Type) для outgoing транзакций, опционально фильтры `date_from/date_to`.
+- `POST /bank-statements/imports/{import_id}/auto-match` — авто‑матчинг (amount/date + эвристики по reference). Роли: SuperAdmin, Admin. Один `ProcurementPayment` / `CompensationPayout` может быть сматчен максимум с одной транзакцией; уже сматченные документы пропускаются.
+- `GET /bank-statements/imports/{import_id}/reconciliation` — summary по импорту: unmatched transactions + unmatched payments/payouts.
+- `GET /bank-statements/imports/{import_id}/reconciliation?ignore_range=true` — то же, но **без** фильтра по `Range From/To` из выписки (удобно для свежесозданных документов вне диапазона).
+- `POST /bank-statements/transactions/{bank_transaction_id}/match` — manual match (body: `entity_type`, `entity_id`). Роли: SuperAdmin, Admin.
+- `DELETE /bank-statements/transactions/{bank_transaction_id}/match` — убрать match. Роли: SuperAdmin, Admin.
+
+### 5.xx. Accountant exports (CSV)
+
+- `GET /accountant/export/bank-transfers` — outgoing bank transfers (debits) за период + matched document numbers (CSV).
+- `GET /accountant/export/bank-statement-files` — список импортированных выписок за период + download links (CSV).
 
 ---
 

@@ -14,13 +14,21 @@
 
 ### Inventory & Warehouse
 - **Item/Kit/Category**: складские позиции (Item) и каталог продаж (Kit).
+  - Kits могут быть **обычными** (фиксированный состав) или **editable uniform kits**:
+    - продажа всегда идёт по `kit_id` и фиксированной цене кита;
+    - для editable kit при продаже можно поменять **только модель/размер** внутри каждого компонента, состав и количество берутся из кита.
 - **Stock/StockMovement**: остатки и движения. Остатки не уходят в минус.
 - **Issuance**: выдача (внутренняя или по резервации).
-- **Reservation**: резерв создаётся при полной оплате строки с Kit (product).
+- **Reservation**: создаётся сразу после issue инвойса по строкам с Kit (product), до оплаты.
 
 ### Procurement & Expenses
 - **PurchaseOrder** → **GRN** → **ProcurementPayment** — цепочка закупки.
 - **PaymentPurpose**: справочник назначения платежа.
+
+### Bank Statements / Reconciliation
+- **BankStatementImport**: загруженная выписка (CSV как Attachment) + вычисленный диапазон `range_from/range_to` по min/max `Value Date`.
+- **BankTransaction**: каноническая транзакция (дедуп между перекрывающимися выписками).
+- **BankTransactionMatch**: связь bank transaction ↔ `ProcurementPayment(company_paid=true)` или ↔ `CompensationPayout`.
 
 ### Employee Compensations
 - **ExpenseClaim**: заявка на компенсацию (обычно из employee_paid платежа).
@@ -56,9 +64,19 @@
 `GRN: draft → approved | cancelled`
 `ProcurementPayment: posted → cancelled`
 
+- **Rollback receiving (SUPER_ADMIN):** если GRN уже был approved, но позже обнаружили ошибку, можно сделать откат через `POST /procurement/grns/{grn_id}/rollback`.
+  - Операция отменяет этот GRN, откатывает `quantity_received` по линиям PO и (если `track_to_warehouse=true`) создаёт компенсационные `StockMovement(receipt)` с отрицательным количеством, чтобы вернуть склад и average cost.
+  - Ограничения безопасности: по затронутым items не должно быть более поздних `receipt` movements. Если по PO уже есть оплаты (`paid_total > 0`), откат всё равно возможен — после rollback `debt_amount` может стать отрицательным (аванс поставщику: “paid, not received”).
+
 ### Compensation
 `ExpenseClaim: pending_approval → approved/rejected → partially_paid → paid`
 `CompensationPayout` создаётся и распределяет сумму FIFO по claim.
+
+### Bank reconciliation
+`BankStatementImport` создаётся загрузкой CSV (Admin/SuperAdmin) и парсит транзакции в `BankTransaction` (debits/credits).
+Для reconciliation используем только **исходящие** транзакции (debits). Матчинг:
+- auto‑match по сумме/дате + эвристики по reference (только если однозначный кандидат),
+- manual match/unmatch (Admin/SuperAdmin).
 
 ## 3. Ключевые бизнес‑правила
 
@@ -74,6 +92,9 @@
 - Остаток не может быть отрицательным.
 - Любое движение фиксируется в `StockMovement`.
 - Резервирование снижает доступный остаток.
+- Для **editable uniform kits**:
+  - InvoiceLine хранит только `kit_id`, но фактический состав строки — в `InvoiceLineComponent`;
+  - Reservation всегда резервирует **конкретные Items**: либо по `InvoiceLineComponent`, либо по `Kit.kit_items` (если компонентов нет).
 
 ### Скидки
 - Скидка может быть фиксированной или процентной.

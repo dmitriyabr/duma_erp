@@ -9,6 +9,8 @@ import { Card, CardContent } from '../../components/ui/Card'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
 import { TableSortLabel } from '../../components/ui/TableSortLabel'
 import { Spinner } from '../../components/ui/Spinner'
+import { Button } from '../../components/ui/Button'
+import { downloadReportExcel } from '../../utils/reportExcel'
 
 interface AgedRow {
   student_id: number
@@ -114,9 +116,19 @@ export const AgedReceivablesPage = () => {
     )
   }
 
+  const handleExportExcel = () => {
+    const params = asAtParam ? { as_at_date: asAtParam } : {}
+    downloadReportExcel('/reports/aged-receivables', params, 'aged-receivables.xlsx')
+  }
+
   return (
     <div>
-      <Typography variant="h5" className="mb-4">Students Debt</Typography>
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+        <Typography variant="h5">Students Debt</Typography>
+        <Button variant="outlined" size="small" onClick={handleExportExcel}>
+          Export to Excel
+        </Button>
+      </div>
       <Typography variant="body2" color="secondary" className="mb-4">
         Student debts by aging (as at {data ? formatDate(data.as_at_date) : '—'}).
       </Typography>

@@ -451,6 +451,7 @@ class TestPaymentService:
                 kit_id=product_kit.id,
                 item_id=product_item.id,
                 quantity=1,
+                source_type="item",
             )
         )
 

@@ -190,6 +190,101 @@ class InventoryService:
             await self.db.refresh(movement)
         return movement
 
+    async def apply_receipt_signed(
+        self,
+        *,
+        item_id: int,
+        quantity_delta: int,
+        unit_cost: Decimal,
+        reference_type: str | None,
+        reference_id: int | None,
+        notes: str | None,
+        created_by_id: int,
+        audit_action: str = "inventory.receive",
+        commit: bool = True,
+    ) -> StockMovement:
+        """
+        Apply a receipt movement with a signed quantity delta.
+
+        This is intended for internal workflows (e.g. rollback of a GRN receipt).
+        Public API uses `receive_stock()` which enforces positive quantities.
+        """
+        if quantity_delta == 0:
+            raise ValidationError("Receipt quantity must be non-zero")
+        if unit_cost < 0:
+            raise ValidationError("Unit cost must be >= 0")
+
+        stock = await self._get_or_create_stock(item_id)
+
+        quantity_before = stock.quantity_on_hand
+        average_cost_before = stock.average_cost
+
+        new_total_quantity = quantity_before + quantity_delta
+        if new_total_quantity < 0:
+            raise ValidationError(
+                f"Receipt would result in negative stock ({new_total_quantity}). "
+                f"Current quantity: {quantity_before}, change: {quantity_delta}"
+            )
+        if new_total_quantity < stock.quantity_reserved:
+            raise ValidationError(
+                f"Receipt would result in quantity ({new_total_quantity}) less than reserved ({stock.quantity_reserved})"
+            )
+
+        total_value_before = Decimal(quantity_before) * average_cost_before
+        total_value_new = Decimal(quantity_delta) * unit_cost
+
+        if new_total_quantity > 0:
+            new_average_cost = round_money(
+                (total_value_before + total_value_new) / Decimal(new_total_quantity)
+            )
+        else:
+            # No stock left: keep previous average cost to avoid surprising jumps.
+            new_average_cost = average_cost_before
+
+        stock.quantity_on_hand = new_total_quantity
+        stock.average_cost = new_average_cost
+
+        movement = StockMovement(
+            stock_id=stock.id,
+            item_id=item_id,
+            movement_type=MovementType.RECEIPT.value,
+            quantity=quantity_delta,
+            unit_cost=unit_cost,
+            quantity_before=quantity_before,
+            quantity_after=stock.quantity_on_hand,
+            average_cost_before=average_cost_before,
+            average_cost_after=new_average_cost,
+            reference_type=reference_type,
+            reference_id=reference_id,
+            notes=notes,
+            created_by_id=created_by_id,
+        )
+        self.db.add(movement)
+
+        await self.audit.log(
+            action=audit_action,
+            entity_type="Stock",
+            entity_id=stock.id,
+            user_id=created_by_id,
+            old_values={
+                "quantity_on_hand": quantity_before,
+                "average_cost": str(average_cost_before),
+            },
+            new_values={
+                "quantity_on_hand": stock.quantity_on_hand,
+                "average_cost": str(new_average_cost),
+                "quantity_delta": quantity_delta,
+                "unit_cost": str(unit_cost),
+                "reference_type": reference_type,
+                "reference_id": reference_id,
+            },
+        )
+
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(movement)
+        return movement
+
     async def adjust_stock(
         self,
         data: AdjustStockRequest,

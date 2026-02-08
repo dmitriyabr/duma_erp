@@ -14,6 +14,8 @@ from src.modules.items.models import (
     Item,
     ItemPriceHistory,
     ItemType,
+    ItemVariant,
+    ItemVariantMembership,
     Kit,
     KitItem,
     KitPriceHistory,
@@ -24,6 +26,8 @@ from src.modules.items.schemas import (
     CategoryUpdate,
     ItemCreate,
     ItemUpdate,
+    ItemVariantCreate,
+    ItemVariantUpdate,
     KitCreate,
     KitItemCreate,
     KitUpdate,
@@ -31,7 +35,7 @@ from src.modules.items.schemas import (
 
 
 class ItemService:
-    """Service for managing items, categories and kits."""
+    """Service for managing items, categories, kits and variant groups."""
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -460,6 +464,182 @@ class ItemService:
         )
         return list(result.scalars().all())
 
+    # --- Item Variant Methods ---
+
+    async def create_variant(
+        self, data: ItemVariantCreate, created_by_id: int
+    ) -> ItemVariant:
+        """Create a new variant and optionally add items."""
+        existing = await self.db.execute(
+            select(ItemVariant).where(ItemVariant.name == data.name)
+        )
+        if existing.scalar_one_or_none():
+            raise DuplicateError("ItemVariant", "name", data.name)
+
+        variant = ItemVariant(name=data.name)
+        self.db.add(variant)
+        await self.db.flush()
+
+        # Add items to variant if provided
+        if data.item_ids:
+            # Validate all items exist and are products
+            result = await self.db.execute(
+                select(Item).where(Item.id.in_(data.item_ids))
+            )
+            items = list(result.scalars().all())
+            if len(items) != len(data.item_ids):
+                raise NotFoundError("One or more items not found")
+            for item in items:
+                if item.item_type != ItemType.PRODUCT.value:
+                    raise ValidationError(
+                        f"Item '{item.name}' is not a product and cannot be added to variant"
+                    )
+
+            # Create memberships
+            for item_id in data.item_ids:
+                membership = ItemVariantMembership(
+                    variant_id=variant.id,
+                    item_id=item_id,
+                    is_default=False,
+                )
+                self.db.add(membership)
+
+        await self.audit.log(
+            action="variant.create",
+            entity_type="ItemVariant",
+            entity_id=variant.id,
+            user_id=created_by_id,
+            new_values={"name": data.name, "item_ids": data.item_ids},
+        )
+
+        await self.db.commit()
+        await self.db.refresh(variant)
+        return variant
+
+    async def get_variant_by_id(self, variant_id: int) -> ItemVariant:
+        """Get variant by ID."""
+        result = await self.db.execute(
+            select(ItemVariant).where(ItemVariant.id == variant_id)
+        )
+        variant = result.scalar_one_or_none()
+        if not variant:
+            raise NotFoundError(f"ItemVariant with id {variant_id} not found")
+        return variant
+
+    async def list_variants(
+        self, include_inactive: bool = False
+    ) -> list[ItemVariant]:
+        """List all variants."""
+        query = select(ItemVariant).order_by(ItemVariant.name)
+        if not include_inactive:
+            query = query.where(ItemVariant.is_active == True)
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def get_items_for_variant(self, variant_id: int) -> list[Item]:
+        """Get all items that belong to a specific variant."""
+        # Load variant with items relationship
+        result = await self.db.execute(
+            select(ItemVariant)
+            .where(ItemVariant.id == variant_id)
+            .options(selectinload(ItemVariant.items))
+        )
+        variant = result.scalar_one_or_none()
+        if not variant:
+            return []
+        # Return items sorted by name
+        return sorted(variant.items, key=lambda item: item.name)
+
+    async def update_variant(
+        self, variant_id: int, data: ItemVariantUpdate, updated_by_id: int
+    ) -> ItemVariant:
+        """Update a variant and optionally reassign items."""
+        variant = await self.get_variant_by_id(variant_id)
+        old_values = {
+            "name": variant.name,
+            "is_active": variant.is_active,
+        }
+        new_values: dict[str, object] = {}
+
+        if data.name is not None and data.name != variant.name:
+            existing = await self.db.execute(
+                select(ItemVariant).where(
+                    ItemVariant.name == data.name,
+                    ItemVariant.id != variant_id,
+                )
+            )
+            if existing.scalar_one_or_none():
+                raise DuplicateError("ItemVariant", "name", data.name)
+            variant.name = data.name
+            new_values["name"] = data.name
+
+        if data.is_active is not None and data.is_active != variant.is_active:
+            variant.is_active = data.is_active
+            new_values["is_active"] = data.is_active
+
+        # Reassign items to this variant if full list provided
+        if data.item_ids is not None:
+            # Get current item IDs
+            result = await self.db.execute(
+                select(ItemVariantMembership.item_id).where(
+                    ItemVariantMembership.variant_id == variant_id
+                )
+            )
+            current_ids = {row[0] for row in result.all()}
+            new_ids = set(data.item_ids)
+
+            to_remove = current_ids - new_ids
+            to_add = new_ids - current_ids
+
+            # Remove memberships
+            if to_remove:
+                await self.db.execute(
+                    ItemVariantMembership.__table__.delete().where(
+                        ItemVariantMembership.variant_id == variant_id,
+                        ItemVariantMembership.item_id.in_(list(to_remove)),
+                    )
+                )
+
+            # Add new memberships
+            if to_add:
+                # Validate all items exist and are products
+                result = await self.db.execute(
+                    select(Item).where(Item.id.in_(list(to_add)))
+                )
+                items = list(result.scalars().all())
+                if len(items) != len(to_add):
+                    raise NotFoundError("One or more items not found")
+                for item in items:
+                    if item.item_type != ItemType.PRODUCT.value:
+                        raise ValidationError(
+                            f"Item '{item.name}' is not a product and cannot be added to variant"
+                        )
+
+                # Create memberships
+                for item_id in to_add:
+                    membership = ItemVariantMembership(
+                        variant_id=variant_id,
+                        item_id=item_id,
+                        is_default=False,
+                    )
+                    self.db.add(membership)
+
+            new_values["item_ids"] = data.item_ids
+
+        if new_values:
+            await self.audit.log(
+                action="variant.update",
+                entity_type="ItemVariant",
+                entity_id=variant_id,
+                user_id=updated_by_id,
+                old_values=old_values,
+                new_values=new_values,
+            )
+
+        await self.db.commit()
+        await self.db.refresh(variant)
+        return variant
+
     # --- Kit Methods ---
 
     async def create_kit(self, data: KitCreate, created_by_id: int) -> Kit:
@@ -485,14 +665,31 @@ class ItemService:
         if data.item_type == ItemType.PRODUCT:
             if not data.items:
                 raise ValidationError("Product kits must include at least one item")
+            # Validate kit items
             for kit_item in data.items:
-                await self.get_item_by_id(kit_item.item_id)
+                if kit_item.source_type == "item":
+                    if not kit_item.item_id:
+                        raise ValidationError("item_id required when source_type='item'")
+                    await self.get_item_by_id(kit_item.item_id)
+                elif kit_item.source_type == "variant":
+                    if not kit_item.variant_id or not kit_item.default_item_id:
+                        raise ValidationError("variant_id and default_item_id required when source_type='variant'")
+                    variant = await self.get_variant_by_id(kit_item.variant_id)
+                    # Verify default_item_id is in the variant
+                    variant_items = await self.get_items_for_variant(kit_item.variant_id)
+                    if not any(item.id == kit_item.default_item_id for item in variant_items):
+                        raise ValidationError(
+                            f"default_item_id {kit_item.default_item_id} is not in variant {variant.name}"
+                        )
+                    await self.get_item_by_id(kit_item.default_item_id)
         elif data.items:
             raise ValidationError("Service kits cannot include inventory items")
 
         requires_full_payment = data.requires_full_payment
         if requires_full_payment is None:
             requires_full_payment = data.item_type == ItemType.PRODUCT
+
+        is_editable_components = bool(data.is_editable_components) if data.is_editable_components is not None else False
 
         kit = Kit(
             category_id=data.category_id,
@@ -502,6 +699,7 @@ class ItemService:
             price_type=data.price_type.value,
             price=data.price,
             requires_full_payment=requires_full_payment,
+            is_editable_components=is_editable_components,
         )
         self.db.add(kit)
         await self.db.flush()
@@ -509,11 +707,24 @@ class ItemService:
         # Add kit items
         if data.items:
             for kit_item_data in data.items:
-                kit_item = KitItem(
-                    kit_id=kit.id,
-                    item_id=kit_item_data.item_id,
-                    quantity=kit_item_data.quantity,
-                )
+                if kit_item_data.source_type == "item":
+                    kit_item = KitItem(
+                        kit_id=kit.id,
+                        source_type="item",
+                        item_id=kit_item_data.item_id,
+                        variant_id=None,
+                        default_item_id=None,
+                        quantity=kit_item_data.quantity,
+                    )
+                else:  # variant
+                    kit_item = KitItem(
+                        kit_id=kit.id,
+                        source_type="variant",
+                        item_id=None,
+                        variant_id=kit_item_data.variant_id,
+                        default_item_id=kit_item_data.default_item_id,
+                        quantity=kit_item_data.quantity,
+                    )
                 self.db.add(kit_item)
 
         # Create initial price history for standard pricing
@@ -551,6 +762,8 @@ class ItemService:
         if with_items:
             query = query.options(
                 selectinload(Kit.kit_items).selectinload(KitItem.item),
+                selectinload(Kit.kit_items).selectinload(KitItem.variant),
+                selectinload(Kit.kit_items).selectinload(KitItem.default_item),
                 selectinload(Kit.category),
             )
         result = await self.db.execute(query)
@@ -571,6 +784,8 @@ class ItemService:
             select(Kit)
             .options(
                 selectinload(Kit.kit_items).selectinload(KitItem.item),
+                selectinload(Kit.kit_items).selectinload(KitItem.variant),
+                selectinload(Kit.kit_items).selectinload(KitItem.default_item),
                 selectinload(Kit.category),
             )
             .order_by(Kit.name)
@@ -626,6 +841,13 @@ class ItemService:
             kit.is_active = data.is_active
             new_values["is_active"] = data.is_active
 
+        if (
+            data.is_editable_components is not None
+            and data.is_editable_components != kit.is_editable_components
+        ):
+            kit.is_editable_components = data.is_editable_components
+            new_values["is_editable_components"] = data.is_editable_components
+
         if data.requires_full_payment is not None and data.requires_full_payment != kit.requires_full_payment:
             kit.requires_full_payment = data.requires_full_payment
             new_values["requires_full_payment"] = data.requires_full_payment
@@ -640,9 +862,23 @@ class ItemService:
         if data.items is not None:
             if kit.item_type == ItemType.SERVICE.value:
                 raise ValidationError("Service kits cannot include inventory items")
-            # Verify all items exist
+            # Validate kit items
             for kit_item_data in data.items:
-                await self.get_item_by_id(kit_item_data.item_id)
+                if kit_item_data.source_type == "item":
+                    if not kit_item_data.item_id:
+                        raise ValidationError("item_id required when source_type='item'")
+                    await self.get_item_by_id(kit_item_data.item_id)
+                elif kit_item_data.source_type == "variant":
+                    if not kit_item_data.variant_id or not kit_item_data.default_item_id:
+                        raise ValidationError("variant_id and default_item_id required when source_type='variant'")
+                    variant = await self.get_variant_by_id(kit_item_data.variant_id)
+                    # Verify default_item_id is in the variant
+                    variant_items = await self.get_items_for_variant(kit_item_data.variant_id)
+                    if not any(item.id == kit_item_data.default_item_id for item in variant_items):
+                        raise ValidationError(
+                            f"default_item_id {kit_item_data.default_item_id} is not in variant {variant.name}"
+                        )
+                    await self.get_item_by_id(kit_item_data.default_item_id)
 
             # Remove existing kit items
             for kit_item in kit.kit_items:
@@ -650,15 +886,35 @@ class ItemService:
 
             # Add new kit items
             for kit_item_data in data.items:
-                kit_item = KitItem(
-                    kit_id=kit.id,
-                    item_id=kit_item_data.item_id,
-                    quantity=kit_item_data.quantity,
-                )
+                if kit_item_data.source_type == "item":
+                    kit_item = KitItem(
+                        kit_id=kit.id,
+                        source_type="item",
+                        item_id=kit_item_data.item_id,
+                        variant_id=None,
+                        default_item_id=None,
+                        quantity=kit_item_data.quantity,
+                    )
+                else:  # variant
+                    kit_item = KitItem(
+                        kit_id=kit.id,
+                        source_type="variant",
+                        item_id=None,
+                        variant_id=kit_item_data.variant_id,
+                        default_item_id=kit_item_data.default_item_id,
+                        quantity=kit_item_data.quantity,
+                    )
                 self.db.add(kit_item)
 
             new_values["items"] = [
-                {"item_id": i.item_id, "quantity": i.quantity} for i in data.items
+                {
+                    "source_type": i.source_type,
+                    "item_id": i.item_id,
+                    "variant_id": i.variant_id,
+                    "default_item_id": i.default_item_id,
+                    "quantity": i.quantity,
+                }
+                for i in data.items
             ]
 
         if new_values:

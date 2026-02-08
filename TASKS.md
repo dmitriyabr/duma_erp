@@ -114,6 +114,23 @@
 - [x] API endpoints
 - [x] Тесты
 
+### 1.6.1 Настраиваемые комплекты (Editable Kits)
+> Решения: Для комплектов униформы нужна возможность менять конкретные товары (размеры) при продаже, не меняя цену и состав комплекта
+
+- [x] Поле `is_editable_components` в Kit (по умолчанию False)
+- [x] Модель InvoiceLineComponent (invoice_line_id, item_id, quantity) для хранения выбранных компонентов
+- [x] Модель ItemVariant (name, is_active) — группы взаимозаменяемых товаров
+- [x] Модель ItemVariantMembership (variant_id, item_id, is_default) — many-to-many связь (один товар может быть в нескольких вариантах)
+- [x] Поля в KitItem: `source_type` ('item' | 'variant'), `variant_id`, `default_item_id` — компонент может быть прямым товаром или вариантом с дефолтным товаром
+- [x] Валидация при создании инвойса: заменяемый товар должен принадлежать тому же варианту, что и дефолтный
+- [x] При создании инвойса с editable kit: сохранение выбранных компонентов в InvoiceLineComponent
+- [x] При создании резервации: использование InvoiceLineComponent вместо дефолтных KitItem
+- [x] API endpoints для вариантов: POST/GET/PUT /items/variants, GET /items/variants/{id}/items
+- [x] UI: настройка editable kits в CatalogPage (чекбокс, выбор source_type для компонентов)
+- [x] UI: выбор компонентов при создании инвойса (CreateInvoicePage) — только для editable kits, можно менять только модель/размер, количество фиксировано
+- [x] Миграции: 024_refactor_variants_to_many_to_many, 025_make_kit_items_item_id_nullable
+- [x] Тесты: создание editable kits, вариантов, валидация компонентов, резервации с компонентами (302 теста проходят)
+
 ### 1.9 Рефакторинг Каталога
 > Решения:
 > - Разделить понятия: Inventory Items (складские позиции) vs Catalog Items (товары для продажи)
@@ -159,6 +176,19 @@
 - [x] Интеграция с PaymentService (trigger при allocation)
 - [x] API endpoints (list/get/issue/cancel)
 - [x] Тесты
+
+### 1.8.1 Изменения в логике резервирования
+> Решения: Резервации создаются сразу после issue инвойса (до оплаты), выдавать можно сразу после issue
+
+- [x] Изменена логика: резервации создаются при issue инвойса (не при полной оплате)
+- [x] Резервации можно выдавать сразу после создания (не требуется полная оплата)
+- [x] Автоотмена резерваций при отмене инвойса (sync_for_invoice при cancel)
+- [x] Поддержка частичной выдачи: можно указать quantity=0 для некоторых items (пропускаются при выдаче)
+- [x] Для editable kits: резервация использует InvoiceLineComponent вместо дефолтных KitItem
+- [x] Обновлён ReservationService.sync_for_invoice: создание резерваций при issue, отмена при cancel/void
+- [x] Обновлён InvoiceService.issue_invoice: вызов sync_for_invoice для создания резерваций
+- [x] Обновлён InvoiceService.cancel_invoice: вызов sync_for_invoice для отмены резерваций
+- [x] Тесты: резервации при issue до оплаты, автоотмена при cancel, частичная выдача с нулевыми количествами
 
 ---
 
@@ -508,6 +538,14 @@
 - [x] Редактирование товара
 - [x] Деактивация товара
 
+**Настраиваемые комплекты (Editable Kits):**
+- [x] Вкладка "Variants": управление вариантами товаров (группы взаимозаменяемых товаров, например размеры)
+- [x] Создание/редактирование варианта: название, выбор товаров из Inventory (many-to-many)
+- [x] При создании/редактировании Kit: чекбокс "Editable components" для комплектов униформы
+- [x] Для компонентов Kit: выбор source_type (Inventory Item или Variant)
+- [x] Если выбран Variant: выбор варианта и дефолтного товара из варианта
+- [x] При создании инвойса (CreateInvoicePage): для editable kits показывается секция "Components" с возможностью выбора конкретных товаров (только модель/размер, количество фиксировано)
+
 ### 9.6 Terms & Pricing UI
 > Решения:
 > - Раздел меню "Billing" содержит Terms и Fixed Fees
@@ -676,10 +714,10 @@
 - [x] Роутер /api/v1/reports/ с проверкой роли Admin/SuperAdmin.
 - [x] Отчёт Students: aged-receivables (as_at_date, строки по студентам, bucket'ы current/31-60/61-90/90+, summary). Тесты: Admin/SuperAdmin 200, User/Accountant 403.
 - [x] Отчёт Students: student-fees (term_id, grade_id опционально; по классам: students_count, total_invoiced, total_paid, balance, rate). Тесты: 200/404/403.
-- [x] Отчёты Financial: profit-loss, cash-flow, balance-sheet (параметры; экспорт PDF/Excel — позже).
+- [x] Отчёты Financial: profit-loss, cash-flow, balance-sheet (параметры; экспорт в Excel реализован).
 - [x] Отчёты Students: collection-rate, discount-analysis, top-debtors.
-- [ ] Отчёты Procurement & Inventory: procurement-summary, inventory-valuation, low-stock-alert, stock-movement.
-- [ ] Отчёты Compensations: compensation-summary, expense-claims-by-category.
+- [x] Отчёты Procurement & Inventory: procurement-summary, inventory-valuation, low-stock-alert, stock-movement.
+- [x] Отчёты Compensations: compensation-summary, expense-claims-by-category.
 - [ ] Analytics: revenue-trend, payment-method-distribution, term-comparison, kpis.
 - [ ] Тесты API (dashboard, reports; User/Accountant — 403 на dashboard сводке и reports).
 
@@ -690,8 +728,15 @@
 - [x] Страница отчёта Aged Receivables (/reports/aged-receivables): таблица по студентам (Total, Current 0-30, 31-60, 61-90, 90+, Last Payment), summary; при 403 — сообщение о доступе.
 - [x] Страница отчёта Student Fees by Term (/reports/student-fees): выбор терма и опционально класса, таблица по классам (Class, Students, Total Invoiced, Total Paid, Balance, Rate), summary; при 403 — сообщение о доступе.
 - [x] Страницы финансовых отчётов: Profit & Loss (/reports/profit-loss), Cash Flow (/reports/cash-flow), Balance Sheet (/reports/balance-sheet) — параметры (даты), таблицы, 403; тесты API (profit-loss, cash-flow, balance-sheet).
+- [x] Отчёты с выбором дат: шорткаты (This year, This month, 30 days, 365 days), по умолчанию This year.
+- [x] Меню Reports: группировка в 5 разделов (Financial, Students, Procurement & Inventory, Compensations, Analytics) с вкладками внутри раздела.
+- [x] Финансовые отчёты помесячно: PnL, Cash Flow, Balance Sheet — при диапазоне > 1 месяца колонки по месяцам (backend breakdown=monthly, frontend таблицы с месяцами).
 - [x] Отчёты Students: Collection Rate Trend (/reports/collection-rate), Discount Analysis (/reports/discount-analysis), Top Debtors (/reports/top-debtors) — backend + тесты + страницы и навигация.
-- [ ] Остальные страницы отчётов (Procurement & Inventory, Compensations, Analytics) и экспорт PDF/Excel.
+- [x] Страницы отчётов Procurement & Inventory: Procurement Summary, Inventory Valuation, Low Stock Alert, Stock Movement Report (меню, роуты, страницы).
+- [x] Страницы отчётов Compensations: Compensation Summary, Expense Claims by Category (меню, роуты, страницы).
+- [x] Страницы отчётов Analytics: Revenue per Student Trend, Payment Method Distribution, Term Comparison, KPIs & Metrics (меню, роуты, страницы).
+- [x] Скрипт наполнения БД демо-данными: `scripts/seed_demo_data.py` (реалистичные школьные данные: пользователи, классы, термы, ученики, счета, платежи, закупки, компенсации, склад).
+- [x] Экспорт в Excel для всех отчётов (параметр `format=xlsx`, кнопка «Export to Excel» на каждой странице отчёта; PDF не требуется).
 
 **Порядок реализации (рекомендуемый):** сначала backend dashboard + один отчёт (например aged-receivables или student-fees), тесты; затем фронт дашборда и один отчёт; потом остальные отчёты.
 
@@ -743,8 +788,20 @@
 
 ---
 
+## Фаза 12: Bank reconciliation (выписки банка)
+
+> Решения: Выписку храним как файл (Attachment в storage/S3) + парсим транзакции в БД «как в CSV»; транзакции могут пересекаться между выгрузками → дедуп по fingerprint + связь import↔transaction. Date range для reconciliation считается по min/max `Value Date` из транзакций (не доверяем Range From/To в header CSV).
+
+- [x] Модели и миграции: imports, transactions, matches
+- [x] API импорта Stanbic CSV (upload + parse + сохранение)
+- [x] Auto-match: транзакции ↔ ProcurementPayment(company_paid) / CompensationPayout (amount/date + reference)
+- [x] Reconciliation view: unmatched transactions + unmatched payments/payouts
+- [x] UI: Admin/SuperAdmin — Bank reconciliation (import + auto-match + manual match); Accountant — Bank transfers (общая таблица + фильтры)
+- [x] Тесты парсинга и матчинг‑эвристик
+- [x] Документация: BACKEND_API.md (+ accountant exports bank transfers + statement files)
+
 ## Примечания
 
 - Задачи с `[ОБСУДИТЬ]` требуют уточнения требований перед началом работы
 - Блоки `> Решения:` содержат принятые решения для справки
-- Тесты: 160 passed (все бэкенд-тесты проходят)
+- Тесты: 308 passed (все бэкенд-тесты проходят, включая тесты для editable kits, вариантов и резерваций)

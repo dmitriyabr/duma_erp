@@ -11,6 +11,8 @@ import { Input } from '../../components/ui/Input'
 import { Card, CardContent } from '../../components/ui/Card'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
 import { Spinner } from '../../components/ui/Spinner'
+import { DateRangeShortcuts, getDateRangeForPreset } from '../../components/DateRangeShortcuts'
+import { downloadReportExcel } from '../../utils/reportExcel'
 
 interface DiscountRow {
   reason_id: number | null
@@ -36,32 +38,33 @@ interface DiscountAnalysisData {
   summary: DiscountSummary
 }
 
-const defaultDateFrom = () => {
-  const d = new Date()
-  d.setDate(1)
-  return d.toISOString().slice(0, 10)
-}
-const defaultDateTo = () => new Date().toISOString().slice(0, 10)
+const defaultRange = () => getDateRangeForPreset('this_year')
 
 export const DiscountAnalysisPage = () => {
   const { user } = useAuth()
-  const [dateFrom, setDateFrom] = useState(defaultDateFrom)
-  const [dateTo, setDateTo] = useState(defaultDateTo)
+  const [dateFrom, setDateFrom] = useState(() => defaultRange().from)
+  const [dateTo, setDateTo] = useState(() => defaultRange().to)
   const [data, setData] = useState<DiscountAnalysisData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [forbidden, setForbidden] = useState(false)
 
-  const runReport = () => {
+  const runReport = (overrideFrom?: string, overrideTo?: string) => {
     if (!canSeeReports(user)) return
+    const from = overrideFrom ?? dateFrom
+    const to = overrideTo ?? dateTo
     setLoading(true)
     setError(null)
     api
       .get<ApiResponse<DiscountAnalysisData>>('/reports/discount-analysis', {
-        params: { date_from: dateFrom, date_to: dateTo },
+        params: { date_from: from, date_to: to },
       })
       .then((res) => {
-        if (res.data?.data) setData(res.data.data)
+        if (res.data?.data) {
+          setData(res.data.data)
+          setDateFrom(from)
+          setDateTo(to)
+        }
       })
       .catch((err) => {
         if (err.response?.status === 403) setForbidden(true)
@@ -93,6 +96,15 @@ export const DiscountAnalysisPage = () => {
       <Card className="mb-4">
         <CardContent>
           <div className="flex flex-wrap gap-4 items-center">
+            <DateRangeShortcuts
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              onRangeChange={(from, to) => {
+                setDateFrom(from)
+                setDateTo(to)
+              }}
+              onRun={(from, to) => runReport(from, to)}
+            />
             <div className="min-w-[160px]">
               <Input
                 label="From"
@@ -109,7 +121,14 @@ export const DiscountAnalysisPage = () => {
                 onChange={(e) => setDateTo(e.target.value)}
               />
             </div>
-            <Button variant="contained" onClick={runReport}>Run report</Button>
+            <Button variant="contained" onClick={() => runReport()}>Run report</Button>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => downloadReportExcel('/reports/discount-analysis', { date_from: dateFrom, date_to: dateTo }, 'discount-analysis.xlsx')}
+            >
+              Export to Excel
+            </Button>
           </div>
         </CardContent>
       </Card>

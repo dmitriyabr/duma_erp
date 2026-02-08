@@ -30,6 +30,7 @@ from src.modules.invoices.schemas import (
 from src.modules.invoices.service import InvoiceService
 from src.modules.payments.schemas import AutoAllocateRequest
 from src.modules.payments.service import PaymentService
+from src.modules.reservations.service import ReservationService
 from src.shared.schemas.base import ApiResponse, PaginatedResponse
 
 router = APIRouter(prefix="/invoices", tags=["Invoices"])
@@ -326,12 +327,17 @@ async def issue_invoice(
     service = InvoiceService(db)
     due_date = data.due_date if data else None
     invoice = await service.issue_invoice(invoice_id, current_user.id, due_date)
+
     # Auto-allocate existing student balance to the new and other unpaid invoices
     payment_service = PaymentService(db)
     await payment_service.allocate_auto(
         AutoAllocateRequest(student_id=invoice.student_id),
         current_user.id,
     )
+
+    reservation_service = ReservationService(db)
+    await reservation_service.sync_for_invoice(invoice.id, current_user.id)
+
     invoice = await service.get_invoice_by_id(invoice.id)
     return ApiResponse(
         success=True,
@@ -354,6 +360,11 @@ async def cancel_invoice(
     """Cancel an invoice (only if no payments received)."""
     service = InvoiceService(db)
     invoice = await service.cancel_invoice(invoice_id, current_user.id)
+
+    from src.modules.reservations.service import ReservationService
+    reservation_service = ReservationService(db)
+    await reservation_service.sync_for_invoice(invoice.id, current_user.id)
+
     return ApiResponse(
         success=True,
         message="Invoice cancelled successfully",

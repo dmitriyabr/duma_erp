@@ -303,6 +303,469 @@ class TestInvoiceService:
         assert invoice.issue_date == date.today()
         assert invoice.due_date == date.today() + timedelta(days=30)
 
+    async def test_issue_invoice_creates_reservation_for_product_kit(
+        self, db_session: AsyncSession
+    ):
+        """Test that issuing an invoice with product kit creates reservation immediately."""
+        data = await self._setup_test_data(db_session)
+        
+        # Create a product kit (not service)
+        from src.modules.items.models import Item, KitItem
+        from src.modules.inventory.service import InventoryService
+        from src.modules.inventory.schemas import ReceiveStockRequest
+        
+        product_item = Item(
+            category_id=data["category"].id,
+            sku_code="PROD-ITEM-001",
+            name="Product Item",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("500.00"),
+            is_active=True,
+        )
+        db_session.add(product_item)
+        await db_session.flush()
+
+        product_kit = Kit(
+            category_id=data["category"].id,
+            sku_code="PROD-KIT-001",
+            name="Product Kit",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("500.00"),
+            requires_full_payment=False,
+            is_active=True,
+        )
+        db_session.add(product_kit)
+        await db_session.flush()
+
+        kit_item = KitItem(
+            kit_id=product_kit.id,
+            item_id=product_item.id,
+            quantity=1,
+            source_type="item",
+        )
+        db_session.add(kit_item)
+        await db_session.flush()
+
+        # Receive stock
+        inventory = InventoryService(db_session)
+        await inventory.receive_stock(
+            ReceiveStockRequest(
+                item_id=product_item.id,
+                quantity=10,
+                unit_cost=Decimal("200.00"),
+                reference_type="test",
+                reference_id=1,
+                notes="Initial stock",
+            ),
+            received_by_id=data["user"].id,
+        )
+
+        # Create invoice with product kit
+        service = InvoiceService(db_session)
+        invoice = await service.create_adhoc_invoice(
+            InvoiceCreate(
+                student_id=data["student"].id,
+                lines=[
+                    InvoiceLineCreate(kit_id=product_kit.id, quantity=1)
+                ],
+            ),
+            created_by_id=data["user"].id,
+        )
+
+        # Issue invoice (should create reservation via router, but we test service directly)
+        invoice = await service.issue_invoice(invoice.id, issued_by_id=data["user"].id)
+        
+        # Sync reservations (this is called in router after issue)
+        from src.modules.reservations.service import ReservationService
+        reservation_service = ReservationService(db_session)
+        await reservation_service.sync_for_invoice(invoice.id, user_id=data["user"].id)
+        await db_session.commit()
+
+        # Check that reservation was created
+        line = invoice.lines[0]
+        reservation = await reservation_service.get_by_invoice_line_id(line.id)
+        assert reservation is not None
+        assert reservation.invoice_line_id == line.id
+        assert reservation.status == "pending"
+
+    async def test_create_invoice_with_editable_kit_and_components(
+        self, db_session: AsyncSession
+    ):
+        """Test creating an invoice with editable kit and custom components."""
+        data = await self._setup_test_data(db_session)
+        
+        # Create product items
+        from src.modules.items.models import Item, KitItem
+        from src.modules.inventory.service import InventoryService
+        from src.modules.inventory.schemas import ReceiveStockRequest
+        
+        item_s = Item(
+            category_id=data["category"].id,
+            sku_code="SHIRT-S",
+            name="Shirt Size S",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("50.00"),
+            is_active=True,
+        )
+        db_session.add(item_s)
+        await db_session.flush()
+
+        item_m = Item(
+            category_id=data["category"].id,
+            sku_code="SHIRT-M",
+            name="Shirt Size M",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("50.00"),
+            is_active=True,
+        )
+        db_session.add(item_m)
+        await db_session.flush()
+
+        # Create editable kit
+        editable_kit = Kit(
+            category_id=data["category"].id,
+            sku_code="UNIFORM-S",
+            name="Uniform Kit S",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("90.00"),
+            is_editable_components=True,
+            requires_full_payment=False,
+            is_active=True,
+        )
+        db_session.add(editable_kit)
+        await db_session.flush()
+
+        # Add default items to kit
+        kit_item = KitItem(
+            kit_id=editable_kit.id,
+            item_id=item_s.id,
+            quantity=1,
+            source_type="item",
+        )
+        db_session.add(kit_item)
+        await db_session.flush()
+
+        # Receive stock
+        inventory = InventoryService(db_session)
+        await inventory.receive_stock(
+            ReceiveStockRequest(
+                item_id=item_s.id,
+                quantity=10,
+                unit_cost=Decimal("30.00"),
+                reference_type="test",
+                reference_id=1,
+                notes="Initial stock",
+            ),
+            received_by_id=data["user"].id,
+        )
+        await inventory.receive_stock(
+            ReceiveStockRequest(
+                item_id=item_m.id,
+                quantity=10,
+                unit_cost=Decimal("30.00"),
+                reference_type="test",
+                reference_id=1,
+                notes="Initial stock",
+            ),
+            received_by_id=data["user"].id,
+        )
+
+        # Create invoice with editable kit and custom components
+        service = InvoiceService(db_session)
+        from src.modules.invoices.schemas import InvoiceLineComponentInput
+
+        invoice = await service.create_adhoc_invoice(
+            InvoiceCreate(
+                student_id=data["student"].id,
+                lines=[
+                    InvoiceLineCreate(
+                        kit_id=editable_kit.id,
+                        quantity=1,
+                        components=[
+                            InvoiceLineComponentInput(item_id=item_m.id, quantity=1)  # Changed from S to M
+                        ],
+                    )
+                ],
+            ),
+            created_by_id=data["user"].id,
+        )
+
+        assert invoice.id is not None
+        assert len(invoice.lines) == 1
+        line = invoice.lines[0]
+        assert line.kit_id == editable_kit.id
+        
+        # Check that components were saved (load explicitly to avoid lazy loading)
+        from sqlalchemy import select
+        from src.modules.invoices.models import InvoiceLineComponent
+        components_result = await db_session.execute(
+            select(InvoiceLineComponent).where(InvoiceLineComponent.invoice_line_id == line.id)
+        )
+        components = list(components_result.scalars().all())
+        assert len(components) == 1
+        assert components[0].item_id == item_m.id  # Changed to M
+        assert components[0].quantity == 1
+
+    async def test_reservation_uses_components_for_editable_kit(
+        self, db_session: AsyncSession
+    ):
+        """Test that reservation uses InvoiceLineComponent items for editable kits."""
+        data = await self._setup_test_data(db_session)
+        
+        # Create product items
+        from src.modules.items.models import Item, KitItem
+        from src.modules.inventory.service import InventoryService
+        from src.modules.inventory.schemas import ReceiveStockRequest
+        
+        item_s = Item(
+            category_id=data["category"].id,
+            sku_code="SHIRT-S",
+            name="Shirt Size S",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("50.00"),
+            is_active=True,
+        )
+        db_session.add(item_s)
+        await db_session.flush()
+
+        item_m = Item(
+            category_id=data["category"].id,
+            sku_code="SHIRT-M",
+            name="Shirt Size M",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("50.00"),
+            is_active=True,
+        )
+        db_session.add(item_m)
+        await db_session.flush()
+
+        # Create editable kit with default item S
+        editable_kit = Kit(
+            category_id=data["category"].id,
+            sku_code="UNIFORM-S",
+            name="Uniform Kit S",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("90.00"),
+            is_editable_components=True,
+            requires_full_payment=False,
+            is_active=True,
+        )
+        db_session.add(editable_kit)
+        await db_session.flush()
+
+        kit_item = KitItem(
+            kit_id=editable_kit.id,
+            item_id=item_s.id,
+            quantity=1,
+            source_type="item",
+        )
+        db_session.add(kit_item)
+        await db_session.flush()
+
+        # Receive stock
+        inventory = InventoryService(db_session)
+        await inventory.receive_stock(
+            ReceiveStockRequest(
+                item_id=item_s.id,
+                quantity=10,
+                unit_cost=Decimal("30.00"),
+                reference_type="test",
+                reference_id=1,
+                notes="Initial stock",
+            ),
+            received_by_id=data["user"].id,
+        )
+        await inventory.receive_stock(
+            ReceiveStockRequest(
+                item_id=item_m.id,
+                quantity=10,
+                unit_cost=Decimal("30.00"),
+                reference_type="test",
+                reference_id=1,
+                notes="Initial stock",
+            ),
+            received_by_id=data["user"].id,
+        )
+
+        # Create invoice with editable kit, custom component (M instead of S)
+        service = InvoiceService(db_session)
+        from src.modules.invoices.schemas import InvoiceLineComponentInput
+
+        invoice = await service.create_adhoc_invoice(
+            InvoiceCreate(
+                student_id=data["student"].id,
+                lines=[
+                    InvoiceLineCreate(
+                        kit_id=editable_kit.id,
+                        quantity=1,
+                        components=[
+                            InvoiceLineComponentInput(item_id=item_m.id, quantity=1)  # Changed to M
+                        ],
+                    )
+                ],
+            ),
+            created_by_id=data["user"].id,
+        )
+
+        # Issue invoice
+        invoice = await service.issue_invoice(invoice.id, issued_by_id=data["user"].id)
+        
+        # Sync reservations
+        from src.modules.reservations.service import ReservationService
+        reservation_service = ReservationService(db_session)
+        await reservation_service.sync_for_invoice(invoice.id, user_id=data["user"].id)
+        await db_session.commit()
+
+        # Check that reservation uses component item (M), not default kit item (S)
+        line = invoice.lines[0]
+        reservation = await reservation_service.get_by_invoice_line_id(line.id)
+        assert reservation is not None
+        assert len(reservation.items) == 1
+        assert reservation.items[0].item_id == item_m.id  # Should be M, not S
+        assert reservation.items[0].quantity_required == 1
+
+    async def test_validate_component_item_belongs_to_variant(
+        self, db_session: AsyncSession
+    ):
+        """Test that component item must belong to the same variant as kit's default item."""
+        data = await self._setup_test_data(db_session)
+        
+        # Create product items
+        from src.modules.items.models import Item, KitItem
+        from src.modules.items.service import ItemService
+        from src.modules.inventory.service import InventoryService
+        from src.modules.inventory.schemas import ReceiveStockRequest
+        
+        item_s = Item(
+            category_id=data["category"].id,
+            sku_code="SHIRT-S",
+            name="Shirt Size S",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("50.00"),
+            is_active=True,
+        )
+        db_session.add(item_s)
+        await db_session.flush()
+
+        item_m = Item(
+            category_id=data["category"].id,
+            sku_code="SHIRT-M",
+            name="Shirt Size M",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("50.00"),
+            is_active=True,
+        )
+        db_session.add(item_m)
+        await db_session.flush()
+
+        item_xl = Item(
+            category_id=data["category"].id,
+            sku_code="SHIRT-XL",
+            name="Shirt Size XL",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("50.00"),
+            is_active=True,
+        )
+        db_session.add(item_xl)
+        await db_session.flush()
+
+        # Create variant with S and M only
+        from src.modules.items.schemas import ItemVariantCreate
+        item_service = ItemService(db_session)
+        variant = await item_service.create_variant(
+            ItemVariantCreate(name="Shirt Sizes S-M", item_ids=[item_s.id, item_m.id]),
+            created_by_id=data["user"].id,
+        )
+
+        # Create editable kit with variant component
+        editable_kit = Kit(
+            category_id=data["category"].id,
+            sku_code="UNIFORM-S",
+            name="Uniform Kit S",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("90.00"),
+            is_editable_components=True,
+            requires_full_payment=False,
+            is_active=True,
+        )
+        db_session.add(editable_kit)
+        await db_session.flush()
+
+        kit_item = KitItem(
+            kit_id=editable_kit.id,
+            variant_id=variant.id,
+            default_item_id=item_s.id,
+            quantity=1,
+            source_type="variant",
+        )
+        db_session.add(kit_item)
+        await db_session.flush()
+
+        # Try to create invoice with XL (not in variant) - should fail
+        service = InvoiceService(db_session)
+        from src.modules.invoices.schemas import InvoiceLineComponentInput
+        from src.core.exceptions import ValidationError
+
+        with pytest.raises(ValidationError, match="cannot replace a component"):
+            await service.create_adhoc_invoice(
+                InvoiceCreate(
+                    student_id=data["student"].id,
+                    lines=[
+                        InvoiceLineCreate(
+                            kit_id=editable_kit.id,
+                            quantity=1,
+                            components=[
+                                InvoiceLineComponentInput(item_id=item_xl.id, quantity=1)  # XL not in variant
+                            ],
+                        )
+                    ],
+                ),
+                created_by_id=data["user"].id,
+            )
+
+        # Create invoice with M (in variant) - should succeed
+        invoice = await service.create_adhoc_invoice(
+            InvoiceCreate(
+                student_id=data["student"].id,
+                lines=[
+                    InvoiceLineCreate(
+                        kit_id=editable_kit.id,
+                        quantity=1,
+                        components=[
+                            InvoiceLineComponentInput(item_id=item_m.id, quantity=1)  # M is in variant
+                        ],
+                    )
+                ],
+            ),
+            created_by_id=data["user"].id,
+        )
+
+        assert invoice.id is not None
+        # Check components (load explicitly to avoid lazy loading)
+        from sqlalchemy import select
+        from src.modules.invoices.models import InvoiceLineComponent
+        # Get line_id safely
+        line_id = invoice.lines[0].id if invoice.lines else None
+        assert line_id is not None, "Invoice line should have an id"
+        components_result = await db_session.execute(
+            select(InvoiceLineComponent).where(InvoiceLineComponent.invoice_line_id == line_id)
+        )
+        components = list(components_result.scalars().all())
+        assert len(components) == 1
+        assert components[0].item_id == item_m.id
+
     async def test_cancel_invoice(self, db_session: AsyncSession):
         """Test cancelling an unpaid invoice."""
         data = await self._setup_test_data(db_session)
