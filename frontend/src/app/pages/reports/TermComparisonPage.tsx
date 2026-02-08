@@ -1,22 +1,3 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CircularProgress,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Typography,
-} from '@mui/material'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
@@ -25,6 +6,21 @@ import { useApi } from '../../hooks/useApi'
 import { canSeeReports } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
 import { downloadReportExcel } from '../../utils/reportExcel'
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  Select,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableHeaderCell,
+  Typography,
+  Spinner,
+} from '../../components/ui'
 
 interface TermRow {
   id: number
@@ -105,46 +101,42 @@ export const TermComparisonPage = () => {
 
   if (forbidden) {
     return (
-      <Box>
-        <Typography variant="h5" sx={{ mb: 2 }}>Term-over-Term Comparison</Typography>
+      <div>
+        <Typography variant="h5" className="mb-4">Term-over-Term Comparison</Typography>
         <Alert severity="warning">
           You do not have access to reports. This section is available to Admin and SuperAdmin.
         </Alert>
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>Term-over-Term Comparison</Typography>
+    <div>
+      <Typography variant="h5" className="mb-4">Term-over-Term Comparison</Typography>
 
-      <Card sx={{ mb: 2 }}>
+      <Card className="mb-4">
         <CardContent>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
-            <FormControl size="small" sx={{ minWidth: 180 }}>
-              <InputLabel>Term 1</InputLabel>
-              <Select
-                value={term1Id}
-                label="Term 1"
-                onChange={(e) => setTerm1Id(e.target.value)}
-              >
-                {(terms ?? []).map((t) => (
-                  <MenuItem key={t.id} value={String(t.id)}>{t.display_name}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <FormControl size="small" sx={{ minWidth: 180 }}>
-              <InputLabel>Term 2</InputLabel>
-              <Select
-                value={term2Id}
-                label="Term 2"
-                onChange={(e) => setTerm2Id(e.target.value)}
-              >
-                {(terms ?? []).map((t) => (
-                  <MenuItem key={t.id} value={String(t.id)}>{t.display_name}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+          <div className="flex flex-wrap gap-4 items-center">
+            <Select
+              value={term1Id}
+              onChange={(e) => setTerm1Id(e.target.value)}
+              label="Term 1"
+              className="min-w-[180px]"
+            >
+              {(terms ?? []).map((t) => (
+                <option key={t.id} value={String(t.id)}>{t.display_name}</option>
+              ))}
+            </Select>
+            <Select
+              value={term2Id}
+              onChange={(e) => setTerm2Id(e.target.value)}
+              label="Term 2"
+              className="min-w-[180px]"
+            >
+              {(terms ?? []).map((t) => (
+                <option key={t.id} value={String(t.id)}>{t.display_name}</option>
+              ))}
+            </Select>
             <Button
               variant="contained"
               onClick={runReport}
@@ -165,32 +157,32 @@ export const TermComparisonPage = () => {
             >
               Export to Excel
             </Button>
-          </Box>
+          </div>
         </CardContent>
       </Card>
 
       {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress />
-        </Box>
+        <div className="flex justify-center py-8">
+          <Spinner size="medium" />
+        </div>
       )}
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" className="mb-4">{error}</Alert>}
 
       {!loading && data && (
         <>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          <Typography variant="body2" color="secondary" className="mb-4">
             Comparing {data.term1_display_name} vs {data.term2_display_name}
           </Typography>
 
-          <TableContainer component={Card}>
-            <Table size="small">
+          <Card>
+            <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell><strong>Metric</strong></TableCell>
-                  <TableCell align="right"><strong>{data.term1_display_name}</strong></TableCell>
-                  <TableCell align="right"><strong>{data.term2_display_name}</strong></TableCell>
-                  <TableCell align="right"><strong>Change</strong></TableCell>
+                  <TableHeaderCell><strong>Metric</strong></TableHeaderCell>
+                  <TableHeaderCell align="right"><strong>{data.term1_display_name}</strong></TableHeaderCell>
+                  <TableHeaderCell align="right"><strong>{data.term2_display_name}</strong></TableHeaderCell>
+                  <TableHeaderCell align="right"><strong>Change</strong></TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -208,13 +200,13 @@ export const TermComparisonPage = () => {
                 ))}
               </TableBody>
             </Table>
-          </TableContainer>
+          </Card>
         </>
       )}
 
       {!loading && !data && !error && canSeeReports(user) && (
-        <Typography color="text.secondary">Select two different terms and click Compare.</Typography>
+        <Typography color="secondary">Select two different terms and click Compare.</Typography>
       )}
-    </Box>
+    </div>
   )
 }

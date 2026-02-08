@@ -248,9 +248,9 @@ export const TermDetailPage = () => {
               ))}
               {!term.price_settings.length && (
                 <TableRow>
-                  <TableCell colSpan={2} align="center" className="py-8">
+                  <td colSpan={2} className="px-4 py-8 text-center">
                     <Typography color="secondary">No pricing data</Typography>
-                  </TableCell>
+                  </td>
                 </TableRow>
               )}
             </TableBody>
@@ -281,9 +281,9 @@ export const TermDetailPage = () => {
               ))}
               {!term.transport_pricings.length && (
                 <TableRow>
-                  <TableCell colSpan={3} align="center" className="py-8">
+                  <td colSpan={3} className="px-4 py-8 text-center">
                     <Typography color="secondary">No transport pricing data</Typography>
-                  </TableCell>
+                  </td>
                 </TableRow>
               )}
             </TableBody>

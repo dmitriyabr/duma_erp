@@ -83,7 +83,6 @@ export const CreateInvoicePage = () => {
   const inventoryApi = useApi<ItemOption[]>('/items', {
     params: { item_type: 'product', include_inactive: false },
   })
-  const variantsApi = useApi<Array<{ id: number; name: string; items: Array<{ id: number; name: string; sku_code: string }> }>>('/items/variants', { params: { include_inactive: false } })
   const studentsListApi = useApi<{ items: StudentOption[]; total: number }>(
     isStandalone ? '/students' : null,
     isStandalone ? { params: { page: 1, limit: DEFAULT_PAGE_SIZE, status: 'active' } } : undefined,
@@ -94,7 +93,6 @@ export const CreateInvoicePage = () => {
   )
   const createMutation = useApiMutation<InvoiceDetail>()
   const students = studentsListApi.data?.items ?? []
-  const inventoryItems = inventoryApi.data ?? []
 
   const kits = useMemo(
     () => (kitsApi.data ?? []).filter((kit) => kit.price_type === 'standard'),
@@ -184,42 +182,6 @@ export const CreateInvoicePage = () => {
     lines,
     kits,
   ])
-
-  const updateLineComponents = (
-    lineId: string,
-    updater: (prev: LineComponentDraft[]) => LineComponentDraft[]
-  ) => {
-    setLines((prev) =>
-      prev.map((line) =>
-        line.id === lineId
-          ? {
-              ...line,
-              components: updater(line.components),
-            }
-          : line
-      )
-    )
-  }
-
-  // Components are fixed by kit definition; we only allow changing the concrete item (model),
-  // not removing components or changing their quantity.
-  const updateComponentRow = (
-    lineId: string,
-    index: number,
-    field: keyof LineComponentDraft,
-    value: number | ''
-  ) => {
-    if (field !== 'item_id') {
-      return
-    }
-    updateLineComponents(lineId, (prev) => {
-      const next = [...prev]
-      const current = next[index] ?? { item_id: '', quantity: 1 }
-      current.item_id = value
-      next[index] = current
-      return next
-    })
-  }
 
   const submitInvoice = async () => {
     if (!resolvedId) return
@@ -357,8 +319,6 @@ export const CreateInvoicePage = () => {
         <TableBody>
           {lines.map((line) => {
             const unitPrice = unitPriceForLine(line)
-            const kit = line.kit_id ? kits.find((k) => k.id === line.kit_id) : null
-            const isConfigurable = Boolean(kit?.is_editable_components)
             return (
               <TableRow key={line.id}>
                 <TableCell>
@@ -434,9 +394,9 @@ export const CreateInvoicePage = () => {
           })}
           {!lines.length && (
             <TableRow>
-              <TableCell colSpan={7} align="center">
+              <td colSpan={7} className="px-4 py-8 text-center">
                 Add at least one line
-              </TableCell>
+              </td>
             </TableRow>
           )}
         </TableBody>

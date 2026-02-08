@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, ReactNode } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { cn } from '../../utils/cn'
 import { Input } from './Input'
 import { ChevronDown, X } from 'lucide-react'

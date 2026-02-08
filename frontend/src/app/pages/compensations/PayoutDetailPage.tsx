@@ -163,9 +163,9 @@ export const PayoutDetailPage = () => {
             })}
             {!payout.allocations.length && (
               <TableRow>
-                <TableCell colSpan={2} align="center" className="py-8">
+                <td colSpan={2} className="px-4 py-8 text-center">
                   <Typography color="secondary">No allocations</Typography>
-                </TableCell>
+                </td>
               </TableRow>
             )}
           </TableBody>

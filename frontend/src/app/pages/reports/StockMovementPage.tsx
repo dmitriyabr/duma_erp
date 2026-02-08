@@ -1,23 +1,3 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CircularProgress,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
@@ -25,6 +5,22 @@ import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
 import { DateRangeShortcuts, getDateRangeForPreset } from '../../components/DateRangeShortcuts'
 import { downloadReportExcel } from '../../utils/reportExcel'
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  Input,
+  Select,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableHeaderCell,
+  Typography,
+  Spinner,
+} from '../../components/ui'
 
 interface StockMovementRow {
   movement_id: number
@@ -101,40 +97,38 @@ export const StockMovementPage = () => {
 
   if (forbidden) {
     return (
-      <Box>
-        <Typography variant="h5" sx={{ mb: 2 }}>Stock Movement Report</Typography>
+      <div>
+        <Typography variant="h5" className="mb-4">Stock Movement Report</Typography>
         <Alert severity="warning">
           You do not have access to reports. This section is available to Admin and SuperAdmin.
         </Alert>
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>Stock Movement Report</Typography>
+    <div>
+      <Typography variant="h5" className="mb-4">Stock Movement Report</Typography>
 
-      <Card sx={{ mb: 2 }}>
+      <Card className="mb-4">
         <CardContent>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
+          <div className="flex flex-wrap gap-4 items-center">
             <DateRangeShortcuts dateFrom={dateFrom} dateTo={dateTo} onRangeChange={(from, to) => { setDateFrom(from); setDateTo(to) }} onRun={(from, to) => runReport(from, to)} />
-            <TextField label="From" type="date" size="small" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
-            <TextField label="To" type="date" size="small" value={dateTo} onChange={(e) => setDateTo(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
-            <FormControl size="small" sx={{ minWidth: 140 }}>
-              <InputLabel>Type</InputLabel>
-              <Select
-                value={movementType}
-                label="Type"
-                onChange={(e) => setMovementType(e.target.value)}
-              >
-                <MenuItem value="">All</MenuItem>
-                <MenuItem value="receipt">Receive</MenuItem>
-                <MenuItem value="issue">Issue</MenuItem>
-                <MenuItem value="adjustment">Adjustment</MenuItem>
-                <MenuItem value="reserve">Reserve</MenuItem>
-                <MenuItem value="unreserve">Unreserve</MenuItem>
-              </Select>
-            </FormControl>
+            <Input label="From" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
+            <Input label="To" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
+            <Select
+              value={movementType}
+              onChange={(e) => setMovementType(e.target.value)}
+              label="Type"
+              className="min-w-[140px]"
+            >
+              <option value="">All</option>
+              <option value="receipt">Receive</option>
+              <option value="issue">Issue</option>
+              <option value="adjustment">Adjustment</option>
+              <option value="reserve">Reserve</option>
+              <option value="unreserve">Unreserve</option>
+            </Select>
             <Button variant="contained" onClick={() => runReport()}>Run report</Button>
             <Button
               variant="outlined"
@@ -147,35 +141,35 @@ export const StockMovementPage = () => {
             >
               Export to Excel
             </Button>
-          </Box>
+          </div>
         </CardContent>
       </Card>
 
       {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress />
-        </Box>
+        <div className="flex justify-center py-8">
+          <Spinner size="medium" />
+        </div>
       )}
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" className="mb-4">{error}</Alert>}
 
       {!loading && data && (
         <>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          <Typography variant="body2" color="secondary" className="mb-4">
             Period: {data.date_from} — {data.date_to}
           </Typography>
 
-          <TableContainer component={Card}>
-            <Table size="small">
+          <Card>
+            <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell><strong>Date</strong></TableCell>
-                  <TableCell><strong>Type</strong></TableCell>
-                  <TableCell><strong>Item</strong></TableCell>
-                  <TableCell align="right"><strong>Qty</strong></TableCell>
-                  <TableCell><strong>Ref</strong></TableCell>
-                  <TableCell><strong>User</strong></TableCell>
-                  <TableCell align="right"><strong>Balance after</strong></TableCell>
+                  <TableHeaderCell><strong>Date</strong></TableHeaderCell>
+                  <TableHeaderCell><strong>Type</strong></TableHeaderCell>
+                  <TableHeaderCell><strong>Item</strong></TableHeaderCell>
+                  <TableHeaderCell align="right"><strong>Qty</strong></TableHeaderCell>
+                  <TableHeaderCell><strong>Ref</strong></TableHeaderCell>
+                  <TableHeaderCell><strong>User</strong></TableHeaderCell>
+                  <TableHeaderCell align="right"><strong>Balance after</strong></TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -194,13 +188,13 @@ export const StockMovementPage = () => {
                 ))}
               </TableBody>
             </Table>
-          </TableContainer>
+          </Card>
         </>
       )}
 
       {!loading && !data && !error && canSeeReports(user) && (
-        <Typography color="text.secondary">Select period and run report.</Typography>
+        <Typography color="secondary">Select period and run report.</Typography>
       )}
-    </Box>
+    </div>
   )
 }

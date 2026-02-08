@@ -52,9 +52,9 @@ export const ItemsToIssueTab = ({ studentId, onError }: ItemsToIssueTabProps) =>
           ))}
           {!reservations.length && (
             <TableRow>
-              <TableCell colSpan={4} align="center" className="py-8">
+              <td colSpan={4} className="px-4 py-8 text-center">
                 <Typography color="secondary">No items to issue</Typography>
-              </TableCell>
+              </td>
             </TableRow>
           )}
         </TableBody>

@@ -107,16 +107,16 @@ export const PaymentPurposesPage = () => {
             ))}
             {loading && (
               <TableRow>
-                <TableCell colSpan={3} align="center" className="py-8">
+                <td colSpan={3} className="px-4 py-8 text-center">
                   <Spinner size="medium" />
-                </TableCell>
+                </td>
               </TableRow>
             )}
             {!rows?.length && !loading && (
               <TableRow>
-                <TableCell colSpan={3} align="center" className="py-8">
+                <td colSpan={3} className="px-4 py-8 text-center">
                   <Typography color="secondary">No purposes found</Typography>
-                </TableCell>
+                </td>
               </TableRow>
             )}
           </TableBody>

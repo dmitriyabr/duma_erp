@@ -1,4 +1,5 @@
-import { HTMLAttributes, ReactNode, useState, createContext, useContext } from 'react'
+import type { HTMLAttributes, ReactNode } from 'react'
+import { createContext, useContext } from 'react'
 import { cn } from '../../utils/cn'
 
 interface TabsContextValue {
@@ -16,7 +17,7 @@ const useTabsContext = () => {
   return context
 }
 
-export interface TabsProps extends HTMLAttributes<HTMLDivElement> {
+export interface TabsProps extends Omit<HTMLAttributes<HTMLDivElement>, 'onChange'> {
   value: string
   onChange: (value: string) => void
   children: ReactNode

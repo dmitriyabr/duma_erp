@@ -148,16 +148,16 @@ export const IssuancesPage = () => {
             ))}
             {loading && (
               <TableRow>
-                <TableCell colSpan={6} align="center" className="py-8">
+                <td colSpan={6} className="px-4 py-8 text-center">
                   <Spinner size="medium" />
-                </TableCell>
+                </td>
               </TableRow>
             )}
             {!rows.length && !loading && (
               <TableRow>
-                <TableCell colSpan={6} align="center" className="py-8">
+                <td colSpan={6} className="px-4 py-8 text-center">
                   <Typography color="secondary">No issuances found</Typography>
-                </TableCell>
+                </td>
               </TableRow>
             )}
           </TableBody>

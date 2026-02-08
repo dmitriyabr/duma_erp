@@ -296,9 +296,9 @@ export const TermFormPage = () => {
               ))}
               {!priceSettings.length && (
                 <TableRow>
-                  <TableCell colSpan={3} align="center" className="py-8">
+                  <td colSpan={3} className="px-4 py-8 text-center">
                     <Typography color="secondary">No grades found</Typography>
-                  </TableCell>
+                  </td>
                 </TableRow>
               )}
             </TableBody>
@@ -344,9 +344,9 @@ export const TermFormPage = () => {
               ))}
               {!transportPricing.length && (
                 <TableRow>
-                  <TableCell colSpan={4} align="center" className="py-8">
+                  <td colSpan={4} className="px-4 py-8 text-center">
                     <Typography color="secondary">No transport zones found</Typography>
-                  </TableCell>
+                  </td>
                 </TableRow>
               )}
             </TableBody>

@@ -1,19 +1,3 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CircularProgress,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
@@ -22,6 +6,21 @@ import { canSeeReports } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
 import { DateRangeShortcuts, getDateRangeForPreset } from '../../components/DateRangeShortcuts'
 import { downloadReportExcel } from '../../utils/reportExcel'
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  Input,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableHeaderCell,
+  Typography,
+  Spinner,
+} from '../../components/ui'
 
 interface ProcurementSummaryRow {
   supplier_name: string
@@ -91,55 +90,55 @@ export const ProcurementSummaryPage = () => {
 
   if (forbidden) {
     return (
-      <Box>
-        <Typography variant="h5" sx={{ mb: 2 }}>Procurement Summary</Typography>
+      <div>
+        <Typography variant="h5" className="mb-4">Procurement Summary</Typography>
         <Alert severity="warning">
           You do not have access to reports. This section is available to Admin and SuperAdmin.
         </Alert>
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>Procurement Summary</Typography>
+    <div>
+      <Typography variant="h5" className="mb-4">Procurement Summary</Typography>
 
-      <Card sx={{ mb: 2 }}>
+      <Card className="mb-4">
         <CardContent>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
+          <div className="flex flex-wrap gap-4 items-center">
             <DateRangeShortcuts dateFrom={dateFrom} dateTo={dateTo} onRangeChange={(from, to) => { setDateFrom(from); setDateTo(to) }} onRun={(from, to) => runReport(from, to)} />
-            <TextField label="From" type="date" size="small" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
-            <TextField label="To" type="date" size="small" value={dateTo} onChange={(e) => setDateTo(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
+            <Input label="From" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
+            <Input label="To" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
             <Button variant="contained" onClick={() => runReport()}>Run report</Button>
             <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/procurement-summary', { date_from: dateFrom, date_to: dateTo }, 'procurement-summary.xlsx')}>Export to Excel</Button>
-          </Box>
+          </div>
         </CardContent>
       </Card>
 
       {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress />
-        </Box>
+        <div className="flex justify-center py-8">
+          <Spinner size="medium" />
+        </div>
       )}
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" className="mb-4">{error}</Alert>}
 
       {!loading && data && (
         <>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          <Typography variant="body2" color="secondary" className="mb-4">
             Period: {data.date_from} — {data.date_to}
           </Typography>
 
-          <TableContainer component={Card} sx={{ mb: 2 }}>
-            <Table size="small">
+          <Card className="mb-4">
+            <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell><strong>Supplier</strong></TableCell>
-                  <TableCell align="right"><strong>POs</strong></TableCell>
-                  <TableCell align="right"><strong>Total (KES)</strong></TableCell>
-                  <TableCell align="right"><strong>Paid (KES)</strong></TableCell>
-                  <TableCell align="right"><strong>Outstanding (KES)</strong></TableCell>
-                  <TableCell><strong>Status</strong></TableCell>
+                  <TableHeaderCell><strong>Supplier</strong></TableHeaderCell>
+                  <TableHeaderCell align="right"><strong>POs</strong></TableHeaderCell>
+                  <TableHeaderCell align="right"><strong>Total (KES)</strong></TableHeaderCell>
+                  <TableHeaderCell align="right"><strong>Paid (KES)</strong></TableHeaderCell>
+                  <TableHeaderCell align="right"><strong>Outstanding (KES)</strong></TableHeaderCell>
+                  <TableHeaderCell><strong>Status</strong></TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -159,15 +158,15 @@ export const ProcurementSummaryPage = () => {
                   <TableCell align="right"><strong>{formatMoney(data.total_amount)}</strong></TableCell>
                   <TableCell align="right"><strong>{formatMoney(data.total_paid)}</strong></TableCell>
                   <TableCell align="right"><strong>{formatMoney(data.total_outstanding)}</strong></TableCell>
-                  <TableCell />
+                  <TableCell>—</TableCell>
                 </TableRow>
               </TableBody>
             </Table>
-          </TableContainer>
+          </Card>
 
-          <Card sx={{ mb: 2 }}>
+          <Card className="mb-4">
             <CardContent>
-              <Typography variant="subtitle2" gutterBottom>Outstanding breakdown (by age)</Typography>
+              <Typography variant="subtitle2" className="mb-2">Outstanding breakdown (by age)</Typography>
               <Typography variant="body2">
                 Current (0–30 days): {formatMoney(data.outstanding_breakdown.current_0_30)} KES
                 {' · '}
@@ -181,8 +180,8 @@ export const ProcurementSummaryPage = () => {
       )}
 
       {!loading && !data && !error && canSeeReports(user) && (
-        <Typography color="text.secondary">Select period and run report.</Typography>
+        <Typography color="secondary">Select period and run report.</Typography>
       )}
-    </Box>
+    </div>
   )
 }

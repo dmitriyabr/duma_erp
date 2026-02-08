@@ -1,7 +1,6 @@
 import { LogOut, User } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../auth/AuthContext'
-import { cn } from '../utils/cn'
 
 export const TopBar = () => {
   const { user, logout } = useAuth()

@@ -1,4 +1,5 @@
-import React, { ButtonHTMLAttributes, ReactNode } from 'react'
+import type { ButtonHTMLAttributes, ReactNode, MouseEvent } from 'react'
+import { Children, isValidElement, cloneElement } from 'react'
 import { cn } from '../../utils/cn'
 
 export interface ToggleButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -28,7 +29,7 @@ export const ToggleButton = ({ className, selected, children, ...props }: Toggle
 export interface ToggleButtonGroupProps {
   value: string
   exclusive?: boolean
-  onChange?: (event: React.MouseEvent<HTMLElement>, value: string | null) => void
+  onChange?: (event: MouseEvent<HTMLElement>, value: string | null) => void
   children: ReactNode
   className?: string
   size?: 'small' | 'medium' | 'large'
@@ -50,13 +51,13 @@ export const ToggleButtonGroup = ({
 
   return (
     <div className={cn('inline-flex gap-0 rounded-md border border-slate-300 overflow-hidden', className)}>
-      {React.Children.map(children, (child) => {
-        if (React.isValidElement(child) && child.type === ToggleButton) {
+      {Children.map(children, (child) => {
+        if (isValidElement<ToggleButtonProps>(child) && child.type === ToggleButton) {
           const childValue = child.props.value
           const isSelected = childValue === value
-          return React.cloneElement(child as React.ReactElement<ToggleButtonProps>, {
+          return cloneElement(child, {
             selected: isSelected,
-            onClick: (e: React.MouseEvent<HTMLButtonElement>) => {
+            onClick: (e: MouseEvent<HTMLButtonElement>) => {
               if (onChange) {
                 if (exclusive) {
                   onChange(e, isSelected ? null : childValue)

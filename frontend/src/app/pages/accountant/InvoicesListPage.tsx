@@ -127,16 +127,16 @@ export const InvoicesListPage = () => {
             ))}
             {loading && (
               <TableRow>
-                <TableCell colSpan={10} align="center" className="py-8">
+                <td colSpan={10} className="px-4 py-8 text-center">
                   <Spinner size="medium" />
-                </TableCell>
+                </td>
               </TableRow>
             )}
             {!invoices.length && !loading && (
               <TableRow>
-                <TableCell colSpan={10} align="center" className="py-8">
+                <td colSpan={10} className="px-4 py-8 text-center">
                   <Typography color="secondary">No invoices found</Typography>
-                </TableCell>
+                </td>
               </TableRow>
             )}
           </TableBody>

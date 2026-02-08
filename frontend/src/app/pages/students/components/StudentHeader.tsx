@@ -142,7 +142,6 @@ export const StudentHeader = ({
         <Chip
           label={`Balance ${formatMoney(netBalance)}`}
           color={netBalance > 0 ? 'success' : netBalance < 0 ? 'error' : 'default'}
-          variant={netBalance !== 0 ? 'filled' : 'outlined'}
         />
         {!readOnly && (
           <>

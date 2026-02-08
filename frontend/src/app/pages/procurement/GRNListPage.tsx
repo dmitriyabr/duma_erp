@@ -140,16 +140,16 @@ export const GRNListPage = () => {
             ))}
             {loading && (
               <TableRow>
-                <TableCell colSpan={5} align="center" className="py-8">
+                <td colSpan={5} className="px-4 py-8 text-center">
                   <Spinner size="medium" />
-                </TableCell>
+                </td>
               </TableRow>
             )}
             {!grns.length && !loading && (
               <TableRow>
-                <TableCell colSpan={5} align="center" className="py-8">
+                <td colSpan={5} className="px-4 py-8 text-center">
                   <Typography color="secondary">No GRNs found</Typography>
-                </TableCell>
+                </td>
               </TableRow>
             )}
           </TableBody>

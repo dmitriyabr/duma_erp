@@ -1,25 +1,4 @@
 import axios from 'axios'
-import {
-  Alert,
-  Box,
-  Button,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Divider,
-  FormControlLabel,
-  MenuItem,
-  Select,
-  Switch,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  Typography,
-} from '@mui/material'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { Navigate } from 'react-router-dom'
@@ -27,6 +6,24 @@ import { useAuth } from '../../auth/AuthContext'
 import { isAccountant } from '../../utils/permissions'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api } from '../../services/api'
+import {
+  Alert,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Select,
+  Switch,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableHeaderCell,
+  Typography,
+  Spinner,
+} from '../../components/ui'
 
 type MatchedEntityType = 'procurement_payment' | 'compensation_payout'
 
@@ -419,36 +416,40 @@ export const BankReconciliationPage = () => {
   const effectiveError = error || importsError || detailError || reconciliationError
 
   return (
-    <Box>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+    <div>
+      <Typography variant="h4" className="font-bold mb-4">
         Bank reconciliation
       </Typography>
 
       {effectiveError ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Alert severity="error" className="mb-4">
           {effectiveError}
         </Alert>
       ) : null}
       {success ? (
-        <Alert severity="success" sx={{ mb: 2 }}>
+        <Alert severity="success" className="mb-4">
           {success}
         </Alert>
       ) : null}
 
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-        <Button variant="outlined" component="label" disabled={uploadMutation.loading}>
-          {selectedFileName ? 'Change CSV' : 'Select CSV'}
+      <div className="flex items-center gap-4 mb-4 flex-wrap">
+        <label className="inline-flex">
+          <span className="inline-flex">
+            <Button variant="outlined" disabled={uploadMutation.loading} className="cursor-pointer">
+              {selectedFileName ? 'Change CSV' : 'Select CSV'}
+            </Button>
+          </span>
           <input
             ref={fileInputRef}
             type="file"
-            hidden
+            className="hidden"
             accept=".csv,text/csv"
             onChange={(e) => {
               const file = e.currentTarget.files?.[0]
               setSelectedFileName(file ? file.name : null)
             }}
           />
-        </Button>
+        </label>
         <Button
           variant="contained"
           onClick={handleUpload}
@@ -457,15 +458,15 @@ export const BankReconciliationPage = () => {
           {uploadMutation.loading ? 'Importing…' : 'Import statement'}
         </Button>
         {selectedFileName ? (
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" color="secondary">
             Selected: {selectedFileName}
           </Typography>
         ) : (
-          <Typography variant="body2" color="text.secondary">
-            Select a CSV, then click “Import statement”.
+          <Typography variant="body2" color="secondary">
+            Select a CSV, then click "Import statement".
           </Typography>
         )}
-        <Divider flexItem orientation="vertical" />
+        <div className="h-6 w-px bg-slate-300" />
         <Button variant="outlined" onClick={refreshAll} disabled={importsLoading || detailLoading || reconciliationLoading}>
           Refresh
         </Button>
@@ -476,65 +477,58 @@ export const BankReconciliationPage = () => {
         >
           {autoMatchMutation.loading ? 'Matching…' : 'Auto-match'}
         </Button>
-        <FormControlLabel
-          control={
-            <Switch
-              checked={onlyUnmatched}
-              onChange={(e) => setOnlyUnmatched(e.target.checked)}
-            />
-          }
-          label="Show only unmatched"
-        />
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={onlyUnmatched}
+            onChange={(e) => setOnlyUnmatched(e.target.checked)}
+          />
+          <Typography variant="body2">Show only unmatched</Typography>
+        </div>
         <Select
-          size="small"
           value={txnType}
           onChange={(e) => setTxnType(e.target.value as typeof txnType)}
-          sx={{ width: 160 }}
+          className="w-40"
         >
-          <MenuItem value="all">All types</MenuItem>
+          <option value="all">All types</option>
           {(txnTypes || []).map((t) => (
-            <MenuItem key={t} value={t}>
+            <option key={t} value={t}>
               {t}
-            </MenuItem>
+            </option>
           ))}
         </Select>
-        <FormControlLabel
-          control={
-            <Switch
-              checked={ignoreRange}
-              onChange={(e) => setIgnoreRange(e.target.checked)}
-            />
-          }
-          label="Ignore date range"
-        />
-      </Box>
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={ignoreRange}
+            onChange={(e) => setIgnoreRange(e.target.checked)}
+          />
+          <Typography variant="body2">Ignore date range</Typography>
+        </div>
+      </div>
 
-      <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', mb: 3 }}>
-        <Box sx={{ minWidth: 320, flex: 1 }}>
-          <Typography variant="h6" sx={{ mb: 1 }}>
+      <div className="flex gap-6 flex-wrap mb-6">
+        <div className="min-w-[320px] flex-1">
+          <Typography variant="h6" className="mb-2">
             Imports
           </Typography>
           {importsLoading ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <CircularProgress size={18} /> <Typography>Loading…</Typography>
-            </Box>
+            <div className="flex items-center gap-2">
+              <Spinner size="small" /> <Typography>Loading…</Typography>
+            </div>
           ) : (
-            <Table size="small">
+            <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell>ID</TableCell>
-                  <TableCell>File</TableCell>
-                  <TableCell>Created</TableCell>
+                  <TableHeaderCell>ID</TableHeaderCell>
+                  <TableHeaderCell>File</TableHeaderCell>
+                  <TableHeaderCell>Created</TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {(imports || []).map((imp) => (
                   <TableRow
                     key={imp.id}
-                    hover
-                    selected={imp.id === selectedImportId}
+                    className={imp.id === selectedImportId ? 'bg-primary/10' : 'cursor-pointer hover:bg-slate-50'}
                     onClick={() => setSelectedImportId(imp.id)}
-                    sx={{ cursor: 'pointer' }}
                   >
                     <TableCell>{imp.id}</TableCell>
                     <TableCell>{imp.file_name}</TableCell>
@@ -543,25 +537,27 @@ export const BankReconciliationPage = () => {
                 ))}
                 {!imports?.length ? (
                   <TableRow>
-                    <TableCell colSpan={3}>No imports yet</TableCell>
+                    <td colSpan={3} className="px-4 py-3">
+                      No imports yet
+                    </td>
                   </TableRow>
                 ) : null}
               </TableBody>
             </Table>
           )}
-        </Box>
+        </div>
 
-        <Box sx={{ minWidth: 360, flex: 1 }}>
-          <Typography variant="h6" sx={{ mb: 1 }}>
+        <div className="min-w-[360px] flex-1">
+          <Typography variant="h6" className="mb-2">
             Summary
           </Typography>
           {reconciliationLoading ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <CircularProgress size={18} /> <Typography>Loading…</Typography>
-            </Box>
+            <div className="flex items-center gap-2">
+              <Spinner size="small" /> <Typography>Loading…</Typography>
+            </div>
           ) : reconciliation ? (
-            <Box sx={{ display: 'grid', gap: 0.5 }}>
-              <Typography variant="body2" color="text.secondary">
+            <div className="grid gap-1">
+              <Typography variant="body2" color="secondary">
                 Range: {reconciliation.range_from || '—'} → {reconciliation.range_to || '—'}
               </Typography>
               <Typography>Unmatched transactions: {reconciliation.unmatched_transactions}</Typography>
@@ -571,93 +567,89 @@ export const BankReconciliationPage = () => {
               <Typography>
                 Unmatched compensation payouts: {reconciliation.unmatched_compensation_payouts.length}
               </Typography>
-            </Box>
+            </div>
           ) : (
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" color="secondary">
               Select an import to see summary.
             </Typography>
           )}
-        </Box>
-      </Box>
+        </div>
+      </div>
 
-      <Typography variant="h6" sx={{ mb: 1 }}>
+      <Typography variant="h6" className="mb-2">
         Statement rows
       </Typography>
       {detailLoading ? (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <CircularProgress size={18} /> <Typography>Loading…</Typography>
-        </Box>
+        <div className="flex items-center gap-2">
+          <Spinner size="small" /> <Typography>Loading…</Typography>
+        </div>
       ) : (
-        <Table size="small">
+        <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Date</TableCell>
-              <TableCell>Type</TableCell>
-              <TableCell>Description</TableCell>
-              <TableCell align="right">Amount</TableCell>
-              <TableCell>Match</TableCell>
+              <TableHeaderCell>Date</TableHeaderCell>
+              <TableHeaderCell>Type</TableHeaderCell>
+              <TableHeaderCell>Description</TableHeaderCell>
+              <TableHeaderCell align="right">Amount</TableHeaderCell>
+              <TableHeaderCell>Match</TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {(importDetail?.rows.items || []).map((r) => {
               const m = r.transaction.match
               return (
-                <TableRow key={r.id} hover>
+                <TableRow key={r.id}>
                   <TableCell>{r.transaction.value_date}</TableCell>
                   <TableCell>{r.transaction.txn_type || '—'}</TableCell>
-                  <TableCell sx={{ maxWidth: 640, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <TableCell className="max-w-[640px] truncate">
                     {r.transaction.description}
                   </TableCell>
                   <TableCell align="right">{r.transaction.amount}</TableCell>
                   <TableCell>
                     {m ? (
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                      <div className="flex items-center gap-2 flex-wrap">
                         {m.entity_type === 'procurement_payment' ? (
-                          <Button
-                            size="small"
-                            component={RouterLink}
-                            to={`/procurement/payments/${m.entity_id}`}
-                          >
-                            {m.entity_number}
-                          </Button>
+                          <RouterLink to={`/procurement/payments/${m.entity_id}`}>
+                            <Button size="small">
+                              {m.entity_number}
+                            </Button>
+                          </RouterLink>
                         ) : (
-                          <Button
-                            size="small"
-                            component={RouterLink}
-                            to={`/compensations/payouts/${m.entity_id}`}
-                          >
-                            {m.entity_number}
-                          </Button>
+                          <RouterLink to={`/compensations/payouts/${m.entity_id}`}>
+                            <Button size="small">
+                              {m.entity_number}
+                            </Button>
+                          </RouterLink>
                         )}
                         {m.proof_attachment_id ? (
-                          <Button
-                            size="small"
-                            component="a"
+                          <a
                             href={`/attachment/${m.proof_attachment_id}/download`}
                             target="_blank"
                             rel="noreferrer"
                           >
-                            Proof
-                          </Button>
+                            <Button size="small">
+                              Proof
+                            </Button>
+                          </a>
                         ) : null}
                         <Button
                           size="small"
-                          color="warning"
+                          variant="outlined"
                           onClick={() => unmatchTransaction(r.transaction.id)}
                           disabled={unmatchMutation.loading}
                         >
                           Unmatch
                         </Button>
-                      </Box>
+                      </div>
                     ) : (
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                        <Typography variant="body2" color="text.secondary">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Typography variant="body2" color="secondary">
                           Unmatched
                         </Typography>
                         <Button size="small" onClick={() => openManualMatch(r.transaction.id)}>
                           Manual match
                         </Button>
-                      </Box>
+                      </div>
                     )}
                   </TableCell>
                 </TableRow>
@@ -665,119 +657,121 @@ export const BankReconciliationPage = () => {
             })}
             {!importDetail?.rows.items.length ? (
               <TableRow>
-                <TableCell colSpan={5}>
+                <td colSpan={5} className="px-4 py-3">
                   {selectedImportId ? 'No rows found for this filter.' : 'Select an import.'}
-                </TableCell>
+                </td>
               </TableRow>
             ) : null}
           </TableBody>
         </Table>
       )}
 
-      <Box sx={{ mt: 3, display: 'grid', gap: 3 }}>
-        <Box>
-          <Typography variant="h6" sx={{ mb: 1 }}>
+      <div className="mt-6 grid gap-6">
+        <div>
+          <Typography variant="h6" className="mb-2">
             Unmatched procurement payments (company paid)
           </Typography>
-          <Table size="small">
+          <Table>
             <TableHead>
               <TableRow>
-                <TableCell>Date</TableCell>
-                <TableCell>Number</TableCell>
-                <TableCell>Payee</TableCell>
-                <TableCell align="right">Amount</TableCell>
-                <TableCell align="right">Actions</TableCell>
+                <TableHeaderCell>Date</TableHeaderCell>
+                <TableHeaderCell>Number</TableHeaderCell>
+                <TableHeaderCell>Payee</TableHeaderCell>
+                <TableHeaderCell align="right">Amount</TableHeaderCell>
+                <TableHeaderCell align="right">Actions</TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {(reconciliation?.unmatched_procurement_payments || []).slice(0, 50).map((p) => (
-                <TableRow key={p.id} hover>
+                <TableRow key={p.id}>
                   <TableCell>{p.payment_date}</TableCell>
                   <TableCell>{p.payment_number}</TableCell>
                   <TableCell>{p.payee_name || '—'}</TableCell>
                   <TableCell align="right">{p.amount}</TableCell>
                   <TableCell align="right">
-                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, flexWrap: 'wrap' }}>
+                    <div className="flex justify-end gap-2 flex-wrap">
                       <Button
                         size="small"
                         onClick={() => openManualMatchForEntity('procurement_payment', p.id)}
                       >
                         Manual match
                       </Button>
-                      <Button size="small" component={RouterLink} to={`/procurement/payments/${p.id}`}>
-                        Open
-                      </Button>
-                    </Box>
+                      <RouterLink to={`/procurement/payments/${p.id}`}>
+                        <Button size="small">Open</Button>
+                      </RouterLink>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
               {!reconciliation?.unmatched_procurement_payments?.length ? (
                 <TableRow>
-                  <TableCell colSpan={5}>No unmatched payments</TableCell>
+                  <td colSpan={5} className="px-4 py-3">
+                    No unmatched payments
+                  </td>
                 </TableRow>
               ) : null}
             </TableBody>
           </Table>
-        </Box>
+        </div>
 
-        <Box>
-          <Typography variant="h6" sx={{ mb: 1 }}>
+        <div>
+          <Typography variant="h6" className="mb-2">
             Unmatched compensation payouts
           </Typography>
-          <Table size="small">
+          <Table>
             <TableHead>
               <TableRow>
-                <TableCell>Date</TableCell>
-                <TableCell>Number</TableCell>
-                <TableCell align="right">Amount</TableCell>
-                <TableCell align="right">Actions</TableCell>
+                <TableHeaderCell>Date</TableHeaderCell>
+                <TableHeaderCell>Number</TableHeaderCell>
+                <TableHeaderCell align="right">Amount</TableHeaderCell>
+                <TableHeaderCell align="right">Actions</TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {(reconciliation?.unmatched_compensation_payouts || []).slice(0, 50).map((p) => (
-                <TableRow key={p.id} hover>
+                <TableRow key={p.id}>
                   <TableCell>{p.payout_date}</TableCell>
                   <TableCell>{p.payout_number}</TableCell>
                   <TableCell align="right">{p.amount}</TableCell>
                   <TableCell align="right">
-                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, flexWrap: 'wrap' }}>
+                    <div className="flex justify-end gap-2 flex-wrap">
                       <Button
                         size="small"
                         onClick={() => openManualMatchForEntity('compensation_payout', p.id)}
                       >
                         Manual match
                       </Button>
-                      <Button size="small" component={RouterLink} to={`/compensations/payouts/${p.id}`}>
-                        Open
-                      </Button>
-                    </Box>
+                      <RouterLink to={`/compensations/payouts/${p.id}`}>
+                        <Button size="small">Open</Button>
+                      </RouterLink>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
               {!reconciliation?.unmatched_compensation_payouts?.length ? (
                 <TableRow>
-                  <TableCell colSpan={4}>No unmatched payouts</TableCell>
+                  <td colSpan={4} className="px-4 py-3">
+                    No unmatched payouts
+                  </td>
                 </TableRow>
               ) : null}
             </TableBody>
           </Table>
-        </Box>
-      </Box>
+        </div>
+      </div>
 
       <Dialog open={manualMatchTxnId !== null} onClose={closeManualMatch} maxWidth="sm" fullWidth>
         <DialogTitle>Manual match</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          <Typography variant="body2" color="secondary" className="mb-4">
             Pick an unmatched internal document by amount (± 1.00). This is a read-write operation (Admin/SuperAdmin).
           </Typography>
-          <Box sx={{ display: 'grid', gap: 2 }}>
-            <Box>
-              <Typography variant="body2" sx={{ mb: 0.5 }}>
+          <div className="grid gap-4">
+            <div>
+              <Typography variant="body2" className="mb-1">
                 Entity type
               </Typography>
               <Select
-                size="small"
-                fullWidth
                 value={manualMatchType}
                 onChange={(e) => {
                   const t = e.target.value as MatchedEntityType
@@ -785,24 +779,19 @@ export const BankReconciliationPage = () => {
                   setManualMatchEntityId('')
                 }}
               >
-                <MenuItem value="procurement_payment">Procurement payment (company paid)</MenuItem>
-                <MenuItem value="compensation_payout">Compensation payout</MenuItem>
+                <option value="procurement_payment">Procurement payment (company paid)</option>
+                <option value="compensation_payout">Compensation payout</option>
               </Select>
-            </Box>
-            <Box>
-              <Typography variant="body2" sx={{ mb: 0.5 }}>
+            </div>
+            <div>
+              <Typography variant="body2" className="mb-1">
                 Entity
               </Typography>
               <Select
-                size="small"
-                fullWidth
-                displayEmpty
                 value={manualMatchEntityId}
-                onChange={(e) => setManualMatchEntityId(e.target.value as number)}
+                onChange={(e) => setManualMatchEntityId(e.target.value ? Number(e.target.value) : '')}
               >
-                <MenuItem value="">
-                  <em>Select…</em>
-                </MenuItem>
+                <option value="">Select…</option>
                 {(manualMatchType === 'procurement_payment'
                   ? manualCandidates.procurement.map((p) => ({
                       id: p.id,
@@ -813,16 +802,16 @@ export const BankReconciliationPage = () => {
                       label: `${p.payout_date} • ${p.payout_number} • ${p.amount}`,
                     }))
                 ).map((opt) => (
-                  <MenuItem key={opt.id} value={opt.id}>
+                  <option key={opt.id} value={opt.id}>
                     {opt.label}
-                  </MenuItem>
+                  </option>
                 ))}
               </Select>
-              <Typography variant="caption" color="text.secondary">
-                Candidates are filtered from “unmatched” lists by amount (± 1.00).
+              <Typography variant="caption" color="secondary">
+                Candidates are filtered from "unmatched" lists by amount (± 1.00).
               </Typography>
-            </Box>
-          </Box>
+            </div>
+          </div>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeManualMatch}>Cancel</Button>
@@ -835,35 +824,30 @@ export const BankReconciliationPage = () => {
       <Dialog open={manualMatchEntity !== null} onClose={closeManualMatchForEntity} maxWidth="sm" fullWidth>
         <DialogTitle>Manual match</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          <Typography variant="body2" color="secondary" className="mb-4">
             Pick an unmatched bank transaction to match to this document (amount tolerance: ± 1.00).
           </Typography>
-          <Box sx={{ display: 'grid', gap: 2 }}>
-            <Box>
-              <Typography variant="body2" sx={{ mb: 0.5 }}>
+          <div className="grid gap-4">
+            <div>
+              <Typography variant="body2" className="mb-1">
                 Bank transaction
               </Typography>
               <Select
-                size="small"
-                fullWidth
-                displayEmpty
                 value={manualMatchTxnForEntityId}
-                onChange={(e) => setManualMatchTxnForEntityId(e.target.value as number)}
+                onChange={(e) => setManualMatchTxnForEntityId(e.target.value ? Number(e.target.value) : '')}
               >
-                <MenuItem value="">
-                  <em>Select…</em>
-                </MenuItem>
+                <option value="">Select…</option>
                 {txnCandidatesForEntity.map((opt) => (
-                  <MenuItem key={opt.id} value={opt.id}>
+                  <option key={opt.id} value={opt.id}>
                     {opt.label}
-                  </MenuItem>
+                  </option>
                 ))}
               </Select>
-              <Typography variant="caption" color="text.secondary">
+              <Typography variant="caption" color="secondary">
                 Candidates are filtered to unmatched statement rows by amount (± 1.00).
               </Typography>
-            </Box>
-          </Box>
+            </div>
+          </div>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeManualMatchForEntity}>Cancel</Button>
@@ -876,6 +860,6 @@ export const BankReconciliationPage = () => {
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </div>
   )
 }

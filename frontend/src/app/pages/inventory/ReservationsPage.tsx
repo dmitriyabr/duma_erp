@@ -156,7 +156,11 @@ export const ReservationsPage = () => {
           size="small"
           value={statusFilter}
           exclusive
-          onChange={(_, value) => value && setStatusFilter(value)}
+          onChange={(_, value) => {
+            if (value && (value === 'all' || value === 'active')) {
+              setStatusFilter(value)
+            }
+          }}
         >
           <ToggleButton value="active">Active</ToggleButton>
           <ToggleButton value="all">All</ToggleButton>
@@ -182,14 +186,14 @@ export const ReservationsPage = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredRows.map((row) => (
-              <TableRow key={row.id}>
-                <TableCell>{row.id}</TableCell>
-                <TableCell>{row.student_name ?? `Student #${row.student_id}`}</TableCell>
-                <TableCell>{row.status}</TableCell>
-                <TableCell>{row.items.length}</TableCell>
-                <TableCell>{formatDateTime(row.created_at)}</TableCell>
-                <TableCell align="right">
+              {filteredRows.map((row) => (
+                <TableRow key={row.id}>
+                 <TableCell>{row.id}</TableCell>
+                 <TableCell>{row.student_name ?? `Student #${row.student_id}`}</TableCell>
+                 <TableCell>{row.status}</TableCell>
+                 <TableCell>{row.items.length}</TableCell>
+                 <TableCell>{formatDateTime(row.created_at)}</TableCell>
+                 <TableCell align="right">
                   {canManage ? (
                     <>
                       {row.status === 'pending' || row.status === 'partial' ? (
@@ -206,23 +210,23 @@ export const ReservationsPage = () => {
                       )}
                     </>
                   ) : (
-                    '—'
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
+                      '—'
+                    )}
+                 </TableCell>
+                </TableRow>
+              ))}
             {loading && (
               <TableRow>
-                <TableCell colSpan={6} align="center" className="py-8">
+                <td colSpan={6} className="px-4 py-8 text-center">
                   <Spinner size="small" />
-                </TableCell>
+                </td>
               </TableRow>
             )}
             {!filteredRows.length && !loading && (
               <TableRow>
-                <TableCell colSpan={6} align="center" className="py-8">
+                <td colSpan={6} className="px-4 py-8 text-center">
                   <Typography color="secondary">No reservations found</Typography>
-                </TableCell>
+                </td>
               </TableRow>
             )}
           </TableBody>
@@ -232,10 +236,10 @@ export const ReservationsPage = () => {
       <TablePagination
         count={statusFilter === 'active' ? filteredRows.length : total}
         page={page}
-        onPageChange={(_, nextPage) => setPage(nextPage)}
+        onPageChange={(nextPage) => setPage(nextPage)}
         rowsPerPage={limit}
-        onRowsPerPageChange={(event) => {
-          setLimit(Number(event.target.value))
+        onRowsPerPageChange={(newLimit) => {
+          setLimit(newLimit)
           setPage(0)
         }}
       />
@@ -260,12 +264,12 @@ export const ReservationsPage = () => {
                     const line = issueLines.find((entry) => entry.reservation_item_id === item.id)
                     const remaining = Math.max(0, item.quantity_required - item.quantity_issued)
                     const lineError = issueLineErrors[item.id]
-                    return (
-                      <TableRow key={item.id}>
-                        <TableCell>{item.item_name ?? '—'}</TableCell>
-                        <TableCell>{item.quantity_required}</TableCell>
-                        <TableCell>{item.quantity_issued}</TableCell>
-                        <TableCell>
+                      return (
+                        <TableRow key={item.id}>
+                         <TableCell>{item.item_name ?? '—'}</TableCell>
+                         <TableCell>{item.quantity_required}</TableCell>
+                         <TableCell>{item.quantity_issued}</TableCell>
+                          <TableCell>
                           <div>
                             <Input
                               type="number"
@@ -289,7 +293,7 @@ export const ReservationsPage = () => {
                               }}
                               min={0}
                               max={remaining}
-                              error={Boolean(lineError)}
+                              error={lineError || undefined}
                               className="w-24"
                             />
                             {lineError && (
@@ -297,10 +301,10 @@ export const ReservationsPage = () => {
                                 {lineError}
                               </Typography>
                             )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )
+                            </div>
+                         </TableCell>
+                        </TableRow>
+                      )
                   })}
                 </TableBody>
               </Table>

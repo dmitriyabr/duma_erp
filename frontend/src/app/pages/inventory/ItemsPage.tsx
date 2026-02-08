@@ -311,16 +311,16 @@ export const ItemsPage = () => {
             ))}
             {loading && (
               <TableRow>
-                <TableCell colSpan={5} align="center" className="py-8">
+                <td colSpan={5} className="px-4 py-8 text-center">
                   <Spinner size="medium" />
-                </TableCell>
+                </td>
               </TableRow>
             )}
             {!filteredItems.length && !loading && (
               <TableRow>
-                <TableCell colSpan={5} align="center" className="py-8">
+                <td colSpan={5} className="px-4 py-8 text-center">
                   <Typography color="secondary">No items found</Typography>
-                </TableCell>
+                </td>
               </TableRow>
             )}
           </TableBody>

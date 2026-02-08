@@ -1,4 +1,4 @@
-import { Box, ButtonGroup, Button } from '@mui/material'
+import { Button } from './ui/Button'
 
 export type DateRangePreset = 'this_year' | 'this_month' | '30_days' | '365_days'
 
@@ -65,21 +65,41 @@ export function DateRangeShortcuts({ dateFrom, dateTo, onRangeChange, onRun }: D
   const active = currentPreset()
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-      <ButtonGroup size="small" variant="outlined">
-        <Button onClick={() => apply('this_year')} color={active === 'this_year' ? 'primary' : 'inherit'}>
+    <div className="flex items-center gap-1 flex-wrap">
+      <div className="inline-flex rounded-md border border-slate-300 overflow-hidden">
+        <Button
+          size="small"
+          variant={active === 'this_year' ? 'contained' : 'outlined'}
+          onClick={() => apply('this_year')}
+          className="rounded-none border-0 first:rounded-l-md last:rounded-r-md"
+        >
           This year
         </Button>
-        <Button onClick={() => apply('this_month')} color={active === 'this_month' ? 'primary' : 'inherit'}>
+        <Button
+          size="small"
+          variant={active === 'this_month' ? 'contained' : 'outlined'}
+          onClick={() => apply('this_month')}
+          className="rounded-none border-0 first:rounded-l-md last:rounded-r-md"
+        >
           This month
         </Button>
-        <Button onClick={() => apply('30_days')} color={active === '30_days' ? 'primary' : 'inherit'}>
+        <Button
+          size="small"
+          variant={active === '30_days' ? 'contained' : 'outlined'}
+          onClick={() => apply('30_days')}
+          className="rounded-none border-0 first:rounded-l-md last:rounded-r-md"
+        >
           30 days
         </Button>
-        <Button onClick={() => apply('365_days')} color={active === '365_days' ? 'primary' : 'inherit'}>
+        <Button
+          size="small"
+          variant={active === '365_days' ? 'contained' : 'outlined'}
+          onClick={() => apply('365_days')}
+          className="rounded-none border-0 first:rounded-l-md last:rounded-r-md"
+        >
           365 days
         </Button>
-      </ButtonGroup>
-    </Box>
+      </div>
+    </div>
   )
 }

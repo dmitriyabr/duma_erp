@@ -321,7 +321,7 @@ export const IssueFormPage = () => {
                         onFocus={(e) => e.currentTarget.select()}
                         onWheel={(e) => (e.target as HTMLInputElement).blur()}
                         min={1}
-                        error={Boolean(lineErrors[line.id])}
+                        error={lineErrors[line.id] || undefined}
                         className="w-24"
                       />
                       {lineErrors[line.id] && (

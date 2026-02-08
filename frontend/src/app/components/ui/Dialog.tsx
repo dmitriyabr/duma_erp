@@ -1,8 +1,8 @@
-import { HTMLAttributes, ReactNode, useEffect } from 'react'
+import type { HTMLAttributes, ReactNode } from 'react'
+import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from '../../utils/cn'
-import { Button } from './Button'
 
 export interface DialogProps {
   open: boolean

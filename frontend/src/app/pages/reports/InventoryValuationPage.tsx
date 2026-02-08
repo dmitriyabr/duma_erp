@@ -1,19 +1,3 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CircularProgress,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
@@ -21,6 +5,21 @@ import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
 import { downloadReportExcel } from '../../utils/reportExcel'
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  Input,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableHeaderCell,
+  Typography,
+  Spinner,
+} from '../../components/ui'
 
 interface InventoryValuationRow {
   category_id: number
@@ -75,60 +74,58 @@ export const InventoryValuationPage = () => {
 
   if (forbidden) {
     return (
-      <Box>
-        <Typography variant="h5" sx={{ mb: 2 }}>Inventory Valuation</Typography>
+      <div>
+        <Typography variant="h5" className="mb-4">Inventory Valuation</Typography>
         <Alert severity="warning">
           You do not have access to reports. This section is available to Admin and SuperAdmin.
         </Alert>
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>Inventory Valuation</Typography>
+    <div>
+      <Typography variant="h5" className="mb-4">Inventory Valuation</Typography>
 
-      <Card sx={{ mb: 2 }}>
+      <Card className="mb-4">
         <CardContent>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
-            <TextField
+          <div className="flex flex-wrap gap-4 items-center">
+            <Input
               label="As at date"
               type="date"
-              size="small"
               value={asAtDate}
               onChange={(e) => setAsAtDate(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 160 }}
+              className="w-40"
             />
             <Button variant="contained" onClick={runReport}>Run report</Button>
             <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/inventory-valuation', { as_at_date: asAtDate }, 'inventory-valuation.xlsx')}>Export to Excel</Button>
-          </Box>
+          </div>
         </CardContent>
       </Card>
 
       {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress />
-        </Box>
+        <div className="flex justify-center py-8">
+          <Spinner size="medium" />
+        </div>
       )}
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" className="mb-4">{error}</Alert>}
 
       {!loading && data && (
         <>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          <Typography variant="body2" color="secondary" className="mb-4">
             As at: {data.as_at_date}
           </Typography>
 
-          <TableContainer component={Card} sx={{ mb: 2 }}>
-            <Table size="small">
+          <Card className="mb-4">
+            <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell><strong>Category</strong></TableCell>
-                  <TableCell align="right"><strong>Items</strong></TableCell>
-                  <TableCell align="right"><strong>Quantity</strong></TableCell>
-                  <TableCell align="right"><strong>Unit cost avg (KES)</strong></TableCell>
-                  <TableCell align="right"><strong>Total value (KES)</strong></TableCell>
+                  <TableHeaderCell><strong>Category</strong></TableHeaderCell>
+                  <TableHeaderCell align="right"><strong>Items</strong></TableHeaderCell>
+                  <TableHeaderCell align="right"><strong>Quantity</strong></TableHeaderCell>
+                  <TableHeaderCell align="right"><strong>Unit cost avg (KES)</strong></TableHeaderCell>
+                  <TableHeaderCell align="right"><strong>Total value (KES)</strong></TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -147,18 +144,18 @@ export const InventoryValuationPage = () => {
                   <TableCell><strong>TOTAL</strong></TableCell>
                   <TableCell align="right"><strong>{data.total_items}</strong></TableCell>
                   <TableCell align="right"><strong>{data.total_quantity}</strong></TableCell>
-                  <TableCell />
+                  <TableCell>—</TableCell>
                   <TableCell align="right"><strong>{formatMoney(data.total_value)}</strong></TableCell>
                 </TableRow>
               </TableBody>
             </Table>
-          </TableContainer>
+          </Card>
         </>
       )}
 
       {!loading && !data && !error && canSeeReports(user) && (
-        <Typography color="text.secondary">Select date and run report.</Typography>
+        <Typography color="secondary">Select date and run report.</Typography>
       )}
-    </Box>
+    </div>
   )
 }

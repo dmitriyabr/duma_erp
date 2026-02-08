@@ -1,23 +1,22 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CircularProgress,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Typography,
-} from '@mui/material'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
 import { downloadReportExcel } from '../../utils/reportExcel'
+import {
+  Alert,
+  Button,
+  Card,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableHeaderCell,
+  Typography,
+  Spinner,
+} from '../../components/ui'
 
 interface LowStockAlertRow {
   item_id: number
@@ -70,46 +69,46 @@ export const LowStockAlertPage = () => {
 
   if (forbidden) {
     return (
-      <Box>
-        <Typography variant="h5" sx={{ mb: 2 }}>Low Stock Alert</Typography>
+      <div>
+        <Typography variant="h5" className="mb-4">Low Stock Alert</Typography>
         <Alert severity="warning">
           You do not have access to reports. This section is available to Admin and SuperAdmin.
         </Alert>
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+    <div>
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
         <Typography variant="h5">Low Stock Alert</Typography>
         <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/low-stock-alert', {}, 'low-stock-alert.xlsx')}>Export to Excel</Button>
-      </Box>
+      </div>
       {data != null && data.total_low_count > 0 && (
-        <Alert severity="info" sx={{ mb: 2 }}>
+        <Alert severity="info" className="mb-4">
           {data.total_low_count} item(s) at or below minimum level.
         </Alert>
       )}
 
       {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress />
-        </Box>
+        <div className="flex justify-center py-8">
+          <Spinner size="medium" />
+        </div>
       )}
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" className="mb-4">{error}</Alert>}
 
       {!loading && data && (
-        <TableContainer component={Card}>
-          <Table size="small">
+        <Card>
+          <Table>
             <TableHead>
               <TableRow>
-                <TableCell><strong>Item</strong></TableCell>
-                <TableCell><strong>SKU</strong></TableCell>
-                <TableCell align="right"><strong>Current</strong></TableCell>
-                <TableCell align="right"><strong>Min level</strong></TableCell>
-                <TableCell><strong>Status</strong></TableCell>
-                <TableCell align="right"><strong>Suggested order</strong></TableCell>
+                <TableHeaderCell><strong>Item</strong></TableHeaderCell>
+                <TableHeaderCell><strong>SKU</strong></TableHeaderCell>
+                <TableHeaderCell align="right"><strong>Current</strong></TableHeaderCell>
+                <TableHeaderCell align="right"><strong>Min level</strong></TableHeaderCell>
+                <TableHeaderCell><strong>Status</strong></TableHeaderCell>
+                <TableHeaderCell align="right"><strong>Suggested order</strong></TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -127,12 +126,12 @@ export const LowStockAlertPage = () => {
               ))}
             </TableBody>
           </Table>
-        </TableContainer>
+        </Card>
       )}
 
       {!loading && !data && !error && canSeeReports(user) && (
-        <Typography color="text.secondary">Loading…</Typography>
+        <Typography color="secondary">Loading…</Typography>
       )}
-    </Box>
+    </div>
   )
 }

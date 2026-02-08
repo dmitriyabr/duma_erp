@@ -1,4 +1,4 @@
-import { HTMLAttributes, ReactNode } from 'react'
+import type { HTMLAttributes, ReactNode, ElementType } from 'react'
 import { cn } from '../../utils/cn'
 
 type Variant = 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'body1' | 'body2' | 'subtitle1' | 'subtitle2' | 'caption'
@@ -8,7 +8,7 @@ export interface TypographyProps extends HTMLAttributes<HTMLElement> {
   variant?: Variant
   color?: Color
   children: ReactNode
-  component?: keyof JSX.IntrinsicElements
+  component?: keyof React.JSX.IntrinsicElements
 }
 
 const variantStyles: Record<Variant, string> = {
@@ -35,7 +35,7 @@ const colorStyles: Record<Color, string> = {
   info: 'text-info',
 }
 
-const defaultComponents: Record<Variant, keyof JSX.IntrinsicElements> = {
+const defaultComponents: Record<Variant, ElementType> = {
   h1: 'h1',
   h2: 'h2',
   h3: 'h3',
@@ -57,7 +57,7 @@ export const Typography = ({
   children,
   ...props
 }: TypographyProps) => {
-  const Component = component || defaultComponents[variant]
+  const Component: ElementType = component || defaultComponents[variant]
   const colorClass = color === 'secondary' ? 'text-slate-500' : colorStyles[color]
 
   return (

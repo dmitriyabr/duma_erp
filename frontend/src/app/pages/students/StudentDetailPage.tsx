@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { INVOICE_LIST_LIMIT } from '../../constants/pagination'
 import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { useApi } from '../../hooks/useApi'
@@ -21,7 +21,7 @@ import { Tabs, TabsList, Tab, TabPanel } from '../../components/ui/Tabs'
 
 export const StudentDetailPage = () => {
   const { studentId } = useParams()
-  const navigate = useNavigate()
+  // const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const resolvedId = Number(studentId)
 

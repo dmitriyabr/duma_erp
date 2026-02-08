@@ -114,6 +114,7 @@ const emptyKitForm = {
 }
 
 const emptyCategoryForm = { name: '' }
+const emptyVariantForm = { name: '', item_ids: [] as number[] }
 
 export const CatalogPage = () => {
   const location = useLocation()
@@ -167,7 +168,7 @@ export const CatalogPage = () => {
     [kitsApi.data]
   )
   const inventoryItems = inventoryApi.data ?? []
-  const variants = variantsApi.data ?? []
+  // const variants = variantsApi.data ?? [] // TODO: Add variants tab
   const tabError =
     categoriesApi.error ??
     kitsApi.error ??
@@ -253,12 +254,12 @@ export const CatalogPage = () => {
     setKitDialogOpen(true)
   }
 
-  const openCopyKit = (kit: KitRow) => {
-    // Create a new kit prefilled from the selected one (no editingKit → POST)
-    setEditingKit(null)
-    setKitForm(buildKitFormFromKit(kit))
-    setKitDialogOpen(true)
-  }
+  // const openCopyKit = (kit: KitRow) => { // TODO: Add copy functionality
+  //   // Create a new kit prefilled from the selected one (no editingKit → POST)
+  //   setEditingKit(null)
+  //   setKitForm(buildKitFormFromKit(kit))
+  //   setKitDialogOpen(true)
+  // }
 
   const resetKitDialog = () => {
     setKitDialogOpen(false)
@@ -369,20 +370,20 @@ export const CatalogPage = () => {
     setEditingCategory(null)
   }
 
-  const openCreateVariant = () => {
-    setEditingVariant(null)
-    setVariantForm({ ...emptyVariantForm })
-    setVariantDialogOpen(true)
-  }
+  // const openCreateVariant = () => { // TODO: Add variants tab
+  //   setEditingVariant(null)
+  //   setVariantForm({ ...emptyVariantForm })
+  //   setVariantDialogOpen(true)
+  // }
 
-  const openEditVariant = (variant: VariantRow) => {
-    setEditingVariant(variant)
-    setVariantForm({
-      name: variant.name,
-      item_ids: variant.items.map((i) => i.id),
-    })
-    setVariantDialogOpen(true)
-  }
+  // const openEditVariant = (variant: VariantRow) => { // TODO: Add variants tab
+  //   setEditingVariant(variant)
+  //   setVariantForm({
+  //     name: variant.name,
+  //     item_ids: variant.items.map((i) => i.id),
+  //   })
+  //   setVariantDialogOpen(true)
+  // }
 
   const resetVariantDialog = () => {
     setVariantDialogOpen(false)
@@ -451,12 +452,12 @@ export const CatalogPage = () => {
   }
 
   const toggleItemInVariant = (itemId: number) => {
-    setVariantForm((prev) => {
+    setVariantForm((prev: typeof emptyVariantForm) => {
       const exists = prev.item_ids.includes(itemId)
       return {
         ...prev,
         item_ids: exists
-          ? prev.item_ids.filter((id) => id !== itemId)
+          ? prev.item_ids.filter((id: number) => id !== itemId)
           : [...prev.item_ids, itemId],
       }
     })
@@ -544,7 +545,7 @@ export const CatalogPage = () => {
         Catalog
       </Typography>
 
-      <Tabs value={activeTab} onChange={handleTabChange}>
+      <Tabs value={activeTab} onChange={(value) => handleTabChange(value as CatalogTab)}>
         <TabsList>
           {tabConfig.map((tab) => (
             <Tab key={tab.key} value={tab.key}>
@@ -612,6 +613,12 @@ export const CatalogPage = () => {
                 checked={showInactive}
                 onChange={(event) => setShowInactive(event.target.checked)}
               />
+              <span className="text-sm font-medium text-slate-700">Show inactive</span>
+            </div>
+          </div>
+
+          <Table className="mt-4">
+            <TableHead>
               <TableRow>
                 <TableHeaderCell>Name</TableHeaderCell>
                 <TableHeaderCell>Category</TableHeaderCell>
@@ -657,9 +664,9 @@ export const CatalogPage = () => {
               ))}
               {!filteredKits.length && !kitsLoading && (
                 <TableRow>
-                  <TableCell colSpan={6} align="center">
+                  <td colSpan={6} className="px-4 py-3 text-center">
                     No catalog items found
-                  </TableCell>
+                  </td>
                 </TableRow>
               )}
             </TableBody>
@@ -685,6 +692,50 @@ export const CatalogPage = () => {
                 <TableHeaderCell>Status</TableHeaderCell>
                 <TableHeaderCell align="right">Actions</TableHeaderCell>
               </TableRow>
+            </TableHead>
+            <TableBody>
+              {categories.map((category) => (
+                <TableRow key={category.id}>
+                  <TableCell>{category.name}</TableCell>
+                  <TableCell>
+                    <Chip
+                      size="small"
+                      label={category.is_active ? 'Active' : 'Inactive'}
+                      color={category.is_active ? 'success' : 'default'}
+                    />
+                  </TableCell>
+                  <TableCell align="right">
+                    {!readOnly && (
+                      <div className="flex gap-2 justify-end">
+                        <Button size="small" onClick={() => openEditCategory(category)}>
+                          Edit
+                        </Button>
+                        <Button size="small" onClick={() => requestToggleCategoryActive(category)}>
+                          {category.is_active ? 'Deactivate' : 'Activate'}
+                        </Button>
+                      </div>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {loading && (
+                <TableRow>
+                  <td colSpan={3} className="px-4 py-3 text-center">
+                    <Spinner size="small" />
+                  </td>
+                </TableRow>
+              )}
+              {!categories.length && !loading && (
+                <TableRow>
+                  <td colSpan={3} className="px-4 py-3 text-center">
+                    No categories found
+                  </td>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TabPanel>
+      </Tabs>
 
       <Dialog open={kitDialogOpen} onClose={resetKitDialog} maxWidth="md">
         <DialogTitle>
@@ -736,18 +787,73 @@ export const CatalogPage = () => {
                 </option>
               ))}
             </Select>
+            <Input
+              label="Price"
+              type="number"
+              value={kitForm.price}
+              onChange={(event) => setKitForm({ ...kitForm, price: event.target.value })}
+              required
+              disabled={readOnly}
+              min={0}
+              step={0.01}
+            />
+
+            {kitForm.item_type === 'product' && (
+              <div className="grid gap-2">
+                <Typography variant="subtitle1" className="font-semibold">
+                  Components
+                </Typography>
+                {kitForm.items.map((item, index) => (
+                  <div
+                    key={`kit-item-${index}`}
+                    className={readOnly ? 'grid grid-cols-[1fr_140px] gap-2' : 'grid grid-cols-[1fr_140px_auto] gap-2'}
+                  >
+                    <Select
+                      value={item.item_id}
                       onChange={(event) =>
                         updateKitItem(index, 'source_type', event.target.value as 'item' | 'variant')
                       }
                       label="Inventory item"
                       disabled={readOnly}
                     >
+                      <option value="">Select item</option>
+                      {inventoryItems.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.name}
+                        </option>
+                      ))}
+                    </Select>
+                    <Input
                       label="Qty"
                       type="number"
                       value={item.quantity}
                       onChange={(event) => updateKitItem(index, 'quantity', event.target.value)}
                       onFocus={(event) => event.currentTarget.select()}
                       disabled={readOnly}
+                      min={1}
+                      step={1}
+                    />
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        onClick={() => removeKitItem(index)}
+                        className="p-2 hover:bg-slate-100 rounded transition-colors self-end"
+                        aria-label="Remove component"
+                      >
+                        <Trash2 className="w-5 h-5 text-slate-500" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {!readOnly && (
+                  <Button variant="outlined" onClick={addKitItem} className="self-start">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add component
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
         </DialogContent>
         <DialogActions>
           <Button onClick={resetKitDialog}>{readOnly ? 'Close' : 'Cancel'}</Button>
@@ -781,39 +887,33 @@ export const CatalogPage = () => {
 
       <Dialog open={variantDialogOpen} onClose={resetVariantDialog} fullWidth maxWidth="md">
         <DialogTitle>{editingVariant ? 'Edit variant group' : 'Create variant group'}</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <TextField
+        <DialogContent className="space-y-4">
+          <Input
             label="Name"
             value={variantForm.name}
             onChange={(event) => setVariantForm({ ...variantForm, name: event.target.value })}
-            fullWidth
             required
           />
-          <Box sx={{ mt: 1 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+          <div className="mt-2">
+            <Typography variant="subtitle1" className="font-semibold mb-2">
               Items in this group
             </Typography>
-            <Box sx={{ maxHeight: 280, overflowY: 'auto', border: '1px solid #eee', borderRadius: 1, p: 1 }}>
+            <div className="max-h-[280px] overflow-y-auto border border-slate-200 rounded-lg p-2">
               {inventoryItems.map((item) => {
                 const checked = variantForm.item_ids.includes(item.id)
                 return (
-                  <Box
+                  <div
                     key={item.id}
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      py: 0.5,
-                    }}
+                    className="flex items-center justify-between py-1"
                   >
-                    <Box>
+                    <div>
                       <Typography variant="body2">
                         {item.name} · {item.sku_code}
                       </Typography>
-                      <Typography variant="caption" color="text.secondary">
+                      <Typography variant="caption" color="secondary">
                         {item.category_name ?? 'No category'}
                       </Typography>
-                    </Box>
+                    </div>
                     <Button
                       size="small"
                       variant={checked ? 'contained' : 'outlined'}
@@ -821,16 +921,16 @@ export const CatalogPage = () => {
                     >
                       {checked ? 'Remove' : 'Add'}
                     </Button>
-                  </Box>
+                  </div>
                 )
               })}
-              {!inventoryItems.length ? (
-                <Typography variant="body2" color="text.secondary">
+              {!inventoryItems.length && (
+                <Typography variant="body2" color="secondary">
                   No inventory items found.
                 </Typography>
-              ) : null}
-            </Box>
-          </Box>
+              )}
+            </div>
+          </div>
         </DialogContent>
         <DialogActions>
           <Button onClick={resetVariantDialog}>Cancel</Button>

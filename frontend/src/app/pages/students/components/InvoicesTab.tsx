@@ -382,16 +382,16 @@ export const InvoicesTab = ({
             ))}
             {invoicesLoading && (
               <TableRow>
-                <TableCell colSpan={7} align="center" className="py-8">
+                <td colSpan={7} className="px-4 py-8 text-center">
                   <Spinner size="small" />
-                </TableCell>
+                </td>
               </TableRow>
             )}
             {!invoicesLoading && !visibleInvoices.length && (
               <TableRow>
-                <TableCell colSpan={7} align="center" className="py-8">
+                <td colSpan={7} className="px-4 py-8 text-center">
                   <Typography color="secondary">No invoices yet</Typography>
-                </TableCell>
+                </td>
               </TableRow>
             )}
           </TableBody>
@@ -455,9 +455,9 @@ export const InvoicesTab = ({
                   ))}
                   {!selectedInvoice?.lines.length && (
                     <TableRow>
-                      <TableCell colSpan={7} align="center" className="py-8">
+                      <td colSpan={7} className="px-4 py-8 text-center">
                         <Typography color="secondary">No lines</Typography>
-                      </TableCell>
+                      </td>
                     </TableRow>
                   )}
                 </TableBody>

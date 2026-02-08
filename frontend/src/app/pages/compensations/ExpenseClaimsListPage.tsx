@@ -5,7 +5,7 @@ import { useAuth } from '../../auth/AuthContext'
 import { USERS_LIST_LIMIT } from '../../constants/pagination'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
-import { downloadAttachment } from '../../utils/attachments'
+import { api } from '../../services/api'
 import { formatDate, formatMoney } from '../../utils/format'
 import { isSuperAdmin } from '../../utils/permissions'
 import { Button } from '../../components/ui/Button'
@@ -268,16 +268,16 @@ export const ExpenseClaimsListPage = () => {
             ))}
             {loading && (
               <TableRow>
-                <TableCell colSpan={colSpan} align="center" className="py-8">
+                <td colSpan={colSpan} className="px-4 py-8 text-center">
                   <Spinner size="medium" />
-                </TableCell>
+                </td>
               </TableRow>
             )}
             {!claims.length && !loading && (
               <TableRow>
-                <TableCell colSpan={colSpan} align="center" className="py-8">
+                <td colSpan={colSpan} className="px-4 py-8 text-center">
                   <Typography color="secondary">No expense claims found</Typography>
-                </TableCell>
+                </td>
               </TableRow>
             )}
           </TableBody>

@@ -1,4 +1,5 @@
-import React, { InputHTMLAttributes, forwardRef } from 'react'
+import type { InputHTMLAttributes, ReactNode } from 'react'
+import { forwardRef, Children, isValidElement, cloneElement } from 'react'
 import { cn } from '../../utils/cn'
 
 export interface RadioProps extends InputHTMLAttributes<HTMLInputElement> {
@@ -35,7 +36,7 @@ Radio.displayName = 'Radio'
 export interface RadioGroupProps {
   value: string
   onChange: (value: string) => void
-  children: React.ReactNode
+  children: ReactNode
   className?: string
   row?: boolean
 }
@@ -43,9 +44,9 @@ export interface RadioGroupProps {
 export const RadioGroup = ({ value, onChange, children, className, row = false }: RadioGroupProps) => {
   return (
     <div className={cn(row ? 'flex flex-row gap-4' : 'flex flex-col gap-2', className)} role="radiogroup">
-      {React.Children.map(children, (child) => {
-        if (React.isValidElement(child) && child.type === Radio) {
-          return React.cloneElement(child as React.ReactElement<RadioProps>, {
+      {Children.map(children, (child) => {
+        if (isValidElement<RadioProps>(child) && child.type === Radio) {
+          return cloneElement(child, {
             checked: child.props.value === value,
             onChange: () => onChange(child.props.value as string),
           })

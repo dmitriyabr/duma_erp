@@ -348,21 +348,21 @@ export const StockPage = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredRows.map((row) => (
-              <TableRow key={row.id}>
-                <TableCell>{row.item_name ?? '—'}</TableCell>
-                <TableCell>{row.quantity_on_hand}</TableCell>
-                <TableCell>{row.quantity_reserved}</TableCell>
-                <TableCell>{row.quantity_available}</TableCell>
-                <TableCell>{formatMoney(Number(row.average_cost))}</TableCell>
-                <TableCell>
+              {filteredRows.map((row) => (
+                <TableRow key={row.id}>
+                 <TableCell>{row.item_name ?? '—'}</TableCell>
+                 <TableCell>{row.quantity_on_hand}</TableCell>
+                 <TableCell>{row.quantity_reserved}</TableCell>
+                 <TableCell>{row.quantity_available}</TableCell>
+                 <TableCell>{formatMoney(Number(row.average_cost))}</TableCell>
+                  <TableCell>
                   {row.quantity_available <= lowStockThreshold ? (
                     <Chip size="small" color="warning" label="Low stock" />
                   ) : (
-                    <Chip size="small" color="success" label="OK" />
-                  )}
-                </TableCell>
-                <TableCell align="right">
+                      <Chip size="small" color="success" label="OK" />
+                    )}
+                 </TableCell>
+                  <TableCell align="right">
                   {canManage ? (
                     <div className="flex gap-2 justify-end">
                       <Button
@@ -379,23 +379,23 @@ export const StockPage = () => {
                       </Button>
                     </div>
                   ) : (
-                    '—'
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
+                      '—'
+                    )}
+                 </TableCell>
+                </TableRow>
+              ))}
             {loading && (
               <TableRow>
-                <TableCell colSpan={7} align="center" className="py-8">
+                <td colSpan={7} className="px-4 py-8 text-center">
                   <Spinner size="small" />
-                </TableCell>
+                </td>
               </TableRow>
             )}
             {!filteredRows.length && !loading && (
               <TableRow>
-                <TableCell colSpan={7} align="center" className="py-8">
+                <td colSpan={7} className="px-4 py-8 text-center">
                   <Typography color="secondary">No stock found</Typography>
-                </TableCell>
+                </td>
               </TableRow>
             )}
           </TableBody>
@@ -405,10 +405,10 @@ export const StockPage = () => {
       <TablePagination
         count={total}
         page={page}
-        onPageChange={(_, nextPage) => setPage(nextPage)}
+        onPageChange={(nextPage) => setPage(nextPage)}
         rowsPerPage={limit}
-        onRowsPerPageChange={(event) => {
-          setLimit(Number(event.target.value))
+        onRowsPerPageChange={(newLimit) => {
+          setLimit(newLimit)
           setPage(0)
         }}
       />

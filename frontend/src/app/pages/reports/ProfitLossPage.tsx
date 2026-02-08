@@ -3,13 +3,11 @@ import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
-import { formatMoney } from '../../utils/format'
 import { Typography } from '../../components/ui/Typography'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Card, CardContent } from '../../components/ui/Card'
-import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
 import { Spinner } from '../../components/ui/Spinner'
 import { DateRangeShortcuts, getDateRangeForPreset } from '../../components/DateRangeShortcuts'
 import { downloadReportExcel } from '../../utils/reportExcel'
@@ -48,11 +46,6 @@ interface ProfitLossData {
 
 const defaultRange = () => getDateRangeForPreset('this_year')
 
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-function monthLabel(yyyyMm: string): string {
-  const [y, m] = yyyyMm.split('-').map(Number)
-  return `${MONTH_NAMES[m - 1]} ${y}`
-}
 
 export const ProfitLossPage = () => {
   const { user } = useAuth()

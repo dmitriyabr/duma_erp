@@ -87,16 +87,16 @@ export const TermsListPage = () => {
             ))}
             {loading && (
               <TableRow>
-                <TableCell colSpan={4} align="center" className="py-8">
+                <td colSpan={4} className="px-4 py-8 text-center">
                   <Spinner size="medium" />
-                </TableCell>
+                </td>
               </TableRow>
             )}
             {!(terms || []).length && !loading && (
               <TableRow>
-                <TableCell colSpan={4} align="center" className="py-8">
+                <td colSpan={4} className="px-4 py-8 text-center">
                   <Typography color="secondary">No terms found</Typography>
-                </TableCell>
+                </td>
               </TableRow>
             )}
           </TableBody>
