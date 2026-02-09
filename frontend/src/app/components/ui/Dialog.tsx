@@ -45,7 +45,7 @@ export const Dialog = ({ open, onClose, children, maxWidth = 'md', fullWidth = f
     >
       <div className="fixed inset-0 bg-black/50" />
       <div className={cn(
-        // Always constrain by maxWidth; fullWidth in MUI means "use full width within maxWidth"
+        // Always constrain by maxWidth; fullWidth means "use full width within maxWidth"
         'relative z-10 bg-white rounded-2xl shadow-2xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col',
         maxWidthStyles[maxWidth],
         fullWidth && 'w-full'

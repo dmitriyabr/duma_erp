@@ -16,7 +16,7 @@ The full specification is in `erp_spec.md` (Russian language).
 
 - **Backend**: Python (FastAPI/Django) or Node.js (NestJS)
 - **Database**: PostgreSQL with DECIMAL(15,2) for money, JSON fields for allocations
-- **Frontend**: React/Vue.js/Next.js with Tailwind/MUI/Ant Design
+- **Frontend**: React/Vue.js/Next.js with Tailwind CSS (custom UI components)
 - **PDF Generation**: jsPDF, PDFKit, or WeasyPrint
 
 ## Development & CI

@@ -4,15 +4,10 @@
 
 Полная миграция фронтенда с Material-UI на Tailwind CSS и простые React компоненты.
 
-## Текущее состояние
+## Текущее состояние (актуально)
 
-- **MUI компоненты**: 101 использование в 66 файлах
-- **Основные MUI компоненты в использовании**:
-  - Box, Button, Card, TextField, Select, Table
-  - Dialog, Drawer, AppBar, Toolbar
-  - Typography, Chip, Alert, Paper
-  - Tabs, List, ListItemButton, Menu
-  - Иконки из @mui/icons-material
+- MUI **полностью удалён** (импорты/ThemeProvider/CssBaseline/зависимости)
+- UI построен на Tailwind CSS + кастомных компонентах (`src/app/components/ui`)
 
 ## Цели миграции
 
@@ -39,16 +34,16 @@
 - [x] Chip / Badge
 - [x] Alert
 - [x] Checkbox
-- [ ] Radio (не используется)
-- [ ] Switch (не используется)
+- [x] Radio
+- [x] Switch
 
 ### Этап 3: Сложные компоненты ✅
 - [x] Dialog / Modal
 - [x] Table (с пагинацией)
 - [x] Tabs
-- [ ] Menu / Dropdown (используется в TopBar, но простая реализация)
+- [x] Menu / Dropdown
 - [x] Drawer / Sidebar
-- [ ] Tooltip (можно добавить при необходимости)
+- [x] Tooltip
 - [x] Loading / Spinner
 
 ### Этап 4: Layout компоненты ✅
@@ -121,9 +116,9 @@
 - [x] **Файл theme.ts удален**
 
 ### Этап 6: Финальная очистка
-- [ ] Удалить все импорты MUI из оставшихся файлов
-- [ ] Удалить theme.ts
-- [ ] Удалить MUI зависимости из package.json
+- [x] Удалить все импорты MUI из оставшихся файлов
+- [x] Удалить theme.ts
+- [x] Удалить MUI зависимости из package.json
 - [x] Обновить App.tsx (убрать ThemeProvider, CssBaseline)
 
 ## Цветовая палитра (из theme.ts)
