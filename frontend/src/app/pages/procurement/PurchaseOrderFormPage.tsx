@@ -138,7 +138,14 @@ export const PurchaseOrderFormPage = () => {
   )
   const { execute: savePO, loading: saving } = useApiMutation<POResponse>()
 
-  const purposes = purposesData || []
+  const [localPurposes, setLocalPurposes] = useState<PurposeRow[]>([])
+  const purposes = useMemo(() => {
+    const base = purposesData ?? []
+    const merged = [...localPurposes, ...base]
+    const byId = new Map<number, PurposeRow>()
+    merged.forEach((p) => byId.set(p.id, p))
+    return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name))
+  }, [localPurposes, purposesData])
   const [inventoryItems, setInventoryItems] = useState<InventoryItemRow[]>([])
   const categories = categoriesData || []
 
@@ -216,6 +223,7 @@ export const PurchaseOrderFormPage = () => {
         name: newPurposeName.trim(),
       })
       const newPurpose = response.data.data
+      setLocalPurposes((prev) => [newPurpose, ...prev])
       setPurposeId(newPurpose.id)
       setNewPurposeDialogOpen(false)
       setNewPurposeName('')

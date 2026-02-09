@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import axios from 'axios'
 import { USERS_LIST_LIMIT } from '../../constants/pagination'
@@ -74,6 +74,7 @@ export const ProcurementPaymentFormPage = () => {
 
   const [newPurposeDialogOpen, setNewPurposeDialogOpen] = useState(false)
   const [newPurposeName, setNewPurposeName] = useState('')
+  const [localPurposes, setLocalPurposes] = useState<PurposeRow[]>([])
 
   const { data: purposesData, refetch: refetchPurposes } = useApi<PurposeRow[]>(
     '/procurement/payment-purposes',
@@ -83,7 +84,13 @@ export const ProcurementPaymentFormPage = () => {
     params: { limit: USERS_LIST_LIMIT },
   }, [])
 
-  const purposes = purposesData || []
+  const purposes = useMemo(() => {
+    const base = purposesData ?? []
+    const merged = [...localPurposes, ...base]
+    const byId = new Map<number, PurposeRow>()
+    merged.forEach((p) => byId.set(p.id, p))
+    return Array.from(byId.values())
+  }, [localPurposes, purposesData])
   const users = usersData?.items || []
 
   const { execute: createPurpose, loading: creatingPurpose, error: createPurposeError } =
@@ -171,11 +178,13 @@ export const ProcurementPaymentFormPage = () => {
     )
 
     if (newPurpose) {
-      // Перезагружаем весь список, чтобы получить актуальные данные
-      refetchPurposes()
+      // Ensure the new purpose is immediately selectable, even before refetch completes.
+      setLocalPurposes((prev) => [newPurpose, ...prev])
       setPurposeId(newPurpose.id)
       setNewPurposeDialogOpen(false)
       setNewPurposeName('')
+      // Refresh the full list in the background.
+      refetchPurposes()
     }
   }
 
