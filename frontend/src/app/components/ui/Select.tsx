@@ -120,7 +120,13 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
             <label
               htmlFor={selectId}
               className={cn(
-                'absolute left-3 top-0 -translate-y-1/2 bg-white px-1 text-xs z-[1]',
+                'absolute left-3 top-0 -translate-y-1/2 px-0.5 text-xs z-[1]',
+                'before:absolute before:inset-x-0 before:top-[7px] before:h-1',
+                'before:-z-10 before:bg-white',
+                'after:h-1 after:top-[3px]',
+                'after:absolute after:inset-x-0',
+                'after:-z-10 after:transition-all after:duration-200',
+                'group-focus-within:after:bg-white',
                 hasError ? 'text-error' : 'text-slate-500',
                 !hasError && 'group-focus-within:text-primary'
               )}
