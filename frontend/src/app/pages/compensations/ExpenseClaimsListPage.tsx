@@ -124,7 +124,7 @@ export const ExpenseClaimsListPage = () => {
       <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
         <Typography variant="h4">Employee Expenses Claims</Typography>
         {canCreateClaim && (
-          <Button onClick={() => navigate('/compensations/claims/new')}>
+          <Button onClick={() => navigate('/compensations/claims/new')} className="w-full sm:w-auto">
             New claim
           </Button>
         )}
@@ -164,9 +164,9 @@ export const ExpenseClaimsListPage = () => {
         </div>
       )}
 
-      <div className="flex gap-4 mb-4 flex-wrap">
+      <div className="flex flex-col sm:flex-row gap-4 mb-4 flex-wrap">
         {userIsSuperAdmin && (
-          <div className="min-w-[200px]">
+          <div className="w-full sm:min-w-[200px]">
             <Select
               label="Employee"
               value={employeeFilter}
@@ -184,7 +184,7 @@ export const ExpenseClaimsListPage = () => {
             </Select>
           </div>
         )}
-        <div className="min-w-[180px]">
+        <div className="w-full sm:min-w-[180px]">
           <Select
             label="Status"
             value={statusFilter}
@@ -197,7 +197,7 @@ export const ExpenseClaimsListPage = () => {
             ))}
           </Select>
         </div>
-        <div className="min-w-[160px]">
+        <div className="w-full sm:min-w-[160px]">
           <Input
             label="Date from"
             type="date"
@@ -205,7 +205,7 @@ export const ExpenseClaimsListPage = () => {
             onChange={(e) => setDateFrom(e.target.value)}
           />
         </div>
-        <div className="min-w-[160px]">
+        <div className="w-full sm:min-w-[160px]">
           <Input
             label="Date to"
             type="date"
@@ -221,7 +221,81 @@ export const ExpenseClaimsListPage = () => {
         </Alert>
       )}
 
-      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+      {/* Mobile: cards */}
+      <div className="md:hidden space-y-3">
+        {claims.map((claim) => (
+          <Card key={claim.id} className="cursor-pointer" onClick={() => navigate(`/compensations/claims/${claim.id}`)}>
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <Typography variant="subtitle1" className="truncate">
+                    {claim.claim_number}
+                  </Typography>
+                  <Typography variant="body2" color="secondary" className="mt-0.5">
+                    {claim.employee_name || '—'} · {formatDate(claim.expense_date)}
+                  </Typography>
+                </div>
+                <Chip size="small" label={claim.status} color={statusColor(claim.status)} />
+              </div>
+
+              <Typography variant="body2" className="mt-3">
+                {claim.description}
+              </Typography>
+
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <div>
+                  <Typography variant="caption" color="secondary">
+                    Amount
+                  </Typography>
+                  <Typography className="font-semibold">{formatMoney(claim.amount)}</Typography>
+                </div>
+                {claim.proof_attachment_id != null && (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      downloadAttachment(claim.proof_attachment_id!)
+                    }}
+                  >
+                    <Download className="w-4 h-4" />
+                    Download
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+
+        {loading && (
+          <div className="flex justify-center py-8">
+            <Spinner size="medium" />
+          </div>
+        )}
+        {!claims.length && !loading && (
+          <Card>
+            <CardContent className="p-6 text-center">
+              <Typography color="secondary">No expense claims found</Typography>
+            </CardContent>
+          </Card>
+        )}
+
+        <div className="pt-2">
+          <TablePagination
+            page={page}
+            rowsPerPage={limit}
+            count={total}
+            onPageChange={setPage}
+            onRowsPerPageChange={(newLimit) => {
+              setLimit(newLimit)
+              setPage(0)
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Desktop: table */}
+      <div className="hidden md:block bg-white rounded-lg border border-slate-200 overflow-hidden">
         <Table>
           <TableHead>
             <TableRow>
@@ -258,7 +332,10 @@ export const ExpenseClaimsListPage = () => {
                     <Tooltip title="Download attachment">
                       <button
                         className="p-1 rounded-lg hover:bg-slate-100 transition-colors"
-                        onClick={() => downloadAttachment(claim.proof_attachment_id!)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          downloadAttachment(claim.proof_attachment_id!)
+                        }}
                       >
                         <Download className="w-4 h-4 text-slate-600" />
                       </button>

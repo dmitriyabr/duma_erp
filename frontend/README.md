@@ -71,3 +71,14 @@ export default defineConfig([
   },
 ])
 ```
+
+## Mobile MVP
+
+The app is currently desktop-first, but we maintain a **Mobile MVP** for:
+- Dashboard (Quick Actions)
+- Expense Claims flow (list → new claim → detail)
+
+Guidelines:
+- Navigation uses a mobile drawer (hamburger in TopBar); the desktop sidebar is hidden on small screens.
+- Avoid wide tables on small screens: prefer card layouts (`md:hidden` cards + `hidden md:block` tables).
+- Keep page padding responsive (`p-4 sm:p-6 lg:p-8`) and avoid fixed left margins on small screens.

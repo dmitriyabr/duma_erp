@@ -1,8 +1,10 @@
-import { LogOut, User } from 'lucide-react'
+import { LogOut, Menu, User } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../auth/AuthContext'
 
-export const TopBar = () => {
+type TopBarProps = { onOpenNav?: () => void }
+
+export const TopBar = ({ onOpenNav }: TopBarProps) => {
   const { user, logout } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -34,8 +36,17 @@ export const TopBar = () => {
 
   return (
     <header className="sticky top-0 z-30 bg-white border-b border-slate-200 shadow-none">
-      <div className="flex items-center justify-between px-6 h-16">
-        <div>
+      <div className="flex items-center justify-between px-4 sm:px-6 h-16">
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={onOpenNav}
+            className="lg:hidden p-2 -ml-1 rounded-lg hover:bg-slate-100 transition-colors"
+            aria-label="Open navigation"
+          >
+            <Menu className="w-5 h-5 text-slate-700" />
+          </button>
+          <div className="min-w-0">
           <h2 className="text-lg font-semibold text-slate-800">
             {user ? `Welcome back, ${user.full_name.split(' ')[0]}` : 'School ERP'}
           </h2>
@@ -47,6 +58,7 @@ export const TopBar = () => {
               day: 'numeric',
             })}
           </p>
+          </div>
         </div>
 
         <div className="relative" ref={menuRef}>
