@@ -79,4 +79,6 @@ export { Switch } from './Switch'
 export type { SwitchProps } from './Switch'
 export { Autocomplete } from './Autocomplete'
 export type { AutocompleteProps } from './Autocomplete'
+export { FileDropzone } from './FileDropzone'
+export type { FileDropzoneProps } from './FileDropzone'
 

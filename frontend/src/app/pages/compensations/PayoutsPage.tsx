@@ -1,5 +1,4 @@
-import { Upload } from 'lucide-react'
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { USERS_LIST_LIMIT } from '../../constants/pagination'
@@ -9,6 +8,7 @@ import type { ApiResponse, PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
 import { Button } from '../../components/ui/Button'
+import { FileDropzone } from '../../components/ui/FileDropzone'
 import { Input } from '../../components/ui/Input'
 import { Textarea } from '../../components/ui/Textarea'
 import { Select } from '../../components/ui/Select'
@@ -58,11 +58,11 @@ export const PayoutsPage = () => {
   const { data: employeesData } = useApi<{ items: UserRow[] }>('/users', {
     params: { limit: USERS_LIST_LIMIT },
   }, [])
-  const { execute: createPayout, loading: _creating, error: createError } = useApiMutation()
+  const { execute: createPayout, loading: creating, error: createError } = useApiMutation()
 
   const payouts = payoutsData?.items || []
   const total = payoutsData?.total || 0
-  const employees = employeesData?.items || []
+  const employees = useMemo(() => employeesData?.items || [], [employeesData])
 
   const [payoutDialogOpen, setPayoutDialogOpen] = useState(false)
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | ''>('')
@@ -74,7 +74,26 @@ export const PayoutsPage = () => {
   const [proofAttachmentId, setProofAttachmentId] = useState<number | null>(null)
   const [proofFileName, setProofFileName] = useState<string | null>(null)
   const [uploadingProof, setUploadingProof] = useState(false)
-  const proofFileInputRef = React.useRef<HTMLInputElement>(null)
+
+  const uploadProofFile = useCallback(async (file: File) => {
+    setUploadingProof(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await api.post<ApiResponse<{ id: number }>>('/attachments', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setProofAttachmentId(res.data.data.id)
+      setProofFileName(file.name)
+      setValidationError(null)
+    } catch {
+      setProofAttachmentId(null)
+      setProofFileName(null)
+      setValidationError('Failed to upload confirmation file.')
+    } finally {
+      setUploadingProof(false)
+    }
+  }, [])
 
   const loadBalances = useCallback(async () => {
     if (!employees.length) return
@@ -115,7 +134,7 @@ export const PayoutsPage = () => {
     setProofText('')
     setProofAttachmentId(null)
     setProofFileName(null)
-    if (proofFileInputRef.current) proofFileInputRef.current.value = ''
+    setUploadingProof(false)
     setPayoutDialogOpen(true)
   }
 
@@ -190,7 +209,7 @@ export const PayoutsPage = () => {
                   </TableCell>
                   <TableCell align="right">
                     {!readOnly && balance.balance > 0 ? (
-                      <Button size="small" variant="contained" onClick={() => openPayoutDialog(balance.employee_id)}>
+                      <Button size="small" variant="outlined" onClick={() => openPayoutDialog(balance.employee_id)}>
                         Pay
                       </Button>
                     ) : (
@@ -340,54 +359,15 @@ export const PayoutsPage = () => {
               rows={3}
               helperText="Reference or confirmation file below is required"
             />
-            <div>
-              <label className="inline-block">
-                <input
-                  ref={proofFileInputRef}
-                  type="file"
-                  className="hidden"
-                  accept="image/*,.pdf,application/pdf"
-                  disabled={uploadingProof}
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0]
-                    if (!file) return
-                    setUploadingProof(true)
-                    try {
-                      const formData = new FormData()
-                      formData.append('file', file)
-                      const res = await api.post<ApiResponse<{ id: number }>>('/attachments', formData, {
-                        headers: { 'Content-Type': 'multipart/form-data' },
-                      })
-                      setProofAttachmentId(res.data.data.id)
-                      setProofFileName(file.name)
-                    } catch {
-                      setValidationError('Failed to upload confirmation file.')
-                    } finally {
-                      setUploadingProof(false)
-                    }
-                  }}
-                />
-                <Button
-                  variant="outlined"
-                  type="button"
-                  disabled={uploadingProof}
-                  className="mr-2"
-                  onClick={(e) => {
-                    e.preventDefault()
-                    const input = e.currentTarget.parentElement?.querySelector('input[type="file"]') as HTMLInputElement
-                    input?.click()
-                  }}
-                >
-                  <Upload className="w-4 h-4 mr-2" />
-                  {uploadingProof ? 'Uploading…' : 'Upload confirmation (image/PDF)'}
-                </Button>
-              </label>
-              {proofFileName && (
-                <Typography variant="body2" color="secondary" className="inline-block ml-2">
-                  {proofFileName}
-                </Typography>
-              )}
-            </div>
+            <FileDropzone
+              title="Upload confirmation (image/PDF)"
+              description="Drag & drop here, or click to choose. Upload starts immediately."
+              fileName={proofFileName}
+              disabled={uploadingProof}
+              loading={uploadingProof}
+              accept="image/*,.pdf,application/pdf"
+              onFileSelected={uploadProofFile}
+            />
           </div>
         </DialogContent>
         <DialogActions>
@@ -399,6 +379,7 @@ export const PayoutsPage = () => {
             onClick={handleCreatePayout}
             disabled={
               loading ||
+              creating ||
               (!proofText.trim() && proofAttachmentId == null)
             }
           >

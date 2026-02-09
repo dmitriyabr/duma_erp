@@ -8,7 +8,6 @@ import { useApi } from '../../hooks/useApi'
 import { api } from '../../services/api'
 import { formatDate, formatMoney } from '../../utils/format'
 import { isSuperAdmin } from '../../utils/permissions'
-import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell, TablePagination } from '../../components/ui/Table'
@@ -85,7 +84,7 @@ export const ExpenseClaimsListPage = () => {
     const sp = new URLSearchParams()
     Object.entries(params).forEach(([k, v]) => sp.append(k, String(v)))
     return `/compensations/claims?${sp.toString()}`
-  }, [page, limit, statusFilter, employeeFilter, dateFrom, dateTo, userIsSuperAdmin, user?.id, user?.role])
+  }, [page, limit, statusFilter, employeeFilter, dateFrom, dateTo, userIsSuperAdmin, user])
 
   const { data: claimsData, loading, error } = useApi<PaginatedResponse<ClaimRow>>(claimsUrl)
   const { data: employeesData } = useApi<{ items: UserRow[] }>(
@@ -115,7 +114,7 @@ export const ExpenseClaimsListPage = () => {
     }
   }
 
-  const colSpan = userIsSuperAdmin ? 10 : 9
+  const colSpan = userIsSuperAdmin ? 9 : 8
 
   return (
     <div>
@@ -227,12 +226,15 @@ export const ExpenseClaimsListPage = () => {
               <TableHeaderCell align="right">Remaining</TableHeaderCell>
               <TableHeaderCell>Status</TableHeaderCell>
               <TableHeaderCell align="center">File</TableHeaderCell>
-              <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {claims.map((claim) => (
-              <TableRow key={claim.id}>
+              <TableRow
+                key={claim.id}
+                onClick={() => navigate(`/compensations/claims/${claim.id}`)}
+                className="cursor-pointer"
+              >
                 <TableCell>{claim.claim_number}</TableCell>
                 {userIsSuperAdmin && (
                   <TableCell>
@@ -258,11 +260,6 @@ export const ExpenseClaimsListPage = () => {
                       </button>
                     </Tooltip>
                   )}
-                </TableCell>
-                <TableCell align="right">
-                  <Button size="small" variant="outlined" onClick={() => navigate(`/compensations/claims/${claim.id}`)}>
-                    View
-                  </Button>
                 </TableCell>
               </TableRow>
             ))}

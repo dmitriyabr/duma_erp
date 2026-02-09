@@ -10,7 +10,7 @@ import { Typography } from '../../components/ui/Typography'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
-import { Select } from '../../components/ui/Select'
+import { Autocomplete } from '../../components/ui/Autocomplete'
 import { Textarea } from '../../components/ui/Textarea'
 import { Radio, RadioGroup } from '../../components/ui/Radio'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
@@ -226,34 +226,26 @@ export const IssueFormPage = () => {
           <Radio value="other" label="Other" />
         </RadioGroup>
         {recipientType === 'student' && (
-          <Select
-            value={recipientId}
-            onChange={(e) => setRecipientId(e.target.value)}
+          <Autocomplete
+            options={students}
+            getOptionLabel={(s) => `${s.first_name} ${s.last_name} (${s.student_number})`}
+            getOptionValue={(s) => s.id}
+            value={students.find((s) => String(s.id) === recipientId) || null}
+            onChange={(s) => setRecipientId(s ? String(s.id) : '')}
             label="Student *"
-            required
-          >
-            <option value="">Select student</option>
-            {(students || []).map((s) => (
-              <option key={s.id} value={String(s.id)}>
-                {s.first_name} {s.last_name} ({s.student_number})
-              </option>
-            ))}
-          </Select>
+            placeholder="Type to search students..."
+          />
         )}
         {recipientType === 'employee' && (
-          <Select
-            value={recipientId}
-            onChange={(e) => setRecipientId(e.target.value)}
+          <Autocomplete
+            options={users}
+            getOptionLabel={(u) => u.full_name}
+            getOptionValue={(u) => u.id}
+            value={users.find((u) => String(u.id) === recipientId) || null}
+            onChange={(u) => setRecipientId(u ? String(u.id) : '')}
             label="Employee *"
-            required
-          >
-            <option value="">Select employee</option>
-            {(users || []).map((u) => (
-              <option key={u.id} value={String(u.id)}>
-                {u.full_name}
-              </option>
-            ))}
-          </Select>
+            placeholder="Type to search employees..."
+          />
         )}
         {recipientType === 'other' && (
           <Input
@@ -292,22 +284,19 @@ export const IssueFormPage = () => {
               {lines.map((line) => (
                 <TableRow key={line.id}>
                   <TableCell>
-                    <Select
-                      value={line.item_id ? String(line.item_id) : ''}
-                      onChange={(e) =>
+                    <Autocomplete
+                      options={items || []}
+                      getOptionLabel={(item) => `${item.name} (${item.sku_code})`}
+                      getOptionValue={(item) => item.id}
+                      value={(items || []).find((item) => item.id === line.item_id) || null}
+                      onChange={(item) =>
                         updateLine(line.id, {
-                          item_id: e.target.value ? Number(e.target.value) : null,
+                          item_id: item ? item.id : null,
                         })
                       }
+                      placeholder="Type to search items..."
                       className="min-w-[260px]"
-                    >
-                      <option value="">Select item</option>
-                      {(items || []).map((item) => (
-                        <option key={item.id} value={String(item.id)}>
-                          {item.name} ({item.sku_code})
-                        </option>
-                      ))}
-                    </Select>
+                    />
                   </TableCell>
                   <TableCell>
                     <div>
@@ -335,6 +324,7 @@ export const IssueFormPage = () => {
                     <Button
                       size="small"
                       variant="outlined"
+                      color="error"
                       onClick={() => removeLine(line.id)}
                       className="min-w-0"
                     >

@@ -6,7 +6,7 @@ import type { ApiResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
-import { Select } from '../../components/ui/Select'
+import { Autocomplete } from '../../components/ui/Autocomplete'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
 import { Typography } from '../../components/ui/Typography'
 import { Alert } from '../../components/ui/Alert'
@@ -180,22 +180,19 @@ export const InventoryCountPage = () => {
             {lines.map((line) => (
               <TableRow key={line.id}>
                 <TableCell>
-                  <Select
-                    value={line.item_id ? String(line.item_id) : ''}
-                    onChange={(e) =>
+                  <Autocomplete
+                    options={items || []}
+                    getOptionLabel={(item) => `${item.name} (${item.sku_code})`}
+                    getOptionValue={(item) => item.id}
+                    value={(items || []).find((item) => item.id === line.item_id) || null}
+                    onChange={(item) =>
                       updateLine(line.id, {
-                        item_id: e.target.value ? Number(e.target.value) : null,
+                        item_id: item ? item.id : null,
                       })
                     }
+                    placeholder="Type to search items..."
                     className="min-w-[240px]"
-                  >
-                    <option value="">Select item</option>
-                    {(items || []).map((item) => (
-                      <option key={item.id} value={String(item.id)}>
-                        {item.name} ({item.sku_code})
-                      </option>
-                    ))}
-                  </Select>
+                  />
                 </TableCell>
                 <TableCell>
                   <Input
@@ -210,6 +207,7 @@ export const InventoryCountPage = () => {
                 <TableCell align="right">
                   <Button
                     variant="outlined"
+                    color="error"
                     size="small"
                     onClick={() => removeLine(line.id)}
                     className="min-w-0"
@@ -258,7 +256,7 @@ export const InventoryCountPage = () => {
           {selectedFile ? selectedFile.name : 'Select CSV'}
         </Button>
         <div className="flex gap-4">
-          <RadioGroup value={bulkMode} onChange={(value) => setBulkMode(value as BulkMode)}>
+          <RadioGroup row value={bulkMode} onChange={(value) => setBulkMode(value as BulkMode)}>
             <Radio value="update" label="Update only" />
             <Radio value="overwrite" label="Overwrite warehouse" />
           </RadioGroup>

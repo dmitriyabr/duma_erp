@@ -23,6 +23,7 @@ import {
   TableHeaderCell,
   Spinner,
 } from '../../components/ui'
+import { Autocomplete } from '../../components/ui/Autocomplete'
 import { Trash2, Plus } from 'lucide-react'
 
 interface PurposeRow {
@@ -428,7 +429,6 @@ export const PurchaseOrderFormPage = () => {
           label="Category / Purpose"
           required
         >
-          <option value="">Select purpose</option>
           {purposes.map((purpose) => (
             <option key={purpose.id} value={purpose.id}>
               {purpose.name}
@@ -520,26 +520,21 @@ export const PurchaseOrderFormPage = () => {
               <TableRow key={line.id}>
                 <TableCell>
                   {line.line_type === 'inventory' ? (
-                    <Select
-                      value={line.item_id ? String(line.item_id) : ''}
-                      onChange={(event) => {
-                        const itemId = event.target.value ? Number(event.target.value) : null
-                        const item = itemId ? inventoryItems.find((i) => i.id === itemId) : null
+                    <Autocomplete
+                      options={inventoryItems}
+                      getOptionLabel={(item) => `${item.name} (${item.sku_code})`}
+                      getOptionValue={(item) => item.id}
+                      value={inventoryItems.find((item) => item.id === line.item_id) || null}
+                      onChange={(item) => {
                         updateLine(line.id, {
-                          item_id: itemId,
+                          item_id: item ? item.id : null,
                           description: item ? item.name : '',
                         })
                       }}
                       label="Item"
+                      placeholder="Type to search items..."
                       className="min-w-[240px]"
-                    >
-                      <option value="">Select item</option>
-                      {inventoryItems.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name} ({item.sku_code})
-                        </option>
-                      ))}
-                    </Select>
+                    />
                   ) : line.line_type === 'new_item' ? (
                     <div className="flex gap-2 items-center">
                       <Button
@@ -597,13 +592,15 @@ export const PurchaseOrderFormPage = () => {
                   {formatMoney(line.quantity_expected * line.unit_price)}
                 </TableCell>
                 <TableCell align="right">
-                  <button
-                    type="button"
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="error"
                     onClick={() => removeLine(line.id)}
-                    className="p-1 hover:bg-slate-100 rounded transition-colors"
+                    className="min-w-0"
                   >
-                    <Trash2 className="w-5 h-5 text-slate-500" />
-                  </button>
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
                 </TableCell>
               </TableRow>
             ))}

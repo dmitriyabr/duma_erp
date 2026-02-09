@@ -9,7 +9,7 @@ export const Table = ({ className, children, ...props }: TableProps) => {
   return (
     <div className="overflow-x-auto">
       <table
-        className={cn('w-full border-collapse', className)}
+        className={cn('w-full border-collapse text-sm text-slate-700', className)}
         {...props}
       >
         {children}
@@ -81,7 +81,7 @@ export const TableCell = ({
 
   return (
     <td
-      className={cn('px-4 py-3', alignStyles[align], className)}
+      className={cn('px-4 py-3 text-sm text-slate-700', alignStyles[align], className)}
       {...props}
     >
       {children}

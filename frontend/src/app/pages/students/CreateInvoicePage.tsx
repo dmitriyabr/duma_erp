@@ -9,6 +9,7 @@ import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
+import { Autocomplete } from '../../components/ui/Autocomplete'
 import { Textarea } from '../../components/ui/Textarea'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
 import { Spinner } from '../../components/ui/Spinner'
@@ -181,6 +182,7 @@ export const CreateInvoicePage = () => {
   const invoiceTotal = useMemo(() => lines.reduce((sum, line) => sum + lineTotalForLine(line), 0), [
     lines,
     kits,
+    lineTotalForLine,
   ])
 
   const submitInvoice = async () => {
@@ -322,22 +324,19 @@ export const CreateInvoicePage = () => {
             return (
               <TableRow key={line.id}>
                 <TableCell>
-                  <Select
-                    value={line.kit_id ? String(line.kit_id) : ''}
-                    onChange={(event) =>
+                  <Autocomplete
+                    options={kits}
+                    getOptionLabel={(kit) => kit.name}
+                    getOptionValue={(kit) => kit.id}
+                    value={kits.find((kit) => kit.id === line.kit_id) || null}
+                    onChange={(kit) =>
                       updateLine(line.id, {
-                        kit_id: event.target.value ? Number(event.target.value) : null,
+                        kit_id: kit ? kit.id : null,
                       })
                     }
+                    placeholder="Type to search items..."
                     className="min-w-[240px]"
-                  >
-                    <option value="">Select item</option>
-                    {kits.map((kit) => (
-                      <option key={kit.id} value={String(kit.id)}>
-                        {kit.name}
-                      </option>
-                    ))}
-                  </Select>
+                  />
                 </TableCell>
                 <TableCell>
                   <Input

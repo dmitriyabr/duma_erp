@@ -1,4 +1,5 @@
 import type { HTMLAttributes, ReactNode } from 'react'
+import { useState } from 'react'
 import { cn } from '../../utils/cn'
 import { AlertCircle, CheckCircle, Info, AlertTriangle, X } from 'lucide-react'
 
@@ -32,11 +33,16 @@ export const Alert = ({
   ...props
 }: AlertProps) => {
   const Icon = icons[severity]
+  const [visible, setVisible] = useState(true)
+
+  if (!visible) {
+    return null
+  }
 
   return (
     <div
       className={cn(
-        'rounded-lg border p-4 flex items-start gap-3',
+        'rounded-lg border p-4 flex items-start gap-3 text-sm leading-snug',
         severityStyles[severity],
         className
       )}
@@ -46,7 +52,10 @@ export const Alert = ({
       <div className="flex-1">{children}</div>
       {onClose && (
         <button
-          onClick={onClose}
+          onClick={() => {
+            setVisible(false)
+            onClose()
+          }}
           className="flex-shrink-0 text-current opacity-70 hover:opacity-100 transition-opacity"
           aria-label="Close"
         >

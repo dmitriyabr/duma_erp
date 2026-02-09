@@ -135,27 +135,29 @@ export const ProcurementPaymentDetailPage = () => {
           </Typography>
           <Typography>{payment.payment_method}</Typography>
         </div>
-        {payment.payee_name && (
-          <div>
-            <Typography variant="subtitle2" color="secondary" className="mb-1">
-              Payee
-            </Typography>
-            <Typography>{payment.payee_name}</Typography>
-          </div>
-        )}
-        {payment.reference_number && (
-          <div>
-            <Typography variant="subtitle2" color="secondary" className="mb-1">
-              Reference number
-            </Typography>
-            <Typography>{payment.reference_number}</Typography>
-          </div>
-        )}
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Payee
+          </Typography>
+          <Typography>{payment.payee_name ?? '—'}</Typography>
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Reference number
+          </Typography>
+          <Typography>{payment.reference_number ?? '—'}</Typography>
+        </div>
         <div>
           <Typography variant="subtitle2" color="secondary" className="mb-1">
             Paid by
           </Typography>
           <Typography>{payment.company_paid ? 'Company' : 'Employee'}</Typography>
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
+            PO ID
+          </Typography>
+          <Typography>{payment.po_id ?? '—'}</Typography>
         </div>
       </div>
 

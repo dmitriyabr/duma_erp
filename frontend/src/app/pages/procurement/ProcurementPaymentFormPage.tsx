@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import axios from 'axios'
 import { USERS_LIST_LIMIT } from '../../constants/pagination'
@@ -20,6 +20,7 @@ import {
   Checkbox,
   Autocomplete,
   Spinner,
+  FileDropzone,
 } from '../../components/ui'
 
 interface PurposeRow {
@@ -65,7 +66,6 @@ export const ProcurementPaymentFormPage = () => {
   const [proofAttachmentId, setProofAttachmentId] = useState<number | null>(null)
   const [proofFileName, setProofFileName] = useState<string | null>(null)
   const [uploadingProof, setUploadingProof] = useState(false)
-  const proofFileInputRef = React.useRef<HTMLInputElement>(null)
   const [companyPaid, setCompanyPaid] = useState(true)
   const [employeePaidId, setEmployeePaidId] = useState<number | ''>('')
 
@@ -145,7 +145,7 @@ export const ProcurementPaymentFormPage = () => {
       // Загружаем список PO только если нет выбранного PO
       loadPOs()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [searchParams, loadPOs])
 
   const handlePurposeSelect = (value: number | string) => {
@@ -178,6 +178,38 @@ export const ProcurementPaymentFormPage = () => {
       setNewPurposeName('')
     }
   }
+
+  const uploadProofFile = useCallback(
+    async (file: File) => {
+      // Basic client-side validation (server will validate too)
+      const isPdf = file.type === 'application/pdf'
+      const isImage = file.type.startsWith('image/')
+      if (!isPdf && !isImage) {
+        setError('Only images or PDF files are supported.')
+        return
+      }
+
+      setUploadingProof(true)
+      setError(null)
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+        const res = await api.post<ApiResponse<{ id: number }>>('/attachments', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
+        setProofAttachmentId(res.data.data.id)
+        setProofFileName(file.name)
+      } catch (err) {
+        if (axios.isAxiosError(err) && err.response?.status === 401) {
+          return
+        }
+        setError('Failed to upload confirmation file.')
+      } finally {
+        setUploadingProof(false)
+      }
+    },
+    [setError]
+  )
 
   const handleSubmit = async () => {
     if (!purposeId || !amount || !paymentDate) {
@@ -287,7 +319,6 @@ export const ProcurementPaymentFormPage = () => {
           label="Category / Purpose"
           required
         >
-          <option value="">Select purpose</option>
           {purposes.map((purpose) => (
             <option key={purpose.id} value={purpose.id}>
               {purpose.name}
@@ -344,62 +375,28 @@ export const ProcurementPaymentFormPage = () => {
           helperText="Reference or confirmation file below is required"
         />
         <div>
-          <label className="inline-block">
-            <input
-              ref={proofFileInputRef}
-              type="file"
-              className="hidden"
-              accept="image/*,.pdf,application/pdf"
-              onChange={async (e) => {
-                const file = e.target.files?.[0]
-                if (!file) return
-                setUploadingProof(true)
-                try {
-                  const formData = new FormData()
-                  formData.append('file', file)
-                  const res = await api.post<ApiResponse<{ id: number }>>('/attachments', formData, {
-                    headers: { 'Content-Type': 'multipart/form-data' },
-                  })
-                  setProofAttachmentId(res.data.data.id)
-                  setProofFileName(file.name)
-                } catch (err) {
-                  if (axios.isAxiosError(err) && err.response?.status === 401) {
-                    return
-                  }
-                  setError('Failed to upload confirmation file.')
-                } finally {
-                  setUploadingProof(false)
-                }
-              }}
-            />
-            <Button
-              variant="outlined"
-              disabled={uploadingProof}
-              onClick={() => proofFileInputRef.current?.click()}
-            >
-              {uploadingProof ? <Spinner size="small" /> : 'Upload confirmation (image/PDF)'}
-            </Button>
-          </label>
-          {proofFileName && (
-            <Typography variant="body2" color="secondary" className="ml-2 inline-block">
-              {proofFileName}
-            </Typography>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <Checkbox
-            checked={companyPaid}
-            onChange={(event) => setCompanyPaid(event.target.checked)}
+          <FileDropzone
+            title="Upload confirmation (image/PDF)"
+            accept="image/*,.pdf,application/pdf"
+            fileName={proofFileName}
+            loading={uploadingProof}
+            onFileSelected={uploadProofFile}
           />
-          <span className="text-sm font-medium text-slate-700">Company paid</span>
         </div>
+        <Checkbox
+          checked={companyPaid}
+          onChange={(event) => setCompanyPaid(event.target.checked)}
+          label="Company paid"
+          className="rounded-full"
+        />
         {!companyPaid && (
           <Select
             value={employeePaidId === '' ? '' : String(employeePaidId)}
             onChange={(event) => setEmployeePaidId(event.target.value ? Number(event.target.value) : '')}
             label="Employee who paid"
+            containerClassName='mt-2'
+            required={!companyPaid}
           >
-            <option value="">Select employee</option>
             {users.map((user) => (
               <option key={user.id} value={user.id}>
                 {user.full_name}

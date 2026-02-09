@@ -13,13 +13,14 @@ export interface DialogProps {
 }
 
 const maxWidthStyles = {
-  sm: 'max-w-sm',
-  md: 'max-w-md',
-  lg: 'max-w-lg',
-  xl: 'max-w-xl',
+  // Practical defaults for ERP dialogs (avoid overly wide dialogs by default)
+  sm: 'max-w-lg',
+  md: 'max-w-2xl',
+  lg: 'max-w-4xl',
+  xl: 'max-w-6xl',
 }
 
-export const Dialog = ({ open, onClose, children, maxWidth = 'lg', fullWidth = false }: DialogProps) => {
+export const Dialog = ({ open, onClose, children, maxWidth = 'md', fullWidth = false }: DialogProps) => {
   useEffect(() => {
     if (open) {
       document.body.style.overflow = 'hidden'
@@ -44,8 +45,10 @@ export const Dialog = ({ open, onClose, children, maxWidth = 'lg', fullWidth = f
     >
       <div className="fixed inset-0 bg-black/50" />
       <div className={cn(
+        // Always constrain by maxWidth; fullWidth in MUI means "use full width within maxWidth"
         'relative z-10 bg-white rounded-2xl shadow-2xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col',
-        !fullWidth && maxWidthStyles[maxWidth]
+        maxWidthStyles[maxWidth],
+        fullWidth && 'w-full'
       )}>
         {children}
       </div>
@@ -75,7 +78,7 @@ export interface DialogContentProps extends HTMLAttributes<HTMLDivElement> {
 
 export const DialogContent = ({ className, children, ...props }: DialogContentProps) => {
   return (
-    <div className={cn('px-6 pb-5 overflow-y-auto flex-1', className)} {...props}>
+    <div className={cn('px-6 pt-3 pb-5 overflow-y-auto flex-1', className)} {...props}>
       {children}
     </div>
   )

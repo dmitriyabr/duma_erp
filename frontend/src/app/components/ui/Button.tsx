@@ -23,7 +23,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     },
     ref
   ) => {
-    const baseStyles = 'inline-flex items-center justify-center font-medium rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed'
+    const baseStyles =
+      'inline-flex items-center justify-center font-medium rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap'
     
     const variantStyles = {
       contained: {
@@ -35,12 +36,12 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         info: 'bg-info text-white hover:bg-info-dark shadow-none hover:shadow-md',
       },
       outlined: {
-        primary: 'border-2 border-primary text-primary hover:bg-primary/10',
-        secondary: 'border-2 border-secondary text-secondary hover:bg-secondary/10',
-        success: 'border-2 border-success text-success hover:bg-success/10',
-        warning: 'border-2 border-warning text-warning hover:bg-warning/10',
-        error: 'border-2 border-error text-error hover:bg-error/10',
-        info: 'border-2 border-info text-info hover:bg-info/10',
+        primary: 'border border-primary text-primary hover:bg-primary/10',
+        secondary: 'border border-secondary text-secondary hover:bg-secondary/10',
+        success: 'border border-success text-success hover:bg-success/10',
+        warning: 'border border-warning text-warning hover:bg-warning/10',
+        error: 'border border-error text-error hover:bg-error/10',
+        info: 'border border-info text-info hover:bg-info/10',
       },
       text: {
         primary: 'text-primary hover:bg-primary/10',

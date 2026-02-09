@@ -176,12 +176,15 @@ export const PurchaseOrdersListPage = () => {
               <TableHeaderCell align="right">Received</TableHeaderCell>
               <TableHeaderCell align="right">Paid</TableHeaderCell>
               <TableHeaderCell align="right">Debt</TableHeaderCell>
-              <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {orders.map((order) => (
-              <TableRow key={order.id}>
+              <TableRow
+                key={order.id}
+                onClick={() => navigate(`/procurement/orders/${order.id}`)}
+                className="cursor-pointer"
+              >
                 <TableCell>{order.po_number}</TableCell>
                 <TableCell>{order.supplier_name}</TableCell>
                 <TableCell>
@@ -192,23 +195,18 @@ export const PurchaseOrdersListPage = () => {
                 <TableCell align="right">{formatMoney(order.received_value)}</TableCell>
                 <TableCell align="right">{formatMoney(order.paid_total)}</TableCell>
                 <TableCell align="right">{formatMoney(order.debt_amount)}</TableCell>
-                <TableCell align="right">
-                  <Button size="small" variant="outlined" onClick={() => navigate(`/procurement/orders/${order.id}`)}>
-                    View
-                  </Button>
-                </TableCell>
               </TableRow>
             ))}
             {loading && (
               <TableRow>
-                <td colSpan={9} className="px-4 py-8 text-center">
+                <td colSpan={8} className="px-4 py-8 text-center">
                   <Spinner size="medium" />
                 </td>
               </TableRow>
             )}
             {!orders.length && !loading && (
               <TableRow>
-                <td colSpan={9} className="px-4 py-8 text-center">
+                <td colSpan={8} className="px-4 py-8 text-center">
                   <Typography color="secondary">No purchase orders found</Typography>
                 </td>
               </TableRow>

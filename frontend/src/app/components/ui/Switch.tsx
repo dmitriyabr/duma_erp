@@ -1,17 +1,19 @@
 import type { InputHTMLAttributes } from 'react'
-import { forwardRef } from 'react'
+import { forwardRef, useId } from 'react'
 import { cn } from '../../utils/cn'
 
 export interface SwitchProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> {
   label?: string
+  containerClassName?: string
 }
 
 export const Switch = forwardRef<HTMLInputElement, SwitchProps>(
-  ({ className, label, id, ...props }, ref) => {
-    const switchId = id || `switch-${Math.random().toString(36).substr(2, 9)}`
+  ({ className, containerClassName, label, id, ...props }, ref) => {
+    const autoId = useId()
+    const switchId = id || `switch-${autoId}`
 
     return (
-      <label htmlFor={switchId} className="flex items-center gap-2 cursor-pointer">
+      <label htmlFor={switchId} className={cn('flex items-center gap-2 cursor-pointer', containerClassName)}>
         <div className="relative inline-flex items-center">
           <input
             ref={ref}

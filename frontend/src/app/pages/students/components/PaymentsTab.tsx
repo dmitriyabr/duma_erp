@@ -201,7 +201,7 @@ export const PaymentsTab = ({
                 <TableCell>{payment.receipt_number ?? '—'}</TableCell>
                 <TableCell align="right">
                   <div className="flex gap-2 justify-end">
-                    <Button size="small" onClick={() => setSelectedPayment(payment)}>
+                    <Button size="small" variant="outlined" onClick={() => setSelectedPayment(payment)}>
                       View
                     </Button>
                     {payment.status === 'completed' && (
@@ -216,7 +216,12 @@ export const PaymentsTab = ({
                       </Button>
                     )}
                     {canCancelPayment(user) && payment.status === 'pending' && (
-                      <Button size="small" variant="outlined" onClick={() => cancelPayment(payment.id)}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="error"
+                        onClick={() => cancelPayment(payment.id)}
+                      >
                         Cancel
                       </Button>
                     )}

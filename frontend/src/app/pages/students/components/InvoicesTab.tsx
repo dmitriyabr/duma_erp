@@ -374,7 +374,7 @@ export const InvoicesTab = ({
                 <TableCell>{formatMoney(parseNumber(invoice.amount_due))}</TableCell>
                 <TableCell>{invoice.issue_date ? formatDate(invoice.issue_date) : '—'}</TableCell>
                 <TableCell align="right">
-                  <Button size="small" onClick={() => openInvoiceDetail(invoice)}>
+                  <Button size="small" variant="outlined" onClick={() => openInvoiceDetail(invoice)}>
                     View
                   </Button>
                 </TableCell>
@@ -442,11 +442,16 @@ export const InvoicesTab = ({
                       <TableCell align="right">
                         <div className="flex gap-2 justify-end">
                           {selectedInvoice.status === 'draft' && (
-                            <Button size="small" variant="outlined" onClick={() => removeLine(line.id)}>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color="error"
+                              onClick={() => removeLine(line.id)}
+                            >
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           )}
-                          <Button size="small" onClick={() => openDiscountDialog(line.id)}>
+                          <Button size="small" variant="outlined" onClick={() => openDiscountDialog(line.id)}>
                             Discount
                           </Button>
                         </div>

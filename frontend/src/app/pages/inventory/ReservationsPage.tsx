@@ -198,10 +198,15 @@ export const ReservationsPage = () => {
                     <>
                       {row.status === 'pending' || row.status === 'partial' ? (
                         <div className="flex gap-2 justify-end">
-                          <Button size="small" onClick={() => openIssueDialog(row)}>
+                          <Button size="small" variant="outlined" onClick={() => openIssueDialog(row)}>
                             Issue
                           </Button>
-                          <Button size="small" variant="outlined" onClick={() => openCancelDialog(row)}>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="error"
+                            onClick={() => openCancelDialog(row)}
+                          >
                             Cancel
                           </Button>
                         </div>

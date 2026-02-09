@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
@@ -87,6 +87,33 @@ interface AutoMatchResult {
   no_candidates: number
 }
 
+const normMoney = (value: string): string => {
+  const cleaned = value.replace(/,/g, '').trim()
+  const n = Number.parseFloat(cleaned)
+  if (Number.isNaN(n)) return cleaned
+  return n.toFixed(2)
+}
+
+const moneyNumber = (value: string): number | null => {
+  const cleaned = value.replace(/,/g, '').trim()
+  const n = Number.parseFloat(cleaned)
+  if (Number.isNaN(n)) return null
+  return n
+}
+
+const withinOne = (a: string, b: string): boolean => {
+  const an = moneyNumber(a)
+  const bn = moneyNumber(b)
+  if (an == null || bn == null) return false
+  return Math.abs(an - bn) <= 1.0 + 1e-9
+}
+
+const absMoney = (value: string): string => {
+  const n = Number.parseFloat(value.replace(/,/g, '').trim())
+  if (Number.isNaN(n)) return value
+  return Math.abs(n).toFixed(2)
+}
+
 interface UnmatchedProcurementPayment {
   id: number
   payment_number: string
@@ -115,9 +142,7 @@ interface ImportReconciliationSummary {
 
 export const BankReconciliationPage = () => {
   const { user } = useAuth()
-  if (isAccountant(user)) {
-    return <Navigate to="/access-denied" replace />
-  }
+  const accessDenied = isAccountant(user)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null)
@@ -137,46 +162,43 @@ export const BankReconciliationPage = () => {
   const [manualMatchTxnForEntityId, setManualMatchTxnForEntityId] = useState<number | ''>('')
 
   const { data: imports, loading: importsLoading, error: importsError, refetch: refetchImports } =
-    useApi<BankStatementImportListItem[]>('/bank-statements/imports')
+    useApi<BankStatementImportListItem[]>(accessDenied ? null : '/bank-statements/imports')
+
+  const effectiveImportId = selectedImportId ?? (imports && imports.length ? imports[0].id : null)
 
   const selectedImport = useMemo(
-    () => (imports || []).find((i) => i.id === selectedImportId) || null,
-    [imports, selectedImportId]
+    () => (imports || []).find((i) => i.id === effectiveImportId) || null,
+    [imports, effectiveImportId]
   )
 
-  useEffect(() => {
-    if (!selectedImportId && imports && imports.length) {
-      setSelectedImportId(imports[0].id)
-    }
-  }, [imports, selectedImportId])
-
   const detailUrl = useMemo(() => {
-    if (!selectedImportId) return null
+    if (accessDenied || !effectiveImportId) return null
     const params = new URLSearchParams()
     params.set('page', '1')
     params.set('limit', '100')
     if (onlyUnmatched) params.set('only_unmatched', 'true')
     if (txnType !== 'all' && txnType.trim()) params.set('txn_type', txnType.trim())
-    return `/bank-statements/imports/${selectedImportId}?${params.toString()}`
-  }, [selectedImportId, onlyUnmatched, txnType])
+    return `/bank-statements/imports/${effectiveImportId}?${params.toString()}`
+  }, [accessDenied, effectiveImportId, onlyUnmatched, txnType])
 
   const txnTypesUrl = useMemo(() => {
+    if (accessDenied) return null
     const params = new URLSearchParams()
     if (selectedImport?.range_from) params.set('date_from', selectedImport.range_from)
     if (selectedImport?.range_to) params.set('date_to', selectedImport.range_to)
     const suffix = params.toString() ? `?${params.toString()}` : ''
     return `/bank-statements/txn-types${suffix}`
-  }, [selectedImport?.range_from, selectedImport?.range_to])
+  }, [accessDenied, selectedImport])
 
   const { data: txnTypes } = useApi<string[]>(txnTypesUrl)
 
   const reconciliationUrl = useMemo(() => {
-    if (!selectedImportId) return null
+    if (accessDenied || !effectiveImportId) return null
     const params = new URLSearchParams()
     if (ignoreRange) params.set('ignore_range', 'true')
     const suffix = params.toString() ? `?${params.toString()}` : ''
-    return `/bank-statements/imports/${selectedImportId}/reconciliation${suffix}`
-  }, [selectedImportId, ignoreRange])
+    return `/bank-statements/imports/${effectiveImportId}/reconciliation${suffix}`
+  }, [accessDenied, effectiveImportId, ignoreRange])
 
   const {
     data: importDetail,
@@ -244,12 +266,12 @@ export const BankReconciliationPage = () => {
   }
 
   const handleAutoMatch = async () => {
-    if (!selectedImportId) return
+    if (!effectiveImportId) return
     setError(null)
     setSuccess(null)
 
     const result = await autoMatchMutation.execute(() =>
-      api.post(`/bank-statements/imports/${selectedImportId}/auto-match`)
+      api.post(`/bank-statements/imports/${effectiveImportId}/auto-match`)
     )
     if (!result) return
     setSuccess(
@@ -266,33 +288,6 @@ export const BankReconciliationPage = () => {
     await refetchDetail()
     await refetchReconciliation()
   }, [refetchImports, refetchDetail, refetchReconciliation])
-
-  const normMoney = (value: string): string => {
-    const cleaned = value.replace(/,/g, '').trim()
-    const n = Number.parseFloat(cleaned)
-    if (Number.isNaN(n)) return cleaned
-    return n.toFixed(2)
-  }
-
-  const moneyNumber = (value: string): number | null => {
-    const cleaned = value.replace(/,/g, '').trim()
-    const n = Number.parseFloat(cleaned)
-    if (Number.isNaN(n)) return null
-    return n
-  }
-
-  const withinOne = (a: string, b: string): boolean => {
-    const an = moneyNumber(a)
-    const bn = moneyNumber(b)
-    if (an == null || bn == null) return false
-    return Math.abs(an - bn) <= 1.0 + 1e-9
-  }
-
-  const absMoney = (value: string): string => {
-    const n = Number.parseFloat(value.replace(/,/g, '').trim())
-    if (Number.isNaN(n)) return value
-    return Math.abs(n).toFixed(2)
-  }
 
   const manualCandidates = useMemo(() => {
     if (!manualMatchTxnId) return { procurement: [] as UnmatchedProcurementPayment[], payouts: [] as UnmatchedCompensationPayout[] }
@@ -415,6 +410,10 @@ export const BankReconciliationPage = () => {
 
   const effectiveError = error || importsError || detailError || reconciliationError
 
+  if (accessDenied) {
+    return <Navigate to="/access-denied" replace />
+  }
+
   return (
     <div>
       <Typography variant="h4" className="font-bold mb-4">
@@ -432,76 +431,76 @@ export const BankReconciliationPage = () => {
         </Alert>
       ) : null}
 
-      <div className="flex items-center gap-4 mb-4 flex-wrap">
-        <label className="inline-flex">
-          <span className="inline-flex">
-            <Button variant="outlined" disabled={uploadMutation.loading} className="cursor-pointer">
-              {selectedFileName ? 'Change CSV' : 'Select CSV'}
-            </Button>
-          </span>
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="hidden"
-            accept=".csv,text/csv"
-            onChange={(e) => {
-              const file = e.currentTarget.files?.[0]
-              setSelectedFileName(file ? file.name : null)
-            }}
-          />
-        </label>
-        <Button
-          variant="contained"
-          onClick={handleUpload}
-          disabled={uploadMutation.loading || !selectedFileName}
-        >
-          {uploadMutation.loading ? 'Importing…' : 'Import statement'}
-        </Button>
-        {selectedFileName ? (
-          <Typography variant="body2" color="secondary">
-            Selected: {selectedFileName}
+      <div className="mb-4">
+        {/* Row 1: import + primary actions */}
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="inline-flex">
+            <span className="inline-flex">
+              <Button variant="outlined" disabled={uploadMutation.loading} className="cursor-pointer">
+                {selectedFileName ? 'Change CSV' : 'Select CSV'}
+              </Button>
+            </span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              accept=".csv,text/csv"
+              onChange={(e) => {
+                const file = e.currentTarget.files?.[0]
+                setSelectedFileName(file ? file.name : null)
+              }}
+            />
+          </label>
+          <Button
+            variant="contained"
+            onClick={handleUpload}
+            disabled={uploadMutation.loading || !selectedFileName}
+          >
+            {uploadMutation.loading ? 'Importing…' : 'Import statement'}
+          </Button>
+          <Typography variant="body2" color="secondary" className="flex-1 min-w-[240px]">
+            {selectedFileName ? `Selected: ${selectedFileName}` : 'Select a CSV, then click "Import statement".'}
           </Typography>
-        ) : (
-          <Typography variant="body2" color="secondary">
-            Select a CSV, then click "Import statement".
-          </Typography>
-        )}
-        <div className="h-6 w-px bg-slate-300" />
-        <Button variant="outlined" onClick={refreshAll} disabled={importsLoading || detailLoading || reconciliationLoading}>
-          Refresh
-        </Button>
-        <Button
-          variant="contained"
-          onClick={handleAutoMatch}
-          disabled={!selectedImportId || autoMatchMutation.loading}
-        >
-          {autoMatchMutation.loading ? 'Matching…' : 'Auto-match'}
-        </Button>
-        <div className="flex items-center gap-2">
+          <Button
+            variant="outlined"
+            onClick={refreshAll}
+            disabled={importsLoading || detailLoading || reconciliationLoading}
+          >
+            Refresh
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleAutoMatch}
+            disabled={!effectiveImportId || autoMatchMutation.loading}
+          >
+            {autoMatchMutation.loading ? 'Matching…' : 'Auto-match'}
+          </Button>
+        </div>
+
+        {/* Row 2: filters */}
+        <div className="flex flex-wrap items-center gap-6 mt-3">
           <Switch
             checked={onlyUnmatched}
             onChange={(e) => setOnlyUnmatched(e.target.checked)}
+            label="Show only unmatched"
           />
-          <Typography variant="body2">Show only unmatched</Typography>
-        </div>
-        <Select
-          value={txnType}
-          onChange={(e) => setTxnType(e.target.value as typeof txnType)}
-          className="w-40"
-        >
-          <option value="all">All types</option>
-          {(txnTypes || []).map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </Select>
-        <div className="flex items-center gap-2">
+          <Select
+            containerClassName="w-[240px] min-w-[200px]"
+            value={txnType}
+            onChange={(e) => setTxnType(e.target.value as typeof txnType)}
+          >
+            <option value="all">All types</option>
+            {(txnTypes || []).map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </Select>
           <Switch
             checked={ignoreRange}
             onChange={(e) => setIgnoreRange(e.target.checked)}
+            label="Ignore date range"
           />
-          <Typography variant="body2">Ignore date range</Typography>
         </div>
       </div>
 
@@ -527,7 +526,11 @@ export const BankReconciliationPage = () => {
                 {(imports || []).map((imp) => (
                   <TableRow
                     key={imp.id}
-                    className={imp.id === selectedImportId ? 'bg-primary/10' : 'cursor-pointer hover:bg-slate-50'}
+                    className={
+                      imp.id === effectiveImportId
+                        ? 'bg-primary/10 hover:bg-primary/15 cursor-pointer'
+                        : 'cursor-pointer hover:bg-slate-100'
+                    }
                     onClick={() => setSelectedImportId(imp.id)}
                   >
                     <TableCell>{imp.id}</TableCell>
@@ -610,13 +613,21 @@ export const BankReconciliationPage = () => {
                       <div className="flex items-center gap-2 flex-wrap">
                         {m.entity_type === 'procurement_payment' ? (
                           <RouterLink to={`/procurement/payments/${m.entity_id}`}>
-                            <Button size="small">
+                            <Button
+                              size="small"
+                              variant="text"
+                              className="px-0 py-0 rounded-none hover:bg-transparent focus:bg-transparent hover:underline underline-offset-4"
+                            >
                               {m.entity_number}
                             </Button>
                           </RouterLink>
                         ) : (
                           <RouterLink to={`/compensations/payouts/${m.entity_id}`}>
-                            <Button size="small">
+                            <Button
+                              size="small"
+                              variant="text"
+                              className="px-0 py-0 rounded-none hover:bg-transparent focus:bg-transparent hover:underline underline-offset-4"
+                            >
                               {m.entity_number}
                             </Button>
                           </RouterLink>
@@ -627,7 +638,7 @@ export const BankReconciliationPage = () => {
                             target="_blank"
                             rel="noreferrer"
                           >
-                            <Button size="small">
+                            <Button size="small" variant="outlined">
                               Proof
                             </Button>
                           </a>
@@ -635,6 +646,7 @@ export const BankReconciliationPage = () => {
                         <Button
                           size="small"
                           variant="outlined"
+                          color="warning"
                           onClick={() => unmatchTransaction(r.transaction.id)}
                           disabled={unmatchMutation.loading}
                         >
@@ -646,7 +658,11 @@ export const BankReconciliationPage = () => {
                         <Typography variant="body2" color="secondary">
                           Unmatched
                         </Typography>
-                        <Button size="small" onClick={() => openManualMatch(r.transaction.id)}>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => openManualMatch(r.transaction.id)}
+                        >
                           Manual match
                         </Button>
                       </div>
@@ -658,7 +674,7 @@ export const BankReconciliationPage = () => {
             {!importDetail?.rows.items.length ? (
               <TableRow>
                 <td colSpan={5} className="px-4 py-3">
-                  {selectedImportId ? 'No rows found for this filter.' : 'Select an import.'}
+                  {effectiveImportId ? 'No rows found for this filter.' : 'Select an import.'}
                 </td>
               </TableRow>
             ) : null}

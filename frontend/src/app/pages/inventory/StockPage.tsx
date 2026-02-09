@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { useAuth } from '../../auth/AuthContext'
@@ -30,6 +30,8 @@ interface StockRow {
   quantity_available: number
   average_cost: number
 }
+
+const EMPTY_STOCK_ROWS: StockRow[] = []
 
 interface CategoryOption {
   id: number
@@ -95,7 +97,7 @@ export const StockPage = () => {
   const [reasonCategory, setReasonCategory] = useState<WriteOffReason>('damage')
   const [reasonDetail, setReasonDetail] = useState('')
 
-  const { data: categories, refetch: _refetchCategories } = useApi<CategoryOption[]>('/items/categories')
+  const { data: categories } = useApi<CategoryOption[]>('/items/categories')
   const { data: items, refetch: refetchItems } = useApi<ItemOption[]>('/items', {
     params: { include_inactive: true, item_type: 'product' },
   })
@@ -119,23 +121,12 @@ export const StockPage = () => {
     refetch: refetchStock,
   } = useApi<PaginatedResponse<StockRow>>('/inventory/stock', { params: stockParams }, [stockParams])
 
-  const rows = stockData?.items || []
+  const rows = stockData?.items ?? EMPTY_STOCK_ROWS
   const total = stockData?.total || 0
 
   const { execute: receiveStock, loading: receivingStock, error: receiveError } = useApiMutation<void>()
   const { execute: writeoffStock, loading: writingOff, error: writeoffError } = useApiMutation<void>()
   const { execute: createItem, loading: creatingItem, error: createError } = useApiMutation<{ id: number }>()
-
-  useEffect(() => {
-    if (!createItemOpen || !newItemCategoryId || !categories || !items) {
-      return
-    }
-    const category = categories.find((entry) => entry.id === Number(newItemCategoryId))
-    if (!category) {
-      return
-    }
-    setNewItemSku(nextSkuForCategory(category.name, items))
-  }, [createItemOpen, newItemCategoryId, categories, items])
 
   const filteredRows = useMemo(() => {
     let data = rows
@@ -233,7 +224,14 @@ export const StockPage = () => {
       setError('Fill category, name, quantity, and unit cost.')
       return
     }
-    if (!newItemSku.trim()) {
+    let skuToUse = newItemSku.trim()
+    if (!skuToUse && categories && items) {
+      const category = categories.find((entry) => entry.id === Number(newItemCategoryId))
+      if (category) {
+        skuToUse = nextSkuForCategory(category.name, items)
+      }
+    }
+    if (!skuToUse) {
       setError('SKU was not generated. Re-select category.')
       return
     }
@@ -242,7 +240,7 @@ export const StockPage = () => {
     const item = await createItem(() =>
       api.post<ApiResponse<{ id: number }>>('/items', {
         category_id: Number(newItemCategoryId),
-        sku_code: newItemSku.trim(),
+        sku_code: skuToUse,
         name: newItemName.trim(),
         item_type: 'product',
         price_type: 'standard',
@@ -297,17 +295,18 @@ export const StockPage = () => {
         </div>
       </div>
 
-      <div className="flex gap-4 mb-4 flex-wrap items-center">
+      <div className="flex flex-wrap items-end gap-4 mb-4">
         <Input
+          containerClassName="w-[240px] min-w-[200px]"
           label="Search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-48"
         />
         <Select
+          containerClassName="w-[260px] min-w-[200px]"
+          label="Category"
           value={categoryFilter === 'all' ? '' : String(categoryFilter)}
           onChange={(e) => setCategoryFilter(e.target.value === '' ? 'all' : Number(e.target.value))}
-          className="min-w-[180px]"
         >
           <option value="">All</option>
           {productCategories.map((category) => (
@@ -317,11 +316,13 @@ export const StockPage = () => {
           ))}
         </Select>
         <Switch
+          containerClassName="self-end whitespace-nowrap pb-1"
           checked={includeZero}
           onChange={(e) => setIncludeZero(e.target.checked)}
           label="Include zero"
         />
         <Switch
+          containerClassName="self-end whitespace-nowrap pb-1"
           checked={lowStockOnly}
           onChange={(e) => setLowStockOnly(e.target.checked)}
           label={`Low stock (<= ${lowStockThreshold})`}
@@ -364,9 +365,10 @@ export const StockPage = () => {
                  </TableCell>
                   <TableCell align="right">
                   {canManage ? (
-                    <div className="flex gap-2 justify-end">
+                    <div className="flex flex-wrap gap-2 justify-end">
                       <Button
                         size="small"
+                        variant="outlined"
                         onClick={() => {
                           setReceiveDialog(row)
                           setReceiveOpen(true)
@@ -374,7 +376,12 @@ export const StockPage = () => {
                       >
                         Receive
                       </Button>
-                      <Button size="small" variant="outlined" onClick={() => setWriteoffDialog(row)}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="error"
+                        onClick={() => setWriteoffDialog(row)}
+                      >
                         Write-off
                       </Button>
                     </div>
@@ -484,7 +491,16 @@ export const StockPage = () => {
           <div className="space-y-4 mt-4">
             <Select
               value={newItemCategoryId ? String(newItemCategoryId) : ''}
-              onChange={(e) => setNewItemCategoryId(e.target.value ? Number(e.target.value) : '')}
+              onChange={(e) => {
+                const nextId = e.target.value ? Number(e.target.value) : ''
+                setNewItemCategoryId(nextId)
+                if (!nextId || !categories || !items) {
+                  setNewItemSku('')
+                  return
+                }
+                const category = categories.find((entry) => entry.id === Number(nextId))
+                setNewItemSku(category ? nextSkuForCategory(category.name, items) : '')
+              }}
               label="Category"
             >
               <option value="">Select category</option>

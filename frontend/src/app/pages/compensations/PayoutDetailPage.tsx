@@ -4,6 +4,7 @@ import { api } from '../../services/api'
 import { useApi } from '../../hooks/useApi'
 import { openAttachmentInNewTab } from '../../utils/attachments'
 import type { ApiResponse } from '../../types/api'
+import { USERS_LIST_LIMIT } from '../../constants/pagination'
 import { formatDate, formatMoney } from '../../utils/format'
 import { Typography } from '../../components/ui/Typography'
 import { Alert } from '../../components/ui/Alert'
@@ -35,11 +36,21 @@ interface ClaimRow {
   claim_number: string
 }
 
+interface UserRow {
+  id: number
+  full_name: string
+}
+
 export const PayoutDetailPage = () => {
   const { payoutId } = useParams()
   const resolvedId = payoutId ? Number(payoutId) : null
   const { data: payout, loading, error } = useApi<PayoutResponse>(
     resolvedId ? `/compensations/payouts/${resolvedId}` : null
+  )
+  const { data: employeesData } = useApi<{ items: UserRow[] }>(
+    '/users',
+    { params: { limit: USERS_LIST_LIMIT } },
+    []
   )
   const [claims, setClaims] = useState<Map<number, ClaimRow>>(new Map())
 
@@ -105,39 +116,55 @@ export const PayoutDetailPage = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <div>
           <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Amount
+          </Typography>
+          <Typography variant="h6">{formatMoney(payout.amount)}</Typography>
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
             Payment method
           </Typography>
           <Typography>{payout.payment_method}</Typography>
         </div>
-        {payout.reference_number && (
-          <div>
-            <Typography variant="subtitle2" color="secondary" className="mb-1">
-              Reference number
-            </Typography>
-            <Typography>{payout.reference_number}</Typography>
-          </div>
-        )}
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Employee
+          </Typography>
+          <Typography>
+            {employeesData?.items.find((e) => e.id === payout.employee_id)?.full_name ?? `Employee #${payout.employee_id}`}
+          </Typography>
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Reference number
+          </Typography>
+          <Typography>{payout.reference_number ?? '—'}</Typography>
+        </div>
       </div>
 
-      {payout.proof_text && (
-        <div className="mb-6">
-          <Typography variant="subtitle2" color="secondary" className="mb-1">
-            Proof / Reference
-          </Typography>
-          <Typography className="whitespace-pre-wrap">{payout.proof_text}</Typography>
-        </div>
-      )}
+      <div className="mb-6">
+        <Typography variant="subtitle2" color="secondary" className="mb-1">
+          Proof / Reference
+        </Typography>
+        <Typography className="whitespace-pre-wrap">
+          {payout.proof_text?.trim() ? payout.proof_text : '—'}
+        </Typography>
+      </div>
 
-      {payout.proof_attachment_id && (
-        <div className="mb-6">
+      <div className="mb-6">
+        {payout.proof_attachment_id ? (
           <Button
             variant="outlined"
             onClick={() => openAttachmentInNewTab(payout.proof_attachment_id!)}
           >
             View confirmation file
           </Button>
-        </div>
-      )}
+        ) : (
+          <Typography variant="body2" color="secondary">
+            Confirmation file: —
+          </Typography>
+        )}
+      </div>
 
       <Typography variant="h6" className="mb-4">
         Allocations

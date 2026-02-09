@@ -6,6 +6,7 @@ import { useApi, useApiMutation } from '../../hooks/useApi'
 import { isAccountant } from '../../utils/permissions'
 import { api, unwrapResponse } from '../../services/api'
 import { formatMoney } from '../../utils/format'
+import { cn } from '../../utils/cn'
 import {
   Typography,
   Alert,
@@ -30,6 +31,7 @@ import {
   TableHeaderCell,
   Spinner,
 } from '../../components/ui'
+import { Autocomplete } from '../../components/ui/Autocomplete'
 import { Plus, Trash2 } from 'lucide-react'
 
 type CatalogTab = 'items' | 'categories' | 'variants'
@@ -168,7 +170,7 @@ export const CatalogPage = () => {
     [kitsApi.data]
   )
   const inventoryItems = inventoryApi.data ?? []
-  // const variants = variantsApi.data ?? [] // TODO: Add variants tab
+  const variants = variantsApi.data ?? []
   const tabError =
     categoriesApi.error ??
     kitsApi.error ??
@@ -254,12 +256,12 @@ export const CatalogPage = () => {
     setKitDialogOpen(true)
   }
 
-  // const openCopyKit = (kit: KitRow) => { // TODO: Add copy functionality
-  //   // Create a new kit prefilled from the selected one (no editingKit → POST)
-  //   setEditingKit(null)
-  //   setKitForm(buildKitFormFromKit(kit))
-  //   setKitDialogOpen(true)
-  // }
+  const openCopyKit = (kit: KitRow) => {
+    // Create a new kit prefilled from the selected one (no editingKit → POST)
+    setEditingKit(null)
+    setKitForm(buildKitFormFromKit(kit))
+    setKitDialogOpen(true)
+  }
 
   const resetKitDialog = () => {
     setKitDialogOpen(false)
@@ -370,20 +372,20 @@ export const CatalogPage = () => {
     setEditingCategory(null)
   }
 
-  // const openCreateVariant = () => { // TODO: Add variants tab
-  //   setEditingVariant(null)
-  //   setVariantForm({ ...emptyVariantForm })
-  //   setVariantDialogOpen(true)
-  // }
+  const openCreateVariant = () => {
+    setEditingVariant(null)
+    setVariantForm({ ...emptyVariantForm })
+    setVariantDialogOpen(true)
+  }
 
-  // const openEditVariant = (variant: VariantRow) => { // TODO: Add variants tab
-  //   setEditingVariant(variant)
-  //   setVariantForm({
-  //     name: variant.name,
-  //     item_ids: variant.items.map((i) => i.id),
-  //   })
-  //   setVariantDialogOpen(true)
-  // }
+  const openEditVariant = (variant: VariantRow) => {
+    setEditingVariant(variant)
+    setVariantForm({
+      name: variant.name,
+      item_ids: variant.items.map((i) => i.id),
+    })
+    setVariantDialogOpen(true)
+  }
 
   const resetVariantDialog = () => {
     setVariantDialogOpen(false)
@@ -532,10 +534,19 @@ export const CatalogPage = () => {
     })
   }
 
-  const addKitItem = () => {
+  const addKitItem = (sourceType: 'item' | 'variant') => {
     setKitForm((prev) => ({
       ...prev,
-      items: [...prev.items, { source_type: 'item' as 'item' | 'variant', item_id: '', variant_id: '', default_item_id: '', quantity: 1 }],
+      items: [
+        ...prev.items,
+        {
+          source_type: sourceType,
+          item_id: '',
+          variant_id: '',
+          default_item_id: '',
+          quantity: 1,
+        },
+      ],
     }))
   }
 
@@ -572,21 +583,21 @@ export const CatalogPage = () => {
             )}
           </div>
 
-          <div className="flex flex-wrap gap-4 mt-4">
+          <div className="flex flex-wrap items-end gap-4 mt-4">
             <Input
+              containerClassName="w-[240px] min-w-[200px]"
               label="Search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              className="min-w-[200px]"
             />
             <Select
+              containerClassName="w-[260px] min-w-[200px]"
               value={categoryFilter === 'all' ? 'all' : String(categoryFilter)}
               onChange={(event) => {
                 const value = event.target.value
                 setCategoryFilter(value === 'all' ? 'all' : Number(value))
               }}
               label="Category"
-              className="min-w-[180px]"
             >
               <option value="all">All</option>
               {categories.map((category) => (
@@ -596,10 +607,10 @@ export const CatalogPage = () => {
               ))}
             </Select>
             <Select
+              containerClassName="w-[200px] min-w-[180px]"
               value={typeFilter === 'all' ? 'all' : typeFilter}
               onChange={(event) => setTypeFilter(event.target.value as ItemType | 'all')}
               label="Type"
-              className="min-w-[160px]"
             >
               <option value="all">All</option>
               {itemTypeOptions.map((option) => (
@@ -608,13 +619,12 @@ export const CatalogPage = () => {
                 </option>
               ))}
             </Select>
-            <div className="flex items-center gap-2">
-              <Switch
-                checked={showInactive}
-                onChange={(event) => setShowInactive(event.target.checked)}
-              />
-              <span className="text-sm font-medium text-slate-700">Show inactive</span>
-            </div>
+            <Switch
+              containerClassName="self-end whitespace-nowrap pb-1"
+              checked={showInactive}
+              onChange={(event) => setShowInactive(event.target.checked)}
+              label="Show inactive"
+            />
           </div>
 
           <Table className="mt-4">
@@ -645,15 +655,23 @@ export const CatalogPage = () => {
                   <TableCell align="right">
                     <div className="flex gap-2 justify-end">
                       {readOnly ? (
-                        <Button size="small" onClick={() => openEditKit(kit)}>
+                        <Button size="small" variant="outlined" onClick={() => openEditKit(kit)}>
                           View
                         </Button>
                       ) : (
                         <>
-                          <Button size="small" onClick={() => openEditKit(kit)}>
+                          <Button size="small" variant="outlined" onClick={() => openEditKit(kit)}>
                             Edit
                           </Button>
-                          <Button size="small" onClick={() => requestToggleKitActive(kit)}>
+                          <Button size="small" variant="outlined" onClick={() => openCopyKit(kit)}>
+                            Copy
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color={kit.is_active ? 'error' : 'success'}
+                            onClick={() => requestToggleKitActive(kit)}
+                          >
                             {kit.is_active ? 'Deactivate' : 'Activate'}
                           </Button>
                         </>
@@ -707,10 +725,15 @@ export const CatalogPage = () => {
                   <TableCell align="right">
                     {!readOnly && (
                       <div className="flex gap-2 justify-end">
-                        <Button size="small" onClick={() => openEditCategory(category)}>
+                        <Button size="small" variant="outlined" onClick={() => openEditCategory(category)}>
                           Edit
                         </Button>
-                        <Button size="small" onClick={() => requestToggleCategoryActive(category)}>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color={category.is_active ? 'error' : 'success'}
+                          onClick={() => requestToggleCategoryActive(category)}
+                        >
                           {category.is_active ? 'Deactivate' : 'Activate'}
                         </Button>
                       </div>
@@ -735,9 +758,82 @@ export const CatalogPage = () => {
             </TableBody>
           </Table>
         </TabPanel>
+
+        <TabPanel value="variants">
+          <div className="flex items-center justify-between mt-4">
+            <Typography variant="h6" className="font-semibold">
+              Variant groups
+            </Typography>
+            {!readOnly && (
+              <Button variant="contained" onClick={openCreateVariant}>
+                New variant group
+              </Button>
+            )}
+          </div>
+
+          <Table className="mt-4">
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Name</TableHeaderCell>
+                <TableHeaderCell>Items</TableHeaderCell>
+                <TableHeaderCell>Status</TableHeaderCell>
+                <TableHeaderCell align="right">Actions</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {variants.map((variant) => (
+                <TableRow key={variant.id}>
+                  <TableCell>{variant.name}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {variant.items.map((item) => (
+                        <Chip key={item.id} size="small" label={`${item.name} (${item.sku_code})`} />
+                      ))}
+                      {!variant.items.length && (
+                        <Typography variant="body2" color="secondary">
+                          No items
+                        </Typography>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      size="small"
+                      label={variant.is_active ? 'Active' : 'Inactive'}
+                      color={variant.is_active ? 'success' : 'default'}
+                    />
+                  </TableCell>
+                  <TableCell align="right">
+                    {!readOnly && (
+                      <div className="flex gap-2 justify-end">
+                        <Button size="small" variant="outlined" onClick={() => openEditVariant(variant)}>
+                          Edit
+                        </Button>
+                      </div>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {variantsApi.loading && (
+                <TableRow>
+                  <td colSpan={4} className="px-4 py-3 text-center">
+                    <Spinner size="small" />
+                  </td>
+                </TableRow>
+              )}
+              {!variants.length && !variantsApi.loading && (
+                <TableRow>
+                  <td colSpan={4} className="px-4 py-3 text-center">
+                    No variant groups found
+                  </td>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TabPanel>
       </Tabs>
 
-      <Dialog open={kitDialogOpen} onClose={resetKitDialog} maxWidth="md">
+      <Dialog open={kitDialogOpen} onClose={resetKitDialog} maxWidth="lg">
         <DialogTitle>
           {readOnly && editingKit ? 'View item' : editingKit ? 'Edit item' : 'Create item'}
         </DialogTitle>
@@ -763,10 +859,7 @@ export const CatalogPage = () => {
               ))}
               {!readOnly && (
                 <option value="create">
-                  <div className="flex items-center gap-2">
-                    <Plus className="w-4 h-4" />
-                    Add new category
-                  </div>
+                  + Add new category
                 </option>
               )}
             </Select>
@@ -799,57 +892,121 @@ export const CatalogPage = () => {
             />
 
             {kitForm.item_type === 'product' && (
-              <div className="grid gap-2">
+              <div className="grid gap-3">
                 <Typography variant="subtitle1" className="font-semibold">
                   Components
                 </Typography>
                 {kitForm.items.map((item, index) => (
                   <div
                     key={`kit-item-${index}`}
-                    className={readOnly ? 'grid grid-cols-[1fr_140px] gap-2' : 'grid grid-cols-[1fr_140px_auto] gap-2'}
+                    className="rounded-xl border border-slate-200 bg-white p-3"
                   >
-                    <Select
-                      value={item.item_id}
-                      onChange={(event) =>
-                        updateKitItem(index, 'source_type', event.target.value as 'item' | 'variant')
-                      }
-                      label="Inventory item"
-                      disabled={readOnly}
-                    >
-                      <option value="">Select item</option>
-                      {inventoryItems.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.name}
-                        </option>
-                      ))}
-                    </Select>
-                    <Input
-                      label="Qty"
-                      type="number"
-                      value={item.quantity}
-                      onChange={(event) => updateKitItem(index, 'quantity', event.target.value)}
-                      onFocus={(event) => event.currentTarget.select()}
-                      disabled={readOnly}
-                      min={1}
-                      step={1}
-                    />
-                    {!readOnly && (
-                      <button
-                        type="button"
-                        onClick={() => removeKitItem(index)}
-                        className="p-2 hover:bg-slate-100 rounded transition-colors self-end"
-                        aria-label="Remove component"
-                      >
-                        <Trash2 className="w-5 h-5 text-slate-500" />
-                      </button>
-                    )}
+                    <div className={cn('flex flex-wrap items-end gap-3', !readOnly && 'pr-2')}>
+                      <div className="w-[160px] min-w-[160px]">
+                        <Select
+                          value={item.source_type}
+                          onChange={(event) => updateKitItem(index, 'source_type', event.target.value)}
+                          label="Source type"
+                          disabled={readOnly}
+                        >
+                          <option value="item">Inventory item</option>
+                          <option value="variant">Variant</option>
+                        </Select>
+                      </div>
+                      {item.source_type === 'item' ? (
+                        <div className="flex-1 min-w-[260px]">
+                          <Autocomplete
+                            options={inventoryItems}
+                            getOptionLabel={(invItem) => `${invItem.name} (${invItem.sku_code})`}
+                            getOptionValue={(invItem) => invItem.id}
+                            value={inventoryItems.find((invItem) => String(invItem.id) === String(item.item_id)) || null}
+                            onChange={(invItem) => {
+                              if (invItem) {
+                                updateKitItem(index, 'item_id', String(invItem.id))
+                              } else {
+                                updateKitItem(index, 'item_id', '')
+                              }
+                            }}
+                            label="Inventory item"
+                            placeholder="Type to search items..."
+                            disabled={readOnly}
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex-1 min-w-[320px] grid gap-3 sm:grid-cols-2">
+                          <Autocomplete
+                            options={variants}
+                            getOptionLabel={(variant) => variant.name}
+                            getOptionValue={(variant) => variant.id}
+                            value={variants.find((v) => String(v.id) === String(item.variant_id)) || null}
+                            onChange={(variant) => {
+                              if (variant) {
+                                updateKitItem(index, 'variant_id', String(variant.id))
+                              } else {
+                                updateKitItem(index, 'variant_id', '')
+                                updateKitItem(index, 'default_item_id', '')
+                              }
+                            }}
+                            label="Variant group"
+                            placeholder="Type to search variants..."
+                            disabled={readOnly}
+                          />
+                          <Autocomplete
+                            options={variants.find((v) => String(v.id) === String(item.variant_id))?.items || []}
+                            getOptionLabel={(variantItem) => `${variantItem.name} (${variantItem.sku_code})`}
+                            getOptionValue={(variantItem) => variantItem.id}
+                            value={variants
+                              .find((v) => String(v.id) === String(item.variant_id))
+                              ?.items.find((vi) => String(vi.id) === String(item.default_item_id)) || null}
+                            onChange={(variantItem) => {
+                              if (variantItem) {
+                                updateKitItem(index, 'default_item_id', String(variantItem.id))
+                              } else {
+                                updateKitItem(index, 'default_item_id', '')
+                              }
+                            }}
+                            label="Default item"
+                            placeholder={item.variant_id ? 'Type to search items...' : 'Select variant group first'}
+                            disabled={readOnly || !item.variant_id}
+                          />
+                        </div>
+                      )}
+                      <div className="w-[140px] min-w-[140px]">
+                        <Input
+                          label="Qty"
+                          type="number"
+                          value={item.quantity}
+                          onChange={(event) => updateKitItem(index, 'quantity', event.target.value)}
+                          onFocus={(event) => event.currentTarget.select()}
+                          disabled={readOnly}
+                          min={1}
+                          step={1}
+                        />
+                      </div>
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          onClick={() => removeKitItem(index)}
+                          className="p-2 hover:bg-slate-100 rounded-lg transition-colors self-end"
+                          aria-label="Remove component"
+                        >
+                          <Trash2 className="w-5 h-5 text-slate-500" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
                 {!readOnly && (
-                  <Button variant="outlined" onClick={addKitItem} className="self-start">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add component
-                  </Button>
+                  <div className="flex gap-2 flex-wrap self-start">
+                    <Button variant="outlined" onClick={() => addKitItem('item')}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add item
+                    </Button>
+                    <Button variant="outlined" onClick={() => addKitItem('variant')}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add variant
+                    </Button>
+                  </div>
                 )}
               </div>
             )}

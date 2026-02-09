@@ -302,7 +302,12 @@ export const ItemsPage = () => {
                     <Button size="small" variant="outlined" onClick={() => openEdit(item)}>
                       Edit
                     </Button>
-                    <Button size="small" variant="outlined" onClick={() => requestToggleActive(item)}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color={item.is_active ? 'error' : 'success'}
+                      onClick={() => requestToggleActive(item)}
+                    >
                       {item.is_active ? 'Deactivate' : 'Activate'}
                     </Button>
                   </div>

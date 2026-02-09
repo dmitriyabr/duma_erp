@@ -134,12 +134,15 @@ export const ProcurementPaymentsListPage = () => {
               <TableHeaderCell>Method</TableHeaderCell>
               <TableHeaderCell>Status</TableHeaderCell>
               <TableHeaderCell align="center">File</TableHeaderCell>
-              <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {payments.map((payment) => (
-              <TableRow key={payment.id}>
+              <TableRow
+                key={payment.id}
+                onClick={() => navigate(`/procurement/payments/${payment.id}`)}
+                className="cursor-pointer"
+              >
                 <TableCell>{payment.payment_number}</TableCell>
                 <TableCell>{payment.po_id ?? '—'}</TableCell>
                 <TableCell>{payment.payee_name ?? '—'}</TableCell>
@@ -165,23 +168,18 @@ export const ProcurementPaymentsListPage = () => {
                     </Tooltip>
                   )}
                 </TableCell>
-                <TableCell align="right">
-                  <Button size="small" variant="outlined" onClick={() => navigate(`/procurement/payments/${payment.id}`)}>
-                    View
-                  </Button>
-                </TableCell>
               </TableRow>
             ))}
             {loading && (
               <TableRow>
-                <td colSpan={9} className="px-4 py-8 text-center">
+                <td colSpan={8} className="px-4 py-8 text-center">
                   <Spinner size="medium" />
                 </td>
               </TableRow>
             )}
             {!payments.length && !loading && (
               <TableRow>
-                <td colSpan={9} className="px-4 py-8 text-center">
+                <td colSpan={8} className="px-4 py-8 text-center">
                   <Typography color="secondary">No payments found</Typography>
                 </td>
               </TableRow>

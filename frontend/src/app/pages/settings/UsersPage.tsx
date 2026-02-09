@@ -219,7 +219,12 @@ export const UsersPage = () => {
                     <Button size="small" variant="outlined" onClick={() => openEdit(row)}>
                       Edit
                     </Button>
-                    <Button size="small" variant="outlined" onClick={() => requestToggleActive(row)}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color={row.is_active ? 'error' : 'success'}
+                      onClick={() => requestToggleActive(row)}
+                    >
                       {row.is_active ? 'Deactivate' : 'Activate'}
                     </Button>
                   </div>

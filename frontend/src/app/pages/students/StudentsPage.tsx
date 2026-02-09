@@ -166,12 +166,15 @@ export const StudentsPage = () => {
               <TableHeaderCell>Guardian</TableHeaderCell>
               <TableHeaderCell>Status</TableHeaderCell>
               <TableHeaderCell>Balance</TableHeaderCell>
-              <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {rows.map((row) => (
-              <TableRow key={row.id}>
+              <TableRow
+                key={row.id}
+                className="cursor-pointer hover:bg-slate-50 transition-colors"
+                onClick={() => navigate(`/students/${row.id}`)}
+              >
                 <TableCell>{row.student_number}</TableCell>
                 <TableCell>{row.full_name}</TableCell>
                 <TableCell>{row.grade_name ?? '—'}</TableCell>
@@ -192,23 +195,18 @@ export const StudentsPage = () => {
                   />
                 </TableCell>
                 <TableCell>{formatMoney(row.balance ?? 0)}</TableCell>
-                <TableCell align="right">
-                  <Button size="small" variant="outlined" onClick={() => navigate(`/students/${row.id}`)}>
-                    Open
-                  </Button>
-                </TableCell>
               </TableRow>
             ))}
             {loading && (
               <TableRow>
-                <td colSpan={8} className="px-4 py-8 text-center">
+                <td colSpan={7} className="px-4 py-8 text-center">
                   <Spinner size="medium" />
                 </td>
               </TableRow>
             )}
             {!rows.length && !loading && (
               <TableRow>
-                <td colSpan={8} className="px-4 py-8 text-center">
+                <td colSpan={7} className="px-4 py-8 text-center">
                   <Typography color="secondary">No students found</Typography>
                 </td>
               </TableRow>
