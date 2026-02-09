@@ -38,12 +38,17 @@ export function canCreateItem(user: AuthUser | null): boolean {
   return user?.role === 'SuperAdmin'
 }
 
+/** Catalog (kits/categories/variants): editing restricted to SuperAdmin. */
+export function canManageCatalog(user: AuthUser | null): boolean {
+  return user?.role === 'SuperAdmin'
+}
+
 export function canCancelIssuance(user: AuthUser | null): boolean {
   return user?.role === 'SuperAdmin'
 }
 
 export function canInvoiceTerm(user: AuthUser | null): boolean {
-  return user?.role === 'SuperAdmin'
+  return user?.role === 'SuperAdmin' || user?.role === 'Admin'
 }
 
 /** Accountant is read-only: no create/edit. */

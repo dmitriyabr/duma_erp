@@ -122,8 +122,10 @@ Growth rate: +11% year-over-year
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ Quick Actions:                                           │
-│ [💰 View Outstanding Debts]  [📊 Student Fees Report]   │
-│ [📦 Check Inventory Levels]  [✅ Approve Claims]        │
+│ [🧾 Claim Expense]  [💳 Receive Student Payment]        │
+│ [👕 Issue Item From Stock]  [✅ Issue Reserved Item]     │
+│ [👤 Admit New Student]  [🛒 Sell Items To Student]       │
+│ [🚚 Track Order Items]  [📦 Receive Order Items]         │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -602,10 +604,10 @@ TOTAL (Top 10)  |       | 850,000    |             |
       ├─ Term-over-Term Comparison
       └─ KPIs & Metrics
 
-… остальные пункты меню (Students, Billing, Warehouse, Procurement, Compensations, Settings)
+… остальные пункты меню (Students, Billing, Warehouse, Procurement, Compensations, Settings — **SuperAdmin only**)
 ```
 
-Quick Actions на Dashboard видны **User**, **Admin**, **SuperAdmin** и ведут: «View Outstanding Debts» → Reports → Aged Receivables; «Student Fees Report» → Reports → Fees Summary; «Check Inventory Levels» → Warehouse или Low Stock Alert; «Approve Claims» → Compensations → Claims.
+Quick Actions на Dashboard видны **User**, **Admin**, **SuperAdmin** и ведут на основные операционные действия (claims, payments, issuing stock, procurement).
 
 ### 9.2 Report Page Layout
 

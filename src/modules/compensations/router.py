@@ -15,7 +15,9 @@ from src.modules.compensations.schemas import (
     EmployeeBalanceResponse,
     EmployeeBalancesBatchRequest,
     EmployeeBalancesBatchResponse,
+    ExpenseClaimCreate,
     ExpenseClaimResponse,
+    ExpenseClaimUpdate,
 )
 from src.modules.compensations.service import ExpenseClaimService, PayoutService
 from src.shared.schemas.base import ApiResponse, PaginatedResponse
@@ -34,6 +36,79 @@ def _payout_to_response(payout) -> CompensationPayoutResponse:
 
 def _balance_to_response(balance) -> EmployeeBalanceResponse:
     return EmployeeBalanceResponse.model_validate(balance)
+
+
+@router.post(
+    "",
+    response_model=ApiResponse[ExpenseClaimResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_claim(
+    data: ExpenseClaimCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)),
+):
+    """Create an out-of-pocket expense claim (no PO/GRN required)."""
+    # USER can only create for self.
+    employee_id = data.employee_id or current_user.id
+    if current_user.role == UserRole.USER:
+        employee_id = current_user.id
+
+    # Ensure employee exists (can be user without login password).
+    from src.core.auth.service import AuthService
+
+    employee = await AuthService(db).get_user_by_id(employee_id)
+    if not employee:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+
+    service = ExpenseClaimService(db)
+    claim = await service.create_out_of_pocket_claim(data, employee_id=employee_id)
+    return ApiResponse(
+        success=True,
+        message="Expense claim created",
+        data=_claim_to_response(claim),
+    )
+
+
+@router.patch(
+    "/{claim_id}",
+    response_model=ApiResponse[ExpenseClaimResponse],
+)
+async def update_claim(
+    claim_id: int,
+    data: ExpenseClaimUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)),
+):
+    """Update a draft claim. USER can only update own draft claims."""
+    service = ExpenseClaimService(db)
+    claim = await service.get_claim_by_id(claim_id)
+    if current_user.role == UserRole.USER and claim.employee_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only edit your own claims")
+
+    # Service requires employee_id to match claim owner. For admins, pass the claim owner.
+    owner_id = current_user.id if current_user.role == UserRole.USER else claim.employee_id
+    updated = await service.update_out_of_pocket_claim(claim_id, data, employee_id=owner_id)
+    return ApiResponse(success=True, message="Expense claim updated", data=_claim_to_response(updated))
+
+
+@router.post(
+    "/{claim_id}/submit",
+    response_model=ApiResponse[ExpenseClaimResponse],
+)
+async def submit_claim(
+    claim_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)),
+):
+    """Submit a draft claim for approval."""
+    service = ExpenseClaimService(db)
+    claim = await service.get_claim_by_id(claim_id)
+    if current_user.role == UserRole.USER and claim.employee_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only submit your own claims")
+    owner_id = current_user.id if current_user.role == UserRole.USER else claim.employee_id
+    submitted = await service.submit_claim(claim_id, employee_id=owner_id)
+    return ApiResponse(success=True, message="Expense claim submitted", data=_claim_to_response(submitted))
 
 
 @router.get(

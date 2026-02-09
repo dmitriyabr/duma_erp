@@ -11,12 +11,17 @@ class ExpenseClaimResponse(BaseModel):
 
     id: int
     claim_number: str
-    payment_id: int
+    payment_id: int | None
     employee_id: int
+    employee_name: str
     purpose_id: int
     amount: Decimal
+    payee_name: str | None
     description: str
+    rejection_reason: str | None
     expense_date: date
+    proof_text: str | None
+    proof_attachment_id: int | None
     status: str
     paid_amount: Decimal
     remaining_amount: Decimal
@@ -26,6 +31,46 @@ class ExpenseClaimResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ExpenseClaimCreate(BaseModel):
+    """Create out-of-pocket expense claim."""
+
+    employee_id: int | None = None
+    purpose_id: int
+    amount: Decimal = Field(..., gt=0)
+    payee_name: str | None = Field(None, max_length=300)
+    description: str = Field(..., min_length=1)
+    expense_date: date
+    proof_text: str | None = None
+    proof_attachment_id: int | None = None
+    submit: bool = True
+
+    @model_validator(mode="after")
+    def validate_proof(self):
+        if self.submit and not self.proof_text and not self.proof_attachment_id:
+            raise ValueError("Proof is required: provide proof_text or proof_attachment_id")
+        return self
+
+
+class ExpenseClaimUpdate(BaseModel):
+    """Update out-of-pocket claim (draft only)."""
+
+    employee_id: int | None = None
+    purpose_id: int | None = None
+    amount: Decimal | None = Field(None, gt=0)
+    payee_name: str | None = Field(None, max_length=300)
+    description: str | None = Field(None, min_length=1)
+    expense_date: date | None = None
+    proof_text: str | None = None
+    proof_attachment_id: int | None = None
+    submit: bool | None = None
+
+    @model_validator(mode="after")
+    def validate_proof(self):
+        if self.submit is True and not self.proof_text and not self.proof_attachment_id:
+            raise ValueError("Proof is required: provide proof_text or proof_attachment_id")
+        return self
 
 
 class ApproveExpenseClaimRequest(BaseModel):

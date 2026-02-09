@@ -3,7 +3,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
-import { isAccountant } from '../../utils/permissions'
+import { isSuperAdmin } from '../../utils/permissions'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api } from '../../services/api'
 import {
@@ -142,7 +142,7 @@ interface ImportReconciliationSummary {
 
 export const BankReconciliationPage = () => {
   const { user } = useAuth()
-  const accessDenied = isAccountant(user)
+  const accessDenied = !isSuperAdmin(user)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null)

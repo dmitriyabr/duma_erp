@@ -5,6 +5,7 @@ import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
 import { isSuperAdmin } from '../../utils/permissions'
+import { openAttachmentInNewTab } from '../../utils/attachments'
 import { Typography } from '../../components/ui/Typography'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
@@ -17,10 +18,15 @@ interface ClaimResponse {
   id: number
   claim_number: string
   employee_id: number
+  employee_name: string
   purpose_id: number
   amount: number
+  payee_name: string | null
   description: string
+  rejection_reason: string | null
   expense_date: string
+  proof_text: string | null
+  proof_attachment_id: number | null
   status: string
   paid_amount: number
   remaining_amount: number
@@ -109,6 +115,19 @@ export const ExpenseClaimDetailPage = () => {
     )
   }
 
+  const splitLegacyRejectionReason = (description: string): { description: string; rejection_reason: string | null } => {
+    const marker = 'Rejection reason:'
+    const idx = description.indexOf(marker)
+    if (idx === -1) return { description, rejection_reason: null }
+    const before = description.slice(0, idx).trim()
+    const after = description.slice(idx + marker.length).trim()
+    return { description: before || description, rejection_reason: after || null }
+  }
+
+  const legacySplit = splitLegacyRejectionReason(claim.description)
+  const displayDescription = claim.rejection_reason ? claim.description : legacySplit.description
+  const displayRejectionReason = claim.rejection_reason ?? legacySplit.rejection_reason
+
   const canApprove = userIsSuperAdmin && claim.status === 'pending_approval'
   const canReject = userIsSuperAdmin && claim.status === 'pending_approval'
 
@@ -147,6 +166,12 @@ export const ExpenseClaimDetailPage = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <div>
           <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Employee
+          </Typography>
+          <Typography>{claim.employee_name}</Typography>
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
             Amount
           </Typography>
           <Typography variant="h6">{formatMoney(claim.amount)}</Typography>
@@ -177,8 +202,45 @@ export const ExpenseClaimDetailPage = () => {
         <Typography variant="subtitle2" color="secondary" className="mb-1">
           Description
         </Typography>
-        <Typography>{claim.description}</Typography>
+        <Typography>{displayDescription}</Typography>
       </div>
+
+      {displayRejectionReason && (
+        <div className="mb-6">
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Rejection reason
+          </Typography>
+          <Typography>{displayRejectionReason}</Typography>
+        </div>
+      )}
+
+      {(claim.payee_name || claim.proof_text || claim.proof_attachment_id != null) && (
+        <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <Typography variant="subtitle2" color="secondary" className="mb-1">
+              Payee / vendor
+            </Typography>
+            <Typography>{claim.payee_name ?? '—'}</Typography>
+          </div>
+          <div>
+            <Typography variant="subtitle2" color="secondary" className="mb-1">
+              Proof
+            </Typography>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Typography>{claim.proof_text ?? (claim.proof_attachment_id != null ? 'Receipt file attached' : '—')}</Typography>
+              {claim.proof_attachment_id != null && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => openAttachmentInNewTab(claim.proof_attachment_id!)}
+                >
+                  View file
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <Dialog open={approveDialogOpen} onClose={() => setApproveDialogOpen(false)} maxWidth="md">
         <DialogCloseButton onClose={() => setApproveDialogOpen(false)} />

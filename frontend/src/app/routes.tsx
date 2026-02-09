@@ -40,6 +40,7 @@ import { InventoryCountPage } from './pages/inventory/InventoryCountPage'
 import { ItemsPage } from './pages/inventory/ItemsPage'
 import { ExpenseClaimsListPage } from './pages/compensations/ExpenseClaimsListPage'
 import { ExpenseClaimDetailPage } from './pages/compensations/ExpenseClaimDetailPage'
+import { NewExpenseClaimPage } from './pages/compensations/NewExpenseClaimPage'
 import { PayoutsPage } from './pages/compensations/PayoutsPage'
 import { PayoutDetailPage } from './pages/compensations/PayoutDetailPage'
 import { AuditTrailPage } from './pages/accountant/AuditTrailPage'
@@ -78,6 +79,15 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   if (!user) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />
   }
+  return <>{children}</>
+}
+
+const SuperAdminOnly: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, isLoading } = useAuth()
+  const location = useLocation()
+  if (isLoading) return null
+  if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />
+  if (user.role !== 'SuperAdmin') return <Navigate to="/access-denied" replace />
   return <>{children}</>
 }
 
@@ -145,6 +155,7 @@ export const AppRoutes = () => {
           <Route path="procurement/payments/:paymentId" element={<ProcurementPaymentDetailPage />} />
           <Route path="compensations" element={<PlaceholderPage title="Compensations" />} />
           <Route path="compensations/claims" element={<ExpenseClaimsListPage />} />
+          <Route path="compensations/claims/new" element={<NewExpenseClaimPage />} />
           <Route path="compensations/claims/:claimId" element={<ExpenseClaimDetailPage />} />
           <Route path="compensations/payouts" element={<PayoutsPage />} />
           <Route path="compensations/payouts/:payoutId" element={<PayoutDetailPage />} />
@@ -191,11 +202,46 @@ export const AppRoutes = () => {
           <Route path="bank-reconciliation" element={<BankReconciliationPage />} />
           <Route path="accountant/documents" element={<PlaceholderPage title="Documents" />} />
           <Route path="settings" element={<PlaceholderPage title="Settings" />} />
-          <Route path="settings/users" element={<UsersPage />} />
-          <Route path="settings/grades" element={<GradesPage />} />
-          <Route path="settings/school" element={<SchoolPage />} />
-          <Route path="settings/transport-zones" element={<TransportZonesPage />} />
-          <Route path="settings/payment-purposes" element={<PaymentPurposesPage />} />
+          <Route
+            path="settings/users"
+            element={
+              <SuperAdminOnly>
+                <UsersPage />
+              </SuperAdminOnly>
+            }
+          />
+          <Route
+            path="settings/grades"
+            element={
+              <SuperAdminOnly>
+                <GradesPage />
+              </SuperAdminOnly>
+            }
+          />
+          <Route
+            path="settings/school"
+            element={
+              <SuperAdminOnly>
+                <SchoolPage />
+              </SuperAdminOnly>
+            }
+          />
+          <Route
+            path="settings/transport-zones"
+            element={
+              <SuperAdminOnly>
+                <TransportZonesPage />
+              </SuperAdminOnly>
+            }
+          />
+          <Route
+            path="settings/payment-purposes"
+            element={
+              <SuperAdminOnly>
+                <PaymentPurposesPage />
+              </SuperAdminOnly>
+            }
+          />
         </Route>
         <Route path="*" element={<NotFoundPage />} />
       </Routes>

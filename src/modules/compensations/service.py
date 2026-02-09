@@ -6,6 +6,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload
 
 from src.core.documents.number_generator import get_document_number
 from src.core.exceptions import NotFoundError, ValidationError
@@ -18,10 +19,13 @@ from src.modules.compensations.models import (
 )
 from src.modules.compensations.schemas import (
     CompensationPayoutCreate,
+    ExpenseClaimCreate,
+    ExpenseClaimUpdate,
     EmployeeBalanceResponse,
 )
 from src.shared.utils.money import round_money
 from src.modules.procurement.models import ProcurementPayment
+from src.modules.procurement.models import PaymentPurpose
 
 
 class ExpenseClaimService:
@@ -39,8 +43,11 @@ class ExpenseClaimService:
             employee_id=payment.employee_paid_id,
             purpose_id=payment.purpose_id,
             amount=payment.amount,
+            payee_name=payment.payee_name,
             description=payment.reference_number or f"Payment {payment.payment_number}",
             expense_date=payment.payment_date,
+            proof_text=payment.proof_text,
+            proof_attachment_id=payment.proof_attachment_id,
             status=ExpenseClaimStatus.PENDING_APPROVAL.value,
             paid_amount=Decimal("0.00"),
             remaining_amount=payment.amount,
@@ -50,6 +57,99 @@ class ExpenseClaimService:
         self.db.add(claim)
         await self.db.flush()
         return claim
+
+    async def create_out_of_pocket_claim(
+        self,
+        data: ExpenseClaimCreate,
+        *,
+        employee_id: int,
+    ) -> ExpenseClaim:
+        """Create an out-of-pocket expense claim (no procurement payment required)."""
+        # Validate purpose exists (shared catalog for procurement + claims).
+        purpose = await self.db.scalar(select(PaymentPurpose).where(PaymentPurpose.id == data.purpose_id))
+        if not purpose:
+            raise ValidationError("Invalid purpose_id")
+
+        claim_number = await get_document_number(self.db, "CLM")
+        status = (
+            ExpenseClaimStatus.PENDING_APPROVAL.value
+            if data.submit
+            else ExpenseClaimStatus.DRAFT.value
+        )
+        claim = ExpenseClaim(
+            claim_number=claim_number,
+            payment_id=None,
+            employee_id=employee_id,
+            purpose_id=data.purpose_id,
+            amount=data.amount,
+            payee_name=data.payee_name,
+            description=data.description,
+            expense_date=data.expense_date,
+            proof_text=data.proof_text,
+            proof_attachment_id=data.proof_attachment_id,
+            status=status,
+            paid_amount=Decimal("0.00"),
+            remaining_amount=data.amount,
+            auto_created_from_payment=False,
+            related_procurement_payment_id=None,
+        )
+        self.db.add(claim)
+        await self.db.commit()
+        return await self.get_claim_by_id(claim.id)
+
+    async def update_out_of_pocket_claim(
+        self,
+        claim_id: int,
+        data: ExpenseClaimUpdate,
+        *,
+        employee_id: int,
+    ) -> ExpenseClaim:
+        """Update an out-of-pocket claim. Only allowed in draft and only for the owner (or admin via router)."""
+        claim = await self.get_claim_by_id(claim_id)
+        if claim.employee_id != employee_id:
+            raise ValidationError("Cannot update claim for another employee")
+        if claim.status != ExpenseClaimStatus.DRAFT.value:
+            raise ValidationError("Only draft claims can be updated")
+
+        update = data.model_dump(exclude_unset=True)
+        submit = update.pop("submit", None)
+
+        if "purpose_id" in update and update["purpose_id"] is not None:
+            purpose = await self.db.scalar(
+                select(PaymentPurpose).where(PaymentPurpose.id == update["purpose_id"])
+            )
+            if not purpose:
+                raise ValidationError("Invalid purpose_id")
+
+        for field, value in update.items():
+            setattr(claim, field, value)
+
+        if "amount" in update and update["amount"] is not None:
+            # Keep remaining_amount in sync while still draft (nothing allocated/paid yet).
+            claim.paid_amount = Decimal("0.00")
+            claim.remaining_amount = Decimal(str(claim.amount))
+
+        if submit is True:
+            # Validate proof on submit (schema also validates, but keep defensive).
+            if not claim.proof_text and not claim.proof_attachment_id:
+                raise ValidationError("Proof is required: provide proof_text or proof_attachment_id")
+            claim.status = ExpenseClaimStatus.PENDING_APPROVAL.value
+
+        await self.db.commit()
+        return await self.get_claim_by_id(claim_id)
+
+    async def submit_claim(self, claim_id: int, *, employee_id: int) -> ExpenseClaim:
+        """Submit a draft claim for approval."""
+        claim = await self.get_claim_by_id(claim_id)
+        if claim.employee_id != employee_id:
+            raise ValidationError("Cannot submit claim for another employee")
+        if claim.status != ExpenseClaimStatus.DRAFT.value:
+            raise ValidationError("Only draft claims can be submitted")
+        if not claim.proof_text and not claim.proof_attachment_id:
+            raise ValidationError("Proof is required: provide proof_text or proof_attachment_id")
+        claim.status = ExpenseClaimStatus.PENDING_APPROVAL.value
+        await self.db.commit()
+        return await self.get_claim_by_id(claim_id)
 
     async def approve_claim(
         self, claim_id: int, approve: bool, reason: str | None = None
@@ -64,16 +164,21 @@ class ExpenseClaimService:
 
         if approve:
             claim.status = ExpenseClaimStatus.APPROVED.value
+            claim.rejection_reason = None
         else:
             claim.status = ExpenseClaimStatus.REJECTED.value
-            if reason:
-                claim.description = f"{claim.description}\nRejection reason: {reason}"
+            claim.rejection_reason = reason.strip() if reason else None
         await self.db.commit()
         return await self.get_claim_by_id(claim_id)
 
     async def get_claim_by_id(self, claim_id: int) -> ExpenseClaim:
         result = await self.db.execute(
-            select(ExpenseClaim).where(ExpenseClaim.id == claim_id)
+            select(ExpenseClaim)
+            .where(ExpenseClaim.id == claim_id)
+            .options(
+                selectinload(ExpenseClaim.employee),
+                selectinload(ExpenseClaim.purpose),
+            )
         )
         claim = result.scalar_one_or_none()
         if not claim:
@@ -89,7 +194,10 @@ class ExpenseClaimService:
         page: int = 1,
         limit: int = 50,
     ) -> tuple[list[ExpenseClaim], int]:
-        query = select(ExpenseClaim)
+        query = select(ExpenseClaim).options(
+            selectinload(ExpenseClaim.employee),
+            selectinload(ExpenseClaim.purpose),
+        )
         if employee_id:
             query = query.where(ExpenseClaim.employee_id == employee_id)
         if status:

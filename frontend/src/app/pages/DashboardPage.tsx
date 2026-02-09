@@ -28,14 +28,14 @@ const quickActions: Array<{
   state?: Record<string, unknown>
   icon: React.ReactNode
 }> = [
-  { label: 'Admit New Student', path: '/students/new', icon: <UserPlus className="w-5 h-5" /> },
-  { label: 'Sell Items To Student', path: '/billing/invoices/new', icon: <ShoppingCart className="w-5 h-5" /> },
+  { label: 'Claim Expense', path: '/compensations/claims/new', icon: <Receipt className="w-5 h-5" /> },
   { label: 'Receive Student Payment', path: '/payments/new', icon: <CreditCard className="w-5 h-5" /> },
-  { label: 'Track Order Items', path: '/procurement/orders/new', icon: <Truck className="w-5 h-5" /> },
-  { label: 'Receive Order Items', path: '/procurement/orders', icon: <Package className="w-5 h-5" /> },
-  { label: 'Track Payment', path: '/procurement/payments/new', icon: <Receipt className="w-5 h-5" /> },
   { label: 'Issue Item From Stock', path: '/inventory/issue', icon: <Shirt className="w-5 h-5" /> },
   { label: 'Issue Reserved Item', path: '/inventory/reservations', icon: <CheckCircle className="w-5 h-5" /> },
+  { label: 'Admit New Student', path: '/students/new', icon: <UserPlus className="w-5 h-5" /> },
+  { label: 'Sell Items To Student', path: '/billing/invoices/new', icon: <ShoppingCart className="w-5 h-5" /> },
+  { label: 'Track Order Items', path: '/procurement/orders/new', icon: <Truck className="w-5 h-5" /> },
+  { label: 'Receive Order Items', path: '/procurement/orders', icon: <Package className="w-5 h-5" /> },
 ]
 
 interface DashboardData {
@@ -71,8 +71,14 @@ export const DashboardPage = () => {
   useEffect(() => {
     if (!showSummary) return
     let cancelled = false
-    setLoading(true)
-    setError(null)
+    // Avoid calling setState synchronously within an effect body (react-hooks/set-state-in-effect).
+    // We only need to show loading and clear previous error before the request.
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setLoading(true)
+        setError(null)
+      }
+    })
     api
       .get<ApiResponse<DashboardData>>('/dashboard')
       .then((res) => {

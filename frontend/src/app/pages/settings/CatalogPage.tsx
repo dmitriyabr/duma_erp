@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { useApi, useApiMutation } from '../../hooks/useApi'
-import { isAccountant } from '../../utils/permissions'
+import { canManageCatalog } from '../../utils/permissions'
 import { api, unwrapResponse } from '../../services/api'
 import { formatMoney } from '../../utils/format'
 import { cn } from '../../utils/cn'
@@ -122,7 +122,8 @@ export const CatalogPage = () => {
   const location = useLocation()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const readOnly = isAccountant(user)
+  const canEdit = canManageCatalog(user)
+  const readOnly = !canEdit
 
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<number | 'all'>('all')
