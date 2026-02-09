@@ -104,7 +104,7 @@ export const DashboardPage = () => {
           <Typography variant="subtitle1" className="mb-4" color="secondary">
             Quick Actions
           </Typography>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {quickActions.map((action) => (
               <Button
                 key={action.label}
@@ -112,10 +112,10 @@ export const DashboardPage = () => {
                 size="large"
                 fullWidth
                 onClick={() => navigate(action.path, action.state ? { state: action.state } : undefined)}
-                className="justify-start gap-2 py-6 px-4 text-base font-semibold shadow-sm hover:shadow-md"
+                className="justify-start gap-3 py-6 px-4 text-base font-semibold shadow-sm hover:shadow-md"
               >
-                {action.icon}
-                {action.label}
+                <span className="shrink-0">{action.icon}</span>
+                <span className="text-left whitespace-normal break-words leading-snug">{action.label}</span>
               </Button>
             ))}
           </div>
