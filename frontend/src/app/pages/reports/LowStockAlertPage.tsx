@@ -82,7 +82,7 @@ export const LowStockAlertPage = () => {
     <div>
       <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
         <Typography variant="h5">Low Stock Alert</Typography>
-        <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/low-stock-alert', {}, 'low-stock-alert.xlsx')}>Export to Excel</Button>
+        <Button variant="outlined" onClick={() => downloadReportExcel('/reports/low-stock-alert', {}, 'low-stock-alert.xlsx')}>Export to Excel</Button>
       </div>
       {data != null && data.total_low_count > 0 && (
         <Alert severity="info" className="mb-4">
@@ -99,16 +99,16 @@ export const LowStockAlertPage = () => {
       {error && <Alert severity="error" className="mb-4">{error}</Alert>}
 
       {!loading && data && (
-        <Card>
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
           <Table>
             <TableHead>
               <TableRow>
-                <TableHeaderCell><strong>Item</strong></TableHeaderCell>
-                <TableHeaderCell><strong>SKU</strong></TableHeaderCell>
-                <TableHeaderCell align="right"><strong>Current</strong></TableHeaderCell>
-                <TableHeaderCell align="right"><strong>Min level</strong></TableHeaderCell>
-                <TableHeaderCell><strong>Status</strong></TableHeaderCell>
-                <TableHeaderCell align="right"><strong>Suggested order</strong></TableHeaderCell>
+                <TableHeaderCell>Item</TableHeaderCell>
+                <TableHeaderCell>SKU</TableHeaderCell>
+                <TableHeaderCell align="right">Current</TableHeaderCell>
+                <TableHeaderCell align="right">Min level</TableHeaderCell>
+                <TableHeaderCell>Status</TableHeaderCell>
+                <TableHeaderCell align="right">Suggested order</TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -126,7 +126,7 @@ export const LowStockAlertPage = () => {
               ))}
             </TableBody>
           </Table>
-        </Card>
+        </div>
       )}
 
       {!loading && !data && !error && canSeeReports(user) && (

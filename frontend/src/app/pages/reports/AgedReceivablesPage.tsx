@@ -125,7 +125,7 @@ export const AgedReceivablesPage = () => {
     <div>
       <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
         <Typography variant="h5">Students Debt</Typography>
-        <Button variant="outlined" size="small" onClick={handleExportExcel}>
+        <Button variant="outlined" onClick={handleExportExcel}>
           Export to Excel
         </Button>
       </div>
@@ -145,99 +145,97 @@ export const AgedReceivablesPage = () => {
 
       {!loading && data && (
         <>
-          <Card className="mb-4">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableHeaderCell>
-                      <TableSortLabel
-                        active={orderBy === 'student_name'}
-                        direction={orderBy === 'student_name' ? order : 'asc'}
-                        onClick={() => handleSort('student_name')}
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden mb-4">
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>
+                    <TableSortLabel
+                      active={orderBy === 'student_name'}
+                      direction={orderBy === 'student_name' ? order : 'asc'}
+                      onClick={() => handleSort('student_name')}
+                    >
+                      Student
+                    </TableSortLabel>
+                  </TableHeaderCell>
+                  <TableHeaderCell align="right">
+                    <TableSortLabel
+                      active={orderBy === 'total'}
+                      direction={orderBy === 'total' ? order : 'desc'}
+                      onClick={() => handleSort('total')}
+                    >
+                      Total
+                    </TableSortLabel>
+                  </TableHeaderCell>
+                  <TableHeaderCell align="right">
+                    <TableSortLabel
+                      active={orderBy === 'current'}
+                      direction={orderBy === 'current' ? order : 'desc'}
+                      onClick={() => handleSort('current')}
+                    >
+                      Current (0-30 days)
+                    </TableSortLabel>
+                  </TableHeaderCell>
+                  <TableHeaderCell align="right">
+                    <TableSortLabel
+                      active={orderBy === 'bucket_31_60'}
+                      direction={orderBy === 'bucket_31_60' ? order : 'desc'}
+                      onClick={() => handleSort('bucket_31_60')}
+                    >
+                      31-60 days
+                    </TableSortLabel>
+                  </TableHeaderCell>
+                  <TableHeaderCell align="right">
+                    <TableSortLabel
+                      active={orderBy === 'bucket_61_90'}
+                      direction={orderBy === 'bucket_61_90' ? order : 'desc'}
+                      onClick={() => handleSort('bucket_61_90')}
+                    >
+                      61-90 days
+                    </TableSortLabel>
+                  </TableHeaderCell>
+                  <TableHeaderCell align="right">
+                    <TableSortLabel
+                      active={orderBy === 'bucket_90_plus'}
+                      direction={orderBy === 'bucket_90_plus' ? order : 'desc'}
+                      onClick={() => handleSort('bucket_90_plus')}
+                    >
+                      90+ days
+                    </TableSortLabel>
+                  </TableHeaderCell>
+                  <TableHeaderCell>
+                    <TableSortLabel
+                      active={orderBy === 'last_payment_date'}
+                      direction={orderBy === 'last_payment_date' ? order : 'desc'}
+                      onClick={() => handleSort('last_payment_date')}
+                    >
+                      Last Payment
+                    </TableSortLabel>
+                  </TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {sortedRows.map((row) => (
+                  <TableRow key={row.student_id}>
+                    <TableCell>
+                      <Link
+                        to={`/students/${row.student_id}`}
+                        className="text-inherit no-underline hover:underline"
                       >
-                        Student
-                      </TableSortLabel>
-                    </TableHeaderCell>
-                    <TableHeaderCell align="right">
-                      <TableSortLabel
-                        active={orderBy === 'total'}
-                        direction={orderBy === 'total' ? order : 'desc'}
-                        onClick={() => handleSort('total')}
-                      >
-                        Total
-                      </TableSortLabel>
-                    </TableHeaderCell>
-                    <TableHeaderCell align="right">
-                      <TableSortLabel
-                        active={orderBy === 'current'}
-                        direction={orderBy === 'current' ? order : 'desc'}
-                        onClick={() => handleSort('current')}
-                      >
-                        Current (0-30 days)
-                      </TableSortLabel>
-                    </TableHeaderCell>
-                    <TableHeaderCell align="right">
-                      <TableSortLabel
-                        active={orderBy === 'bucket_31_60'}
-                        direction={orderBy === 'bucket_31_60' ? order : 'desc'}
-                        onClick={() => handleSort('bucket_31_60')}
-                      >
-                        31-60 days
-                      </TableSortLabel>
-                    </TableHeaderCell>
-                    <TableHeaderCell align="right">
-                      <TableSortLabel
-                        active={orderBy === 'bucket_61_90'}
-                        direction={orderBy === 'bucket_61_90' ? order : 'desc'}
-                        onClick={() => handleSort('bucket_61_90')}
-                      >
-                        61-90 days
-                      </TableSortLabel>
-                    </TableHeaderCell>
-                    <TableHeaderCell align="right">
-                      <TableSortLabel
-                        active={orderBy === 'bucket_90_plus'}
-                        direction={orderBy === 'bucket_90_plus' ? order : 'desc'}
-                        onClick={() => handleSort('bucket_90_plus')}
-                      >
-                        90+ days
-                      </TableSortLabel>
-                    </TableHeaderCell>
-                    <TableHeaderCell>
-                      <TableSortLabel
-                        active={orderBy === 'last_payment_date'}
-                        direction={orderBy === 'last_payment_date' ? order : 'desc'}
-                        onClick={() => handleSort('last_payment_date')}
-                      >
-                        Last Payment
-                      </TableSortLabel>
-                    </TableHeaderCell>
+                        {row.student_name}
+                      </Link>
+                    </TableCell>
+                    <TableCell align="right">{formatMoney(row.total)}</TableCell>
+                    <TableCell align="right">{formatMoney(row.current)}</TableCell>
+                    <TableCell align="right">{formatMoney(row.bucket_31_60)}</TableCell>
+                    <TableCell align="right">{formatMoney(row.bucket_61_90)}</TableCell>
+                    <TableCell align="right">{formatMoney(row.bucket_90_plus)}</TableCell>
+                    <TableCell>{row.last_payment_date ? formatDate(row.last_payment_date) : '—'}</TableCell>
                   </TableRow>
-                </TableHead>
-                <TableBody>
-                  {sortedRows.map((row) => (
-                    <TableRow key={row.student_id}>
-                      <TableCell>
-                        <Link
-                          to={`/students/${row.student_id}`}
-                          className="text-inherit no-underline hover:underline"
-                        >
-                          {row.student_name}
-                        </Link>
-                      </TableCell>
-                      <TableCell align="right">{formatMoney(row.total)}</TableCell>
-                      <TableCell align="right">{formatMoney(row.current)}</TableCell>
-                      <TableCell align="right">{formatMoney(row.bucket_31_60)}</TableCell>
-                      <TableCell align="right">{formatMoney(row.bucket_61_90)}</TableCell>
-                      <TableCell align="right">{formatMoney(row.bucket_90_plus)}</TableCell>
-                      <TableCell>{row.last_payment_date ? formatDate(row.last_payment_date) : '—'}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </Card>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
 
           <Card>
             <CardContent>

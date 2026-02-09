@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
@@ -11,6 +11,8 @@ import { Card, CardContent } from '../../components/ui/Card'
 import { Spinner } from '../../components/ui/Spinner'
 import { DateRangeShortcuts, getDateRangeForPreset } from '../../components/DateRangeShortcuts'
 import { downloadReportExcel } from '../../utils/reportExcel'
+import { formatMoney } from '../../utils/format'
+import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '../../components/ui/Table'
 
 interface AssetLine {
   label: string
@@ -45,19 +47,21 @@ const defaultRange = () => getDateRangeForPreset('this_year')
 
 export const BalanceSheetPage = () => {
   const { user } = useAuth()
+  const hasAccess = canSeeReports(user)
   const [dateFrom, setDateFrom] = useState(() => defaultRange().from)
   const [dateTo, setDateTo] = useState(() => defaultRange().to)
   const [data, setData] = useState<BalanceSheetData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [forbidden, setForbidden] = useState(false)
+  const [backendForbidden, setBackendForbidden] = useState(false)
 
-  const runReport = (overrideFrom?: string, overrideTo?: string) => {
-    if (!canSeeReports(user)) return
-    const from = overrideFrom ?? dateFrom
-    const to = overrideTo ?? dateTo
+  const runReportForRange = useCallback((from: string, to: string) => {
+    if (!hasAccess) return
+    setDateFrom(from)
+    setDateTo(to)
     setLoading(true)
     setError(null)
+    setBackendForbidden(false)
     const fromD = new Date(from)
     const toD = new Date(to)
     const multiMonth = fromD.getFullYear() !== toD.getFullYear() || fromD.getMonth() !== toD.getMonth()
@@ -74,23 +78,23 @@ export const BalanceSheetPage = () => {
       .then((res) => {
         if (res.data?.data) {
           setData(res.data.data)
-          setDateFrom(from)
-          setDateTo(to)
         }
       })
       .catch((err) => {
-        if (err.response?.status === 403) setForbidden(true)
+        if (err.response?.status === 403) setBackendForbidden(true)
         else setError(err.response?.data?.detail ?? 'Failed to load report')
       })
       .finally(() => setLoading(false))
-  }
+  }, [hasAccess])
 
   useEffect(() => {
-    if (canSeeReports(user)) runReport()
-    else setForbidden(true)
-  }, [user])
+    if (!hasAccess) return
+    const { from, to } = defaultRange()
+    const t = window.setTimeout(() => runReportForRange(from, to), 0)
+    return () => window.clearTimeout(t)
+  }, [hasAccess, user, runReportForRange])
 
-  if (forbidden) {
+  if (!hasAccess || backendForbidden) {
     return (
       <div>
         <Typography variant="h5" className="mb-4">Balance Sheet</Typography>
@@ -115,7 +119,7 @@ export const BalanceSheetPage = () => {
                 setDateFrom(from)
                 setDateTo(to)
               }}
-              onRun={(from, to) => runReport(from, to)}
+              onRun={(from, to) => runReportForRange(from ?? dateFrom, to ?? dateTo)}
             />
             <div className="min-w-[160px]">
               <Input
@@ -133,10 +137,9 @@ export const BalanceSheetPage = () => {
                 onChange={(e) => setDateTo(e.target.value)}
               />
             </div>
-            <Button variant="contained" onClick={() => runReport()}>Run report</Button>
+            <Button variant="contained" onClick={() => runReportForRange(dateFrom, dateTo)}>Run report</Button>
             <Button
               variant="outlined"
-              size="small"
               onClick={() => {
                 const from = dateFrom
                 const to = dateTo
@@ -173,6 +176,139 @@ export const BalanceSheetPage = () => {
           <Typography variant="body2" color="secondary" className="mb-4">
             As at {data.as_at_date}
           </Typography>
+
+          <div className="flex flex-wrap gap-4 mb-6">
+            <Card className="min-w-[220px]">
+              <CardContent>
+                <Typography variant="body2" color="secondary">Total assets</Typography>
+                <Typography variant="h6">{formatMoney(data.total_assets)}</Typography>
+              </CardContent>
+            </Card>
+            <Card className="min-w-[220px]">
+              <CardContent>
+                <Typography variant="body2" color="secondary">Total liabilities</Typography>
+                <Typography variant="h6">{formatMoney(data.total_liabilities)}</Typography>
+              </CardContent>
+            </Card>
+            <Card className="min-w-[220px]">
+              <CardContent>
+                <Typography variant="body2" color="secondary">Net equity</Typography>
+                <Typography variant="h6">{formatMoney(data.net_equity)}</Typography>
+              </CardContent>
+            </Card>
+            <Card className="min-w-[220px]">
+              <CardContent>
+                <Typography variant="body2" color="secondary">Debt to asset</Typography>
+                <Typography variant="h6">
+                  {data.debt_to_asset_percent != null ? `${data.debt_to_asset_percent}%` : '—'}
+                </Typography>
+              </CardContent>
+            </Card>
+            <Card className="min-w-[220px]">
+              <CardContent>
+                <Typography variant="body2" color="secondary">Current ratio</Typography>
+                <Typography variant="h6">
+                  {data.current_ratio != null ? String(data.current_ratio) : '—'}
+                </Typography>
+              </CardContent>
+            </Card>
+          </div>
+
+          {(() => {
+            const months = data.months ?? []
+            const hasMonthly = months.length > 0
+            const cols = hasMonthly ? months.length + 2 : 2
+
+            const moneyCell = (value: string | undefined) => (
+              <TableCell align="right">{formatMoney(value ?? null)}</TableCell>
+            )
+
+            const percentCell = (value: number | undefined) => (
+              <TableCell align="right">{value != null ? `${value}%` : '—'}</TableCell>
+            )
+
+            const ratioCell = (value: number | undefined) => (
+              <TableCell align="right">{value != null ? String(value) : '—'}</TableCell>
+            )
+
+            const SectionRow = ({ label }: { label: string }) => (
+              <TableRow hover={false} className="bg-slate-100">
+                <td colSpan={cols} className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-slate-700">
+                  {label}
+                </td>
+              </TableRow>
+            )
+
+            return (
+              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden mb-6">
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableHeaderCell>Line</TableHeaderCell>
+                      {hasMonthly && months.map((m) => (
+                        <TableHeaderCell key={m} align="right">{m}</TableHeaderCell>
+                      ))}
+                      <TableHeaderCell align="right">Total (KES)</TableHeaderCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    <SectionRow label="Assets" />
+                    {data.asset_lines.map((line) => (
+                      <TableRow key={`asset-${line.label}`}>
+                        <TableCell>{line.label}</TableCell>
+                        {hasMonthly && months.map((m) => moneyCell(line.monthly?.[m]))}
+                        <TableCell align="right">{formatMoney(line.amount)}</TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow hover={false} className="bg-slate-50">
+                      <TableCell className="font-semibold">Total assets</TableCell>
+                      {hasMonthly && months.map((m) => moneyCell(data.total_assets_monthly?.[m]))}
+                      <TableCell align="right" className="font-semibold">{formatMoney(data.total_assets)}</TableCell>
+                    </TableRow>
+
+                    <SectionRow label="Liabilities" />
+                    {data.liability_lines.map((line) => (
+                      <TableRow key={`liab-${line.label}`}>
+                        <TableCell>{line.label}</TableCell>
+                        {hasMonthly && months.map((m) => moneyCell(line.monthly?.[m]))}
+                        <TableCell align="right">{formatMoney(line.amount)}</TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow hover={false} className="bg-slate-50">
+                      <TableCell className="font-semibold">Total liabilities</TableCell>
+                      {hasMonthly && months.map((m) => moneyCell(data.total_liabilities_monthly?.[m]))}
+                      <TableCell align="right" className="font-semibold">{formatMoney(data.total_liabilities)}</TableCell>
+                    </TableRow>
+
+                    <TableRow hover={false} className="bg-slate-200">
+                      <TableCell className="font-semibold uppercase tracking-wider text-slate-700">Net equity</TableCell>
+                      {hasMonthly && months.map((m) => moneyCell(data.net_equity_monthly?.[m]))}
+                      <TableCell align="right" className="font-semibold">{formatMoney(data.net_equity)}</TableCell>
+                    </TableRow>
+
+                    <TableRow hover={false}>
+                      <TableCell className="text-slate-600">Debt-to-asset (%)</TableCell>
+                      {hasMonthly && months.map((m) => percentCell(data.debt_to_asset_percent_monthly?.[m]))}
+                      <TableCell align="right">{data.debt_to_asset_percent != null ? `${data.debt_to_asset_percent}%` : '—'}</TableCell>
+                    </TableRow>
+                    <TableRow hover={false}>
+                      <TableCell className="text-slate-600">Current ratio</TableCell>
+                      {hasMonthly && months.map((m) => ratioCell(data.current_ratio_monthly?.[m]))}
+                      <TableCell align="right">{data.current_ratio != null ? String(data.current_ratio) : '—'}</TableCell>
+                    </TableRow>
+
+                    {!data.asset_lines.length && !data.liability_lines.length && (
+                      <TableRow>
+                        <td colSpan={cols} className="px-4 py-6 text-center">
+                          <Typography color="secondary">No lines</Typography>
+                        </td>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            )
+          })()}
 
         </>
       )}

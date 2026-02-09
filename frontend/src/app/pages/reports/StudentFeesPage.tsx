@@ -61,7 +61,8 @@ export const StudentFeesPage = () => {
   // Default to current (active) term when terms and active term are loaded
   useEffect(() => {
     if (termId !== '' || !activeTerm?.id) return
-    setTermId(String(activeTerm.id))
+    const t = window.setTimeout(() => setTermId(String(activeTerm.id)), 0)
+    return () => window.clearTimeout(t)
   }, [activeTerm?.id, termId])
 
   useEffect(() => {
@@ -69,29 +70,31 @@ export const StudentFeesPage = () => {
     const tid = Number(termId)
     if (Number.isNaN(tid)) return
     let cancelled = false
-    setLoading(true)
-    setError(null)
-    setForbidden(false)
-    const params: { term_id: number; grade_id?: number } = { term_id: tid }
-    if (gradeId) {
-      const gid = Number(gradeId)
-      if (!Number.isNaN(gid)) params.grade_id = gid
-    }
-    api
-      .get<ApiResponse<StudentFeesData>>('/reports/student-fees', { params })
-      .then((res) => {
-        if (!cancelled && res.data?.data) setReport(res.data.data)
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          if (err.response?.status === 403) setForbidden(true)
-          else setError(err.response?.data?.message ?? 'Failed to load report')
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => { cancelled = true }
+    const t = window.setTimeout(() => {
+      setLoading(true)
+      setError(null)
+      setForbidden(false)
+      const params: { term_id: number; grade_id?: number } = { term_id: tid }
+      if (gradeId) {
+        const gid = Number(gradeId)
+        if (!Number.isNaN(gid)) params.grade_id = gid
+      }
+      api
+        .get<ApiResponse<StudentFeesData>>('/reports/student-fees', { params })
+        .then((res) => {
+          if (!cancelled && res.data?.data) setReport(res.data.data)
+        })
+        .catch((err) => {
+          if (!cancelled) {
+            if (err.response?.status === 403) setForbidden(true)
+            else setError(err.response?.data?.message ?? 'Failed to load report')
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false)
+        })
+    }, 0)
+    return () => { cancelled = true; window.clearTimeout(t) }
   }, [termId, gradeId])
 
   if (forbidden) {
@@ -117,7 +120,7 @@ export const StudentFeesPage = () => {
       <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
         <Typography variant="h5">Student Fees by Term</Typography>
         {termId && (
-          <Button variant="outlined" size="small" onClick={handleExportExcel}>
+          <Button variant="outlined" onClick={handleExportExcel}>
             Export to Excel
           </Button>
         )}
@@ -174,36 +177,34 @@ export const StudentFeesPage = () => {
             {report.term_display_name}
             {report.grade_id != null && ` · Grade filter applied`}
           </Typography>
-          <Card className="mb-4">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableHeaderCell><strong>Class</strong></TableHeaderCell>
-                    <TableHeaderCell align="right"><strong>Students</strong></TableHeaderCell>
-                    <TableHeaderCell align="right"><strong>Total Invoiced</strong></TableHeaderCell>
-                    <TableHeaderCell align="right"><strong>Total Paid</strong></TableHeaderCell>
-                    <TableHeaderCell align="right"><strong>Balance</strong></TableHeaderCell>
-                    <TableHeaderCell align="right"><strong>Rate</strong></TableHeaderCell>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden mb-4">
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Class</TableHeaderCell>
+                  <TableHeaderCell align="right">Students</TableHeaderCell>
+                  <TableHeaderCell align="right">Total Invoiced</TableHeaderCell>
+                  <TableHeaderCell align="right">Total Paid</TableHeaderCell>
+                  <TableHeaderCell align="right">Balance</TableHeaderCell>
+                  <TableHeaderCell align="right">Rate</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {report.rows.map((row) => (
+                  <TableRow key={row.grade_id}>
+                    <TableCell>{row.grade_name}</TableCell>
+                    <TableCell align="right">{row.students_count}</TableCell>
+                    <TableCell align="right">{formatMoney(row.total_invoiced)}</TableCell>
+                    <TableCell align="right">{formatMoney(row.total_paid)}</TableCell>
+                    <TableCell align="right">{formatMoney(row.balance)}</TableCell>
+                    <TableCell align="right">
+                      {row.rate_percent != null ? `${row.rate_percent}%` : '—'}
+                    </TableCell>
                   </TableRow>
-                </TableHead>
-                <TableBody>
-                  {report.rows.map((row) => (
-                    <TableRow key={row.grade_id}>
-                      <TableCell>{row.grade_name}</TableCell>
-                      <TableCell align="right">{row.students_count}</TableCell>
-                      <TableCell align="right">{formatMoney(row.total_invoiced)}</TableCell>
-                      <TableCell align="right">{formatMoney(row.total_paid)}</TableCell>
-                      <TableCell align="right">{formatMoney(row.balance)}</TableCell>
-                      <TableCell align="right">
-                        {row.rate_percent != null ? `${row.rate_percent}%` : '—'}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </Card>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
           <Card>
             <CardContent>
               <Typography variant="subtitle2" color="secondary" className="mb-2">Summary</Typography>

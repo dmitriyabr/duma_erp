@@ -113,7 +113,7 @@ export const CompensationSummaryPage = () => {
             <Input label="From" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
             <Input label="To" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
             <Button variant="contained" onClick={() => runReport()}>Run report</Button>
-            <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/compensation-summary', { date_from: dateFrom, date_to: dateTo }, 'compensation-summary.xlsx')}>Export to Excel</Button>
+            <Button variant="outlined" onClick={() => downloadReportExcel('/reports/compensation-summary', { date_from: dateFrom, date_to: dateTo }, 'compensation-summary.xlsx')}>Export to Excel</Button>
           </div>
         </CardContent>
       </Card>
@@ -132,16 +132,16 @@ export const CompensationSummaryPage = () => {
             Period: {data.date_from} — {data.date_to}
           </Typography>
 
-          <Card className="mb-4">
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden mb-4">
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableHeaderCell><strong>Employee</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Claims</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Total (KES)</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Approved (KES)</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Paid (KES)</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Pending (KES)</strong></TableHeaderCell>
+                  <TableHeaderCell>Employee</TableHeaderCell>
+                  <TableHeaderCell align="right">Claims</TableHeaderCell>
+                  <TableHeaderCell align="right">Total (KES)</TableHeaderCell>
+                  <TableHeaderCell align="right">Approved (KES)</TableHeaderCell>
+                  <TableHeaderCell align="right">Paid (KES)</TableHeaderCell>
+                  <TableHeaderCell align="right">Pending (KES)</TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -155,17 +155,17 @@ export const CompensationSummaryPage = () => {
                     <TableCell align="right">{formatMoney(row.pending_amount)}</TableCell>
                   </TableRow>
                 ))}
-                <TableRow>
-                  <TableCell><strong>TOTAL</strong></TableCell>
-                  <TableCell align="right"><strong>{data.summary.total_claims}</strong></TableCell>
-                  <TableCell align="right"><strong>{formatMoney(data.summary.total_amount)}</strong></TableCell>
-                  <TableCell align="right"><strong>{formatMoney(data.summary.total_approved)}</strong></TableCell>
-                  <TableCell align="right"><strong>{formatMoney(data.summary.total_paid)}</strong></TableCell>
-                  <TableCell align="right"><strong>{formatMoney(data.summary.total_pending)}</strong></TableCell>
+                <TableRow hover={false} className="bg-slate-50">
+                  <TableCell className="font-semibold">TOTAL</TableCell>
+                  <TableCell align="right" className="font-semibold">{data.summary.total_claims}</TableCell>
+                  <TableCell align="right" className="font-semibold">{formatMoney(data.summary.total_amount)}</TableCell>
+                  <TableCell align="right" className="font-semibold">{formatMoney(data.summary.total_approved)}</TableCell>
+                  <TableCell align="right" className="font-semibold">{formatMoney(data.summary.total_paid)}</TableCell>
+                  <TableCell align="right" className="font-semibold">{formatMoney(data.summary.total_pending)}</TableCell>
                 </TableRow>
               </TableBody>
             </Table>
-          </Card>
+          </div>
 
           <Card className="mb-4">
             <CardContent>

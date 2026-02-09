@@ -9,6 +9,11 @@ export function isSuperAdmin(user: AuthUser | null): boolean {
   return user?.role === 'SuperAdmin'
 }
 
+/** Student profile actions (edit, activate/deactivate, discounts, invoices, payments): Admin/SuperAdmin only. */
+export function canManageStudents(user: AuthUser | null): boolean {
+  return user?.role === 'SuperAdmin' || user?.role === 'Admin'
+}
+
 export function canCancelPayment(user: AuthUser | null): boolean {
   return user?.role === 'SuperAdmin'
 }

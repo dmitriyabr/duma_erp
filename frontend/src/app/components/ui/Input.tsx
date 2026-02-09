@@ -17,7 +17,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     const isRequired = Boolean(props.required)
 
     return (
-      <div className={cn('w-full', containerClassName)}>
+      <div className={cn(containerClassName)}>
         <div className="relative group">
           <input
             ref={ref}

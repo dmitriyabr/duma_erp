@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
@@ -52,19 +52,21 @@ const defaultRange = () => getDateRangeForPreset('this_year')
 
 export const ProcurementSummaryPage = () => {
   const { user } = useAuth()
+  const hasAccess = canSeeReports(user)
   const [dateFrom, setDateFrom] = useState(() => defaultRange().from)
   const [dateTo, setDateTo] = useState(() => defaultRange().to)
   const [data, setData] = useState<ProcurementSummaryData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [forbidden, setForbidden] = useState(false)
+  const [backendForbidden, setBackendForbidden] = useState(false)
 
-  const runReport = (overrideFrom?: string, overrideTo?: string) => {
-    if (!canSeeReports(user)) return
-    const from = overrideFrom ?? dateFrom
-    const to = overrideTo ?? dateTo
+  const runReportForRange = useCallback((from: string, to: string) => {
+    if (!hasAccess) return
+    if (from !== dateFrom) setDateFrom(from)
+    if (to !== dateTo) setDateTo(to)
     setLoading(true)
     setError(null)
+    setBackendForbidden(false)
     api
       .get<ApiResponse<ProcurementSummaryData>>('/reports/procurement-summary', {
         params: { date_from: from, date_to: to },
@@ -72,23 +74,23 @@ export const ProcurementSummaryPage = () => {
       .then((res) => {
         if (res.data?.data) {
           setData(res.data.data)
-          setDateFrom(from)
-          setDateTo(to)
         }
       })
       .catch((err) => {
-        if (err.response?.status === 403) setForbidden(true)
+        if (err.response?.status === 403) setBackendForbidden(true)
         else setError(err.response?.data?.detail ?? 'Failed to load report')
       })
       .finally(() => setLoading(false))
-  }
+  }, [hasAccess, dateFrom, dateTo])
 
   useEffect(() => {
-    if (canSeeReports(user)) runReport()
-    else setForbidden(true)
-  }, [user])
+    if (!hasAccess) return
+    const { from, to } = defaultRange()
+    const t = window.setTimeout(() => runReportForRange(from, to), 0)
+    return () => window.clearTimeout(t)
+  }, [hasAccess, user, runReportForRange])
 
-  if (forbidden) {
+  if (!hasAccess || backendForbidden) {
     return (
       <div>
         <Typography variant="h5" className="mb-4">Procurement Summary</Typography>
@@ -105,12 +107,36 @@ export const ProcurementSummaryPage = () => {
 
       <Card className="mb-4">
         <CardContent>
-          <div className="flex flex-wrap gap-4 items-center">
-            <DateRangeShortcuts dateFrom={dateFrom} dateTo={dateTo} onRangeChange={(from, to) => { setDateFrom(from); setDateTo(to) }} onRun={(from, to) => runReport(from, to)} />
-            <Input label="From" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
-            <Input label="To" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
-            <Button variant="contained" onClick={() => runReport()}>Run report</Button>
-            <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/procurement-summary', { date_from: dateFrom, date_to: dateTo }, 'procurement-summary.xlsx')}>Export to Excel</Button>
+          <div className="flex flex-wrap items-center gap-4">
+              <DateRangeShortcuts
+                dateFrom={dateFrom}
+                dateTo={dateTo}
+                onRangeChange={(from, to) => { setDateFrom(from); setDateTo(to) }}
+                onRun={(from, to) => runReportForRange(from ?? dateFrom, to ?? dateTo)}
+              />
+            <Input
+              label="From"
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              containerClassName="w-[180px] min-w-[160px]"
+            />
+            <Input
+              label="To"
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              containerClassName="w-[180px] min-w-[160px]"
+            />
+            <Button variant="contained" onClick={() => runReportForRange(dateFrom, dateTo)}>
+              Run report
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() => downloadReportExcel('/reports/procurement-summary', { date_from: dateFrom, date_to: dateTo }, 'procurement-summary.xlsx')}
+            >
+              Export to Excel
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -129,16 +155,16 @@ export const ProcurementSummaryPage = () => {
             Period: {data.date_from} — {data.date_to}
           </Typography>
 
-          <Card className="mb-4">
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden mb-4">
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableHeaderCell><strong>Supplier</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>POs</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Total (KES)</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Paid (KES)</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Outstanding (KES)</strong></TableHeaderCell>
-                  <TableHeaderCell><strong>Status</strong></TableHeaderCell>
+                  <TableHeaderCell>Supplier</TableHeaderCell>
+                  <TableHeaderCell align="right">POs</TableHeaderCell>
+                  <TableHeaderCell align="right">Total (KES)</TableHeaderCell>
+                  <TableHeaderCell align="right">Paid (KES)</TableHeaderCell>
+                  <TableHeaderCell align="right">Outstanding (KES)</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -152,17 +178,17 @@ export const ProcurementSummaryPage = () => {
                     <TableCell>{row.status === 'ok' ? 'OK' : 'Partial'}</TableCell>
                   </TableRow>
                 ))}
-                <TableRow>
-                  <TableCell><strong>TOTAL</strong></TableCell>
-                  <TableCell align="right"><strong>{data.total_po_count}</strong></TableCell>
-                  <TableCell align="right"><strong>{formatMoney(data.total_amount)}</strong></TableCell>
-                  <TableCell align="right"><strong>{formatMoney(data.total_paid)}</strong></TableCell>
-                  <TableCell align="right"><strong>{formatMoney(data.total_outstanding)}</strong></TableCell>
+                <TableRow hover={false} className="bg-slate-50">
+                  <TableCell className="font-semibold">TOTAL</TableCell>
+                  <TableCell align="right" className="font-semibold">{data.total_po_count}</TableCell>
+                  <TableCell align="right" className="font-semibold">{formatMoney(data.total_amount)}</TableCell>
+                  <TableCell align="right" className="font-semibold">{formatMoney(data.total_paid)}</TableCell>
+                  <TableCell align="right" className="font-semibold">{formatMoney(data.total_outstanding)}</TableCell>
                   <TableCell>—</TableCell>
                 </TableRow>
               </TableBody>
             </Table>
-          </Card>
+          </div>
 
           <Card className="mb-4">
             <CardContent>

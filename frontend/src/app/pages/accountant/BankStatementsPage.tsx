@@ -199,13 +199,13 @@ export const BankStatementsPage = () => {
                     {m ? (
                       m.entity_type === 'procurement_payment' ? (
                         <RouterLink to={`/procurement/payments/${m.entity_id}`}>
-                          <Button size="small">
+                          <Button size="small" variant="outlined">
                             {m.entity_number}
                           </Button>
                         </RouterLink>
                       ) : (
                         <RouterLink to={`/compensations/payouts/${m.entity_id}`}>
-                          <Button size="small">
+                          <Button size="small" variant="outlined">
                             {m.entity_number}
                           </Button>
                         </RouterLink>
@@ -223,7 +223,7 @@ export const BankStatementsPage = () => {
                         target="_blank"
                         rel="noreferrer"
                       >
-                        <Button size="small">
+                        <Button size="small" variant="outlined">
                           Download
                         </Button>
                       </a>

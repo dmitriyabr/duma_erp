@@ -36,12 +36,13 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         info: 'bg-info text-white hover:bg-info-dark shadow-none hover:shadow-md',
       },
       outlined: {
-        primary: 'border border-primary text-primary hover:bg-primary/10',
-        secondary: 'border border-secondary text-secondary hover:bg-secondary/10',
-        success: 'border border-success text-success hover:bg-success/10',
-        warning: 'border border-warning text-warning hover:bg-warning/10',
-        error: 'border border-error text-error hover:bg-error/10',
-        info: 'border border-info text-info hover:bg-info/10',
+        // Use ring instead of border so outlined buttons don't become taller than contained/text.
+        primary: 'ring-1 ring-inset ring-primary text-primary hover:bg-primary/10',
+        secondary: 'ring-1 ring-inset ring-secondary text-secondary hover:bg-secondary/10',
+        success: 'ring-1 ring-inset ring-success text-success hover:bg-success/10',
+        warning: 'ring-1 ring-inset ring-warning text-warning hover:bg-warning/10',
+        error: 'ring-1 ring-inset ring-error text-error hover:bg-error/10',
+        info: 'ring-1 ring-inset ring-info text-info hover:bg-info/10',
       },
       text: {
         primary: 'text-primary hover:bg-primary/10',

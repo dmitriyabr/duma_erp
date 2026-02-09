@@ -99,7 +99,7 @@ export const ExpenseClaimsByCategoryPage = () => {
             <Input label="From" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
             <Input label="To" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
             <Button variant="contained" onClick={() => runReport()}>Run report</Button>
-            <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/expense-claims-by-category', { date_from: dateFrom, date_to: dateTo }, 'expense-claims-by-category.xlsx')}>Export to Excel</Button>
+            <Button variant="outlined" onClick={() => downloadReportExcel('/reports/expense-claims-by-category', { date_from: dateFrom, date_to: dateTo }, 'expense-claims-by-category.xlsx')}>Export to Excel</Button>
           </div>
         </CardContent>
       </Card>
@@ -118,14 +118,14 @@ export const ExpenseClaimsByCategoryPage = () => {
             Period: {data.date_from} — {data.date_to}. Total: {formatMoney(data.total_amount)} KES
           </Typography>
 
-          <Card>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableHeaderCell><strong>Category</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Claims</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Amount (KES)</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>% of total</strong></TableHeaderCell>
+                  <TableHeaderCell>Category</TableHeaderCell>
+                  <TableHeaderCell align="right">Claims</TableHeaderCell>
+                  <TableHeaderCell align="right">Amount (KES)</TableHeaderCell>
+                  <TableHeaderCell align="right">% of total</TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -141,7 +141,7 @@ export const ExpenseClaimsByCategoryPage = () => {
                 ))}
               </TableBody>
             </Table>
-          </Card>
+          </div>
         </>
       )}
 

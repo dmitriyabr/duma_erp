@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../../../auth/AuthContext'
 import { ConfirmDialog } from '../../../components/ConfirmDialog'
-import { isAccountant } from '../../../utils/permissions'
+import { canManageStudents } from '../../../utils/permissions'
 import { api } from '../../../services/api'
 import { useApiMutation } from '../../../hooks/useApi'
 import { formatMoney } from '../../../utils/format'
@@ -36,7 +36,7 @@ export const StudentHeader = ({
   onError,
 }: StudentHeaderProps) => {
   const { user } = useAuth()
-  const readOnly = isAccountant(user)
+  const canManage = canManageStudents(user)
   const { execute: updateStudent, loading, error: updateError } = useApiMutation()
   const { execute: toggleStatus, loading: toggling, error: toggleError } = useApiMutation()
 
@@ -143,7 +143,7 @@ export const StudentHeader = ({
           label={`Balance ${formatMoney(netBalance)}`}
           color={netBalance > 0 ? 'success' : netBalance < 0 ? 'error' : 'default'}
         />
-        {!readOnly && (
+        {canManage && (
           <>
             <Button variant="outlined" onClick={openEdit}>
               Edit

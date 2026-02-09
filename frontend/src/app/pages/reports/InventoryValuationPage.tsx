@@ -98,7 +98,7 @@ export const InventoryValuationPage = () => {
               className="w-40"
             />
             <Button variant="contained" onClick={runReport}>Run report</Button>
-            <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/inventory-valuation', { as_at_date: asAtDate }, 'inventory-valuation.xlsx')}>Export to Excel</Button>
+            <Button variant="outlined" onClick={() => downloadReportExcel('/reports/inventory-valuation', { as_at_date: asAtDate }, 'inventory-valuation.xlsx')}>Export to Excel</Button>
           </div>
         </CardContent>
       </Card>
@@ -117,15 +117,15 @@ export const InventoryValuationPage = () => {
             As at: {data.as_at_date}
           </Typography>
 
-          <Card className="mb-4">
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden mb-4">
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableHeaderCell><strong>Category</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Items</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Quantity</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Unit cost avg (KES)</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Total value (KES)</strong></TableHeaderCell>
+                  <TableHeaderCell>Category</TableHeaderCell>
+                  <TableHeaderCell align="right">Items</TableHeaderCell>
+                  <TableHeaderCell align="right">Quantity</TableHeaderCell>
+                  <TableHeaderCell align="right">Unit cost avg (KES)</TableHeaderCell>
+                  <TableHeaderCell align="right">Total value (KES)</TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -140,16 +140,16 @@ export const InventoryValuationPage = () => {
                     <TableCell align="right">{formatMoney(row.total_value)}</TableCell>
                   </TableRow>
                 ))}
-                <TableRow>
-                  <TableCell><strong>TOTAL</strong></TableCell>
-                  <TableCell align="right"><strong>{data.total_items}</strong></TableCell>
-                  <TableCell align="right"><strong>{data.total_quantity}</strong></TableCell>
+                <TableRow hover={false} className="bg-slate-50">
+                  <TableCell className="font-semibold">TOTAL</TableCell>
+                  <TableCell align="right" className="font-semibold">{data.total_items}</TableCell>
+                  <TableCell align="right" className="font-semibold">{data.total_quantity}</TableCell>
                   <TableCell>—</TableCell>
-                  <TableCell align="right"><strong>{formatMoney(data.total_value)}</strong></TableCell>
+                  <TableCell align="right" className="font-semibold">{formatMoney(data.total_value)}</TableCell>
                 </TableRow>
               </TableBody>
             </Table>
-          </Card>
+          </div>
         </>
       )}
 

@@ -5,7 +5,7 @@ import { useAuth } from '../../../auth/AuthContext'
 import { INVOICE_LIST_LIMIT, PAYMENTS_LIST_LIMIT } from '../../../constants/pagination'
 import { useApi, useApiMutation } from '../../../hooks/useApi'
 import { api, unwrapResponse } from '../../../services/api'
-import { canCancelPayment } from '../../../utils/permissions'
+import { canCancelPayment, canManageStudents } from '../../../utils/permissions'
 import { formatDate, formatMoney } from '../../../utils/format'
 import { openAttachmentInNewTab } from '../../../utils/attachments'
 import type {
@@ -45,6 +45,7 @@ export const PaymentsTab = ({
 }: PaymentsTabProps) => {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const canManage = canManageStudents(user)
   const [selectedPayment, setSelectedPayment] = useState<PaymentResponse | null>(null)
   const [allocationDialogOpen, setAllocationDialogOpen] = useState(false)
   const [allocationForm, setAllocationForm] = useState({
@@ -166,15 +167,19 @@ export const PaymentsTab = ({
       <div className="flex justify-between items-center mb-4">
         <Typography variant="h6">Payments</Typography>
         <div className="flex gap-2">
-          <Button variant="outlined" onClick={openManualAllocation}>
-            Allocate credit
-          </Button>
-          <Button
-            variant="contained"
-            onClick={() => navigate('/payments/new', { state: { studentId } })}
-          >
-            Record payment
-          </Button>
+          {canManage && (
+            <>
+              <Button variant="outlined" onClick={openManualAllocation}>
+                Allocate credit
+              </Button>
+              <Button
+                variant="contained"
+                onClick={() => navigate('/payments/new', { state: { studentId } })}
+              >
+                Record payment
+              </Button>
+            </>
+          )}
         </div>
       </div>
       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">

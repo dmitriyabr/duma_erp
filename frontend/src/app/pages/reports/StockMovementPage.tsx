@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
@@ -55,20 +55,22 @@ const movementTypeLabel = (t: string) => {
 
 export const StockMovementPage = () => {
   const { user } = useAuth()
+  const hasAccess = canSeeReports(user)
   const [dateFrom, setDateFrom] = useState(() => defaultRange().from)
   const [dateTo, setDateTo] = useState(() => defaultRange().to)
   const [movementType, setMovementType] = useState<string>('')
   const [data, setData] = useState<StockMovementData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [forbidden, setForbidden] = useState(false)
+  const [backendForbidden, setBackendForbidden] = useState(false)
 
-  const runReport = (overrideFrom?: string, overrideTo?: string) => {
-    if (!canSeeReports(user)) return
-    const from = overrideFrom ?? dateFrom
-    const to = overrideTo ?? dateTo
+  const runReportForRange = useCallback((from: string, to: string) => {
+    if (!hasAccess) return
+    if (from !== dateFrom) setDateFrom(from)
+    if (to !== dateTo) setDateTo(to)
     setLoading(true)
     setError(null)
+    setBackendForbidden(false)
     const params: { date_from: string; date_to: string; movement_type?: string } = {
       date_from: from,
       date_to: to,
@@ -79,23 +81,23 @@ export const StockMovementPage = () => {
       .then((res) => {
         if (res.data?.data) {
           setData(res.data.data)
-          setDateFrom(from)
-          setDateTo(to)
         }
       })
       .catch((err) => {
-        if (err.response?.status === 403) setForbidden(true)
+        if (err.response?.status === 403) setBackendForbidden(true)
         else setError(err.response?.data?.detail ?? 'Failed to load report')
       })
       .finally(() => setLoading(false))
-  }
+  }, [hasAccess, dateFrom, dateTo, movementType])
 
   useEffect(() => {
-    if (canSeeReports(user)) runReport()
-    else setForbidden(true)
-  }, [user])
+    if (!hasAccess) return
+    const { from, to } = defaultRange()
+    const t = window.setTimeout(() => runReportForRange(from, to), 0)
+    return () => window.clearTimeout(t)
+  }, [hasAccess, user, runReportForRange])
 
-  if (forbidden) {
+  if (!hasAccess || backendForbidden) {
     return (
       <div>
         <Typography variant="h5" className="mb-4">Stock Movement Report</Typography>
@@ -112,15 +114,30 @@ export const StockMovementPage = () => {
 
       <Card className="mb-4">
         <CardContent>
-          <div className="flex flex-wrap gap-4 items-center">
-            <DateRangeShortcuts dateFrom={dateFrom} dateTo={dateTo} onRangeChange={(from, to) => { setDateFrom(from); setDateTo(to) }} onRun={(from, to) => runReport(from, to)} />
-            <Input label="From" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
-            <Input label="To" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
+          <div className="flex flex-wrap items-center gap-4">
+            <DateRangeShortcuts
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              onRangeChange={(from, to) => { setDateFrom(from); setDateTo(to) }}
+              onRun={(from, to) => runReportForRange(from ?? dateFrom, to ?? dateTo)}
+            />
+            <Input
+              label="From"
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+            />
+            <Input
+              label="To"
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+            />
             <Select
               value={movementType}
               onChange={(e) => setMovementType(e.target.value)}
               label="Type"
-              className="min-w-[140px]"
+              containerClassName="w-[220px] min-w-[180px]"
             >
               <option value="">All</option>
               <option value="receipt">Receive</option>
@@ -129,15 +146,17 @@ export const StockMovementPage = () => {
               <option value="reserve">Reserve</option>
               <option value="unreserve">Unreserve</option>
             </Select>
-            <Button variant="contained" onClick={() => runReport()}>Run report</Button>
+            <Button variant="contained" onClick={() => runReportForRange(dateFrom, dateTo)} className="self-end">
+              Run report
+            </Button>
             <Button
               variant="outlined"
-              size="small"
               onClick={() => {
                 const params: Record<string, unknown> = { date_from: dateFrom, date_to: dateTo }
                 if (movementType) params.movement_type = movementType
                 downloadReportExcel('/reports/stock-movement', params, 'stock-movement.xlsx')
               }}
+              className="self-end"
             >
               Export to Excel
             </Button>
@@ -159,17 +178,17 @@ export const StockMovementPage = () => {
             Period: {data.date_from} — {data.date_to}
           </Typography>
 
-          <Card>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableHeaderCell><strong>Date</strong></TableHeaderCell>
-                  <TableHeaderCell><strong>Type</strong></TableHeaderCell>
-                  <TableHeaderCell><strong>Item</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Qty</strong></TableHeaderCell>
-                  <TableHeaderCell><strong>Ref</strong></TableHeaderCell>
-                  <TableHeaderCell><strong>User</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Balance after</strong></TableHeaderCell>
+                  <TableHeaderCell>Date</TableHeaderCell>
+                  <TableHeaderCell>Type</TableHeaderCell>
+                  <TableHeaderCell>Item</TableHeaderCell>
+                  <TableHeaderCell align="right">Qty</TableHeaderCell>
+                  <TableHeaderCell>Ref</TableHeaderCell>
+                  <TableHeaderCell>User</TableHeaderCell>
+                  <TableHeaderCell align="right">Balance after</TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -188,11 +207,11 @@ export const StockMovementPage = () => {
                 ))}
               </TableBody>
             </Table>
-          </Card>
+          </div>
         </>
       )}
 
-      {!loading && !data && !error && canSeeReports(user) && (
+      {!loading && !data && !error && hasAccess && (
         <Typography color="secondary">Select period and run report.</Typography>
       )}
     </div>

@@ -114,7 +114,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
     }
 
     return (
-      <div className={cn('w-full', containerClassName)}>
+      <div className={cn(containerClassName)}>
         <div ref={containerRef} className="relative group">
           {label && (
             <label

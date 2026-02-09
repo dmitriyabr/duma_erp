@@ -25,7 +25,7 @@ export const AccountantExportPage = () => {
   const [datesBalanceChanges, setDatesBalanceChanges] = useState(getDefaultDateRange)
   const [datesBankTransfers, setDatesBankTransfers] = useState(getDefaultDateRange)
   const [datesBankFiles, setDatesBankFiles] = useState(getDefaultDateRange)
-  const [loading, setLoading] = useState(false)
+  const [loadingType, setLoadingType] = useState<ExportTypeExtended | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const handleExport = async (
@@ -38,7 +38,7 @@ export const AccountantExportPage = () => {
       return
     }
     setError(null)
-    setLoading(true)
+    setLoadingType(type)
     try {
       const url = `/accountant/export/${type}?start_date=${startDate}&end_date=${endDate}&format=csv`
       const response = await api.get(url, { responseType: 'blob' })
@@ -57,9 +57,23 @@ export const AccountantExportPage = () => {
         : 'Export failed'
       setError(message)
     } finally {
-      setLoading(false)
+      setLoadingType((cur) => (cur === type ? null : cur))
     }
   }
+
+  const renderExportLabel = (type: ExportTypeExtended) => {
+    const isLoading = loadingType === type
+    return isLoading ? (
+      <span className="inline-flex items-center gap-2">
+        <Spinner size="small" />
+        Download CSV
+      </span>
+    ) : (
+      'Download CSV'
+    )
+  }
+
+  const isBusy = loadingType !== null
 
   return (
     <div>
@@ -99,13 +113,13 @@ export const AccountantExportPage = () => {
               />
             </div>
             <Button
-              variant="contained"
+              variant="outlined"
               onClick={() =>
                 handleExport('student-payments', datesPayments.start, datesPayments.end)
               }
-              disabled={loading}
+              disabled={isBusy}
             >
-              {loading ? <Spinner size="small" /> : 'Export CSV'}
+              {renderExportLabel('student-payments')}
             </Button>
           </div>
         </div>
@@ -132,13 +146,13 @@ export const AccountantExportPage = () => {
               />
             </div>
             <Button
-              variant="contained"
+              variant="outlined"
               onClick={() =>
                 handleExport('procurement-payments', datesProcurement.start, datesProcurement.end)
               }
-              disabled={loading}
+              disabled={isBusy}
             >
-              {loading ? <Spinner size="small" /> : 'Export CSV'}
+              {renderExportLabel('procurement-payments')}
             </Button>
           </div>
         </div>
@@ -165,13 +179,13 @@ export const AccountantExportPage = () => {
               />
             </div>
             <Button
-              variant="contained"
+              variant="outlined"
               onClick={() =>
                 handleExport('student-balance-changes', datesBalanceChanges.start, datesBalanceChanges.end)
               }
-              disabled={loading}
+              disabled={isBusy}
             >
-              {loading ? <Spinner size="small" /> : 'Export CSV'}
+              {renderExportLabel('student-balance-changes')}
             </Button>
           </div>
           <Typography variant="caption" color="secondary" className="block">
@@ -180,7 +194,7 @@ export const AccountantExportPage = () => {
         </div>
 
         <div>
-          <Typography variant="subtitle1" className="mb-2 font-semibold">
+          <Typography variant="subtitle1" className="mb-2">
             Bank Transfers (Outgoing)
           </Typography>
           <div className="flex gap-4 items-center flex-wrap mb-2">
@@ -205,9 +219,9 @@ export const AccountantExportPage = () => {
               onClick={() =>
                 handleExport('bank-transfers', datesBankTransfers.start, datesBankTransfers.end)
               }
-              disabled={loading}
+              disabled={isBusy}
             >
-              {loading ? <Spinner size="small" /> : 'Download CSV'}
+              {renderExportLabel('bank-transfers')}
             </Button>
           </div>
           <Typography variant="caption" color="secondary" className="block">
@@ -216,7 +230,7 @@ export const AccountantExportPage = () => {
         </div>
 
         <div>
-          <Typography variant="subtitle1" className="mb-2 font-semibold">
+          <Typography variant="subtitle1" className="mb-2">
             Bank Statement Files
           </Typography>
           <div className="flex gap-4 items-center flex-wrap mb-2">
@@ -241,9 +255,9 @@ export const AccountantExportPage = () => {
               onClick={() =>
                 handleExport('bank-statement-files', datesBankFiles.start, datesBankFiles.end)
               }
-              disabled={loading}
+              disabled={isBusy}
             >
-              {loading ? <Spinner size="small" /> : 'Download CSV'}
+              {renderExportLabel('bank-statement-files')}
             </Button>
           </div>
           <Typography variant="caption" color="secondary" className="block">

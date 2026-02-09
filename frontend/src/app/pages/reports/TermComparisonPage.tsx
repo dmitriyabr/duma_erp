@@ -146,7 +146,6 @@ export const TermComparisonPage = () => {
             </Button>
             <Button
               variant="outlined"
-              size="small"
               disabled={!term1Id || !term2Id || term1Id === term2Id}
               onClick={() => {
                 const t1 = Number(term1Id)
@@ -175,14 +174,14 @@ export const TermComparisonPage = () => {
             Comparing {data.term1_display_name} vs {data.term2_display_name}
           </Typography>
 
-          <Card>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableHeaderCell><strong>Metric</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>{data.term1_display_name}</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>{data.term2_display_name}</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Change</strong></TableHeaderCell>
+                  <TableHeaderCell>Metric</TableHeaderCell>
+                  <TableHeaderCell align="right">{data.term1_display_name}</TableHeaderCell>
+                  <TableHeaderCell align="right">{data.term2_display_name}</TableHeaderCell>
+                  <TableHeaderCell align="right">Change</TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -200,7 +199,7 @@ export const TermComparisonPage = () => {
                 ))}
               </TableBody>
             </Table>
-          </Card>
+          </div>
         </>
       )}
 

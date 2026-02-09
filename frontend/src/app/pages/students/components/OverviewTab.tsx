@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useAuth } from '../../../auth/AuthContext'
 import { api } from '../../../services/api'
-import { isAccountant } from '../../../utils/permissions'
+import { canManageStudents, isAccountant } from '../../../utils/permissions'
 import { SECONDARY_LIST_LIMIT } from '../../../constants/pagination'
 import { useApi, useApiMutation } from '../../../hooks/useApi'
 import { formatDate, formatMoney } from '../../../utils/format'
@@ -30,6 +30,7 @@ interface OverviewTabProps {
 export const OverviewTab = ({ student, studentId, onError }: OverviewTabProps) => {
   const { user } = useAuth()
   const readOnly = isAccountant(user)
+  const canManage = canManageStudents(user)
   const discountsUrl = useMemo(
     () => `/discounts/student?student_id=${studentId}&include_inactive=true&limit=${SECONDARY_LIST_LIMIT}&page=1`,
     [studentId]
@@ -132,7 +133,7 @@ export const OverviewTab = ({ student, studentId, onError }: OverviewTabProps) =
       <div className="border border-slate-200 rounded-lg p-4 max-w-[520px]">
         <div className="flex justify-between items-center mb-2">
           <Typography variant="subtitle1">School Fees Discount</Typography>
-          {!readOnly && (
+          {canManage && !readOnly && (
             <Button size="small" onClick={() => openStudentDiscountDialog()}>
               {studentDiscounts.some((discount) => discount.is_active) ? 'Add another' : 'Set discount'}
             </Button>
@@ -166,7 +167,7 @@ export const OverviewTab = ({ student, studentId, onError }: OverviewTabProps) =
                       />
                     </TableCell>
                     <TableCell align="right">
-                      {!readOnly && (
+                      {canManage && !readOnly && (
                         <div className="flex gap-2 justify-end">
                           <Button size="small" onClick={() => openStudentDiscountDialog(discount)}>
                             Edit

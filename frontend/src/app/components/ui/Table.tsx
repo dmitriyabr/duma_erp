@@ -1,5 +1,6 @@
 import type { HTMLAttributes, ReactNode } from 'react'
 import { cn } from '../../utils/cn'
+import { Select } from './Select'
 
 export interface TableProps extends HTMLAttributes<HTMLTableElement> {
   children: ReactNode
@@ -147,17 +148,17 @@ export const TablePagination = ({
         <span className="text-sm text-slate-600">
           Rows per page:
         </span>
-        <select
-          value={rowsPerPage}
-          onChange={(e) => onRowsPerPageChange(Number(e.target.value))}
-          className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-        >
-          {rowsPerPageOptions.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
+          <Select
+            value={rowsPerPage}
+            onChange={(e) => onRowsPerPageChange(Number(e.target.value))}
+            containerClassName="w-[140px] min-w-[120px]"
+          >
+            {rowsPerPageOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </Select>
         <span className="text-sm text-slate-600">
           {startRow}-{endRow} of {count}
         </span>

@@ -124,7 +124,6 @@ export const DiscountAnalysisPage = () => {
             <Button variant="contained" onClick={() => runReport()}>Run report</Button>
             <Button
               variant="outlined"
-              size="small"
               onClick={() => downloadReportExcel('/reports/discount-analysis', { date_from: dateFrom, date_to: dateTo }, 'discount-analysis.xlsx')}
             >
               Export to Excel
@@ -147,36 +146,34 @@ export const DiscountAnalysisPage = () => {
             Period: {data.date_from} — {data.date_to}
           </Typography>
 
-          <Card className="mb-4">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableHeaderCell><strong>Discount Type</strong></TableHeaderCell>
-                    <TableHeaderCell align="right"><strong>Students</strong></TableHeaderCell>
-                    <TableHeaderCell align="right"><strong>Total Amount</strong></TableHeaderCell>
-                    <TableHeaderCell align="right"><strong>Avg/Student</strong></TableHeaderCell>
-                    <TableHeaderCell align="right"><strong>% of Revenue</strong></TableHeaderCell>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden mb-4">
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Discount Type</TableHeaderCell>
+                  <TableHeaderCell align="right">Students</TableHeaderCell>
+                  <TableHeaderCell align="right">Total Amount</TableHeaderCell>
+                  <TableHeaderCell align="right">Avg/Student</TableHeaderCell>
+                  <TableHeaderCell align="right">% of Revenue</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {data.rows.map((row, idx) => (
+                  <TableRow key={row.reason_id ?? idx}>
+                    <TableCell>{row.reason_name}</TableCell>
+                    <TableCell align="right">{row.students_count}</TableCell>
+                    <TableCell align="right">{formatMoney(row.total_amount)}</TableCell>
+                    <TableCell align="right">
+                      {row.avg_per_student != null ? formatMoney(row.avg_per_student) : '—'}
+                    </TableCell>
+                    <TableCell align="right">
+                      {row.percent_of_revenue != null ? `${row.percent_of_revenue}%` : '—'}
+                    </TableCell>
                   </TableRow>
-                </TableHead>
-                <TableBody>
-                  {data.rows.map((row, idx) => (
-                    <TableRow key={row.reason_id ?? idx}>
-                      <TableCell>{row.reason_name}</TableCell>
-                      <TableCell align="right">{row.students_count}</TableCell>
-                      <TableCell align="right">{formatMoney(row.total_amount)}</TableCell>
-                      <TableCell align="right">
-                        {row.avg_per_student != null ? formatMoney(row.avg_per_student) : '—'}
-                      </TableCell>
-                      <TableCell align="right">
-                        {row.percent_of_revenue != null ? `${row.percent_of_revenue}%` : '—'}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </Card>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
 
           <Card>
             <CardContent>

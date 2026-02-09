@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
@@ -37,36 +37,41 @@ interface RevenueTrendData {
 
 export const RevenueTrendPage = () => {
   const { user } = useAuth()
+  const hasAccess = canSeeReports(user)
   const [years, setYears] = useState(3)
   const [data, setData] = useState<RevenueTrendData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [forbidden, setForbidden] = useState(false)
+  const [backendForbidden, setBackendForbidden] = useState(false)
 
-  const runReport = () => {
-    if (!canSeeReports(user)) return
+  const runReport = useCallback((overrideYears?: number) => {
+    if (!hasAccess) return
+    const yrs = overrideYears ?? years
+    if (yrs !== years) setYears(yrs)
     setLoading(true)
     setError(null)
+    setBackendForbidden(false)
     api
       .get<ApiResponse<RevenueTrendData>>('/reports/revenue-trend', {
-        params: { years },
+        params: { years: yrs },
       })
       .then((res) => {
         if (res.data?.data) setData(res.data.data)
       })
       .catch((err) => {
-        if (err.response?.status === 403) setForbidden(true)
+        if (err.response?.status === 403) setBackendForbidden(true)
         else setError(err.response?.data?.detail ?? 'Failed to load report')
       })
       .finally(() => setLoading(false))
-  }
+  }, [hasAccess, years])
 
   useEffect(() => {
-    if (canSeeReports(user)) runReport()
-    else setForbidden(true)
-  }, [user])
+    if (!hasAccess) return
+    const t = window.setTimeout(() => runReport(), 0)
+    return () => window.clearTimeout(t)
+  }, [hasAccess, user, runReport])
 
-  if (forbidden) {
+  if (!hasAccess || backendForbidden) {
     return (
       <div>
         <Typography variant="h5" className="mb-4">Revenue per Student Trend</Typography>
@@ -94,8 +99,8 @@ export const RevenueTrendPage = () => {
                 <option key={n} value={n}>{n}</option>
               ))}
             </Select>
-            <Button variant="contained" onClick={runReport}>Run report</Button>
-            <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/revenue-trend', { years }, 'revenue-trend.xlsx')}>Export to Excel</Button>
+            <Button variant="contained" onClick={() => runReport()}>Run report</Button>
+            <Button variant="outlined" onClick={() => downloadReportExcel('/reports/revenue-trend', { years }, 'revenue-trend.xlsx')}>Export to Excel</Button>
           </div>
         </CardContent>
       </Card>
@@ -116,14 +121,14 @@ export const RevenueTrendPage = () => {
             </Typography>
           )}
 
-          <Card>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableHeaderCell><strong>Year</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Total revenue (KES)</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Students (paid)</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Avg per student (KES)</strong></TableHeaderCell>
+                  <TableHeaderCell>Year</TableHeaderCell>
+                  <TableHeaderCell align="right">Total revenue (KES)</TableHeaderCell>
+                  <TableHeaderCell align="right">Students (paid)</TableHeaderCell>
+                  <TableHeaderCell align="right">Avg per student (KES)</TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -141,11 +146,11 @@ export const RevenueTrendPage = () => {
                 ))}
               </TableBody>
             </Table>
-          </Card>
+          </div>
         </>
       )}
 
-      {!loading && !data && !error && canSeeReports(user) && (
+      {!loading && !data && !error && hasAccess && (
         <Typography color="secondary">Select years and run report.</Typography>
       )}
     </div>

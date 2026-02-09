@@ -98,7 +98,7 @@ export const PaymentMethodDistributionPage = () => {
             <Input label="From" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
             <Input label="To" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
             <Button variant="contained" onClick={() => runReport()}>Run report</Button>
-            <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/payment-method-distribution', { date_from: dateFrom, date_to: dateTo }, 'payment-method-distribution.xlsx')}>Export to Excel</Button>
+            <Button variant="outlined" onClick={() => downloadReportExcel('/reports/payment-method-distribution', { date_from: dateFrom, date_to: dateTo }, 'payment-method-distribution.xlsx')}>Export to Excel</Button>
           </div>
         </CardContent>
       </Card>
@@ -117,13 +117,13 @@ export const PaymentMethodDistributionPage = () => {
             Period: {data.date_from} — {data.date_to}. Total: {formatMoney(data.total_amount)} KES
           </Typography>
 
-          <Card>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableHeaderCell><strong>Method</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>Amount (KES)</strong></TableHeaderCell>
-                  <TableHeaderCell align="right"><strong>% of total</strong></TableHeaderCell>
+                  <TableHeaderCell>Method</TableHeaderCell>
+                  <TableHeaderCell align="right">Amount (KES)</TableHeaderCell>
+                  <TableHeaderCell align="right">% of total</TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -138,7 +138,7 @@ export const PaymentMethodDistributionPage = () => {
                 ))}
               </TableBody>
             </Table>
-          </Card>
+          </div>
         </>
       )}
 

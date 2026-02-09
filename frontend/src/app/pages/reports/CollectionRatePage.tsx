@@ -95,12 +95,12 @@ export const CollectionRatePage = () => {
                 onChange={(e) => setMonths(Number(e.target.value))}
               >
                 {[6, 12, 18, 24].map((n) => (
-                  <option key={n} value={n}>{n} months</option>
+                  <option key={n} value={n}>{`${n} months`}</option>
                 ))}
               </Select>
             </div>
             <Button variant="contained" onClick={runReport}>Run report</Button>
-            <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/collection-rate', { months }, 'collection-rate.xlsx')}>
+            <Button variant="outlined" onClick={() => downloadReportExcel('/reports/collection-rate', { months }, 'collection-rate.xlsx')}>
               Export to Excel
             </Button>
           </div>

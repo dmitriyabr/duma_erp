@@ -5,7 +5,7 @@ import { useAuth } from '../../../auth/AuthContext'
 import { useApi, useApiMutation } from '../../../hooks/useApi'
 import { api, unwrapResponse } from '../../../services/api'
 import { INVOICE_LIST_LIMIT } from '../../../constants/pagination'
-import { canInvoiceTerm } from '../../../utils/permissions'
+import { canInvoiceTerm, canManageStudents } from '../../../utils/permissions'
 import { formatDate, formatMoney } from '../../../utils/format'
 import type {
   DiscountValueType,
@@ -45,6 +45,7 @@ export const InvoicesTab = ({
 }: InvoicesTabProps) => {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const canManage = canManageStudents(user)
   const [invoiceSearch, setInvoiceSearch] = useState('')
   const [showCancelledInvoices, setShowCancelledInvoices] = useState(false)
   const [termInvoiceMessage, setTermInvoiceMessage] = useState<string | null>(null)
@@ -346,9 +347,11 @@ export const InvoicesTab = ({
               {termInvoiceLoading ? <Spinner size="small" /> : 'Invoice term'}
             </Button>
           )}
-          <Button variant="contained" onClick={() => navigate(`/students/${studentId}/invoices/new`)}>
-            Sell item
-          </Button>
+          {canManage && (
+            <Button variant="contained" onClick={() => navigate(`/students/${studentId}/invoices/new`)}>
+              Sell item
+            </Button>
+          )}
         </div>
       </div>
       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
@@ -441,7 +444,7 @@ export const InvoicesTab = ({
                       <TableCell>{formatMoney(parseNumber(line.net_amount))}</TableCell>
                       <TableCell align="right">
                         <div className="flex gap-2 justify-end">
-                          {selectedInvoice.status === 'draft' && (
+                          {canManage && selectedInvoice.status === 'draft' && (
                             <Button
                               size="small"
                               variant="outlined"
@@ -451,9 +454,11 @@ export const InvoicesTab = ({
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           )}
-                          <Button size="small" variant="outlined" onClick={() => openDiscountDialog(line.id)}>
-                            Discount
-                          </Button>
+                          {canManage && (
+                            <Button size="small" variant="outlined" onClick={() => openDiscountDialog(line.id)}>
+                              Discount
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -481,17 +486,17 @@ export const InvoicesTab = ({
               {downloadingPdf ? 'Downloading…' : 'Download PDF'}
             </Button>
           )}
-          {selectedInvoice?.status === 'draft' && (
+          {canManage && selectedInvoice?.status === 'draft' && (
             <Button variant="outlined" onClick={openAddLine}>
               Add line
             </Button>
           )}
-          {selectedInvoice?.status === 'draft' && (
+          {canManage && selectedInvoice?.status === 'draft' && (
             <Button variant="contained" onClick={openIssueInvoice}>
               Issue
             </Button>
           )}
-          {selectedInvoice && selectedInvoice.status !== 'paid' && (
+          {canManage && selectedInvoice && selectedInvoice.status !== 'paid' && (
             <Button variant="outlined" color="warning" onClick={cancelInvoice}>
               Cancel invoice
             </Button>

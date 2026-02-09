@@ -125,7 +125,6 @@ export const KpisPage = () => {
             <Button variant="contained" onClick={runReport}>Run report</Button>
             <Button
               variant="outlined"
-              size="small"
               onClick={() => {
                 const params: Record<string, unknown> = {}
                 if (periodType === 'year') params.year = year
