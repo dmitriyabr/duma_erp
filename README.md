@@ -231,7 +231,7 @@ npm run type-check
 | Роль | Возможности |
 |------|-------------|
 | SuperAdmin | Полный доступ: Users/Settings, Terms/Pricing, Catalog, approve claims, approve GRN, cancel payments, bank reconciliation |
-| Admin | Операционка: студенты/счета/закупки/склад (без approve claims/GRN, без отмен платежей, без Settings/Catalog изменений) |
+| Admin | Операционка: студенты/счета/закупки/склад + просмотр компенсаций (claims/payouts) без approve/выплат, без отмен платежей, без Settings/Catalog изменений |
 | User | Сотрудник: создаёт и видит только свои expense claims; остальное по минимуму |
 | Accountant | Read-only просмотр документов/экспорт/audit (без создания/редактирования, без управленческих Reports) |
 

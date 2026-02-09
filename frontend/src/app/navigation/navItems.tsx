@@ -124,7 +124,7 @@ export const navItems: NavItem[] = [
     roles: allRoles,
     children: [
       { label: 'Employee Expenses Claims', path: '/compensations/claims', roles: allRoles },
-      { label: 'Payouts', path: '/compensations/payouts', roles: ['SuperAdmin'] },
+      { label: 'Payouts', path: '/compensations/payouts', roles: viewRoles },
     ],
   },
   {
