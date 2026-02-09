@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
@@ -38,6 +38,7 @@ interface KpisData {
 
 export const KpisPage = () => {
   const { user } = useAuth()
+  const hasAccess = canSeeReports(user)
   const { data: terms } = useApi<TermRow[]>('/terms')
   const [periodType, setPeriodType] = useState<'year' | 'term'>('year')
   const [year, setYear] = useState(new Date().getFullYear())
@@ -45,12 +46,13 @@ export const KpisPage = () => {
   const [data, setData] = useState<KpisData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [forbidden, setForbidden] = useState(false)
+  const [backendForbidden, setBackendForbidden] = useState(false)
 
-  const runReport = () => {
-    if (!canSeeReports(user)) return
+  const runReport = useCallback(() => {
+    if (!hasAccess) return
     setLoading(true)
     setError(null)
+    setBackendForbidden(false)
     const params: { year?: number; term_id?: number } = {}
     if (periodType === 'year') params.year = year
     else if (periodType === 'term' && termId) params.term_id = Number(termId)
@@ -60,18 +62,19 @@ export const KpisPage = () => {
         if (res.data?.data) setData(res.data.data)
       })
       .catch((err) => {
-        if (err.response?.status === 403) setForbidden(true)
+        if (err.response?.status === 403) setBackendForbidden(true)
         else setError(err.response?.data?.detail ?? 'Failed to load report')
       })
       .finally(() => setLoading(false))
-  }
+  }, [hasAccess, periodType, termId, year])
 
   useEffect(() => {
-    if (canSeeReports(user)) runReport()
-    else setForbidden(true)
-  }, [user])
+    if (!hasAccess) return
+    const t = window.setTimeout(() => runReport(), 0)
+    return () => window.clearTimeout(t)
+  }, [hasAccess, user, runReport])
 
-  if (forbidden) {
+  if (!hasAccess || backendForbidden) {
     return (
       <div>
         <Typography variant="h5" className="mb-4">KPIs & Metrics</Typography>

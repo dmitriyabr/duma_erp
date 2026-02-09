@@ -179,11 +179,25 @@ export const CreateInvoicePage = () => {
     return Math.max(0, lineTotal - discountAmountForLine(line))
   }
 
-  const invoiceTotal = useMemo(() => lines.reduce((sum, line) => sum + lineTotalForLine(line), 0), [
-    lines,
-    kits,
-    lineTotalForLine,
-  ])
+  const invoiceTotal = useMemo(() => {
+    return lines.reduce((sum, line) => {
+      const kit = line.kit_id ? kits.find((k) => k.id === line.kit_id) : null
+      const unitPrice = kit?.price ?? 0
+      const lineTotal = unitPrice * line.quantity
+      const rawValue = line.discount_value === '' ? 0 : line.discount_value
+      let discount = 0
+      if (rawValue) {
+        if (line.discount_type === 'percentage') {
+          const percent = Math.max(0, Math.min(100, rawValue))
+          discount = Number(((lineTotal * percent) / 100).toFixed(2))
+        } else {
+          const fixed = Math.max(0, Math.min(lineTotal, rawValue))
+          discount = Number(fixed.toFixed(2))
+        }
+      }
+      return sum + Math.max(0, lineTotal - discount)
+    }, 0)
+  }, [kits, lines])
 
   const submitInvoice = async () => {
     if (!resolvedId) return

@@ -39,11 +39,12 @@ export function Autocomplete<T>({
   filterOptions,
 }: AutocompleteProps<T>) {
   const [open, setOpen] = useState(false)
-  const [inputValue, setInputValue] = useState('')
+  const [query, setQuery] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
-  const inputIdRef = useRef(`ac-${useId()}`)
+  const autoId = useId()
+  const inputId = `ac-${autoId}`
   const [dropdownPos, setDropdownPos] = useState<{
     top: number
     left: number
@@ -51,13 +52,8 @@ export function Autocomplete<T>({
     openUp: boolean
   } | null>(null)
 
-  useEffect(() => {
-    if (value) {
-      setInputValue(getOptionLabel(value))
-    } else {
-      setInputValue('')
-    }
-  }, [value, getOptionLabel])
+  const selectedLabel = value ? getOptionLabel(value) : ''
+  const inputValue = open ? query : selectedLabel
 
   const updateDropdownPos = useCallback(() => {
     const el = containerRef.current
@@ -123,19 +119,19 @@ export function Autocomplete<T>({
   }
 
   const filteredOptions = filterOptions
-    ? filterOptions(options, inputValue)
-    : defaultFilterOptions(options, inputValue)
+    ? filterOptions(options, query)
+    : defaultFilterOptions(options, query)
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value
-    setInputValue(newValue)
+    setQuery(newValue)
     setOpen(true)
     onInputChange?.(newValue)
   }
 
   const handleSelect = (option: T) => {
     onChange(option)
-    setInputValue(getOptionLabel(option))
+    setQuery(getOptionLabel(option))
     setOpen(false)
     inputRef.current?.blur()
   }
@@ -143,13 +139,14 @@ export function Autocomplete<T>({
   const handleClear = (e: React.MouseEvent) => {
     e.stopPropagation()
     onChange(null)
-    setInputValue('')
+    setQuery('')
     setOpen(false)
     inputRef.current?.focus()
   }
 
   const handleFocus = () => {
     setOpen(true)
+    setQuery(selectedLabel)
     // Compute immediately so dropdown appears without a "jump"
     updateDropdownPos()
   }
@@ -174,7 +171,7 @@ export function Autocomplete<T>({
         <div className="relative">
           <Input
             ref={inputRef}
-            id={inputIdRef.current}
+            id={inputId}
             label={label}
             placeholder={placeholder}
             value={inputValue}

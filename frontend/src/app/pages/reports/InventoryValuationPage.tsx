@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
-import { api } from '../../services/api'
-import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
 import { downloadReportExcel } from '../../utils/reportExcel'
+import { useApi } from '../../hooks/useApi'
 import {
   Alert,
   Button,
@@ -43,36 +42,20 @@ const defaultAsAt = () => new Date().toISOString().slice(0, 10)
 
 export const InventoryValuationPage = () => {
   const { user } = useAuth()
+  const hasAccess = canSeeReports(user)
   const [asAtDate, setAsAtDate] = useState(defaultAsAt)
-  const [data, setData] = useState<InventoryValuationData | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [forbidden, setForbidden] = useState(false)
+  const [requestedAsAtDate, setRequestedAsAtDate] = useState(defaultAsAt)
 
-  const runReport = () => {
-    if (!canSeeReports(user)) return
-    setLoading(true)
-    setError(null)
-    api
-      .get<ApiResponse<InventoryValuationData>>('/reports/inventory-valuation', {
-        params: { as_at_date: asAtDate },
-      })
-      .then((res) => {
-        if (res.data?.data) setData(res.data.data)
-      })
-      .catch((err) => {
-        if (err.response?.status === 403) setForbidden(true)
-        else setError(err.response?.data?.detail ?? 'Failed to load report')
-      })
-      .finally(() => setLoading(false))
-  }
+  const options = useMemo(
+    () => ({ params: { as_at_date: requestedAsAtDate } }),
+    [requestedAsAtDate]
+  )
+  const { data, loading, error, refetch } = useApi<InventoryValuationData>(
+    hasAccess ? '/reports/inventory-valuation' : null,
+    options
+  )
 
-  useEffect(() => {
-    if (canSeeReports(user)) runReport()
-    else setForbidden(true)
-  }, [user])
-
-  if (forbidden) {
+  if (!hasAccess) {
     return (
       <div>
         <Typography variant="h5" className="mb-4">Inventory Valuation</Typography>
@@ -97,7 +80,18 @@ export const InventoryValuationPage = () => {
               onChange={(e) => setAsAtDate(e.target.value)}
               className="w-40"
             />
-            <Button variant="contained" onClick={runReport}>Run report</Button>
+            <Button
+              variant="contained"
+              onClick={async () => {
+                setRequestedAsAtDate(asAtDate)
+                // if date didn't change, still allow manual refresh
+                if (asAtDate === requestedAsAtDate) {
+                  await refetch()
+                }
+              }}
+            >
+              Run report
+            </Button>
             <Button variant="outlined" onClick={() => downloadReportExcel('/reports/inventory-valuation', { as_at_date: asAtDate }, 'inventory-valuation.xlsx')}>Export to Excel</Button>
           </div>
         </CardContent>
