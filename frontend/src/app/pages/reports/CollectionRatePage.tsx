@@ -1,12 +1,3 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CircularProgress,
-  Typography,
-} from '@mui/material'
 import { useEffect, useState } from 'react'
 import {
   CartesianGrid,
@@ -23,6 +14,12 @@ import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Button } from '../../components/ui/Button'
+import { Card, CardContent } from '../../components/ui/Card'
+import { Select } from '../../components/ui/Select'
+import { Spinner } from '../../components/ui/Spinner'
 import { downloadReportExcel } from '../../utils/reportExcel'
 
 interface MonthRow {
@@ -72,58 +69,61 @@ export const CollectionRatePage = () => {
 
   if (forbidden) {
     return (
-      <Box>
-        <Typography variant="h5" sx={{ mb: 2 }}>Collection Rate Trend</Typography>
+      <div>
+        <Typography variant="h5" className="mb-4">Collection Rate Trend</Typography>
         <Alert severity="warning">
           You do not have access to reports. This section is available to Admin and SuperAdmin.
         </Alert>
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>Collection Rate Trend</Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+    <div>
+      <Typography variant="h5" className="mb-4">Collection Rate Trend</Typography>
+      <Typography variant="body2" color="secondary" className="mb-4">
         Collection rate % per month (invoiced vs paid in that month).
       </Typography>
 
-      <Card sx={{ mb: 2 }}>
+      <Card className="mb-4">
         <CardContent>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
+          <div className="flex flex-wrap gap-4 items-center">
             <Typography variant="body2">Last</Typography>
-            <select
-              value={months}
-              onChange={(e) => setMonths(Number(e.target.value))}
-              style={{ padding: '8px 12px', marginRight: 8 }}
-            >
-              {[6, 12, 18, 24].map((n) => (
-                <option key={n} value={n}>{n} months</option>
-              ))}
-            </select>
+            <div className="min-w-[140px]">
+              <Select
+                value={String(months)}
+                onChange={(e) => setMonths(Number(e.target.value))}
+              >
+                {[6, 12, 18, 24].map((n) => (
+                  <option key={n} value={n}>{`${n} months`}</option>
+                ))}
+              </Select>
+            </div>
             <Button variant="contained" onClick={runReport}>Run report</Button>
-            <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/collection-rate', { months }, 'collection-rate.xlsx')}>Export to Excel</Button>
-          </Box>
+            <Button variant="outlined" onClick={() => downloadReportExcel('/reports/collection-rate', { months }, 'collection-rate.xlsx')}>
+              Export to Excel
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
       {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress />
-        </Box>
+        <div className="flex justify-center py-8">
+          <Spinner size="large" />
+        </div>
       )}
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" className="mb-4">{error}</Alert>}
 
       {!loading && data && (
         <>
-          <Card sx={{ mb: 2 }}>
+          <Card className="mb-4">
             <CardContent>
-              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+              <Typography variant="subtitle2" color="secondary" className="mb-2">
                 Collection rate % by month · Average: {data.average_rate_percent != null ? `${data.average_rate_percent}%` : '—'}
                 {data.target_rate_percent != null && ` · Target: ${data.target_rate_percent}%`}
               </Typography>
-              <Box sx={{ width: '100%', height: 320, mt: 1 }}>
+              <div className="w-full h-80 mt-2">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart
                     data={data.rows.map((r) => ({
@@ -163,17 +163,17 @@ export const CollectionRatePage = () => {
                     />
                   </LineChart>
                 </ResponsiveContainer>
-              </Box>
+              </div>
             </CardContent>
           </Card>
 
           <Card>
             <CardContent>
-              <Typography variant="subtitle2" gutterBottom>
+              <Typography variant="subtitle2" className="mb-2">
                 Average rate: {data.average_rate_percent != null ? `${data.average_rate_percent}%` : '—'}
               </Typography>
               {data.target_rate_percent != null && (
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" color="secondary">
                   Target: {data.target_rate_percent}%
                 </Typography>
               )}
@@ -183,8 +183,8 @@ export const CollectionRatePage = () => {
       )}
 
       {!loading && !data && !error && canSeeReports(user) && (
-        <Typography color="text.secondary">Run report to see collection rate trend.</Typography>
+        <Typography color="secondary">Run report to see collection rate trend.</Typography>
       )}
-    </Box>
+    </div>
   )
 }

@@ -1,25 +1,15 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CircularProgress,
-  Link,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TableSortLabel,
-  Typography,
-} from '@mui/material'
 import { useEffect, useMemo, useState } from 'react'
-import { Link as RouterLink, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { formatDate, formatMoney } from '../../utils/format'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Card, CardContent } from '../../components/ui/Card'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
+import { TableSortLabel } from '../../components/ui/TableSortLabel'
+import { Spinner } from '../../components/ui/Spinner'
+import { Button } from '../../components/ui/Button'
 import { downloadReportExcel } from '../../utils/reportExcel'
 
 interface AgedRow {
@@ -117,12 +107,12 @@ export const AgedReceivablesPage = () => {
 
   if (forbidden) {
     return (
-      <Box>
-        <Typography variant="h5" sx={{ mb: 2 }}>Students Debt</Typography>
+      <div>
+        <Typography variant="h5" className="mb-4">Students Debt</Typography>
         <Alert severity="warning">
           You do not have access to reports. This section is available to Admin and SuperAdmin.
         </Alert>
-      </Box>
+      </div>
     )
   }
 
@@ -132,94 +122,96 @@ export const AgedReceivablesPage = () => {
   }
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+    <div>
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
         <Typography variant="h5">Students Debt</Typography>
-        <Button variant="outlined" size="small" onClick={handleExportExcel}>Export to Excel</Button>
-      </Box>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        <Button variant="outlined" onClick={handleExportExcel}>
+          Export to Excel
+        </Button>
+      </div>
+      <Typography variant="body2" color="secondary" className="mb-4">
         Student debts by aging (as at {data ? formatDate(data.as_at_date) : '—'}).
       </Typography>
 
       {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress />
-        </Box>
+        <div className="flex justify-center py-8">
+          <Spinner size="large" />
+        </div>
       )}
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
+        <Alert severity="error" className="mb-4">{error}</Alert>
       )}
 
       {!loading && data && (
         <>
-          <TableContainer component={Card} sx={{ mb: 2 }}>
-            <Table size="small">
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden mb-4">
+            <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell sortDirection={orderBy === 'student_name' ? order : false}>
+                  <TableHeaderCell>
                     <TableSortLabel
                       active={orderBy === 'student_name'}
                       direction={orderBy === 'student_name' ? order : 'asc'}
                       onClick={() => handleSort('student_name')}
                     >
-                      <strong>Student</strong>
+                      Student
                     </TableSortLabel>
-                  </TableCell>
-                  <TableCell align="right" sortDirection={orderBy === 'total' ? order : false}>
+                  </TableHeaderCell>
+                  <TableHeaderCell align="right">
                     <TableSortLabel
                       active={orderBy === 'total'}
                       direction={orderBy === 'total' ? order : 'desc'}
                       onClick={() => handleSort('total')}
                     >
-                      <strong>Total</strong>
+                      Total
                     </TableSortLabel>
-                  </TableCell>
-                  <TableCell align="right" sortDirection={orderBy === 'current' ? order : false}>
+                  </TableHeaderCell>
+                  <TableHeaderCell align="right">
                     <TableSortLabel
                       active={orderBy === 'current'}
                       direction={orderBy === 'current' ? order : 'desc'}
                       onClick={() => handleSort('current')}
                     >
-                      <strong>Current (0-30 days)</strong>
+                      Current (0-30 days)
                     </TableSortLabel>
-                  </TableCell>
-                  <TableCell align="right" sortDirection={orderBy === 'bucket_31_60' ? order : false}>
+                  </TableHeaderCell>
+                  <TableHeaderCell align="right">
                     <TableSortLabel
                       active={orderBy === 'bucket_31_60'}
                       direction={orderBy === 'bucket_31_60' ? order : 'desc'}
                       onClick={() => handleSort('bucket_31_60')}
                     >
-                      <strong>31-60 days</strong>
+                      31-60 days
                     </TableSortLabel>
-                  </TableCell>
-                  <TableCell align="right" sortDirection={orderBy === 'bucket_61_90' ? order : false}>
+                  </TableHeaderCell>
+                  <TableHeaderCell align="right">
                     <TableSortLabel
                       active={orderBy === 'bucket_61_90'}
                       direction={orderBy === 'bucket_61_90' ? order : 'desc'}
                       onClick={() => handleSort('bucket_61_90')}
                     >
-                      <strong>61-90 days</strong>
+                      61-90 days
                     </TableSortLabel>
-                  </TableCell>
-                  <TableCell align="right" sortDirection={orderBy === 'bucket_90_plus' ? order : false}>
+                  </TableHeaderCell>
+                  <TableHeaderCell align="right">
                     <TableSortLabel
                       active={orderBy === 'bucket_90_plus'}
                       direction={orderBy === 'bucket_90_plus' ? order : 'desc'}
                       onClick={() => handleSort('bucket_90_plus')}
                     >
-                      <strong>90+ days</strong>
+                      90+ days
                     </TableSortLabel>
-                  </TableCell>
-                  <TableCell sortDirection={orderBy === 'last_payment_date' ? order : false}>
+                  </TableHeaderCell>
+                  <TableHeaderCell>
                     <TableSortLabel
                       active={orderBy === 'last_payment_date'}
                       direction={orderBy === 'last_payment_date' ? order : 'desc'}
                       onClick={() => handleSort('last_payment_date')}
                     >
-                      <strong>Last Payment</strong>
+                      Last Payment
                     </TableSortLabel>
-                  </TableCell>
+                  </TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -227,9 +219,8 @@ export const AgedReceivablesPage = () => {
                   <TableRow key={row.student_id}>
                     <TableCell>
                       <Link
-                        component={RouterLink}
                         to={`/students/${row.student_id}`}
-                        sx={{ color: 'inherit', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+                        className="text-inherit no-underline hover:underline"
                       >
                         {row.student_name}
                       </Link>
@@ -244,26 +235,26 @@ export const AgedReceivablesPage = () => {
                 ))}
               </TableBody>
             </Table>
-          </TableContainer>
+          </div>
 
           <Card>
             <CardContent>
-              <Typography variant="subtitle2" color="text.secondary" gutterBottom>Summary</Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+              <Typography variant="subtitle2" color="secondary" className="mb-2">Summary</Typography>
+              <div className="flex flex-wrap gap-6">
                 <Typography variant="body2"><strong>Total:</strong> {formatMoney(data.summary.total)}</Typography>
                 <Typography variant="body2"><strong>Current (0-30 days):</strong> {formatMoney(data.summary.current)}</Typography>
                 <Typography variant="body2"><strong>31-60 days:</strong> {formatMoney(data.summary.bucket_31_60)}</Typography>
                 <Typography variant="body2"><strong>61-90 days:</strong> {formatMoney(data.summary.bucket_61_90)}</Typography>
-                <Typography variant="body2" color="error.main"><strong>90+ days:</strong> {formatMoney(data.summary.bucket_90_plus)}</Typography>
-              </Box>
+                <Typography variant="body2" className="text-error"><strong>90+ days:</strong> {formatMoney(data.summary.bucket_90_plus)}</Typography>
+              </div>
             </CardContent>
           </Card>
         </>
       )}
 
       {!loading && !data && !error && (
-        <Typography color="text.secondary">No data.</Typography>
+        <Typography color="secondary">No data.</Typography>
       )}
-    </Box>
+    </div>
   )
 }

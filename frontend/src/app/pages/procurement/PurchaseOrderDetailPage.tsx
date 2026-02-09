@@ -1,20 +1,3 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
@@ -24,6 +7,15 @@ import { api } from '../../services/api'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Button } from '../../components/ui/Button'
+import { Chip } from '../../components/ui/Chip'
+import { Input } from '../../components/ui/Input'
+import { Textarea } from '../../components/ui/Textarea'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
+import { Dialog, DialogTitle, DialogContent, DialogActions, DialogCloseButton } from '../../components/ui/Dialog'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface POLine {
   id: number
@@ -97,7 +89,7 @@ export const PurchaseOrderDetailPage = () => {
 
   const { user } = useAuth()
   const readOnly = isAccountant(user)
-  const { data: po, refetch: refetchPO } = useApi<POResponse>(
+  const { data: po, loading: poLoading, refetch: refetchPO } = useApi<POResponse>(
     resolvedId ? `/procurement/purchase-orders/${resolvedId}` : null
   )
   const { data: grnsData, refetch: refetchGRNs } = useApi<PaginatedResponse<GRNRow>>(
@@ -199,11 +191,19 @@ export const PurchaseOrderDetailPage = () => {
     }
   }
 
+  if (poLoading) {
+    return (
+      <div className="flex justify-center py-8">
+        <Spinner size="large" />
+      </div>
+    )
+  }
+
   if (!po) {
     return (
-      <Box>
-        {error ? <Alert severity="error">{error}</Alert> : null}
-      </Box>
+      <div>
+        {error && <Alert severity="error">{error}</Alert>}
+      </div>
     )
   }
 
@@ -211,34 +211,34 @@ export const PurchaseOrderDetailPage = () => {
   const canReceive = !readOnly && (po.status === 'ordered' || po.status === 'partially_received')
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
-        <Box>
-          <Typography variant="h4" sx={{ fontWeight: 700 }}>
+    <div>
+      <div className="flex justify-between items-start mb-4 flex-wrap gap-4">
+        <div>
+          <Typography variant="h4">
             {po.po_number}
           </Typography>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" color="secondary" className="mt-1">
             {po.supplier_name} · {formatDate(po.order_date)}
           </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        </div>
+        <div className="flex gap-2 items-center flex-wrap">
           <Chip label={po.status} color={statusColor(po.status)} />
-          {canEdit ? (
+          {canEdit && (
             <Button variant="outlined" onClick={() => navigate(`/procurement/orders/${po.id}/edit`)}>
               Edit
             </Button>
-          ) : null}
-          {!readOnly && po.status === 'draft' ? (
+          )}
+          {!readOnly && po.status === 'draft' && (
             <Button variant="contained" onClick={() => setConfirmState({ open: true, action: 'submit' })}>
               Submit
             </Button>
-          ) : null}
-          {canReceive ? (
+          )}
+          {canReceive && (
             <Button variant="contained" onClick={openReceive}>
               Receive
             </Button>
-          ) : null}
-          {!readOnly && po.status !== 'cancelled' && po.status !== 'closed' ? (
+          )}
+          {!readOnly && po.status !== 'cancelled' && po.status !== 'closed' && (
             <Button
               variant="contained"
               color="success"
@@ -246,13 +246,13 @@ export const PurchaseOrderDetailPage = () => {
             >
               Create Payment
             </Button>
-          ) : null}
-          {!readOnly && (po.status === 'ordered' || po.status === 'partially_received') ? (
+          )}
+          {!readOnly && (po.status === 'ordered' || po.status === 'partially_received') && (
             <Button variant="contained" color="warning" onClick={() => setConfirmState({ open: true, action: 'close' })}>
               Close
             </Button>
-          ) : null}
-          {canEdit ? (
+          )}
+          {canEdit && (
             <Button
               variant="outlined"
               color="error"
@@ -260,234 +260,245 @@ export const PurchaseOrderDetailPage = () => {
             >
               Cancel
             </Button>
-          ) : null}
-        </Box>
-      </Box>
+          )}
+        </div>
+      </div>
 
-      {error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {error && (
+        <Alert severity="error" className="mb-4">
           {error}
         </Alert>
-      ) : null}
+      )}
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 3 }}>
-        <Box>
-          <Typography variant="subtitle2" color="text.secondary">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
             Expected total
           </Typography>
           <Typography variant="h6">{formatMoney(po.expected_total)}</Typography>
-        </Box>
-        <Box>
-          <Typography variant="subtitle2" color="text.secondary">
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
             Received value
           </Typography>
           <Typography variant="h6">{formatMoney(po.received_value)}</Typography>
-        </Box>
-        <Box>
-          <Typography variant="subtitle2" color="text.secondary">
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
             Paid total
           </Typography>
           <Typography variant="h6">{formatMoney(po.paid_total)}</Typography>
-        </Box>
-        <Box>
-          <Typography variant="subtitle2" color="text.secondary">
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
             Debt amount
           </Typography>
-          <Typography variant="h6" color={po.debt_amount > 0 ? 'error' : 'inherit'}>
+          <Typography variant="h6" className={po.debt_amount > 0 ? 'text-error' : ''}>
             {formatMoney(po.debt_amount)}
           </Typography>
-        </Box>
-      </Box>
+        </div>
+      </div>
 
-      {po.notes ? (
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle2" color="text.secondary">
+      {po.notes && (
+        <div className="mb-6">
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
             Notes
           </Typography>
           <Typography>{po.notes}</Typography>
-        </Box>
-      ) : null}
+        </div>
+      )}
 
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h6" sx={{ mb: 2 }}>
+      <div className="mb-6">
+        <Typography variant="h6" className="mb-4">
           Order lines
         </Typography>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Description</TableCell>
-              <TableCell align="right">Expected</TableCell>
-              <TableCell align="right">Cancelled</TableCell>
-              <TableCell align="right">Received</TableCell>
-              <TableCell align="right">Remaining</TableCell>
-              <TableCell align="right">Unit price</TableCell>
-              <TableCell align="right">Total</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {po.lines.map((line) => {
-              const remaining = line.quantity_expected - line.quantity_cancelled - line.quantity_received
-              return (
-                <TableRow key={line.id}>
-                  <TableCell>{line.description}</TableCell>
-                  <TableCell align="right">{line.quantity_expected}</TableCell>
-                  <TableCell align="right">{line.quantity_cancelled}</TableCell>
-                  <TableCell align="right">{line.quantity_received}</TableCell>
-                  <TableCell align="right">{remaining}</TableCell>
-                  <TableCell align="right">{formatMoney(line.unit_price)}</TableCell>
-                  <TableCell align="right">{formatMoney(line.line_total)}</TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
-      </Box>
-
-      {grns.length > 0 ? (
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>
-            Goods Received
-          </Typography>
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell>GRN Number</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Date</TableCell>
-                <TableCell align="right">Actions</TableCell>
+                <TableHeaderCell>Description</TableHeaderCell>
+                <TableHeaderCell align="right">Expected</TableHeaderCell>
+                <TableHeaderCell align="right">Cancelled</TableHeaderCell>
+                <TableHeaderCell align="right">Received</TableHeaderCell>
+                <TableHeaderCell align="right">Remaining</TableHeaderCell>
+                <TableHeaderCell align="right">Unit price</TableHeaderCell>
+                <TableHeaderCell align="right">Total</TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {grns.map((grn) => (
-                <TableRow key={grn.id}>
-                  <TableCell>{grn.grn_number}</TableCell>
-                  <TableCell>
-                    <Chip
-                      size="small"
-                      label={grn.status}
-                      color={grn.status === 'approved' ? 'success' : 'warning'}
-                    />
-                  </TableCell>
-                  <TableCell>{formatDate(grn.received_date)}</TableCell>
-                  <TableCell align="right">
-                    <Button size="small" onClick={() => navigate(`/procurement/grn/${grn.id}`)}>
-                      View
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Box>
-      ) : null}
-
-      {payments.length > 0 ? (
-        <Box>
-          <Typography variant="h6" sx={{ mb: 2 }}>
-            Payments
-          </Typography>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Payment Number</TableCell>
-                <TableCell>Date</TableCell>
-                <TableCell align="right">Amount</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell align="right">Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {payments.map((payment) => (
-                <TableRow key={payment.id}>
-                  <TableCell>{payment.payment_number}</TableCell>
-                  <TableCell>{formatDate(payment.payment_date)}</TableCell>
-                  <TableCell align="right">{formatMoney(payment.amount)}</TableCell>
-                  <TableCell>
-                    <Chip
-                      size="small"
-                      label={payment.status}
-                      color={payment.status === 'posted' ? 'success' : 'default'}
-                    />
-                  </TableCell>
-                  <TableCell align="right">
-                    <Button size="small" onClick={() => navigate(`/procurement/payments/${payment.id}`)}>
-                      View
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Box>
-      ) : null}
-
-      <Dialog open={receiveDialogOpen} onClose={() => setReceiveDialogOpen(false)} fullWidth maxWidth="md">
-        <DialogTitle>Receive goods</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <TextField
-            label="Received date"
-            type="date"
-            value={receiveDate}
-            onChange={(event) => setReceiveDate(event.target.value)}
-            InputLabelProps={{ shrink: true }}
-          />
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Description</TableCell>
-                <TableCell align="right">Expected</TableCell>
-                <TableCell align="right">Received</TableCell>
-                <TableCell align="right">Qty to receive</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {grnLines.map((grnLine) => {
-                const poLine = po.lines.find((l) => l.id === grnLine.po_line_id)
-                if (!poLine) return null
+              {po.lines.map((line) => {
+                const remaining = line.quantity_expected - line.quantity_cancelled - line.quantity_received
                 return (
-                  <TableRow key={grnLine.po_line_id}>
-                    <TableCell>{poLine.description}</TableCell>
-                    <TableCell align="right">{poLine.quantity_expected}</TableCell>
-                    <TableCell align="right">{poLine.quantity_received}</TableCell>
-                    <TableCell align="right">
-                      <TextField
-                        size="small"
-                        type="number"
-                        value={grnLine.quantity_received === 0 ? '' : grnLine.quantity_received}
-                        onChange={(event) => {
-                          const qty = Number(event.target.value) || 0
-                          const maxQty = poLine.quantity_expected - poLine.quantity_cancelled - poLine.quantity_received
-                          setGrnLines((prev) =>
-                            prev.map((line) =>
-                              line.po_line_id === grnLine.po_line_id
-                                ? { ...line, quantity_received: Math.min(qty, maxQty) }
-                                : line
-                            )
-                          )
-                        }}
-                        onFocus={(event) => event.currentTarget.select()}
-                        onWheel={(event) => event.currentTarget.blur()}
-                        inputProps={{ min: 1, max: poLine.quantity_expected - poLine.quantity_cancelled - poLine.quantity_received }}
-                        sx={{ width: 100 }}
-                      />
-                    </TableCell>
+                  <TableRow key={line.id}>
+                    <TableCell>{line.description}</TableCell>
+                    <TableCell align="right">{line.quantity_expected}</TableCell>
+                    <TableCell align="right">{line.quantity_cancelled}</TableCell>
+                    <TableCell align="right">{line.quantity_received}</TableCell>
+                    <TableCell align="right">{remaining}</TableCell>
+                    <TableCell align="right">{formatMoney(line.unit_price)}</TableCell>
+                    <TableCell align="right">{formatMoney(line.line_total)}</TableCell>
                   </TableRow>
                 )
               })}
             </TableBody>
           </Table>
-          <TextField
-            label="Notes"
-            value={receiveNotes}
-            onChange={(event) => setReceiveNotes(event.target.value)}
-            multiline
-            minRows={2}
-          />
+        </div>
+      </div>
+
+      {grns.length > 0 && (
+        <div className="mb-6">
+          <Typography variant="h6" className="mb-4">
+            Goods Received
+          </Typography>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>GRN Number</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
+                  <TableHeaderCell>Date</TableHeaderCell>
+                  <TableHeaderCell align="right">Actions</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {grns.map((grn) => (
+                  <TableRow key={grn.id}>
+                    <TableCell>{grn.grn_number}</TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        label={grn.status}
+                        color={grn.status === 'approved' ? 'success' : 'warning'}
+                      />
+                    </TableCell>
+                    <TableCell>{formatDate(grn.received_date)}</TableCell>
+                    <TableCell align="right">
+                      <Button size="small" onClick={() => navigate(`/procurement/grn/${grn.id}`)}>
+                        View
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
+
+      {payments.length > 0 && (
+        <div>
+          <Typography variant="h6" className="mb-4">
+            Payments
+          </Typography>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Payment Number</TableHeaderCell>
+                  <TableHeaderCell>Date</TableHeaderCell>
+                  <TableHeaderCell align="right">Amount</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
+                  <TableHeaderCell align="right">Actions</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {payments.map((payment) => (
+                  <TableRow key={payment.id}>
+                    <TableCell>{payment.payment_number}</TableCell>
+                    <TableCell>{formatDate(payment.payment_date)}</TableCell>
+                    <TableCell align="right">{formatMoney(payment.amount)}</TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        label={payment.status}
+                        color={payment.status === 'posted' ? 'success' : 'default'}
+                      />
+                    </TableCell>
+                    <TableCell align="right">
+                      <Button size="small" onClick={() => navigate(`/procurement/payments/${payment.id}`)}>
+                        View
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
+
+      <Dialog open={receiveDialogOpen} onClose={() => setReceiveDialogOpen(false)} maxWidth="md">
+        <DialogCloseButton onClose={() => setReceiveDialogOpen(false)} />
+        <DialogTitle>Receive goods</DialogTitle>
+        <DialogContent>
+          <div className="space-y-4 mt-4">
+            <Input
+              label="Received date"
+              type="date"
+              value={receiveDate}
+              onChange={(e) => setReceiveDate(e.target.value)}
+            />
+            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableHeaderCell>Description</TableHeaderCell>
+                    <TableHeaderCell align="right">Expected</TableHeaderCell>
+                    <TableHeaderCell align="right">Received</TableHeaderCell>
+                    <TableHeaderCell align="right">Qty to receive</TableHeaderCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {grnLines.map((grnLine) => {
+                    const poLine = po.lines.find((l) => l.id === grnLine.po_line_id)
+                    if (!poLine) return null
+                    return (
+                      <TableRow key={grnLine.po_line_id}>
+                        <TableCell>{poLine.description}</TableCell>
+                        <TableCell align="right">{poLine.quantity_expected}</TableCell>
+                        <TableCell align="right">{poLine.quantity_received}</TableCell>
+                        <TableCell align="right">
+                          <Input
+                            type="number"
+                            value={grnLine.quantity_received === 0 ? '' : grnLine.quantity_received}
+                            onChange={(e) => {
+                              const qty = Number(e.target.value) || 0
+                              const maxQty = poLine.quantity_expected - poLine.quantity_cancelled - poLine.quantity_received
+                              setGrnLines((prev) =>
+                                prev.map((line) =>
+                                  line.po_line_id === grnLine.po_line_id
+                                    ? { ...line, quantity_received: Math.min(qty, maxQty) }
+                                    : line
+                                )
+                              )
+                            }}
+                            onFocus={(e) => e.currentTarget.select()}
+                            onWheel={(e) => e.currentTarget.blur()}
+                            min={1}
+                            max={poLine.quantity_expected - poLine.quantity_cancelled - poLine.quantity_received}
+                            className="w-24"
+                          />
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+            <Textarea
+              label="Notes"
+              value={receiveNotes}
+              onChange={(e) => setReceiveNotes(e.target.value)}
+              rows={3}
+            />
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setReceiveDialogOpen(false)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => setReceiveDialogOpen(false)}>
+            Cancel
+          </Button>
           <Button variant="contained" onClick={submitGRN} disabled={loading}>
-            Create Goods Received Note
+            {loading ? <Spinner size="small" /> : 'Create Goods Received Note'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -510,33 +521,36 @@ export const PurchaseOrderDetailPage = () => {
         onConfirm={handleClose}
       />
 
-      {confirmState.open && confirmState.action === 'cancel' ? (
-        <Dialog open onClose={() => setConfirmState({ open: false })} fullWidth maxWidth="sm">
+      {confirmState.open && confirmState.action === 'cancel' && (
+        <Dialog open onClose={() => setConfirmState({ open: false })} maxWidth="sm">
+          <DialogCloseButton onClose={() => setConfirmState({ open: false })} />
           <DialogTitle>Cancel purchase order</DialogTitle>
-          <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-            <TextField
-              label="Reason"
-              value={confirmState.reason ?? ''}
-              onChange={(event) => setConfirmState({ ...confirmState, reason: event.target.value })}
-              multiline
-              minRows={3}
-              required
-            />
+          <DialogContent>
+            <div className="mt-4">
+              <Textarea
+                label="Reason"
+                value={confirmState.reason ?? ''}
+                onChange={(e) => setConfirmState({ ...confirmState, reason: e.target.value })}
+                rows={3}
+                required
+              />
+            </div>
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setConfirmState({ open: false })}>Cancel</Button>
+            <Button variant="outlined" onClick={() => setConfirmState({ open: false })}>
+              Cancel
+            </Button>
             <Button
-              variant="contained"
+              variant="outlined"
               color="error"
               onClick={handleCancel}
               disabled={!confirmState.reason?.trim() || loading}
             >
-              Cancel order
+              {loading ? <Spinner size="small" /> : 'Cancel order'}
             </Button>
           </DialogActions>
         </Dialog>
-      ) : null}
-
-    </Box>
+      )}
+    </div>
   )
 }

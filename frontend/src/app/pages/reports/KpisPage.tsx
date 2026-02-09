@@ -1,17 +1,4 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CircularProgress,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Typography,
-} from '@mui/material'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
@@ -19,6 +6,15 @@ import { useApi } from '../../hooks/useApi'
 import { canSeeReports } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
 import { downloadReportExcel } from '../../utils/reportExcel'
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  Select,
+  Typography,
+  Spinner,
+} from '../../components/ui'
 
 interface TermRow {
   id: number
@@ -42,6 +38,7 @@ interface KpisData {
 
 export const KpisPage = () => {
   const { user } = useAuth()
+  const hasAccess = canSeeReports(user)
   const { data: terms } = useApi<TermRow[]>('/terms')
   const [periodType, setPeriodType] = useState<'year' | 'term'>('year')
   const [year, setYear] = useState(new Date().getFullYear())
@@ -49,12 +46,13 @@ export const KpisPage = () => {
   const [data, setData] = useState<KpisData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [forbidden, setForbidden] = useState(false)
+  const [backendForbidden, setBackendForbidden] = useState(false)
 
-  const runReport = () => {
-    if (!canSeeReports(user)) return
+  const runReport = useCallback(() => {
+    if (!hasAccess) return
     setLoading(true)
     setError(null)
+    setBackendForbidden(false)
     const params: { year?: number; term_id?: number } = {}
     if (periodType === 'year') params.year = year
     else if (periodType === 'term' && termId) params.term_id = Number(termId)
@@ -64,78 +62,72 @@ export const KpisPage = () => {
         if (res.data?.data) setData(res.data.data)
       })
       .catch((err) => {
-        if (err.response?.status === 403) setForbidden(true)
+        if (err.response?.status === 403) setBackendForbidden(true)
         else setError(err.response?.data?.detail ?? 'Failed to load report')
       })
       .finally(() => setLoading(false))
-  }
+  }, [hasAccess, periodType, termId, year])
 
   useEffect(() => {
-    if (canSeeReports(user)) runReport()
-    else setForbidden(true)
-  }, [user])
+    if (!hasAccess) return
+    const t = window.setTimeout(() => runReport(), 0)
+    return () => window.clearTimeout(t)
+  }, [hasAccess, user, runReport])
 
-  if (forbidden) {
+  if (!hasAccess || backendForbidden) {
     return (
-      <Box>
-        <Typography variant="h5" sx={{ mb: 2 }}>KPIs & Metrics</Typography>
+      <div>
+        <Typography variant="h5" className="mb-4">KPIs & Metrics</Typography>
         <Alert severity="warning">
           You do not have access to reports. This section is available to Admin and SuperAdmin.
         </Alert>
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>KPIs & Metrics</Typography>
+    <div>
+      <Typography variant="h5" className="mb-4">KPIs & Metrics</Typography>
 
-      <Card sx={{ mb: 2 }}>
+      <Card className="mb-4">
         <CardContent>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
-            <FormControl size="small" sx={{ minWidth: 120 }}>
-              <InputLabel>Period</InputLabel>
-              <Select
-                value={periodType}
-                label="Period"
-                onChange={(e) => setPeriodType(e.target.value as 'year' | 'term')}
-              >
-                <MenuItem value="year">Calendar year</MenuItem>
-                <MenuItem value="term">Term</MenuItem>
-              </Select>
-            </FormControl>
+          <div className="flex flex-wrap gap-4 items-center">
+            <Select
+              value={periodType}
+              onChange={(e) => setPeriodType(e.target.value as 'year' | 'term')}
+              label="Period"
+              className="min-w-[120px]"
+            >
+              <option value="year">Calendar year</option>
+              <option value="term">Term</option>
+            </Select>
             {periodType === 'year' && (
-              <FormControl size="small" sx={{ minWidth: 100 }}>
-                <InputLabel>Year</InputLabel>
-                <Select
-                  value={year}
-                  label="Year"
-                  onChange={(e) => setYear(Number(e.target.value))}
-                >
-                  {[new Date().getFullYear(), new Date().getFullYear() - 1, new Date().getFullYear() - 2].map((y) => (
-                    <MenuItem key={y} value={y}>{y}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <Select
+                value={year}
+                onChange={(e) => setYear(Number(e.target.value))}
+                label="Year"
+                className="min-w-[100px]"
+              >
+                {[new Date().getFullYear(), new Date().getFullYear() - 1, new Date().getFullYear() - 2].map((y) => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </Select>
             )}
             {periodType === 'term' && (
-              <FormControl size="small" sx={{ minWidth: 180 }}>
-                <InputLabel>Term</InputLabel>
-                <Select
-                  value={termId}
-                  label="Term"
-                  onChange={(e) => setTermId(e.target.value)}
-                >
-                  {(terms ?? []).map((t) => (
-                    <MenuItem key={t.id} value={String(t.id)}>{t.display_name}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <Select
+                value={termId}
+                onChange={(e) => setTermId(e.target.value)}
+                label="Term"
+                className="min-w-[180px]"
+              >
+                {(terms ?? []).map((t) => (
+                  <option key={t.id} value={String(t.id)}>{t.display_name}</option>
+                ))}
+              </Select>
             )}
             <Button variant="contained" onClick={runReport}>Run report</Button>
             <Button
               variant="outlined"
-              size="small"
               onClick={() => {
                 const params: Record<string, unknown> = {}
                 if (periodType === 'year') params.year = year
@@ -145,23 +137,23 @@ export const KpisPage = () => {
             >
               Export to Excel
             </Button>
-          </Box>
+          </div>
         </CardContent>
       </Card>
 
       {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress />
-        </Box>
+        <div className="flex justify-center py-8">
+          <Spinner size="medium" />
+        </div>
       )}
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" className="mb-4">{error}</Alert>}
 
       {!loading && data && (
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-          <Card sx={{ minWidth: 200 }}>
+        <div className="flex flex-wrap gap-4">
+          <Card className="min-w-[200px]">
             <CardContent>
-              <Typography color="text.secondary" variant="body2">Period</Typography>
+              <Typography color="secondary" variant="body2">Period</Typography>
               <Typography variant="h6">
                 {data.period_type === 'term' && data.term_display_name
                   ? data.term_display_name
@@ -169,62 +161,62 @@ export const KpisPage = () => {
               </Typography>
             </CardContent>
           </Card>
-          <Card sx={{ minWidth: 200 }}>
+          <Card className="min-w-[200px]">
             <CardContent>
-              <Typography color="text.secondary" variant="body2">Active students</Typography>
+              <Typography color="secondary" variant="body2">Active students</Typography>
               <Typography variant="h6">{data.active_students_count}</Typography>
             </CardContent>
           </Card>
-          <Card sx={{ minWidth: 200 }}>
+          <Card className="min-w-[200px]">
             <CardContent>
-              <Typography color="text.secondary" variant="body2">Total revenue (KES)</Typography>
+              <Typography color="secondary" variant="body2">Total revenue (KES)</Typography>
               <Typography variant="h6">{formatMoney(data.total_revenue)}</Typography>
             </CardContent>
           </Card>
-          <Card sx={{ minWidth: 200 }}>
+          <Card className="min-w-[200px]">
             <CardContent>
-              <Typography color="text.secondary" variant="body2">Total invoiced (KES)</Typography>
+              <Typography color="secondary" variant="body2">Total invoiced (KES)</Typography>
               <Typography variant="h6">{formatMoney(data.total_invoiced)}</Typography>
             </CardContent>
           </Card>
-          <Card sx={{ minWidth: 200 }}>
+          <Card className="min-w-[200px]">
             <CardContent>
-              <Typography color="text.secondary" variant="body2">Collection rate (%)</Typography>
+              <Typography color="secondary" variant="body2">Collection rate (%)</Typography>
               <Typography variant="h6">
                 {data.collection_rate_percent != null ? `${data.collection_rate_percent}%` : '—'}
               </Typography>
             </CardContent>
           </Card>
-          <Card sx={{ minWidth: 200 }}>
+          <Card className="min-w-[200px]">
             <CardContent>
-              <Typography color="text.secondary" variant="body2">Total expenses (KES)</Typography>
+              <Typography color="secondary" variant="body2">Total expenses (KES)</Typography>
               <Typography variant="h6">{formatMoney(data.total_expenses)}</Typography>
             </CardContent>
           </Card>
-          <Card sx={{ minWidth: 200 }}>
+          <Card className="min-w-[200px]">
             <CardContent>
-              <Typography color="text.secondary" variant="body2">Student debt (KES)</Typography>
+              <Typography color="secondary" variant="body2">Student debt (KES)</Typography>
               <Typography variant="h6">{formatMoney(data.student_debt)}</Typography>
             </CardContent>
           </Card>
-          <Card sx={{ minWidth: 200 }}>
+          <Card className="min-w-[200px]">
             <CardContent>
-              <Typography color="text.secondary" variant="body2">Supplier debt (KES)</Typography>
+              <Typography color="secondary" variant="body2">Supplier debt (KES)</Typography>
               <Typography variant="h6">{formatMoney(data.supplier_debt)}</Typography>
             </CardContent>
           </Card>
-          <Card sx={{ minWidth: 200 }}>
+          <Card className="min-w-[200px]">
             <CardContent>
-              <Typography color="text.secondary" variant="body2">Pending claims (KES)</Typography>
+              <Typography color="secondary" variant="body2">Pending claims (KES)</Typography>
               <Typography variant="h6">{formatMoney(data.pending_claims_amount)}</Typography>
             </CardContent>
           </Card>
-        </Box>
+        </div>
       )}
 
       {!loading && !data && !error && canSeeReports(user) && (
-        <Typography color="text.secondary">Select period and run report.</Typography>
+        <Typography color="secondary">Select period and run report.</Typography>
       )}
-    </Box>
+    </div>
   )
 }

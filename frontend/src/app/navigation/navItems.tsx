@@ -1,14 +1,16 @@
-import DashboardIcon from '@mui/icons-material/Dashboard'
-import GroupIcon from '@mui/icons-material/Group'
-import ReceiptIcon from '@mui/icons-material/Receipt'
-import ShoppingCartIcon from '@mui/icons-material/ShoppingCart'
-import LocalShippingIcon from '@mui/icons-material/LocalShipping'
-import PaymentsIcon from '@mui/icons-material/Payments'
-import AssessmentIcon from '@mui/icons-material/Assessment'
-import FactCheckIcon from '@mui/icons-material/FactCheck'
-import SettingsIcon from '@mui/icons-material/Settings'
-import DescriptionIcon from '@mui/icons-material/Description'
-import FileDownloadIcon from '@mui/icons-material/FileDownload'
+import {
+  LayoutDashboard,
+  Users,
+  Receipt,
+  ShoppingCart,
+  Truck,
+  CreditCard,
+  BarChart3,
+  FileCheck,
+  Settings,
+  FileText,
+  Download,
+} from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { UserRole } from '../auth/authStorage'
 
@@ -26,13 +28,13 @@ const viewRoles: UserRole[] = ['SuperAdmin', 'Admin', 'Accountant']
 
 /** Minimal nav for Accountant role (read-only: students, stock, billing, documents, export, audit). */
 export const accountantNavItems: NavItem[] = [
-  { label: 'Dashboard', path: '/', icon: <DashboardIcon />, roles: ['Accountant'] },
-  { label: 'Students', path: '/students', icon: <GroupIcon />, roles: ['Accountant'] },
-  { label: 'Stock', path: '/inventory/stock', icon: <ShoppingCartIcon />, roles: ['Accountant'] },
+  { label: 'Dashboard', path: '/', icon: <LayoutDashboard className="w-5 h-5" />, roles: ['Accountant'] },
+  { label: 'Students', path: '/students', icon: <Users className="w-5 h-5" />, roles: ['Accountant'] },
+  { label: 'Stock', path: '/inventory/stock', icon: <ShoppingCart className="w-5 h-5" />, roles: ['Accountant'] },
   {
     label: 'Billing',
     path: '/billing',
-    icon: <ReceiptIcon />,
+    icon: <Receipt className="w-5 h-5" />,
     roles: ['Accountant'],
     children: [
       { label: 'Terms', path: '/billing/terms', roles: ['Accountant'] },
@@ -43,7 +45,7 @@ export const accountantNavItems: NavItem[] = [
   {
     label: 'Documents',
     path: '/accountant/documents',
-    icon: <DescriptionIcon />,
+    icon: <FileText className="w-5 h-5" />,
     roles: ['Accountant'],
     children: [
       { label: 'Incoming Payments', path: '/payments', roles: ['Accountant'] },
@@ -56,27 +58,27 @@ export const accountantNavItems: NavItem[] = [
       { label: 'Bank Statements', path: '/accountant/bank-statements', roles: ['Accountant'] },
     ],
   },
-  { label: 'Data Export', path: '/accountant/export', icon: <FileDownloadIcon />, roles: ['Accountant'] },
-  { label: 'Audit Trail', path: '/audit', icon: <FactCheckIcon />, roles: ['Accountant'] },
+  { label: 'Data Export', path: '/accountant/export', icon: <Download className="w-5 h-5" />, roles: ['Accountant'] },
+  { label: 'Audit Trail', path: '/audit', icon: <FileCheck className="w-5 h-5" />, roles: ['Accountant'] },
 ]
 
 export const navItems: NavItem[] = [
   {
     label: 'Dashboard',
     path: '/',
-    icon: <DashboardIcon />,
+    icon: <LayoutDashboard className="w-5 h-5" />,
     roles: allRoles,
   },
   {
     label: 'Students',
     path: '/students',
-    icon: <GroupIcon />,
+    icon: <Users className="w-5 h-5" />,
     roles: viewRoles,
   },
   {
     label: 'Billing',
     path: '/billing',
-    icon: <ReceiptIcon />,
+    icon: <Receipt className="w-5 h-5" />,
     roles: viewRoles,
     children: [
       { label: 'Terms', path: '/billing/terms', roles: ['SuperAdmin'] },
@@ -87,7 +89,7 @@ export const navItems: NavItem[] = [
   {
     label: 'Warehouse',
     path: '/inventory',
-    icon: <ShoppingCartIcon />,
+    icon: <ShoppingCart className="w-5 h-5" />,
     roles: allRoles,
     children: [
       { label: 'Items', path: '/inventory/items', roles: adminRoles },
@@ -105,7 +107,7 @@ export const navItems: NavItem[] = [
   {
     label: 'Procurement',
     path: '/procurement',
-    icon: <LocalShippingIcon />,
+    icon: <Truck className="w-5 h-5" />,
     roles: viewRoles,
     children: [
       { label: 'Purchase Orders', path: '/procurement/orders', roles: viewRoles },
@@ -117,7 +119,7 @@ export const navItems: NavItem[] = [
   {
     label: 'Compensations',
     path: '/compensations',
-    icon: <PaymentsIcon />,
+    icon: <CreditCard className="w-5 h-5" />,
     roles: allRoles,
     children: [
       { label: 'Employee Expenses Claims', path: '/compensations/claims', roles: allRoles },
@@ -127,7 +129,7 @@ export const navItems: NavItem[] = [
   {
     label: 'Reports',
     path: '/reports',
-    icon: <AssessmentIcon />,
+    icon: <BarChart3 className="w-5 h-5" />,
     roles: adminRoles,
     children: [
       { label: 'Financial', path: '/reports/financial', roles: adminRoles },
@@ -140,13 +142,13 @@ export const navItems: NavItem[] = [
   {
     label: 'Audit Log',
     path: '/audit',
-    icon: <FactCheckIcon />,
+    icon: <FileCheck className="w-5 h-5" />,
     roles: viewRoles,
   },
   {
     label: 'Settings',
     path: '/settings',
-    icon: <SettingsIcon />,
+    icon: <Settings className="w-5 h-5" />,
     roles: adminRoles,
     children: [
       { label: 'Users', path: '/settings/users', roles: ['SuperAdmin'] },

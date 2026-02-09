@@ -1,32 +1,29 @@
 import axios from 'axios'
-import {
-  Alert,
-  Box,
-  Button,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Divider,
-  FormControlLabel,
-  MenuItem,
-  Select,
-  Switch,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  Typography,
-} from '@mui/material'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { isAccountant } from '../../utils/permissions'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api } from '../../services/api'
+import {
+  Alert,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Select,
+  Switch,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableHeaderCell,
+  Typography,
+  Spinner,
+} from '../../components/ui'
 
 type MatchedEntityType = 'procurement_payment' | 'compensation_payout'
 
@@ -90,6 +87,33 @@ interface AutoMatchResult {
   no_candidates: number
 }
 
+const normMoney = (value: string): string => {
+  const cleaned = value.replace(/,/g, '').trim()
+  const n = Number.parseFloat(cleaned)
+  if (Number.isNaN(n)) return cleaned
+  return n.toFixed(2)
+}
+
+const moneyNumber = (value: string): number | null => {
+  const cleaned = value.replace(/,/g, '').trim()
+  const n = Number.parseFloat(cleaned)
+  if (Number.isNaN(n)) return null
+  return n
+}
+
+const withinOne = (a: string, b: string): boolean => {
+  const an = moneyNumber(a)
+  const bn = moneyNumber(b)
+  if (an == null || bn == null) return false
+  return Math.abs(an - bn) <= 1.0 + 1e-9
+}
+
+const absMoney = (value: string): string => {
+  const n = Number.parseFloat(value.replace(/,/g, '').trim())
+  if (Number.isNaN(n)) return value
+  return Math.abs(n).toFixed(2)
+}
+
 interface UnmatchedProcurementPayment {
   id: number
   payment_number: string
@@ -118,9 +142,7 @@ interface ImportReconciliationSummary {
 
 export const BankReconciliationPage = () => {
   const { user } = useAuth()
-  if (isAccountant(user)) {
-    return <Navigate to="/access-denied" replace />
-  }
+  const accessDenied = isAccountant(user)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null)
@@ -140,46 +162,43 @@ export const BankReconciliationPage = () => {
   const [manualMatchTxnForEntityId, setManualMatchTxnForEntityId] = useState<number | ''>('')
 
   const { data: imports, loading: importsLoading, error: importsError, refetch: refetchImports } =
-    useApi<BankStatementImportListItem[]>('/bank-statements/imports')
+    useApi<BankStatementImportListItem[]>(accessDenied ? null : '/bank-statements/imports')
+
+  const effectiveImportId = selectedImportId ?? (imports && imports.length ? imports[0].id : null)
 
   const selectedImport = useMemo(
-    () => (imports || []).find((i) => i.id === selectedImportId) || null,
-    [imports, selectedImportId]
+    () => (imports || []).find((i) => i.id === effectiveImportId) || null,
+    [imports, effectiveImportId]
   )
 
-  useEffect(() => {
-    if (!selectedImportId && imports && imports.length) {
-      setSelectedImportId(imports[0].id)
-    }
-  }, [imports, selectedImportId])
-
   const detailUrl = useMemo(() => {
-    if (!selectedImportId) return null
+    if (accessDenied || !effectiveImportId) return null
     const params = new URLSearchParams()
     params.set('page', '1')
     params.set('limit', '100')
     if (onlyUnmatched) params.set('only_unmatched', 'true')
     if (txnType !== 'all' && txnType.trim()) params.set('txn_type', txnType.trim())
-    return `/bank-statements/imports/${selectedImportId}?${params.toString()}`
-  }, [selectedImportId, onlyUnmatched, txnType])
+    return `/bank-statements/imports/${effectiveImportId}?${params.toString()}`
+  }, [accessDenied, effectiveImportId, onlyUnmatched, txnType])
 
   const txnTypesUrl = useMemo(() => {
+    if (accessDenied) return null
     const params = new URLSearchParams()
     if (selectedImport?.range_from) params.set('date_from', selectedImport.range_from)
     if (selectedImport?.range_to) params.set('date_to', selectedImport.range_to)
     const suffix = params.toString() ? `?${params.toString()}` : ''
     return `/bank-statements/txn-types${suffix}`
-  }, [selectedImport?.range_from, selectedImport?.range_to])
+  }, [accessDenied, selectedImport])
 
   const { data: txnTypes } = useApi<string[]>(txnTypesUrl)
 
   const reconciliationUrl = useMemo(() => {
-    if (!selectedImportId) return null
+    if (accessDenied || !effectiveImportId) return null
     const params = new URLSearchParams()
     if (ignoreRange) params.set('ignore_range', 'true')
     const suffix = params.toString() ? `?${params.toString()}` : ''
-    return `/bank-statements/imports/${selectedImportId}/reconciliation${suffix}`
-  }, [selectedImportId, ignoreRange])
+    return `/bank-statements/imports/${effectiveImportId}/reconciliation${suffix}`
+  }, [accessDenied, effectiveImportId, ignoreRange])
 
   const {
     data: importDetail,
@@ -247,12 +266,12 @@ export const BankReconciliationPage = () => {
   }
 
   const handleAutoMatch = async () => {
-    if (!selectedImportId) return
+    if (!effectiveImportId) return
     setError(null)
     setSuccess(null)
 
     const result = await autoMatchMutation.execute(() =>
-      api.post(`/bank-statements/imports/${selectedImportId}/auto-match`)
+      api.post(`/bank-statements/imports/${effectiveImportId}/auto-match`)
     )
     if (!result) return
     setSuccess(
@@ -269,33 +288,6 @@ export const BankReconciliationPage = () => {
     await refetchDetail()
     await refetchReconciliation()
   }, [refetchImports, refetchDetail, refetchReconciliation])
-
-  const normMoney = (value: string): string => {
-    const cleaned = value.replace(/,/g, '').trim()
-    const n = Number.parseFloat(cleaned)
-    if (Number.isNaN(n)) return cleaned
-    return n.toFixed(2)
-  }
-
-  const moneyNumber = (value: string): number | null => {
-    const cleaned = value.replace(/,/g, '').trim()
-    const n = Number.parseFloat(cleaned)
-    if (Number.isNaN(n)) return null
-    return n
-  }
-
-  const withinOne = (a: string, b: string): boolean => {
-    const an = moneyNumber(a)
-    const bn = moneyNumber(b)
-    if (an == null || bn == null) return false
-    return Math.abs(an - bn) <= 1.0 + 1e-9
-  }
-
-  const absMoney = (value: string): string => {
-    const n = Number.parseFloat(value.replace(/,/g, '').trim())
-    if (Number.isNaN(n)) return value
-    return Math.abs(n).toFixed(2)
-  }
 
   const manualCandidates = useMemo(() => {
     if (!manualMatchTxnId) return { procurement: [] as UnmatchedProcurementPayment[], payouts: [] as UnmatchedCompensationPayout[] }
@@ -418,123 +410,128 @@ export const BankReconciliationPage = () => {
 
   const effectiveError = error || importsError || detailError || reconciliationError
 
+  if (accessDenied) {
+    return <Navigate to="/access-denied" replace />
+  }
+
   return (
-    <Box>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+    <div>
+      <Typography variant="h4" className="font-bold mb-4">
         Bank reconciliation
       </Typography>
 
       {effectiveError ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Alert severity="error" className="mb-4">
           {effectiveError}
         </Alert>
       ) : null}
       {success ? (
-        <Alert severity="success" sx={{ mb: 2 }}>
+        <Alert severity="success" className="mb-4">
           {success}
         </Alert>
       ) : null}
 
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-        <Button variant="outlined" component="label" disabled={uploadMutation.loading}>
-          {selectedFileName ? 'Change CSV' : 'Select CSV'}
-          <input
-            ref={fileInputRef}
-            type="file"
-            hidden
-            accept=".csv,text/csv"
-            onChange={(e) => {
-              const file = e.currentTarget.files?.[0]
-              setSelectedFileName(file ? file.name : null)
-            }}
-          />
-        </Button>
-        <Button
-          variant="contained"
-          onClick={handleUpload}
-          disabled={uploadMutation.loading || !selectedFileName}
-        >
-          {uploadMutation.loading ? 'Importing…' : 'Import statement'}
-        </Button>
-        {selectedFileName ? (
-          <Typography variant="body2" color="text.secondary">
-            Selected: {selectedFileName}
-          </Typography>
-        ) : (
-          <Typography variant="body2" color="text.secondary">
-            Select a CSV, then click “Import statement”.
-          </Typography>
-        )}
-        <Divider flexItem orientation="vertical" />
-        <Button variant="outlined" onClick={refreshAll} disabled={importsLoading || detailLoading || reconciliationLoading}>
-          Refresh
-        </Button>
-        <Button
-          variant="contained"
-          onClick={handleAutoMatch}
-          disabled={!selectedImportId || autoMatchMutation.loading}
-        >
-          {autoMatchMutation.loading ? 'Matching…' : 'Auto-match'}
-        </Button>
-        <FormControlLabel
-          control={
-            <Switch
-              checked={onlyUnmatched}
-              onChange={(e) => setOnlyUnmatched(e.target.checked)}
+      <div className="mb-4">
+        {/* Row 1: import + primary actions */}
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="inline-flex">
+            <span className="inline-flex">
+              <Button variant="outlined" disabled={uploadMutation.loading} className="cursor-pointer">
+                {selectedFileName ? 'Change CSV' : 'Select CSV'}
+              </Button>
+            </span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              accept=".csv,text/csv"
+              onChange={(e) => {
+                const file = e.currentTarget.files?.[0]
+                setSelectedFileName(file ? file.name : null)
+              }}
             />
-          }
-          label="Show only unmatched"
-        />
-        <Select
-          size="small"
-          value={txnType}
-          onChange={(e) => setTxnType(e.target.value as typeof txnType)}
-          sx={{ width: 160 }}
-        >
-          <MenuItem value="all">All types</MenuItem>
-          {(txnTypes || []).map((t) => (
-            <MenuItem key={t} value={t}>
-              {t}
-            </MenuItem>
-          ))}
-        </Select>
-        <FormControlLabel
-          control={
-            <Switch
-              checked={ignoreRange}
-              onChange={(e) => setIgnoreRange(e.target.checked)}
-            />
-          }
-          label="Ignore date range"
-        />
-      </Box>
+          </label>
+          <Button
+            variant="contained"
+            onClick={handleUpload}
+            disabled={uploadMutation.loading || !selectedFileName}
+          >
+            {uploadMutation.loading ? 'Importing…' : 'Import statement'}
+          </Button>
+          <Typography variant="body2" color="secondary" className="flex-1 min-w-[240px]">
+            {selectedFileName ? `Selected: ${selectedFileName}` : 'Select a CSV, then click "Import statement".'}
+          </Typography>
+          <Button
+            variant="outlined"
+            onClick={refreshAll}
+            disabled={importsLoading || detailLoading || reconciliationLoading}
+          >
+            Refresh
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleAutoMatch}
+            disabled={!effectiveImportId || autoMatchMutation.loading}
+          >
+            {autoMatchMutation.loading ? 'Matching…' : 'Auto-match'}
+          </Button>
+        </div>
 
-      <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', mb: 3 }}>
-        <Box sx={{ minWidth: 320, flex: 1 }}>
-          <Typography variant="h6" sx={{ mb: 1 }}>
+        {/* Row 2: filters */}
+        <div className="flex flex-wrap items-center gap-6 mt-3">
+          <Switch
+            checked={onlyUnmatched}
+            onChange={(e) => setOnlyUnmatched(e.target.checked)}
+            label="Show only unmatched"
+          />
+          <Select
+            containerClassName="w-[240px] min-w-[200px]"
+            value={txnType}
+            onChange={(e) => setTxnType(e.target.value as typeof txnType)}
+          >
+            <option value="all">All types</option>
+            {(txnTypes || []).map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </Select>
+          <Switch
+            checked={ignoreRange}
+            onChange={(e) => setIgnoreRange(e.target.checked)}
+            label="Ignore date range"
+          />
+        </div>
+      </div>
+
+      <div className="flex gap-6 flex-wrap mb-6">
+        <div className="min-w-[320px] flex-1">
+          <Typography variant="h6" className="mb-2">
             Imports
           </Typography>
           {importsLoading ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <CircularProgress size={18} /> <Typography>Loading…</Typography>
-            </Box>
+            <div className="flex items-center gap-2">
+              <Spinner size="small" /> <Typography>Loading…</Typography>
+            </div>
           ) : (
-            <Table size="small">
+            <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell>ID</TableCell>
-                  <TableCell>File</TableCell>
-                  <TableCell>Created</TableCell>
+                  <TableHeaderCell>ID</TableHeaderCell>
+                  <TableHeaderCell>File</TableHeaderCell>
+                  <TableHeaderCell>Created</TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {(imports || []).map((imp) => (
                   <TableRow
                     key={imp.id}
-                    hover
-                    selected={imp.id === selectedImportId}
+                    className={
+                      imp.id === effectiveImportId
+                        ? 'bg-primary/10 hover:bg-primary/15 cursor-pointer'
+                        : 'cursor-pointer hover:bg-slate-100'
+                    }
                     onClick={() => setSelectedImportId(imp.id)}
-                    sx={{ cursor: 'pointer' }}
                   >
                     <TableCell>{imp.id}</TableCell>
                     <TableCell>{imp.file_name}</TableCell>
@@ -543,25 +540,27 @@ export const BankReconciliationPage = () => {
                 ))}
                 {!imports?.length ? (
                   <TableRow>
-                    <TableCell colSpan={3}>No imports yet</TableCell>
+                    <td colSpan={3} className="px-4 py-3">
+                      No imports yet
+                    </td>
                   </TableRow>
                 ) : null}
               </TableBody>
             </Table>
           )}
-        </Box>
+        </div>
 
-        <Box sx={{ minWidth: 360, flex: 1 }}>
-          <Typography variant="h6" sx={{ mb: 1 }}>
+        <div className="min-w-[360px] flex-1">
+          <Typography variant="h6" className="mb-2">
             Summary
           </Typography>
           {reconciliationLoading ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <CircularProgress size={18} /> <Typography>Loading…</Typography>
-            </Box>
+            <div className="flex items-center gap-2">
+              <Spinner size="small" /> <Typography>Loading…</Typography>
+            </div>
           ) : reconciliation ? (
-            <Box sx={{ display: 'grid', gap: 0.5 }}>
-              <Typography variant="body2" color="text.secondary">
+            <div className="grid gap-1">
+              <Typography variant="body2" color="secondary">
                 Range: {reconciliation.range_from || '—'} → {reconciliation.range_to || '—'}
               </Typography>
               <Typography>Unmatched transactions: {reconciliation.unmatched_transactions}</Typography>
@@ -571,93 +570,102 @@ export const BankReconciliationPage = () => {
               <Typography>
                 Unmatched compensation payouts: {reconciliation.unmatched_compensation_payouts.length}
               </Typography>
-            </Box>
+            </div>
           ) : (
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" color="secondary">
               Select an import to see summary.
             </Typography>
           )}
-        </Box>
-      </Box>
+        </div>
+      </div>
 
-      <Typography variant="h6" sx={{ mb: 1 }}>
+      <Typography variant="h6" className="mb-2">
         Statement rows
       </Typography>
       {detailLoading ? (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <CircularProgress size={18} /> <Typography>Loading…</Typography>
-        </Box>
+        <div className="flex items-center gap-2">
+          <Spinner size="small" /> <Typography>Loading…</Typography>
+        </div>
       ) : (
-        <Table size="small">
+        <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Date</TableCell>
-              <TableCell>Type</TableCell>
-              <TableCell>Description</TableCell>
-              <TableCell align="right">Amount</TableCell>
-              <TableCell>Match</TableCell>
+              <TableHeaderCell>Date</TableHeaderCell>
+              <TableHeaderCell>Type</TableHeaderCell>
+              <TableHeaderCell>Description</TableHeaderCell>
+              <TableHeaderCell align="right">Amount</TableHeaderCell>
+              <TableHeaderCell>Match</TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {(importDetail?.rows.items || []).map((r) => {
               const m = r.transaction.match
               return (
-                <TableRow key={r.id} hover>
+                <TableRow key={r.id}>
                   <TableCell>{r.transaction.value_date}</TableCell>
                   <TableCell>{r.transaction.txn_type || '—'}</TableCell>
-                  <TableCell sx={{ maxWidth: 640, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <TableCell className="max-w-[640px] truncate">
                     {r.transaction.description}
                   </TableCell>
                   <TableCell align="right">{r.transaction.amount}</TableCell>
                   <TableCell>
                     {m ? (
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                      <div className="flex items-center gap-2 flex-wrap">
                         {m.entity_type === 'procurement_payment' ? (
-                          <Button
-                            size="small"
-                            component={RouterLink}
-                            to={`/procurement/payments/${m.entity_id}`}
-                          >
-                            {m.entity_number}
-                          </Button>
+                          <RouterLink to={`/procurement/payments/${m.entity_id}`}>
+                            <Button
+                              size="small"
+                              variant="text"
+                              className="px-0 py-0 rounded-none hover:bg-transparent focus:bg-transparent hover:underline underline-offset-4"
+                            >
+                              {m.entity_number}
+                            </Button>
+                          </RouterLink>
                         ) : (
-                          <Button
-                            size="small"
-                            component={RouterLink}
-                            to={`/compensations/payouts/${m.entity_id}`}
-                          >
-                            {m.entity_number}
-                          </Button>
+                          <RouterLink to={`/compensations/payouts/${m.entity_id}`}>
+                            <Button
+                              size="small"
+                              variant="text"
+                              className="px-0 py-0 rounded-none hover:bg-transparent focus:bg-transparent hover:underline underline-offset-4"
+                            >
+                              {m.entity_number}
+                            </Button>
+                          </RouterLink>
                         )}
                         {m.proof_attachment_id ? (
-                          <Button
-                            size="small"
-                            component="a"
+                          <a
                             href={`/attachment/${m.proof_attachment_id}/download`}
                             target="_blank"
                             rel="noreferrer"
                           >
-                            Proof
-                          </Button>
+                            <Button size="small" variant="outlined">
+                              Proof
+                            </Button>
+                          </a>
                         ) : null}
                         <Button
                           size="small"
+                          variant="outlined"
                           color="warning"
                           onClick={() => unmatchTransaction(r.transaction.id)}
                           disabled={unmatchMutation.loading}
                         >
                           Unmatch
                         </Button>
-                      </Box>
+                      </div>
                     ) : (
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                        <Typography variant="body2" color="text.secondary">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Typography variant="body2" color="secondary">
                           Unmatched
                         </Typography>
-                        <Button size="small" onClick={() => openManualMatch(r.transaction.id)}>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => openManualMatch(r.transaction.id)}
+                        >
                           Manual match
                         </Button>
-                      </Box>
+                      </div>
                     )}
                   </TableCell>
                 </TableRow>
@@ -665,119 +673,121 @@ export const BankReconciliationPage = () => {
             })}
             {!importDetail?.rows.items.length ? (
               <TableRow>
-                <TableCell colSpan={5}>
-                  {selectedImportId ? 'No rows found for this filter.' : 'Select an import.'}
-                </TableCell>
+                <td colSpan={5} className="px-4 py-3">
+                  {effectiveImportId ? 'No rows found for this filter.' : 'Select an import.'}
+                </td>
               </TableRow>
             ) : null}
           </TableBody>
         </Table>
       )}
 
-      <Box sx={{ mt: 3, display: 'grid', gap: 3 }}>
-        <Box>
-          <Typography variant="h6" sx={{ mb: 1 }}>
+      <div className="mt-6 grid gap-6">
+        <div>
+          <Typography variant="h6" className="mb-2">
             Unmatched procurement payments (company paid)
           </Typography>
-          <Table size="small">
+          <Table>
             <TableHead>
               <TableRow>
-                <TableCell>Date</TableCell>
-                <TableCell>Number</TableCell>
-                <TableCell>Payee</TableCell>
-                <TableCell align="right">Amount</TableCell>
-                <TableCell align="right">Actions</TableCell>
+                <TableHeaderCell>Date</TableHeaderCell>
+                <TableHeaderCell>Number</TableHeaderCell>
+                <TableHeaderCell>Payee</TableHeaderCell>
+                <TableHeaderCell align="right">Amount</TableHeaderCell>
+                <TableHeaderCell align="right">Actions</TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {(reconciliation?.unmatched_procurement_payments || []).slice(0, 50).map((p) => (
-                <TableRow key={p.id} hover>
+                <TableRow key={p.id}>
                   <TableCell>{p.payment_date}</TableCell>
                   <TableCell>{p.payment_number}</TableCell>
                   <TableCell>{p.payee_name || '—'}</TableCell>
                   <TableCell align="right">{p.amount}</TableCell>
                   <TableCell align="right">
-                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, flexWrap: 'wrap' }}>
+                    <div className="flex justify-end gap-2 flex-wrap">
                       <Button
                         size="small"
                         onClick={() => openManualMatchForEntity('procurement_payment', p.id)}
                       >
                         Manual match
                       </Button>
-                      <Button size="small" component={RouterLink} to={`/procurement/payments/${p.id}`}>
-                        Open
-                      </Button>
-                    </Box>
+                      <RouterLink to={`/procurement/payments/${p.id}`}>
+                        <Button size="small">Open</Button>
+                      </RouterLink>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
               {!reconciliation?.unmatched_procurement_payments?.length ? (
                 <TableRow>
-                  <TableCell colSpan={5}>No unmatched payments</TableCell>
+                  <td colSpan={5} className="px-4 py-3">
+                    No unmatched payments
+                  </td>
                 </TableRow>
               ) : null}
             </TableBody>
           </Table>
-        </Box>
+        </div>
 
-        <Box>
-          <Typography variant="h6" sx={{ mb: 1 }}>
+        <div>
+          <Typography variant="h6" className="mb-2">
             Unmatched compensation payouts
           </Typography>
-          <Table size="small">
+          <Table>
             <TableHead>
               <TableRow>
-                <TableCell>Date</TableCell>
-                <TableCell>Number</TableCell>
-                <TableCell align="right">Amount</TableCell>
-                <TableCell align="right">Actions</TableCell>
+                <TableHeaderCell>Date</TableHeaderCell>
+                <TableHeaderCell>Number</TableHeaderCell>
+                <TableHeaderCell align="right">Amount</TableHeaderCell>
+                <TableHeaderCell align="right">Actions</TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {(reconciliation?.unmatched_compensation_payouts || []).slice(0, 50).map((p) => (
-                <TableRow key={p.id} hover>
+                <TableRow key={p.id}>
                   <TableCell>{p.payout_date}</TableCell>
                   <TableCell>{p.payout_number}</TableCell>
                   <TableCell align="right">{p.amount}</TableCell>
                   <TableCell align="right">
-                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, flexWrap: 'wrap' }}>
+                    <div className="flex justify-end gap-2 flex-wrap">
                       <Button
                         size="small"
                         onClick={() => openManualMatchForEntity('compensation_payout', p.id)}
                       >
                         Manual match
                       </Button>
-                      <Button size="small" component={RouterLink} to={`/compensations/payouts/${p.id}`}>
-                        Open
-                      </Button>
-                    </Box>
+                      <RouterLink to={`/compensations/payouts/${p.id}`}>
+                        <Button size="small">Open</Button>
+                      </RouterLink>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
               {!reconciliation?.unmatched_compensation_payouts?.length ? (
                 <TableRow>
-                  <TableCell colSpan={4}>No unmatched payouts</TableCell>
+                  <td colSpan={4} className="px-4 py-3">
+                    No unmatched payouts
+                  </td>
                 </TableRow>
               ) : null}
             </TableBody>
           </Table>
-        </Box>
-      </Box>
+        </div>
+      </div>
 
       <Dialog open={manualMatchTxnId !== null} onClose={closeManualMatch} maxWidth="sm" fullWidth>
         <DialogTitle>Manual match</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          <Typography variant="body2" color="secondary" className="mb-4">
             Pick an unmatched internal document by amount (± 1.00). This is a read-write operation (Admin/SuperAdmin).
           </Typography>
-          <Box sx={{ display: 'grid', gap: 2 }}>
-            <Box>
-              <Typography variant="body2" sx={{ mb: 0.5 }}>
+          <div className="grid gap-4">
+            <div>
+              <Typography variant="body2" className="mb-1">
                 Entity type
               </Typography>
               <Select
-                size="small"
-                fullWidth
                 value={manualMatchType}
                 onChange={(e) => {
                   const t = e.target.value as MatchedEntityType
@@ -785,24 +795,19 @@ export const BankReconciliationPage = () => {
                   setManualMatchEntityId('')
                 }}
               >
-                <MenuItem value="procurement_payment">Procurement payment (company paid)</MenuItem>
-                <MenuItem value="compensation_payout">Compensation payout</MenuItem>
+                <option value="procurement_payment">Procurement payment (company paid)</option>
+                <option value="compensation_payout">Compensation payout</option>
               </Select>
-            </Box>
-            <Box>
-              <Typography variant="body2" sx={{ mb: 0.5 }}>
+            </div>
+            <div>
+              <Typography variant="body2" className="mb-1">
                 Entity
               </Typography>
               <Select
-                size="small"
-                fullWidth
-                displayEmpty
                 value={manualMatchEntityId}
-                onChange={(e) => setManualMatchEntityId(e.target.value as number)}
+                onChange={(e) => setManualMatchEntityId(e.target.value ? Number(e.target.value) : '')}
               >
-                <MenuItem value="">
-                  <em>Select…</em>
-                </MenuItem>
+                <option value="">Select…</option>
                 {(manualMatchType === 'procurement_payment'
                   ? manualCandidates.procurement.map((p) => ({
                       id: p.id,
@@ -813,16 +818,16 @@ export const BankReconciliationPage = () => {
                       label: `${p.payout_date} • ${p.payout_number} • ${p.amount}`,
                     }))
                 ).map((opt) => (
-                  <MenuItem key={opt.id} value={opt.id}>
+                  <option key={opt.id} value={opt.id}>
                     {opt.label}
-                  </MenuItem>
+                  </option>
                 ))}
               </Select>
-              <Typography variant="caption" color="text.secondary">
-                Candidates are filtered from “unmatched” lists by amount (± 1.00).
+              <Typography variant="caption" color="secondary">
+                Candidates are filtered from "unmatched" lists by amount (± 1.00).
               </Typography>
-            </Box>
-          </Box>
+            </div>
+          </div>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeManualMatch}>Cancel</Button>
@@ -835,35 +840,30 @@ export const BankReconciliationPage = () => {
       <Dialog open={manualMatchEntity !== null} onClose={closeManualMatchForEntity} maxWidth="sm" fullWidth>
         <DialogTitle>Manual match</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          <Typography variant="body2" color="secondary" className="mb-4">
             Pick an unmatched bank transaction to match to this document (amount tolerance: ± 1.00).
           </Typography>
-          <Box sx={{ display: 'grid', gap: 2 }}>
-            <Box>
-              <Typography variant="body2" sx={{ mb: 0.5 }}>
+          <div className="grid gap-4">
+            <div>
+              <Typography variant="body2" className="mb-1">
                 Bank transaction
               </Typography>
               <Select
-                size="small"
-                fullWidth
-                displayEmpty
                 value={manualMatchTxnForEntityId}
-                onChange={(e) => setManualMatchTxnForEntityId(e.target.value as number)}
+                onChange={(e) => setManualMatchTxnForEntityId(e.target.value ? Number(e.target.value) : '')}
               >
-                <MenuItem value="">
-                  <em>Select…</em>
-                </MenuItem>
+                <option value="">Select…</option>
                 {txnCandidatesForEntity.map((opt) => (
-                  <MenuItem key={opt.id} value={opt.id}>
+                  <option key={opt.id} value={opt.id}>
                     {opt.label}
-                  </MenuItem>
+                  </option>
                 ))}
               </Select>
-              <Typography variant="caption" color="text.secondary">
+              <Typography variant="caption" color="secondary">
                 Candidates are filtered to unmatched statement rows by amount (± 1.00).
               </Typography>
-            </Box>
-          </Box>
+            </div>
+          </div>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeManualMatchForEntity}>Cancel</Button>
@@ -876,6 +876,6 @@ export const BankReconciliationPage = () => {
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </div>
   )
 }

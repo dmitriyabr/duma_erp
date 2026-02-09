@@ -1,21 +1,3 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TablePagination,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
@@ -26,6 +8,14 @@ import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { useApi } from '../../hooks/useApi'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { formatMoney } from '../../utils/format'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell, TablePagination } from '../../components/ui/Table'
+import { Typography } from '../../components/ui/Typography'
+import { Chip } from '../../components/ui/Chip'
+import { Alert } from '../../components/ui/Alert'
+import { Spinner } from '../../components/ui/Spinner'
 
 type Gender = 'male' | 'female'
 type StudentStatus = 'active' | 'inactive'
@@ -51,7 +41,6 @@ interface StudentRow {
   outstanding_debt?: number | null
   balance?: number | null // net: available_balance - outstanding_debt
 }
-
 
 export const StudentsPage = () => {
   const navigate = useNavigate()
@@ -98,9 +87,9 @@ export const StudentsPage = () => {
   const total = studentsData?.total || 0
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-        <Typography variant="h4" sx={{ fontWeight: 700 }}>
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <Typography variant="h4">
           Students
         </Typography>
         {!readOnly && (
@@ -108,137 +97,133 @@ export const StudentsPage = () => {
             New student
           </Button>
         )}
-      </Box>
+      </div>
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-        <TextField
-          label="Search"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          size="small"
-          placeholder="Name, number, guardian"
-          InputLabelProps={{ shrink: true }}
-        />
-        <FormControl size="small" sx={{ minWidth: 160 }}>
-          <InputLabel>Status</InputLabel>
+      <div className="flex gap-4 mb-4 flex-wrap">
+        <div className="flex-1 min-w-[200px]">
+          <Input
+            label="Search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Name, number, guardian"
+          />
+        </div>
+        <div className="min-w-[160px]">
           <Select
-            value={statusFilter}
             label="Status"
-            onChange={(event) => setStatusFilter(event.target.value as 'all' | StudentStatus)}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as 'all' | StudentStatus)}
           >
-            <MenuItem value="all">All</MenuItem>
-            <MenuItem value="active">Active</MenuItem>
-            <MenuItem value="inactive">Inactive</MenuItem>
+            <option value="all">All</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
           </Select>
-        </FormControl>
-        <FormControl size="small" sx={{ minWidth: 180 }}>
-          <InputLabel>Grade</InputLabel>
+        </div>
+        <div className="min-w-[180px]">
           <Select
-            value={gradeFilter}
             label="Grade"
-            onChange={(event) => setGradeFilter(event.target.value as number | 'all')}
+            value={gradeFilter}
+            onChange={(e) => setGradeFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
           >
-            <MenuItem value="all">All</MenuItem>
+            <option value="all">All</option>
             {(grades || []).map((grade) => (
-              <MenuItem key={grade.id} value={grade.id}>
+              <option key={grade.id} value={grade.id}>
                 {grade.name}
-              </MenuItem>
+              </option>
             ))}
           </Select>
-        </FormControl>
-        <FormControl size="small" sx={{ minWidth: 200 }}>
-          <InputLabel>Transport zone</InputLabel>
+        </div>
+        <div className="min-w-[200px]">
           <Select
-            value={transportFilter}
             label="Transport zone"
-            onChange={(event) => setTransportFilter(event.target.value as number | 'all')}
+            value={transportFilter}
+            onChange={(e) => setTransportFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
           >
-            <MenuItem value="all">All</MenuItem>
+            <option value="all">All</option>
             {(transportZones || []).map((zone) => (
-              <MenuItem key={zone.id} value={zone.id}>
+              <option key={zone.id} value={zone.id}>
                 {zone.zone_name}
-              </MenuItem>
+              </option>
             ))}
           </Select>
-        </FormControl>
-      </Box>
+        </div>
+      </div>
 
-      {error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {error && (
+        <Alert severity="error" className="mb-4">
           {error}
         </Alert>
-      ) : null}
+      )}
 
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Student #</TableCell>
-            <TableCell>Name</TableCell>
-            <TableCell>Grade</TableCell>
-            <TableCell>Transport zone</TableCell>
-            <TableCell>Guardian</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell>Balance</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.id} hover>
-              <TableCell>{row.student_number}</TableCell>
-              <TableCell>{row.full_name}</TableCell>
-              <TableCell>{row.grade_name ?? '—'}</TableCell>
-              <TableCell>{row.transport_zone_name ?? '—'}</TableCell>
-              <TableCell>
-                <Box>
-                  <Typography variant="body2">{row.guardian_name}</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {row.guardian_phone}
-                  </Typography>
-                </Box>
-              </TableCell>
-              <TableCell>
-                <Chip
-                  size="small"
-                  label={row.status === 'active' ? 'Active' : 'Inactive'}
-                  color={row.status === 'active' ? 'success' : 'default'}
-                />
-              </TableCell>
-              <TableCell>{formatMoney(row.balance ?? 0)}</TableCell>
-              <TableCell align="right">
-                <Button size="small" onClick={() => navigate(`/students/${row.id}`)}>
-                  Open
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-          {loading ? (
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <Table>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={8} align="center">
-                Loading…
-              </TableCell>
+              <TableHeaderCell>Student #</TableHeaderCell>
+              <TableHeaderCell>Name</TableHeaderCell>
+              <TableHeaderCell>Grade</TableHeaderCell>
+              <TableHeaderCell>Transport zone</TableHeaderCell>
+              <TableHeaderCell>Guardian</TableHeaderCell>
+              <TableHeaderCell>Status</TableHeaderCell>
+              <TableHeaderCell>Balance</TableHeaderCell>
             </TableRow>
-          ) : null}
-          {!rows.length && !loading ? (
-            <TableRow>
-              <TableCell colSpan={8} align="center">
-                No students found
-              </TableCell>
-            </TableRow>
-          ) : null}
-        </TableBody>
-      </Table>
-      <TablePagination
-        component="div"
-        count={total}
-        page={page}
-        onPageChange={(_, nextPage) => setPage(nextPage)}
-        rowsPerPage={limit}
-        onRowsPerPageChange={(event) => {
-          setLimit(Number(event.target.value))
-          setPage(0)
-        }}
-      />
-    </Box>
+          </TableHead>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow
+                key={row.id}
+                className="cursor-pointer hover:bg-slate-50 transition-colors"
+                onClick={() => navigate(`/students/${row.id}`)}
+              >
+                <TableCell>{row.student_number}</TableCell>
+                <TableCell>{row.full_name}</TableCell>
+                <TableCell>{row.grade_name ?? '—'}</TableCell>
+                <TableCell>{row.transport_zone_name ?? '—'}</TableCell>
+                <TableCell>
+                  <div>
+                    <Typography variant="body2">{row.guardian_name}</Typography>
+                    <Typography variant="caption" color="secondary">
+                      {row.guardian_phone}
+                    </Typography>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <Chip
+                    label={row.status === 'active' ? 'Active' : 'Inactive'}
+                    color={row.status === 'active' ? 'success' : 'default'}
+                    size="small"
+                  />
+                </TableCell>
+                <TableCell>{formatMoney(row.balance ?? 0)}</TableCell>
+              </TableRow>
+            ))}
+            {loading && (
+              <TableRow>
+                <td colSpan={7} className="px-4 py-8 text-center">
+                  <Spinner size="medium" />
+                </td>
+              </TableRow>
+            )}
+            {!rows.length && !loading && (
+              <TableRow>
+                <td colSpan={7} className="px-4 py-8 text-center">
+                  <Typography color="secondary">No students found</Typography>
+                </td>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+        <TablePagination
+          page={page}
+          rowsPerPage={limit}
+          count={total}
+          onPageChange={setPage}
+          onRowsPerPageChange={(newLimit) => {
+            setLimit(newLimit)
+            setPage(0)
+          }}
+        />
+      </div>
+    </div>
   )
 }

@@ -1,4 +1,4 @@
-import { Box, Typography } from '@mui/material'
+import { Typography } from '../components/ui/Typography'
 
 interface PlaceholderPageProps {
   title: string
@@ -7,13 +7,13 @@ interface PlaceholderPageProps {
 
 export const PlaceholderPage = ({ title, description }: PlaceholderPageProps) => {
   return (
-    <Box>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
+    <div>
+      <Typography variant="h4" className="mb-2">
         {title}
       </Typography>
-      <Typography color="text.secondary">
+      <Typography color="secondary">
         {description ?? 'This section will be available soon.'}
       </Typography>
-    </Box>
+    </div>
   )
 }

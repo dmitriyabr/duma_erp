@@ -1,21 +1,20 @@
-import {
-  Alert,
-  Box,
-  Button,
-  CircularProgress,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useMemo, useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { useApi } from '../../hooks/useApi'
+import {
+  Alert,
+  Button,
+  Input,
+  Select,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableHeaderCell,
+  Typography,
+  Spinner,
+} from '../../components/ui'
 
 function getDefaultDateRange(): { start: string; end: string } {
   const now = new Date()
@@ -95,75 +94,67 @@ export const BankStatementsPage = () => {
   }
 
   return (
-    <Box>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+    <div>
+      <Typography variant="h4" className="font-bold mb-4">
         Bank transfers
       </Typography>
 
       {error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Alert severity="error" className="mb-4">
           {error}
         </Alert>
       ) : null}
 
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 2 }}>
-        <TextField
+      <div className="flex gap-4 items-center flex-wrap mb-4">
+        <Input
           label="Start date"
           type="date"
           value={dates.start}
           onChange={(e) => setDates((p) => ({ ...p, start: e.target.value }))}
-          size="small"
-          InputLabelProps={{ shrink: true }}
-          sx={{ width: 180 }}
+          className="w-44"
         />
-        <TextField
+        <Input
           label="End date"
           type="date"
           value={dates.end}
           onChange={(e) => setDates((p) => ({ ...p, end: e.target.value }))}
-          size="small"
-          InputLabelProps={{ shrink: true }}
-          sx={{ width: 180 }}
+          className="w-44"
         />
         <Select
-          size="small"
           value={matched}
           onChange={(e) => setMatched(e.target.value as typeof matched)}
-          sx={{ width: 180 }}
+          className="w-44"
         >
-          <MenuItem value="all">All</MenuItem>
-          <MenuItem value="matched">Matched</MenuItem>
-          <MenuItem value="unmatched">Unmatched</MenuItem>
+          <option value="all">All</option>
+          <option value="matched">Matched</option>
+          <option value="unmatched">Unmatched</option>
         </Select>
         <Select
-          size="small"
           value={entityType}
           onChange={(e) => setEntityType(e.target.value as typeof entityType)}
-          sx={{ width: 220 }}
+          className="w-56"
         >
-          <MenuItem value="all">All entity types</MenuItem>
-          <MenuItem value="procurement_payment">Procurement payments</MenuItem>
-          <MenuItem value="compensation_payout">Compensation payouts</MenuItem>
+          <option value="all">All entity types</option>
+          <option value="procurement_payment">Procurement payments</option>
+          <option value="compensation_payout">Compensation payouts</option>
         </Select>
         <Select
-          size="small"
           value={txnType}
           onChange={(e) => setTxnType(e.target.value as typeof txnType)}
-          sx={{ width: 160 }}
+          className="w-40"
         >
-          <MenuItem value="all">All types</MenuItem>
+          <option value="all">All types</option>
           {(txnTypes || []).map((t) => (
-            <MenuItem key={t} value={t}>
+            <option key={t} value={t}>
               {t}
-            </MenuItem>
+            </option>
           ))}
         </Select>
-        <TextField
+        <Input
           label="Search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          size="small"
-          sx={{ minWidth: 240 }}
+          className="min-w-[240px]"
         />
         <Button variant="contained" onClick={onApplyFilters} disabled={loading}>
           Apply
@@ -171,22 +162,22 @@ export const BankStatementsPage = () => {
         <Button variant="outlined" onClick={() => void refetch()} disabled={loading}>
           Refresh
         </Button>
-      </Box>
+      </div>
 
       {loading ? (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <CircularProgress size={18} /> <Typography>Loading…</Typography>
-        </Box>
+        <div className="flex items-center gap-2">
+          <Spinner size="small" /> <Typography>Loading…</Typography>
+        </div>
       ) : (
-        <Table size="small">
+        <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Date</TableCell>
-              <TableCell>Type</TableCell>
-              <TableCell>Description</TableCell>
-              <TableCell align="right">Amount</TableCell>
-              <TableCell>Matched document</TableCell>
-              <TableCell>Proof</TableCell>
+              <TableHeaderCell>Date</TableHeaderCell>
+              <TableHeaderCell>Type</TableHeaderCell>
+              <TableHeaderCell>Description</TableHeaderCell>
+              <TableHeaderCell align="right">Amount</TableHeaderCell>
+              <TableHeaderCell>Matched document</TableHeaderCell>
+              <TableHeaderCell>Proof</TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -197,51 +188,47 @@ export const BankStatementsPage = () => {
                 return Number.isNaN(n) ? t.amount : Math.abs(n).toFixed(2)
               })()
               return (
-                <TableRow key={t.id} hover>
+                <TableRow key={t.id}>
                   <TableCell>{t.value_date}</TableCell>
                   <TableCell>{t.txn_type || '—'}</TableCell>
-                  <TableCell sx={{ maxWidth: 720, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <TableCell className="max-w-[720px] truncate">
                     {t.description}
                   </TableCell>
                   <TableCell align="right">{amountAbs}</TableCell>
                   <TableCell>
                     {m ? (
                       m.entity_type === 'procurement_payment' ? (
-                        <Button
-                          size="small"
-                          component={RouterLink}
-                          to={`/procurement/payments/${m.entity_id}`}
-                        >
-                          {m.entity_number}
-                        </Button>
+                        <RouterLink to={`/procurement/payments/${m.entity_id}`}>
+                          <Button size="small" variant="outlined">
+                            {m.entity_number}
+                          </Button>
+                        </RouterLink>
                       ) : (
-                        <Button
-                          size="small"
-                          component={RouterLink}
-                          to={`/compensations/payouts/${m.entity_id}`}
-                        >
-                          {m.entity_number}
-                        </Button>
+                        <RouterLink to={`/compensations/payouts/${m.entity_id}`}>
+                          <Button size="small" variant="outlined">
+                            {m.entity_number}
+                          </Button>
+                        </RouterLink>
                       )
                     ) : (
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography variant="body2" color="secondary">
                         —
                       </Typography>
                     )}
                   </TableCell>
                   <TableCell>
                     {m?.proof_attachment_id ? (
-                      <Button
-                        size="small"
-                        component="a"
+                      <a
                         href={`/attachment/${m.proof_attachment_id}/download`}
                         target="_blank"
                         rel="noreferrer"
                       >
-                        Download
-                      </Button>
+                        <Button size="small" variant="outlined">
+                          Download
+                        </Button>
+                      </a>
                     ) : (
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography variant="body2" color="secondary">
                         —
                       </Typography>
                     )}
@@ -251,12 +238,14 @@ export const BankStatementsPage = () => {
             })}
             {!data?.items.length ? (
               <TableRow>
-                <TableCell colSpan={6}>No bank transfers found.</TableCell>
+                <td colSpan={6} className="px-4 py-3">
+                  No bank transfers found.
+                </td>
               </TableRow>
             ) : null}
           </TableBody>
         </Table>
       )}
-    </Box>
+    </div>
   )
 }

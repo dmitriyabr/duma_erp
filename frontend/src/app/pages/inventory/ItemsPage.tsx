@@ -1,29 +1,17 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useEffect, useMemo, useState } from 'react'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
+import { Typography } from '../../components/ui/Typography'
+import { Chip } from '../../components/ui/Chip'
+import { Alert } from '../../components/ui/Alert'
+import { Dialog, DialogTitle, DialogContent, DialogActions, DialogCloseButton } from '../../components/ui/Dialog'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface CategoryRow {
   id: number
@@ -234,154 +222,165 @@ export const ItemsPage = () => {
   }
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
-        <Typography variant="h4" sx={{ fontWeight: 700 }}>
+    <div>
+      <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
+        <Typography variant="h4">
           Inventory items
         </Typography>
         <Button variant="contained" onClick={openCreate}>
           New item
         </Button>
-      </Box>
+      </div>
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-        <TextField
-          label="Search"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          size="small"
-        />
-        <FormControl size="small" sx={{ minWidth: 180 }}>
-          <InputLabel>Category</InputLabel>
+      <div className="flex gap-4 mb-4 flex-wrap">
+        <div className="flex-1 min-w-[200px]">
+          <Input
+            label="Search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name or SKU"
+          />
+        </div>
+        <div className="min-w-[180px]">
           <Select
-            value={categoryFilter}
             label="Category"
-            onChange={(event) => setCategoryFilter(event.target.value as number | 'all')}
+            value={categoryFilter === 'all' ? 'all' : String(categoryFilter)}
+            onChange={(e) => setCategoryFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
           >
-            <MenuItem value="all">All</MenuItem>
+            <option value="all">All</option>
             {(categories || []).map((category) => (
-              <MenuItem key={category.id} value={category.id}>
+              <option key={category.id} value={category.id}>
                 {category.name}
-              </MenuItem>
+              </option>
             ))}
           </Select>
-        </FormControl>
-        <FormControl size="small" sx={{ minWidth: 160 }}>
-          <InputLabel>Status</InputLabel>
+        </div>
+        <div className="min-w-[160px]">
           <Select
-            value={showInactive ? 'all' : 'active'}
             label="Status"
-            onChange={(event) => setShowInactive(event.target.value === 'all')}
+            value={showInactive ? 'all' : 'active'}
+            onChange={(e) => setShowInactive(e.target.value === 'all')}
           >
-            <MenuItem value="active">Active</MenuItem>
-            <MenuItem value="all">All</MenuItem>
+            <option value="active">Active</option>
+            <option value="all">All</option>
           </Select>
-        </FormControl>
-      </Box>
+        </div>
+      </div>
 
-      {error || saveError || toggleError || validationError ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {(error || saveError || toggleError || validationError) && (
+        <Alert severity="error" className="mb-4">
           {error || saveError || toggleError || validationError}
         </Alert>
-      ) : null}
+      )}
 
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Name</TableCell>
-            <TableCell>Category</TableCell>
-            <TableCell>SKU</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {filteredItems.map((item) => (
-            <TableRow key={item.id}>
-              <TableCell>{item.name}</TableCell>
-              <TableCell>{item.category_name ?? '—'}</TableCell>
-              <TableCell>{item.sku_code}</TableCell>
-              <TableCell>
-                <Chip
-                  size="small"
-                  label={item.is_active ? 'Active' : 'Inactive'}
-                  color={item.is_active ? 'success' : 'default'}
-                />
-              </TableCell>
-              <TableCell align="right">
-                <Button size="small" onClick={() => openEdit(item)}>
-                  Edit
-                </Button>
-                <Button size="small" onClick={() => requestToggleActive(item)}>
-                  {item.is_active ? 'Deactivate' : 'Activate'}
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-          {loading ? (
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <Table>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={5} align="center">
-                Loading…
-              </TableCell>
+              <TableHeaderCell>Name</TableHeaderCell>
+              <TableHeaderCell>Category</TableHeaderCell>
+              <TableHeaderCell>SKU</TableHeaderCell>
+              <TableHeaderCell>Status</TableHeaderCell>
+              <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
-          ) : null}
-          {!filteredItems.length && !loading ? (
-            <TableRow>
-              <TableCell colSpan={5} align="center">
-                No items found
-              </TableCell>
-            </TableRow>
-          ) : null}
-        </TableBody>
-      </Table>
+          </TableHead>
+          <TableBody>
+            {filteredItems.map((item) => (
+              <TableRow key={item.id}>
+                <TableCell>{item.name}</TableCell>
+                <TableCell>{item.category_name ?? '—'}</TableCell>
+                <TableCell>{item.sku_code}</TableCell>
+                <TableCell>
+                  <Chip
+                    size="small"
+                    label={item.is_active ? 'Active' : 'Inactive'}
+                    color={item.is_active ? 'success' : 'default'}
+                  />
+                </TableCell>
+                <TableCell align="right">
+                  <div className="flex gap-2 justify-end">
+                    <Button size="small" variant="outlined" onClick={() => openEdit(item)}>
+                      Edit
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color={item.is_active ? 'error' : 'success'}
+                      onClick={() => requestToggleActive(item)}
+                    >
+                      {item.is_active ? 'Deactivate' : 'Activate'}
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+            {loading && (
+              <TableRow>
+                <td colSpan={5} className="px-4 py-8 text-center">
+                  <Spinner size="medium" />
+                </td>
+              </TableRow>
+            )}
+            {!filteredItems.length && !loading && (
+              <TableRow>
+                <td colSpan={5} className="px-4 py-8 text-center">
+                  <Typography color="secondary">No items found</Typography>
+                </td>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
-      <Dialog open={dialogOpen} onClose={resetDialog} fullWidth maxWidth="sm">
+      <Dialog open={dialogOpen} onClose={resetDialog} maxWidth="md">
+        <DialogCloseButton onClose={resetDialog} />
         <DialogTitle>{editingItem ? 'Edit item' : 'Create item'}</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <FormControl>
-            <InputLabel>Category</InputLabel>
+        <DialogContent>
+          <div className="grid gap-4">
             <Select
-              value={form.category_id}
               label="Category"
-              onChange={(event) => setForm((prev) => ({ ...prev, category_id: event.target.value }))}
-              displayEmpty
+              value={form.category_id}
+              onChange={(e) => setForm((prev) => ({ ...prev, category_id: e.target.value }))}
             >
-              <MenuItem value="">Select category</MenuItem>
+              <option value="">Select category</option>
               {(categories || []).map((category) => (
-                <MenuItem key={category.id} value={category.id}>
+                <option key={category.id} value={category.id}>
                   {category.name}
-                </MenuItem>
+                </option>
               ))}
             </Select>
-          </FormControl>
-          <TextField
-            label="Name"
-            value={form.name}
-            onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-          />
-          {!editingItem ? (
-            <>
-              <TextField
-                label="Opening quantity"
-                type="number"
-                value={form.opening_quantity}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, opening_quantity: event.target.value }))
-                }
-              />
-              <TextField
-                label="Unit cost"
-                type="number"
-                value={form.unit_cost}
-                onChange={(event) => setForm((prev) => ({ ...prev, unit_cost: event.target.value }))}
-              />
-            </>
-          ) : null}
+            <Input
+              label="Name"
+              value={form.name}
+              onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+              required
+            />
+            {!editingItem && (
+              <>
+                <Input
+                  label="Opening quantity"
+                  type="number"
+                  value={form.opening_quantity}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, opening_quantity: e.target.value }))
+                  }
+                />
+                <Input
+                  label="Unit cost"
+                  type="number"
+                  value={form.unit_cost}
+                  onChange={(e) => setForm((prev) => ({ ...prev, unit_cost: e.target.value }))}
+                />
+              </>
+            )}
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={resetDialog}>Cancel</Button>
+          <Button variant="outlined" onClick={resetDialog}>
+            Cancel
+          </Button>
           <Button variant="contained" onClick={handleSubmit} disabled={saving}>
-            Save
+            {saving ? <Spinner size="small" /> : 'Save'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -396,6 +395,6 @@ export const ItemsPage = () => {
         onCancel={() => setConfirmState({ open: false })}
         onConfirm={confirmToggleActive}
       />
-    </Box>
+    </div>
   )
 }

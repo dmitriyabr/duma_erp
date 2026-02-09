@@ -1,33 +1,11 @@
-import {
-  Box,
-  Button,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControl,
-  FormControlLabel,
-  InputLabel,
-  MenuItem,
-  Select,
-  Switch,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
-import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { FileText, Trash2 } from 'lucide-react'
 import { useAuth } from '../../../auth/AuthContext'
 import { useApi, useApiMutation } from '../../../hooks/useApi'
 import { api, unwrapResponse } from '../../../services/api'
 import { INVOICE_LIST_LIMIT } from '../../../constants/pagination'
-import { canInvoiceTerm } from '../../../utils/permissions'
+import { canInvoiceTerm, canManageStudents } from '../../../utils/permissions'
 import { formatDate, formatMoney } from '../../../utils/format'
 import type {
   DiscountValueType,
@@ -38,6 +16,16 @@ import type {
   PaginatedResponse,
 } from '../types'
 import { getDefaultDueDate, parseNumber } from '../types'
+import { Typography } from '../../../components/ui/Typography'
+import { Alert } from '../../../components/ui/Alert'
+import { Button } from '../../../components/ui/Button'
+import { Chip } from '../../../components/ui/Chip'
+import { Input } from '../../../components/ui/Input'
+import { Select } from '../../../components/ui/Select'
+import { Switch } from '../../../components/ui/Switch'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../../components/ui/Table'
+import { Dialog, DialogTitle, DialogContent, DialogActions, DialogCloseButton } from '../../../components/ui/Dialog'
+import { Spinner } from '../../../components/ui/Spinner'
 
 interface InvoicesTabProps {
   studentId: number
@@ -57,6 +45,7 @@ export const InvoicesTab = ({
 }: InvoicesTabProps) => {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const canManage = canManageStudents(user)
   const [invoiceSearch, setInvoiceSearch] = useState('')
   const [showCancelledInvoices, setShowCancelledInvoices] = useState(false)
   const [termInvoiceMessage, setTermInvoiceMessage] = useState<string | null>(null)
@@ -327,228 +316,259 @@ export const InvoicesTab = ({
     selectedInvoice.status !== 'void'
 
   return (
-    <Box>
-      {termInvoiceMessage ? (
-        <Box sx={{ mb: 2, p: 1, bgcolor: 'success.light', borderRadius: 1 }}>
-          <Typography variant="body2">{termInvoiceMessage}</Typography>
-        </Box>
-      ) : null}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+    <div>
+      {termInvoiceMessage && (
+        <Alert severity="success" className="mb-4">
+          {termInvoiceMessage}
+        </Alert>
+      )}
+      <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
+        <div className="flex items-center gap-4 flex-wrap">
           <Typography variant="h6">Invoices</Typography>
-          <TextField
-            size="small"
+          <Input
             label="Search invoice #"
             value={invoiceSearch}
-            onChange={(event) => setInvoiceSearch(event.target.value)}
+            onChange={(e) => setInvoiceSearch(e.target.value)}
+            className="w-48"
           />
-          <FormControlLabel
-            control={
-              <Switch
-                size="small"
-                checked={showCancelledInvoices}
-                onChange={(event) => setShowCancelledInvoices(event.target.checked)}
-              />
-            }
+          <Switch
+            checked={showCancelledInvoices}
+            onChange={(e) => setShowCancelledInvoices(e.target.checked)}
             label="Show cancelled"
           />
-        </Box>
-        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          {canInvoiceTerm(user) ? (
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {canInvoiceTerm(user) && (
             <Button
               variant="outlined"
               onClick={generateTermInvoices}
               disabled={!activeTermId || termInvoiceExists || termInvoiceLoading}
             >
-              Invoice term
+              {termInvoiceLoading ? <Spinner size="small" /> : 'Invoice term'}
             </Button>
-          ) : null}
-          <Button variant="contained" onClick={() => navigate(`/students/${studentId}/invoices/new`)}>
-            Sell item
-          </Button>
-        </Box>
-      </Box>
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Invoice #</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell>Type</TableCell>
-            <TableCell>Total</TableCell>
-            <TableCell>Due</TableCell>
-            <TableCell>Issue date</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {visibleInvoices.map((invoice) => (
-            <TableRow key={invoice.id}>
-              <TableCell>{invoice.invoice_number}</TableCell>
-              <TableCell>{invoice.status}</TableCell>
-              <TableCell>{invoice.invoice_type}</TableCell>
-              <TableCell>{formatMoney(parseNumber(invoice.total))}</TableCell>
-              <TableCell>{formatMoney(parseNumber(invoice.amount_due))}</TableCell>
-              <TableCell>{invoice.issue_date ? formatDate(invoice.issue_date) : '—'}</TableCell>
-              <TableCell align="right">
-                <Button size="small" onClick={() => openInvoiceDetail(invoice)}>
-                  View
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-          {invoicesLoading ? (
+          )}
+          {canManage && (
+            <Button variant="contained" onClick={() => navigate(`/students/${studentId}/invoices/new`)}>
+              Sell item
+            </Button>
+          )}
+        </div>
+      </div>
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <Table>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={7} align="center">
-                Loading…
-              </TableCell>
+              <TableHeaderCell>Invoice #</TableHeaderCell>
+              <TableHeaderCell>Status</TableHeaderCell>
+              <TableHeaderCell>Type</TableHeaderCell>
+              <TableHeaderCell>Total</TableHeaderCell>
+              <TableHeaderCell>Due</TableHeaderCell>
+              <TableHeaderCell>Issue date</TableHeaderCell>
+              <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
-          ) : null}
-          {!invoicesLoading && !visibleInvoices.length ? (
-            <TableRow>
-              <TableCell colSpan={7} align="center">
-                No invoices yet
-              </TableCell>
-            </TableRow>
-          ) : null}
-        </TableBody>
-      </Table>
+          </TableHead>
+          <TableBody>
+            {visibleInvoices.map((invoice) => (
+              <TableRow key={invoice.id}>
+                <TableCell>{invoice.invoice_number}</TableCell>
+                <TableCell>{invoice.status}</TableCell>
+                <TableCell>{invoice.invoice_type}</TableCell>
+                <TableCell>{formatMoney(parseNumber(invoice.total))}</TableCell>
+                <TableCell>{formatMoney(parseNumber(invoice.amount_due))}</TableCell>
+                <TableCell>{invoice.issue_date ? formatDate(invoice.issue_date) : '—'}</TableCell>
+                <TableCell align="right">
+                  <Button size="small" variant="outlined" onClick={() => openInvoiceDetail(invoice)}>
+                    View
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+            {invoicesLoading && (
+              <TableRow>
+                <td colSpan={7} className="px-4 py-8 text-center">
+                  <Spinner size="small" />
+                </td>
+              </TableRow>
+            )}
+            {!invoicesLoading && !visibleInvoices.length && (
+              <TableRow>
+                <td colSpan={7} className="px-4 py-8 text-center">
+                  <Typography color="secondary">No invoices yet</Typography>
+                </td>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
       {/* Invoice Detail Dialog */}
-      <Dialog open={Boolean(selectedInvoiceId)} onClose={closeInvoiceDetail} fullWidth maxWidth="lg">
+      <Dialog open={Boolean(selectedInvoiceId)} onClose={closeInvoiceDetail} maxWidth="lg">
+        <DialogCloseButton onClose={closeInvoiceDetail} />
         <DialogTitle>
           Invoice {selectedInvoice?.invoice_number ?? ''}
           {selectedInvoice ? ` · ${selectedInvoice.status}` : invoiceDetailApi.loading ? ' (loading…)' : ''}
         </DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2 }}>
-          {selectedInvoice ? (
-            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-              <Chip label={`Total ${formatMoney(parseNumber(selectedInvoice.total))}`} />
-              <Chip label={`Due ${formatMoney(parseNumber(selectedInvoice.amount_due))}`} />
-              <Chip label={`Paid ${formatMoney(parseNumber(selectedInvoice.paid_total))}`} />
-              <Chip
-                label={`Issue ${selectedInvoice.issue_date ? formatDate(selectedInvoice.issue_date) : '—'}`}
-              />
-            </Box>
-          ) : null}
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Description</TableCell>
-                <TableCell>Qty</TableCell>
-                <TableCell>Unit</TableCell>
-                <TableCell>Total</TableCell>
-                <TableCell>Discount</TableCell>
-                <TableCell>Net</TableCell>
-                <TableCell align="right">Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {selectedInvoice?.lines.map((line: InvoiceLine) => (
-                <TableRow key={line.id}>
-                  <TableCell>{line.description}</TableCell>
-                  <TableCell>{line.quantity}</TableCell>
-                  <TableCell>{formatMoney(parseNumber(line.unit_price))}</TableCell>
-                  <TableCell>{formatMoney(parseNumber(line.line_total))}</TableCell>
-                  <TableCell>{formatMoney(parseNumber(line.discount_amount))}</TableCell>
-                  <TableCell>{formatMoney(parseNumber(line.net_amount))}</TableCell>
-                  <TableCell align="right">
-                    {selectedInvoice.status === 'draft' ? (
-                      <Button size="small" onClick={() => removeLine(line.id)}>
-                        Remove
-                      </Button>
-                    ) : null}
-                    <Button size="small" onClick={() => openDiscountDialog(line.id)}>
-                      Discount
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {!selectedInvoice?.lines.length ? (
-                <TableRow>
-                  <TableCell colSpan={7} align="center">
-                    No lines
-                  </TableCell>
-                </TableRow>
-              ) : null}
-            </TableBody>
-          </Table>
+        <DialogContent>
+          <div className="space-y-4 mt-4">
+            {selectedInvoice && (
+              <div className="flex gap-2 flex-wrap">
+                <Chip label={`Total ${formatMoney(parseNumber(selectedInvoice.total))}`} />
+                <Chip label={`Due ${formatMoney(parseNumber(selectedInvoice.amount_due))}`} />
+                <Chip label={`Paid ${formatMoney(parseNumber(selectedInvoice.paid_total))}`} />
+                <Chip
+                  label={`Issue ${selectedInvoice.issue_date ? formatDate(selectedInvoice.issue_date) : '—'}`}
+                />
+              </div>
+            )}
+            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableHeaderCell>Description</TableHeaderCell>
+                    <TableHeaderCell>Qty</TableHeaderCell>
+                    <TableHeaderCell>Unit</TableHeaderCell>
+                    <TableHeaderCell>Total</TableHeaderCell>
+                    <TableHeaderCell>Discount</TableHeaderCell>
+                    <TableHeaderCell>Net</TableHeaderCell>
+                    <TableHeaderCell align="right">Actions</TableHeaderCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {selectedInvoice?.lines.map((line: InvoiceLine) => (
+                    <TableRow key={line.id}>
+                      <TableCell>{line.description}</TableCell>
+                      <TableCell>{line.quantity}</TableCell>
+                      <TableCell>{formatMoney(parseNumber(line.unit_price))}</TableCell>
+                      <TableCell>{formatMoney(parseNumber(line.line_total))}</TableCell>
+                      <TableCell>{formatMoney(parseNumber(line.discount_amount))}</TableCell>
+                      <TableCell>{formatMoney(parseNumber(line.net_amount))}</TableCell>
+                      <TableCell align="right">
+                        <div className="flex gap-2 justify-end">
+                          {canManage && selectedInvoice.status === 'draft' && (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color="error"
+                              onClick={() => removeLine(line.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {canManage && (
+                            <Button size="small" variant="outlined" onClick={() => openDiscountDialog(line.id)}>
+                              Discount
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {!selectedInvoice?.lines.length && (
+                    <TableRow>
+                      <td colSpan={7} className="px-4 py-8 text-center">
+                        <Typography color="secondary">No lines</Typography>
+                      </td>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
         </DialogContent>
         <DialogActions>
-          {canDownloadInvoicePdf ? (
+          {canDownloadInvoicePdf && (
             <Button
-              startIcon={<PictureAsPdfIcon />}
+              variant="outlined"
               onClick={downloadInvoicePdf}
               disabled={downloadingPdf}
             >
+              <FileText className="h-4 w-4 mr-1" />
               {downloadingPdf ? 'Downloading…' : 'Download PDF'}
             </Button>
-          ) : null}
-          {selectedInvoice?.status === 'draft' ? <Button onClick={openAddLine}>Add line</Button> : null}
-          {selectedInvoice?.status === 'draft' ? <Button onClick={openIssueInvoice}>Issue</Button> : null}
-          {selectedInvoice && selectedInvoice.status !== 'paid' ? (
-            <Button color="warning" onClick={cancelInvoice}>
+          )}
+          {canManage && selectedInvoice?.status === 'draft' && (
+            <Button variant="outlined" onClick={openAddLine}>
+              Add line
+            </Button>
+          )}
+          {canManage && selectedInvoice?.status === 'draft' && (
+            <Button variant="contained" onClick={openIssueInvoice}>
+              Issue
+            </Button>
+          )}
+          {canManage && selectedInvoice && selectedInvoice.status !== 'paid' && (
+            <Button variant="outlined" color="warning" onClick={cancelInvoice}>
               Cancel invoice
             </Button>
-          ) : null}
-          <Button onClick={closeInvoiceDetail}>Close</Button>
+          )}
+          <Button variant="outlined" onClick={closeInvoiceDetail}>
+            Close
+          </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Add Line Dialog — API supports only kit_id for invoice lines */}
-      <Dialog open={lineDialogOpen} onClose={() => setLineDialogOpen(false)} fullWidth maxWidth="sm">
+      {/* Add Line Dialog */}
+      <Dialog open={lineDialogOpen} onClose={() => setLineDialogOpen(false)} maxWidth="sm">
+        <DialogCloseButton onClose={() => setLineDialogOpen(false)} />
         <DialogTitle>Add invoice line</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <FormControl>
-            <InputLabel>Kit</InputLabel>
+        <DialogContent>
+          <div className="space-y-4 mt-4">
             <Select
               value={lineForm.kit_id}
+              onChange={(e) => setLineForm({ ...lineForm, kit_id: e.target.value })}
               label="Kit"
-              onChange={(event) => setLineForm({ ...lineForm, kit_id: event.target.value })}
             >
+              <option value="">Select kit</option>
               {kits.map((kit) => (
-                <MenuItem key={kit.id} value={String(kit.id)}>
+                <option key={kit.id} value={String(kit.id)}>
                   {kit.name}
-                </MenuItem>
+                </option>
               ))}
             </Select>
-          </FormControl>
-          <TextField
-            label="Quantity"
-            type="number"
-            value={lineForm.quantity}
-            onChange={(event) => setLineForm({ ...lineForm, quantity: Number(event.target.value) })}
-          />
-          <TextField
-            label="Discount amount"
-            type="number"
-            value={lineForm.discount_amount}
-            onChange={(event) => setLineForm({ ...lineForm, discount_amount: event.target.value })}
-          />
+            <Input
+              label="Quantity"
+              type="number"
+              value={lineForm.quantity}
+              onChange={(e) => setLineForm({ ...lineForm, quantity: Number(e.target.value) })}
+            />
+            <Input
+              label="Discount amount"
+              type="number"
+              value={lineForm.discount_amount}
+              onChange={(e) => setLineForm({ ...lineForm, discount_amount: e.target.value })}
+            />
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setLineDialogOpen(false)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => setLineDialogOpen(false)}>
+            Cancel
+          </Button>
           <Button variant="contained" onClick={submitLine} disabled={loading}>
-            Add line
+            {loading ? <Spinner size="small" /> : 'Add line'}
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* Issue Dialog */}
-      <Dialog open={issueDialogOpen} onClose={() => setIssueDialogOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={issueDialogOpen} onClose={() => setIssueDialogOpen(false)} maxWidth="sm">
+        <DialogCloseButton onClose={() => setIssueDialogOpen(false)} />
         <DialogTitle>Issue invoice</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <TextField
-            label="Due date"
-            type="date"
-            value={issueDueDate}
-            onChange={(event) => setIssueDueDate(event.target.value)}
-            InputLabelProps={{ shrink: true }}
-          />
+        <DialogContent>
+          <div className="mt-4">
+            <Input
+              label="Due date"
+              type="date"
+              value={issueDueDate}
+              onChange={(e) => setIssueDueDate(e.target.value)}
+            />
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setIssueDialogOpen(false)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => setIssueDialogOpen(false)}>
+            Cancel
+          </Button>
           <Button variant="contained" onClick={submitIssueInvoice} disabled={loading}>
-            Issue
+            {loading ? <Spinner size="small" /> : 'Issue'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -557,43 +577,44 @@ export const InvoicesTab = ({
       <Dialog
         open={discountDialogOpen}
         onClose={() => setDiscountDialogOpen(false)}
-        fullWidth
         maxWidth="sm"
       >
+        <DialogCloseButton onClose={() => setDiscountDialogOpen(false)} />
         <DialogTitle>Apply discount</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <FormControl>
-            <InputLabel>Value type</InputLabel>
+        <DialogContent>
+          <div className="space-y-4 mt-4">
             <Select
               value={discountForm.value_type}
-              label="Value type"
-              onChange={(event) =>
-                setDiscountForm({ ...discountForm, value_type: event.target.value as DiscountValueType })
+              onChange={(e) =>
+                setDiscountForm({ ...discountForm, value_type: e.target.value as DiscountValueType })
               }
+              label="Value type"
             >
-              <MenuItem value="percentage">Percentage</MenuItem>
-              <MenuItem value="fixed">Fixed</MenuItem>
+              <option value="percentage">Percentage</option>
+              <option value="fixed">Fixed</option>
             </Select>
-          </FormControl>
-          <TextField
-            label="Value"
-            type="number"
-            value={discountForm.value}
-            onChange={(event) => setDiscountForm({ ...discountForm, value: event.target.value })}
-          />
-          <TextField
-            label="Reason"
-            value={discountForm.reason_text}
-            onChange={(event) => setDiscountForm({ ...discountForm, reason_text: event.target.value })}
-          />
+            <Input
+              label="Value"
+              type="number"
+              value={discountForm.value}
+              onChange={(e) => setDiscountForm({ ...discountForm, value: e.target.value })}
+            />
+            <Input
+              label="Reason"
+              value={discountForm.reason_text}
+              onChange={(e) => setDiscountForm({ ...discountForm, reason_text: e.target.value })}
+            />
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDiscountDialogOpen(false)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => setDiscountDialogOpen(false)}>
+            Cancel
+          </Button>
           <Button variant="contained" onClick={submitLineDiscount} disabled={loading}>
-            Apply
+            {loading ? <Spinner size="small" /> : 'Apply'}
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </div>
   )
 }

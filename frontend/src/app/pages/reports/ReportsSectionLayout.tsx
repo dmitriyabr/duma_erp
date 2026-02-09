@@ -1,5 +1,5 @@
-import { Box, Tabs, Tab } from '@mui/material'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
+import { Tabs, TabsList, Tab } from '../../components/ui/Tabs'
 
 export interface ReportsTab { path: string; label: string }
 
@@ -15,22 +15,26 @@ export function ReportsSectionLayout({ basePath, tabs }: ReportsSectionLayoutPro
   const activeTab = tabs.find((t) => pathname === `${basePath}/${t.path}`)
   const value = activeTab ? `${basePath}/${activeTab.path}` : (tabs[0] ? `${basePath}/${tabs[0].path}` : '')
 
-  const handleChange = (_: React.SyntheticEvent, newValue: string) => {
+  const handleChange = (newValue: string) => {
     navigate(newValue)
   }
 
   return (
-    <Box>
+    <div>
       <Tabs
         value={value}
         onChange={handleChange}
-        sx={{ borderBottom: 1, borderColor: 'divider', mb: 2, minHeight: 40 }}
+        className="border-b border-slate-200 mb-4"
       >
-        {tabs.map((t) => (
-          <Tab key={t.path} label={t.label} value={`${basePath}/${t.path}`} sx={{ minHeight: 40, py: 1 }} />
-        ))}
+        <TabsList>
+          {tabs.map((t) => (
+            <Tab key={t.path} value={`${basePath}/${t.path}`}>
+              {t.label}
+            </Tab>
+          ))}
+        </TabsList>
       </Tabs>
       <Outlet />
-    </Box>
+    </div>
   )
 }

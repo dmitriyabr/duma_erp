@@ -1,27 +1,20 @@
-import {
-  Box,
-  Button,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useState } from 'react'
 import { useAuth } from '../../../auth/AuthContext'
 import { ConfirmDialog } from '../../../components/ConfirmDialog'
-import { isAccountant } from '../../../utils/permissions'
+import { canManageStudents } from '../../../utils/permissions'
 import { api } from '../../../services/api'
 import { useApiMutation } from '../../../hooks/useApi'
 import { formatMoney } from '../../../utils/format'
 import type { Gender, GradeOption, StudentBalance, StudentResponse, TransportZoneOption } from '../types'
 import { parseNumber } from '../types'
+import { Typography } from '../../../components/ui/Typography'
+import { Button } from '../../../components/ui/Button'
+import { Chip } from '../../../components/ui/Chip'
+import { Input } from '../../../components/ui/Input'
+import { Select } from '../../../components/ui/Select'
+import { Textarea } from '../../../components/ui/Textarea'
+import { Dialog, DialogTitle, DialogContent, DialogActions, DialogCloseButton } from '../../../components/ui/Dialog'
+import { Spinner } from '../../../components/ui/Spinner'
 
 interface StudentHeaderProps {
   student: StudentResponse
@@ -43,7 +36,7 @@ export const StudentHeader = ({
   onError,
 }: StudentHeaderProps) => {
   const { user } = useAuth()
-  const readOnly = isAccountant(user)
+  const canManage = canManageStudents(user)
   const { execute: updateStudent, loading, error: updateError } = useApiMutation()
   const { execute: toggleStatus, loading: toggling, error: toggleError } = useApiMutation()
 
@@ -132,16 +125,16 @@ export const StudentHeader = ({
   const netBalance = balance != null ? parseNumber(balance.balance) : -debt
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-      <Box>
-        <Typography variant="h4" sx={{ fontWeight: 700 }}>
+    <div className="flex items-center justify-between mb-4 flex-wrap gap-4">
+      <div>
+        <Typography variant="h4">
           {student.full_name}
         </Typography>
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" color="secondary" className="mt-1">
           Student #{student.student_number} · {student.grade_name ?? 'No grade'}
         </Typography>
-      </Box>
-      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+      </div>
+      <div className="flex gap-2 flex-wrap">
         <Chip
           label={student.status === 'active' ? 'Active' : 'Inactive'}
           color={student.status === 'active' ? 'success' : 'default'}
@@ -149,9 +142,8 @@ export const StudentHeader = ({
         <Chip
           label={`Balance ${formatMoney(netBalance)}`}
           color={netBalance > 0 ? 'success' : netBalance < 0 ? 'error' : 'default'}
-          variant={netBalance !== 0 ? 'filled' : 'outlined'}
         />
-        {!readOnly && (
+        {canManage && (
           <>
             <Button variant="outlined" onClick={openEdit}>
               Edit
@@ -161,111 +153,100 @@ export const StudentHeader = ({
             </Button>
           </>
         )}
-      </Box>
+      </div>
 
       {/* Edit Dialog */}
-      <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} fullWidth maxWidth="md">
+      <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="md">
+        <DialogCloseButton onClose={() => setEditDialogOpen(false)} />
         <DialogTitle>Edit student</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <Box
-            sx={{ display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
-          >
-            <TextField
-              label="First name"
-              value={editForm.first_name}
-              onChange={(event) => setEditForm({ ...editForm, first_name: event.target.value })}
-            />
-            <TextField
-              label="Last name"
-              value={editForm.last_name}
-              onChange={(event) => setEditForm({ ...editForm, last_name: event.target.value })}
-            />
-            <TextField
-              label="Date of birth"
-              type="date"
-              value={editForm.date_of_birth}
-              onChange={(event) => setEditForm({ ...editForm, date_of_birth: event.target.value })}
-              InputLabelProps={{ shrink: true }}
-            />
-            <FormControl>
-              <InputLabel>Gender</InputLabel>
+        <DialogContent>
+          <div className="space-y-4 mt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input
+                label="First name"
+                value={editForm.first_name}
+                onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
+              />
+              <Input
+                label="Last name"
+                value={editForm.last_name}
+                onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
+              />
+              <Input
+                label="Date of birth"
+                type="date"
+                value={editForm.date_of_birth}
+                onChange={(e) => setEditForm({ ...editForm, date_of_birth: e.target.value })}
+              />
               <Select
                 value={editForm.gender}
+                onChange={(e) => setEditForm({ ...editForm, gender: e.target.value as Gender })}
                 label="Gender"
-                onChange={(event) => setEditForm({ ...editForm, gender: event.target.value as Gender })}
               >
-                <MenuItem value="male">Male</MenuItem>
-                <MenuItem value="female">Female</MenuItem>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
               </Select>
-            </FormControl>
-            <FormControl>
-              <InputLabel>Grade</InputLabel>
               <Select
                 value={editForm.grade_id}
+                onChange={(e) => setEditForm({ ...editForm, grade_id: e.target.value })}
                 label="Grade"
-                onChange={(event) => setEditForm({ ...editForm, grade_id: event.target.value })}
               >
                 {grades.map((grade) => (
-                  <MenuItem key={grade.id} value={String(grade.id)}>
+                  <option key={grade.id} value={String(grade.id)}>
                     {grade.name}
-                  </MenuItem>
+                  </option>
                 ))}
               </Select>
-            </FormControl>
-            <FormControl>
-              <InputLabel>Transport zone</InputLabel>
               <Select
                 value={editForm.transport_zone_id}
+                onChange={(e) => setEditForm({ ...editForm, transport_zone_id: e.target.value })}
                 label="Transport zone"
-                onChange={(event) => setEditForm({ ...editForm, transport_zone_id: event.target.value })}
               >
-                <MenuItem value="">None</MenuItem>
+                <option value="">None</option>
                 {transportZones.map((zone) => (
-                  <MenuItem key={zone.id} value={String(zone.id)}>
+                  <option key={zone.id} value={String(zone.id)}>
                     {zone.zone_name}
-                  </MenuItem>
+                  </option>
                 ))}
               </Select>
-            </FormControl>
-            <TextField
-              label="Enrollment date"
-              type="date"
-              value={editForm.enrollment_date}
-              onChange={(event) => setEditForm({ ...editForm, enrollment_date: event.target.value })}
-              InputLabelProps={{ shrink: true }}
+              <Input
+                label="Enrollment date"
+                type="date"
+                value={editForm.enrollment_date}
+                onChange={(e) => setEditForm({ ...editForm, enrollment_date: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input
+                label="Guardian name"
+                value={editForm.guardian_name}
+                onChange={(e) => setEditForm({ ...editForm, guardian_name: e.target.value })}
+              />
+              <Input
+                label="Guardian phone"
+                value={editForm.guardian_phone}
+                onChange={(e) => setEditForm({ ...editForm, guardian_phone: e.target.value })}
+              />
+              <Input
+                label="Guardian email"
+                value={editForm.guardian_email}
+                onChange={(e) => setEditForm({ ...editForm, guardian_email: e.target.value })}
+              />
+            </div>
+            <Textarea
+              label="Notes"
+              value={editForm.notes}
+              onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+              rows={3}
             />
-          </Box>
-          <Box
-            sx={{ display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}
-          >
-            <TextField
-              label="Guardian name"
-              value={editForm.guardian_name}
-              onChange={(event) => setEditForm({ ...editForm, guardian_name: event.target.value })}
-            />
-            <TextField
-              label="Guardian phone"
-              value={editForm.guardian_phone}
-              onChange={(event) => setEditForm({ ...editForm, guardian_phone: event.target.value })}
-            />
-            <TextField
-              label="Guardian email"
-              value={editForm.guardian_email}
-              onChange={(event) => setEditForm({ ...editForm, guardian_email: event.target.value })}
-            />
-          </Box>
-          <TextField
-            label="Notes"
-            value={editForm.notes}
-            onChange={(event) => setEditForm({ ...editForm, notes: event.target.value })}
-            multiline
-            minRows={2}
-          />
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => setEditDialogOpen(false)}>
+            Cancel
+          </Button>
           <Button variant="contained" onClick={saveStudent} disabled={loading || toggling}>
-            Save
+            {loading || toggling ? <Spinner size="small" /> : 'Save'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -285,6 +266,6 @@ export const StudentHeader = ({
         onCancel={() => setConfirmState({ open: false })}
         onConfirm={confirmToggleActive}
       />
-    </Box>
+    </div>
   )
 }

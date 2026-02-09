@@ -1,26 +1,17 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TablePagination,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell, TablePagination } from '../../components/ui/Table'
+import { Typography } from '../../components/ui/Typography'
+import { Chip } from '../../components/ui/Chip'
+import { Alert } from '../../components/ui/Alert'
+import { Card, CardContent } from '../../components/ui/Card'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface PORow {
   id: number
@@ -96,139 +87,143 @@ export const PurchaseOrdersListPage = () => {
   }
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
-        <Typography variant="h4" sx={{ fontWeight: 700 }}>
+    <div>
+      <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
+        <Typography variant="h4">
           Purchase orders
         </Typography>
         <Button variant="contained" onClick={() => navigate('/procurement/orders/new')}>
           New order
         </Button>
-      </Box>
+      </div>
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 3, p: 2, bgcolor: 'background.paper', borderRadius: 1, boxShadow: 1 }}>
-        <Box>
-          <Typography variant="subtitle2" color="text.secondary">
-            Pending Goods Received
-          </Typography>
-          <Typography variant="h6">{pendingGrnCount}</Typography>
-        </Box>
-        <Box>
-          <Typography variant="subtitle2" color="text.secondary">
-            Total supplier debt
-          </Typography>
-          <Typography variant="h6" color={totalDebt > 0 ? 'error' : 'inherit'}>
-            {formatMoney(totalDebt)}
-          </Typography>
-        </Box>
-      </Box>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+        <Card>
+          <CardContent>
+            <Typography variant="subtitle2" color="secondary">
+              Pending Goods Received
+            </Typography>
+            <Typography variant="h6" className="mt-1">{pendingGrnCount}</Typography>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent>
+            <Typography variant="subtitle2" color="secondary">
+              Total supplier debt
+            </Typography>
+            <Typography variant="h6" className={totalDebt > 0 ? 'text-error mt-1' : 'mt-1'}>
+              {formatMoney(totalDebt)}
+            </Typography>
+          </CardContent>
+        </Card>
+      </div>
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-        <TextField
-          label="Supplier"
-          value={supplierFilter}
-          onChange={(event) => setSupplierFilter(event.target.value)}
-          size="small"
-        />
-        <FormControl size="small" sx={{ minWidth: 180 }}>
-          <InputLabel>Status</InputLabel>
+      <div className="flex gap-4 mb-4 flex-wrap">
+        <div className="flex-1 min-w-[200px]">
+          <Input
+            label="Supplier"
+            value={supplierFilter}
+            onChange={(e) => setSupplierFilter(e.target.value)}
+            placeholder="Supplier name"
+          />
+        </div>
+        <div className="min-w-[180px]">
           <Select
-            value={statusFilter}
             label="Status"
-            onChange={(event) => setStatusFilter(event.target.value)}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
           >
             {statusOptions.map((option) => (
-              <MenuItem key={option.value} value={option.value}>
+              <option key={option.value} value={option.value}>
                 {option.label}
-              </MenuItem>
+              </option>
             ))}
           </Select>
-        </FormControl>
-        <TextField
-          label="Date from"
-          type="date"
-          value={dateFrom}
-          onChange={(event) => setDateFrom(event.target.value)}
-          size="small"
-          InputLabelProps={{ shrink: true }}
-        />
-        <TextField
-          label="Date to"
-          type="date"
-          value={dateTo}
-          onChange={(event) => setDateTo(event.target.value)}
-          size="small"
-          InputLabelProps={{ shrink: true }}
-        />
-      </Box>
+        </div>
+        <div className="min-w-[160px]">
+          <Input
+            label="Date from"
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+          />
+        </div>
+        <div className="min-w-[160px]">
+          <Input
+            label="Date to"
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+          />
+        </div>
+      </div>
 
-      {error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {error && (
+        <Alert severity="error" className="mb-4">
           {error}
         </Alert>
-      ) : null}
+      )}
 
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>PO Number</TableCell>
-            <TableCell>Supplier</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell>Order date</TableCell>
-            <TableCell align="right">Expected total</TableCell>
-            <TableCell align="right">Received</TableCell>
-            <TableCell align="right">Paid</TableCell>
-            <TableCell align="right">Debt</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {orders.map((order) => (
-            <TableRow key={order.id}>
-              <TableCell>{order.po_number}</TableCell>
-              <TableCell>{order.supplier_name}</TableCell>
-              <TableCell>
-                <Chip size="small" label={order.status} color={statusColor(order.status)} />
-              </TableCell>
-              <TableCell>{formatDate(order.order_date)}</TableCell>
-              <TableCell align="right">{formatMoney(order.expected_total)}</TableCell>
-              <TableCell align="right">{formatMoney(order.received_value)}</TableCell>
-              <TableCell align="right">{formatMoney(order.paid_total)}</TableCell>
-              <TableCell align="right">{formatMoney(order.debt_amount)}</TableCell>
-              <TableCell align="right">
-                <Button size="small" onClick={() => navigate(`/procurement/orders/${order.id}`)}>
-                  View
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-          {loading ? (
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <Table>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={9} align="center">
-                Loading…
-              </TableCell>
+              <TableHeaderCell>PO Number</TableHeaderCell>
+              <TableHeaderCell>Supplier</TableHeaderCell>
+              <TableHeaderCell>Status</TableHeaderCell>
+              <TableHeaderCell>Order date</TableHeaderCell>
+              <TableHeaderCell align="right">Expected total</TableHeaderCell>
+              <TableHeaderCell align="right">Received</TableHeaderCell>
+              <TableHeaderCell align="right">Paid</TableHeaderCell>
+              <TableHeaderCell align="right">Debt</TableHeaderCell>
             </TableRow>
-          ) : null}
-          {!orders.length && !loading ? (
-            <TableRow>
-              <TableCell colSpan={9} align="center">
-                No purchase orders found
-              </TableCell>
-            </TableRow>
-          ) : null}
-        </TableBody>
-      </Table>
-      <TablePagination
-        component="div"
-        count={total}
-        page={page}
-        onPageChange={(_, nextPage) => setPage(nextPage)}
-        rowsPerPage={limit}
-        onRowsPerPageChange={(event) => {
-          setLimit(Number(event.target.value))
-          setPage(0)
-        }}
-      />
-    </Box>
+          </TableHead>
+          <TableBody>
+            {orders.map((order) => (
+              <TableRow
+                key={order.id}
+                onClick={() => navigate(`/procurement/orders/${order.id}`)}
+                className="cursor-pointer"
+              >
+                <TableCell>{order.po_number}</TableCell>
+                <TableCell>{order.supplier_name}</TableCell>
+                <TableCell>
+                  <Chip size="small" label={order.status} color={statusColor(order.status)} />
+                </TableCell>
+                <TableCell>{formatDate(order.order_date)}</TableCell>
+                <TableCell align="right">{formatMoney(order.expected_total)}</TableCell>
+                <TableCell align="right">{formatMoney(order.received_value)}</TableCell>
+                <TableCell align="right">{formatMoney(order.paid_total)}</TableCell>
+                <TableCell align="right">{formatMoney(order.debt_amount)}</TableCell>
+              </TableRow>
+            ))}
+            {loading && (
+              <TableRow>
+                <td colSpan={8} className="px-4 py-8 text-center">
+                  <Spinner size="medium" />
+                </td>
+              </TableRow>
+            )}
+            {!orders.length && !loading && (
+              <TableRow>
+                <td colSpan={8} className="px-4 py-8 text-center">
+                  <Typography color="secondary">No purchase orders found</Typography>
+                </td>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+        <TablePagination
+          page={page}
+          rowsPerPage={limit}
+          count={total}
+          onPageChange={setPage}
+          onRowsPerPageChange={(newLimit) => {
+            setLimit(newLimit)
+            setPage(0)
+          }}
+        />
+      </div>
+    </div>
   )
 }

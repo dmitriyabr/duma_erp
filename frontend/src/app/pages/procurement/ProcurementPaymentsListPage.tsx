@@ -1,24 +1,4 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  FormControl,
-  IconButton,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TablePagination,
-  TableRow,
-  TextField,
-  Tooltip,
-  Typography,
-} from '@mui/material'
-import DownloadIcon from '@mui/icons-material/Download'
+import { Download } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { PaginatedResponse } from '../../types/api'
@@ -27,6 +7,15 @@ import { useAuth } from '../../auth/AuthContext'
 import { formatDate, formatMoney } from '../../utils/format'
 import { downloadAttachment } from '../../utils/attachments'
 import { isAccountant } from '../../utils/permissions'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell, TablePagination } from '../../components/ui/Table'
+import { Typography } from '../../components/ui/Typography'
+import { Chip } from '../../components/ui/Chip'
+import { Alert } from '../../components/ui/Alert'
+import { Tooltip } from '../../components/ui/Tooltip'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface PaymentRow {
   id: number
@@ -75,9 +64,9 @@ export const ProcurementPaymentsListPage = () => {
   const total = data?.total || 0
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
-        <Typography variant="h4" sx={{ fontWeight: 700 }}>
+    <div>
+      <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
+        <Typography variant="h4">
           Procurement payments
         </Typography>
         {!readOnly && (
@@ -85,130 +74,129 @@ export const ProcurementPaymentsListPage = () => {
             New payment
           </Button>
         )}
-      </Box>
+      </div>
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-        <TextField
-          label="PO ID"
-          value={poIdFilter}
-          onChange={(event) => setPoIdFilter(event.target.value)}
-          size="small"
-          type="number"
-        />
-        <FormControl size="small" sx={{ minWidth: 180 }}>
-          <InputLabel>Status</InputLabel>
+      <div className="flex gap-4 mb-4 flex-wrap">
+        <div className="min-w-[120px]">
+          <Input
+            label="PO ID"
+            type="number"
+            value={poIdFilter}
+            onChange={(e) => setPoIdFilter(e.target.value)}
+          />
+        </div>
+        <div className="min-w-[180px]">
           <Select
-            value={statusFilter}
             label="Status"
-            onChange={(event) => setStatusFilter(event.target.value)}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
           >
             {statusOptions.map((option) => (
-              <MenuItem key={option.value} value={option.value}>
+              <option key={option.value} value={option.value}>
                 {option.label}
-              </MenuItem>
+              </option>
             ))}
           </Select>
-        </FormControl>
-        <TextField
-          label="Date from"
-          type="date"
-          value={dateFrom}
-          onChange={(event) => setDateFrom(event.target.value)}
-          size="small"
-          InputLabelProps={{ shrink: true }}
-        />
-        <TextField
-          label="Date to"
-          type="date"
-          value={dateTo}
-          onChange={(event) => setDateTo(event.target.value)}
-          size="small"
-          InputLabelProps={{ shrink: true }}
-        />
-      </Box>
+        </div>
+        <div className="min-w-[160px]">
+          <Input
+            label="Date from"
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+          />
+        </div>
+        <div className="min-w-[160px]">
+          <Input
+            label="Date to"
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+          />
+        </div>
+      </div>
 
-      {error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {error && (
+        <Alert severity="error" className="mb-4">
           {error}
         </Alert>
-      ) : null}
+      )}
 
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Payment Number</TableCell>
-            <TableCell>PO ID</TableCell>
-            <TableCell>Payee</TableCell>
-            <TableCell>Date</TableCell>
-            <TableCell align="right">Amount</TableCell>
-            <TableCell>Method</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell align="center">File</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {payments.map((payment) => (
-            <TableRow key={payment.id}>
-              <TableCell>{payment.payment_number}</TableCell>
-              <TableCell>{payment.po_id ?? '—'}</TableCell>
-              <TableCell>{payment.payee_name ?? '—'}</TableCell>
-              <TableCell>{formatDate(payment.payment_date)}</TableCell>
-              <TableCell align="right">{formatMoney(payment.amount)}</TableCell>
-              <TableCell>{payment.payment_method}</TableCell>
-              <TableCell>
-                <Chip
-                  size="small"
-                  label={payment.status}
-                  color={payment.status === 'posted' ? 'success' : 'default'}
-                />
-              </TableCell>
-              <TableCell align="center">
-                {payment.proof_attachment_id != null && (
-                  <Tooltip title="Download attachment">
-                    <IconButton
-                      size="small"
-                      onClick={() => downloadAttachment(payment.proof_attachment_id!)}
-                    >
-                      <DownloadIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                )}
-              </TableCell>
-              <TableCell align="right">
-                <Button size="small" onClick={() => navigate(`/procurement/payments/${payment.id}`)}>
-                  View
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-          {loading ? (
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <Table>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={9} align="center">
-                Loading…
-              </TableCell>
+              <TableHeaderCell>Payment Number</TableHeaderCell>
+              <TableHeaderCell>PO ID</TableHeaderCell>
+              <TableHeaderCell>Payee</TableHeaderCell>
+              <TableHeaderCell>Date</TableHeaderCell>
+              <TableHeaderCell align="right">Amount</TableHeaderCell>
+              <TableHeaderCell>Method</TableHeaderCell>
+              <TableHeaderCell>Status</TableHeaderCell>
+              <TableHeaderCell align="center">File</TableHeaderCell>
             </TableRow>
-          ) : null}
-          {!payments.length && !loading ? (
-            <TableRow>
-              <TableCell colSpan={9} align="center">
-                No payments found
-              </TableCell>
-            </TableRow>
-          ) : null}
-        </TableBody>
-      </Table>
-      <TablePagination
-        component="div"
-        count={total}
-        page={page}
-        onPageChange={(_, nextPage) => setPage(nextPage)}
-        rowsPerPage={limit}
-        onRowsPerPageChange={(event) => {
-          setLimit(Number(event.target.value))
-          setPage(0)
-        }}
-      />
-    </Box>
+          </TableHead>
+          <TableBody>
+            {payments.map((payment) => (
+              <TableRow
+                key={payment.id}
+                onClick={() => navigate(`/procurement/payments/${payment.id}`)}
+                className="cursor-pointer"
+              >
+                <TableCell>{payment.payment_number}</TableCell>
+                <TableCell>{payment.po_id ?? '—'}</TableCell>
+                <TableCell>{payment.payee_name ?? '—'}</TableCell>
+                <TableCell>{formatDate(payment.payment_date)}</TableCell>
+                <TableCell align="right">{formatMoney(payment.amount)}</TableCell>
+                <TableCell>{payment.payment_method}</TableCell>
+                <TableCell>
+                  <Chip
+                    size="small"
+                    label={payment.status}
+                    color={payment.status === 'posted' ? 'success' : 'default'}
+                  />
+                </TableCell>
+                <TableCell align="center">
+                  {payment.proof_attachment_id != null && (
+                    <Tooltip title="Download attachment">
+                      <button
+                        className="p-1 rounded-lg hover:bg-slate-100 transition-colors"
+                        onClick={() => downloadAttachment(payment.proof_attachment_id!)}
+                      >
+                        <Download className="w-4 h-4 text-slate-600" />
+                      </button>
+                    </Tooltip>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+            {loading && (
+              <TableRow>
+                <td colSpan={8} className="px-4 py-8 text-center">
+                  <Spinner size="medium" />
+                </td>
+              </TableRow>
+            )}
+            {!payments.length && !loading && (
+              <TableRow>
+                <td colSpan={8} className="px-4 py-8 text-center">
+                  <Typography color="secondary">No payments found</Typography>
+                </td>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+        <TablePagination
+          page={page}
+          rowsPerPage={limit}
+          count={total}
+          onPageChange={setPage}
+          onRowsPerPageChange={(newLimit) => {
+            setLimit(newLimit)
+            setPage(0)
+          }}
+        />
+      </div>
+    </div>
   )
 }

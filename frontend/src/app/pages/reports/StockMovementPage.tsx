@@ -1,30 +1,26 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CircularProgress,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
 import { DateRangeShortcuts, getDateRangeForPreset } from '../../components/DateRangeShortcuts'
 import { downloadReportExcel } from '../../utils/reportExcel'
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  Input,
+  Select,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableHeaderCell,
+  Typography,
+  Spinner,
+} from '../../components/ui'
 
 interface StockMovementRow {
   movement_id: number
@@ -59,20 +55,22 @@ const movementTypeLabel = (t: string) => {
 
 export const StockMovementPage = () => {
   const { user } = useAuth()
+  const hasAccess = canSeeReports(user)
   const [dateFrom, setDateFrom] = useState(() => defaultRange().from)
   const [dateTo, setDateTo] = useState(() => defaultRange().to)
   const [movementType, setMovementType] = useState<string>('')
   const [data, setData] = useState<StockMovementData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [forbidden, setForbidden] = useState(false)
+  const [backendForbidden, setBackendForbidden] = useState(false)
 
-  const runReport = (overrideFrom?: string, overrideTo?: string) => {
-    if (!canSeeReports(user)) return
-    const from = overrideFrom ?? dateFrom
-    const to = overrideTo ?? dateTo
+  const runReportForRange = useCallback((from: string, to: string) => {
+    if (!hasAccess) return
+    if (from !== dateFrom) setDateFrom(from)
+    if (to !== dateTo) setDateTo(to)
     setLoading(true)
     setError(null)
+    setBackendForbidden(false)
     const params: { date_from: string; date_to: string; movement_type?: string } = {
       date_from: from,
       date_to: to,
@@ -83,99 +81,114 @@ export const StockMovementPage = () => {
       .then((res) => {
         if (res.data?.data) {
           setData(res.data.data)
-          setDateFrom(from)
-          setDateTo(to)
         }
       })
       .catch((err) => {
-        if (err.response?.status === 403) setForbidden(true)
+        if (err.response?.status === 403) setBackendForbidden(true)
         else setError(err.response?.data?.detail ?? 'Failed to load report')
       })
       .finally(() => setLoading(false))
-  }
+  }, [hasAccess, dateFrom, dateTo, movementType])
 
   useEffect(() => {
-    if (canSeeReports(user)) runReport()
-    else setForbidden(true)
-  }, [user])
+    if (!hasAccess) return
+    const { from, to } = defaultRange()
+    const t = window.setTimeout(() => runReportForRange(from, to), 0)
+    return () => window.clearTimeout(t)
+  }, [hasAccess, user, runReportForRange])
 
-  if (forbidden) {
+  if (!hasAccess || backendForbidden) {
     return (
-      <Box>
-        <Typography variant="h5" sx={{ mb: 2 }}>Stock Movement Report</Typography>
+      <div>
+        <Typography variant="h5" className="mb-4">Stock Movement Report</Typography>
         <Alert severity="warning">
           You do not have access to reports. This section is available to Admin and SuperAdmin.
         </Alert>
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>Stock Movement Report</Typography>
+    <div>
+      <Typography variant="h5" className="mb-4">Stock Movement Report</Typography>
 
-      <Card sx={{ mb: 2 }}>
+      <Card className="mb-4">
         <CardContent>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
-            <DateRangeShortcuts dateFrom={dateFrom} dateTo={dateTo} onRangeChange={(from, to) => { setDateFrom(from); setDateTo(to) }} onRun={(from, to) => runReport(from, to)} />
-            <TextField label="From" type="date" size="small" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
-            <TextField label="To" type="date" size="small" value={dateTo} onChange={(e) => setDateTo(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
-            <FormControl size="small" sx={{ minWidth: 140 }}>
-              <InputLabel>Type</InputLabel>
-              <Select
-                value={movementType}
-                label="Type"
-                onChange={(e) => setMovementType(e.target.value)}
-              >
-                <MenuItem value="">All</MenuItem>
-                <MenuItem value="receipt">Receive</MenuItem>
-                <MenuItem value="issue">Issue</MenuItem>
-                <MenuItem value="adjustment">Adjustment</MenuItem>
-                <MenuItem value="reserve">Reserve</MenuItem>
-                <MenuItem value="unreserve">Unreserve</MenuItem>
-              </Select>
-            </FormControl>
-            <Button variant="contained" onClick={() => runReport()}>Run report</Button>
+          <div className="flex flex-wrap items-center gap-4">
+            <DateRangeShortcuts
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              onRangeChange={(from, to) => { setDateFrom(from); setDateTo(to) }}
+              onRun={(from, to) => runReportForRange(from ?? dateFrom, to ?? dateTo)}
+            />
+            <Input
+              label="From"
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+            />
+            <Input
+              label="To"
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+            />
+            <Select
+              value={movementType}
+              onChange={(e) => setMovementType(e.target.value)}
+              label="Type"
+              containerClassName="w-[220px] min-w-[180px]"
+            >
+              <option value="">All</option>
+              <option value="receipt">Receive</option>
+              <option value="issue">Issue</option>
+              <option value="adjustment">Adjustment</option>
+              <option value="reserve">Reserve</option>
+              <option value="unreserve">Unreserve</option>
+            </Select>
+            <Button variant="contained" onClick={() => runReportForRange(dateFrom, dateTo)} className="self-end">
+              Run report
+            </Button>
             <Button
               variant="outlined"
-              size="small"
               onClick={() => {
                 const params: Record<string, unknown> = { date_from: dateFrom, date_to: dateTo }
                 if (movementType) params.movement_type = movementType
                 downloadReportExcel('/reports/stock-movement', params, 'stock-movement.xlsx')
               }}
+              className="self-end"
             >
               Export to Excel
             </Button>
-          </Box>
+          </div>
         </CardContent>
       </Card>
 
       {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress />
-        </Box>
+        <div className="flex justify-center py-8">
+          <Spinner size="medium" />
+        </div>
       )}
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" className="mb-4">{error}</Alert>}
 
       {!loading && data && (
         <>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          <Typography variant="body2" color="secondary" className="mb-4">
             Period: {data.date_from} — {data.date_to}
           </Typography>
 
-          <TableContainer component={Card}>
-            <Table size="small">
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+            <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell><strong>Date</strong></TableCell>
-                  <TableCell><strong>Type</strong></TableCell>
-                  <TableCell><strong>Item</strong></TableCell>
-                  <TableCell align="right"><strong>Qty</strong></TableCell>
-                  <TableCell><strong>Ref</strong></TableCell>
-                  <TableCell><strong>User</strong></TableCell>
-                  <TableCell align="right"><strong>Balance after</strong></TableCell>
+                  <TableHeaderCell>Date</TableHeaderCell>
+                  <TableHeaderCell>Type</TableHeaderCell>
+                  <TableHeaderCell>Item</TableHeaderCell>
+                  <TableHeaderCell align="right">Qty</TableHeaderCell>
+                  <TableHeaderCell>Ref</TableHeaderCell>
+                  <TableHeaderCell>User</TableHeaderCell>
+                  <TableHeaderCell align="right">Balance after</TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -194,13 +207,13 @@ export const StockMovementPage = () => {
                 ))}
               </TableBody>
             </Table>
-          </TableContainer>
+          </div>
         </>
       )}
 
-      {!loading && !data && !error && canSeeReports(user) && (
-        <Typography color="text.secondary">Select period and run report.</Typography>
+      {!loading && !data && !error && hasAccess && (
+        <Typography color="secondary">Select period and run report.</Typography>
       )}
-    </Box>
+    </div>
   )
 }

@@ -1,29 +1,25 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CircularProgress,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Typography,
-} from '@mui/material'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
 import { downloadReportExcel } from '../../utils/reportExcel'
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  Select,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableHeaderCell,
+  Typography,
+  Spinner,
+} from '../../components/ui'
 
 interface RevenueTrendRow {
   year: number
@@ -41,95 +37,98 @@ interface RevenueTrendData {
 
 export const RevenueTrendPage = () => {
   const { user } = useAuth()
+  const hasAccess = canSeeReports(user)
   const [years, setYears] = useState(3)
   const [data, setData] = useState<RevenueTrendData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [forbidden, setForbidden] = useState(false)
+  const [backendForbidden, setBackendForbidden] = useState(false)
 
-  const runReport = () => {
-    if (!canSeeReports(user)) return
+  const runReport = useCallback((overrideYears?: number) => {
+    if (!hasAccess) return
+    const yrs = overrideYears ?? years
+    if (yrs !== years) setYears(yrs)
     setLoading(true)
     setError(null)
+    setBackendForbidden(false)
     api
       .get<ApiResponse<RevenueTrendData>>('/reports/revenue-trend', {
-        params: { years },
+        params: { years: yrs },
       })
       .then((res) => {
         if (res.data?.data) setData(res.data.data)
       })
       .catch((err) => {
-        if (err.response?.status === 403) setForbidden(true)
+        if (err.response?.status === 403) setBackendForbidden(true)
         else setError(err.response?.data?.detail ?? 'Failed to load report')
       })
       .finally(() => setLoading(false))
-  }
+  }, [hasAccess, years])
 
   useEffect(() => {
-    if (canSeeReports(user)) runReport()
-    else setForbidden(true)
-  }, [user])
+    if (!hasAccess) return
+    const t = window.setTimeout(() => runReport(), 0)
+    return () => window.clearTimeout(t)
+  }, [hasAccess, user, runReport])
 
-  if (forbidden) {
+  if (!hasAccess || backendForbidden) {
     return (
-      <Box>
-        <Typography variant="h5" sx={{ mb: 2 }}>Revenue per Student Trend</Typography>
+      <div>
+        <Typography variant="h5" className="mb-4">Revenue per Student Trend</Typography>
         <Alert severity="warning">
           You do not have access to reports. This section is available to Admin and SuperAdmin.
         </Alert>
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>Revenue per Student Trend</Typography>
+    <div>
+      <Typography variant="h5" className="mb-4">Revenue per Student Trend</Typography>
 
-      <Card sx={{ mb: 2 }}>
+      <Card className="mb-4">
         <CardContent>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
-            <FormControl size="small" sx={{ minWidth: 120 }}>
-              <InputLabel>Years</InputLabel>
-              <Select
-                value={years}
-                label="Years"
-                onChange={(e) => setYears(Number(e.target.value))}
-              >
-                {[1, 2, 3, 4, 5, 10].map((n) => (
-                  <MenuItem key={n} value={n}>{n}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <Button variant="contained" onClick={runReport}>Run report</Button>
-            <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/revenue-trend', { years }, 'revenue-trend.xlsx')}>Export to Excel</Button>
-          </Box>
+          <div className="flex flex-wrap gap-4 items-center">
+            <Select
+              value={years}
+              onChange={(e) => setYears(Number(e.target.value))}
+              label="Years"
+              className="min-w-[120px]"
+            >
+              {[1, 2, 3, 4, 5, 10].map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </Select>
+            <Button variant="contained" onClick={() => runReport()}>Run report</Button>
+            <Button variant="outlined" onClick={() => downloadReportExcel('/reports/revenue-trend', { years }, 'revenue-trend.xlsx')}>Export to Excel</Button>
+          </div>
         </CardContent>
       </Card>
 
       {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress />
-        </Box>
+        <div className="flex justify-center py-8">
+          <Spinner size="medium" />
+        </div>
       )}
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" className="mb-4">{error}</Alert>}
 
       {!loading && data && (
         <>
           {data.growth_percent != null && (
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            <Typography variant="body2" color="secondary" className="mb-4">
               Growth over period: {data.growth_percent > 0 ? '+' : ''}{data.growth_percent}%
             </Typography>
           )}
 
-          <TableContainer component={Card}>
-            <Table size="small">
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+            <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell><strong>Year</strong></TableCell>
-                  <TableCell align="right"><strong>Total revenue (KES)</strong></TableCell>
-                  <TableCell align="right"><strong>Students (paid)</strong></TableCell>
-                  <TableCell align="right"><strong>Avg per student (KES)</strong></TableCell>
+                  <TableHeaderCell>Year</TableHeaderCell>
+                  <TableHeaderCell align="right">Total revenue (KES)</TableHeaderCell>
+                  <TableHeaderCell align="right">Students (paid)</TableHeaderCell>
+                  <TableHeaderCell align="right">Avg per student (KES)</TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -147,13 +146,13 @@ export const RevenueTrendPage = () => {
                 ))}
               </TableBody>
             </Table>
-          </TableContainer>
+          </div>
         </>
       )}
 
-      {!loading && !data && !error && canSeeReports(user) && (
-        <Typography color="text.secondary">Select years and run report.</Typography>
+      {!loading && !data && !error && hasAccess && (
+        <Typography color="secondary">Select years and run report.</Typography>
       )}
-    </Box>
+    </div>
   )
 }

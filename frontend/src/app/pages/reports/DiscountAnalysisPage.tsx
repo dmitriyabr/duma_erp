@@ -1,25 +1,16 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CircularProgress,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Card, CardContent } from '../../components/ui/Card'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
+import { Spinner } from '../../components/ui/Spinner'
 import { DateRangeShortcuts, getDateRangeForPreset } from '../../components/DateRangeShortcuts'
 import { downloadReportExcel } from '../../utils/reportExcel'
 
@@ -89,54 +80,81 @@ export const DiscountAnalysisPage = () => {
 
   if (forbidden) {
     return (
-      <Box>
-        <Typography variant="h5" sx={{ mb: 2 }}>Discount Analysis</Typography>
+      <div>
+        <Typography variant="h5" className="mb-4">Discount Analysis</Typography>
         <Alert severity="warning">
           You do not have access to reports. This section is available to Admin and SuperAdmin.
         </Alert>
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>Discount Analysis</Typography>
+    <div>
+      <Typography variant="h5" className="mb-4">Discount Analysis</Typography>
 
-      <Card sx={{ mb: 2 }}>
+      <Card className="mb-4">
         <CardContent>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
-            <DateRangeShortcuts dateFrom={dateFrom} dateTo={dateTo} onRangeChange={(from, to) => { setDateFrom(from); setDateTo(to) }} onRun={(from, to) => runReport(from, to)} />
-            <TextField label="From" type="date" size="small" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
-            <TextField label="To" type="date" size="small" value={dateTo} onChange={(e) => setDateTo(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
+          <div className="flex flex-wrap gap-4 items-center">
+            <DateRangeShortcuts
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              onRangeChange={(from, to) => {
+                setDateFrom(from)
+                setDateTo(to)
+              }}
+              onRun={(from, to) => runReport(from, to)}
+            />
+            <div className="min-w-[160px]">
+              <Input
+                label="From"
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
+            </div>
+            <div className="min-w-[160px]">
+              <Input
+                label="To"
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
+            </div>
             <Button variant="contained" onClick={() => runReport()}>Run report</Button>
-            <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/discount-analysis', { date_from: dateFrom, date_to: dateTo }, 'discount-analysis.xlsx')}>Export to Excel</Button>
-          </Box>
+            <Button
+              variant="outlined"
+              onClick={() => downloadReportExcel('/reports/discount-analysis', { date_from: dateFrom, date_to: dateTo }, 'discount-analysis.xlsx')}
+            >
+              Export to Excel
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
       {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress />
-        </Box>
+        <div className="flex justify-center py-8">
+          <Spinner size="large" />
+        </div>
       )}
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" className="mb-4">{error}</Alert>}
 
       {!loading && data && (
         <>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          <Typography variant="body2" color="secondary" className="mb-4">
             Period: {data.date_from} — {data.date_to}
           </Typography>
 
-          <TableContainer component={Card} sx={{ mb: 2 }}>
-            <Table size="small">
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden mb-4">
+            <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell><strong>Discount Type</strong></TableCell>
-                  <TableCell align="right"><strong>Students</strong></TableCell>
-                  <TableCell align="right"><strong>Total Amount</strong></TableCell>
-                  <TableCell align="right"><strong>Avg/Student</strong></TableCell>
-                  <TableCell align="right"><strong>% of Revenue</strong></TableCell>
+                  <TableHeaderCell>Discount Type</TableHeaderCell>
+                  <TableHeaderCell align="right">Students</TableHeaderCell>
+                  <TableHeaderCell align="right">Total Amount</TableHeaderCell>
+                  <TableHeaderCell align="right">Avg/Student</TableHeaderCell>
+                  <TableHeaderCell align="right">% of Revenue</TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -155,14 +173,14 @@ export const DiscountAnalysisPage = () => {
                 ))}
               </TableBody>
             </Table>
-          </TableContainer>
+          </div>
 
           <Card>
             <CardContent>
-              <Typography variant="subtitle2" gutterBottom>
+              <Typography variant="subtitle2" className="mb-2">
                 Total: {data.summary.students_count} students, {formatMoney(data.summary.total_discount_amount)} discounts
               </Typography>
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" color="secondary">
                 Revenue in period: {formatMoney(data.summary.total_revenue)} · Discounts: {data.summary.percent_of_revenue != null ? `${data.summary.percent_of_revenue}%` : '—'} of revenue
               </Typography>
             </CardContent>
@@ -171,8 +189,8 @@ export const DiscountAnalysisPage = () => {
       )}
 
       {!loading && !data && !error && canSeeReports(user) && (
-        <Typography color="text.secondary">Select period and run report.</Typography>
+        <Typography color="secondary">Select period and run report.</Typography>
       )}
-    </Box>
+    </div>
   )
 }

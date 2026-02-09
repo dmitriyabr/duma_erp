@@ -1,25 +1,4 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TablePagination,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { USERS_LIST_LIMIT } from '../../constants/pagination'
@@ -28,6 +7,16 @@ import { isAccountant } from '../../utils/permissions'
 import type { ApiResponse, PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDate, formatMoney } from '../../utils/format'
+import { Button } from '../../components/ui/Button'
+import { FileDropzone } from '../../components/ui/FileDropzone'
+import { Input } from '../../components/ui/Input'
+import { Textarea } from '../../components/ui/Textarea'
+import { Select } from '../../components/ui/Select'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell, TablePagination } from '../../components/ui/Table'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Dialog, DialogTitle, DialogContent, DialogActions, DialogCloseButton } from '../../components/ui/Dialog'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface EmployeeBalanceRow {
   employee_id: number
@@ -69,11 +58,11 @@ export const PayoutsPage = () => {
   const { data: employeesData } = useApi<{ items: UserRow[] }>('/users', {
     params: { limit: USERS_LIST_LIMIT },
   }, [])
-  const { execute: createPayout, loading: _creating, error: createError } = useApiMutation()
+  const { execute: createPayout, loading: creating, error: createError } = useApiMutation()
 
   const payouts = payoutsData?.items || []
   const total = payoutsData?.total || 0
-  const employees = employeesData?.items || []
+  const employees = useMemo(() => employeesData?.items || [], [employeesData])
 
   const [payoutDialogOpen, setPayoutDialogOpen] = useState(false)
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | ''>('')
@@ -85,7 +74,26 @@ export const PayoutsPage = () => {
   const [proofAttachmentId, setProofAttachmentId] = useState<number | null>(null)
   const [proofFileName, setProofFileName] = useState<string | null>(null)
   const [uploadingProof, setUploadingProof] = useState(false)
-  const proofFileInputRef = React.useRef<HTMLInputElement>(null)
+
+  const uploadProofFile = useCallback(async (file: File) => {
+    setUploadingProof(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await api.post<ApiResponse<{ id: number }>>('/attachments', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setProofAttachmentId(res.data.data.id)
+      setProofFileName(file.name)
+      setValidationError(null)
+    } catch {
+      setProofAttachmentId(null)
+      setProofFileName(null)
+      setValidationError('Failed to upload confirmation file.')
+    } finally {
+      setUploadingProof(false)
+    }
+  }, [])
 
   const loadBalances = useCallback(async () => {
     if (!employees.length) return
@@ -126,7 +134,7 @@ export const PayoutsPage = () => {
     setProofText('')
     setProofAttachmentId(null)
     setProofFileName(null)
-    if (proofFileInputRef.current) proofFileInputRef.current.value = ''
+    setUploadingProof(false)
     setPayoutDialogOpen(true)
   }
 
@@ -168,236 +176,210 @@ export const PayoutsPage = () => {
   }
 
   return (
-    <Box>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+    <div>
+      <Typography variant="h4" className="mb-4">
         Payouts
       </Typography>
 
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h6" sx={{ mb: 2 }}>
+      <div className="mb-6">
+        <Typography variant="h6" className="mb-4">
           Employee Balances
         </Typography>
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Employee</TableHeaderCell>
+                <TableHeaderCell align="right">Total Approved</TableHeaderCell>
+                <TableHeaderCell align="right">Total Paid</TableHeaderCell>
+                <TableHeaderCell align="right">Balance</TableHeaderCell>
+                <TableHeaderCell align="right">Actions</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {employeeBalances.map((balance) => (
+                <TableRow key={balance.employee_id}>
+                  <TableCell>{balance.employee_name}</TableCell>
+                  <TableCell align="right">{formatMoney(balance.total_approved)}</TableCell>
+                  <TableCell align="right">{formatMoney(balance.total_paid)}</TableCell>
+                  <TableCell align="right">
+                    <Typography className={balance.balance > 0 ? 'text-error' : ''}>
+                      {formatMoney(balance.balance)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right">
+                    {!readOnly && balance.balance > 0 ? (
+                      <Button size="small" variant="outlined" onClick={() => openPayoutDialog(balance.employee_id)}>
+                        Pay
+                      </Button>
+                    ) : (
+                      <Typography variant="body2" color="secondary">
+                        —
+                      </Typography>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!employeeBalances.length && (
+                <TableRow>
+                  <td colSpan={5} className="px-4 py-8 text-center">
+                    <Typography color="secondary">No employee balances found</Typography>
+                  </td>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+
+      <div className="mb-4">
+        <Typography variant="h6" className="mb-4">
+          Recent Payouts
+        </Typography>
+      </div>
+
+      {(error || createError || validationError) && (
+        <Alert severity="error" className="mb-4">
+          {error || createError || validationError}
+        </Alert>
+      )}
+
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Employee</TableCell>
-              <TableCell align="right">Total Approved</TableCell>
-              <TableCell align="right">Total Paid</TableCell>
-              <TableCell align="right">Balance</TableCell>
-              <TableCell align="right">Actions</TableCell>
+              <TableHeaderCell>Payout Number</TableHeaderCell>
+              <TableHeaderCell>Employee</TableHeaderCell>
+              <TableHeaderCell>Date</TableHeaderCell>
+              <TableHeaderCell align="right">Amount</TableHeaderCell>
+              <TableHeaderCell>Method</TableHeaderCell>
+              <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {employeeBalances.map((balance) => (
-              <TableRow key={balance.employee_id}>
-                <TableCell>{balance.employee_name}</TableCell>
-                <TableCell align="right">{formatMoney(balance.total_approved)}</TableCell>
-                <TableCell align="right">{formatMoney(balance.total_paid)}</TableCell>
-                <TableCell align="right">
-                  <Typography color={balance.balance > 0 ? 'error' : 'inherit'}>
-                    {formatMoney(balance.balance)}
-                  </Typography>
+            {payouts.map((payout) => (
+              <TableRow key={payout.id}>
+                <TableCell>{payout.payout_number}</TableCell>
+                <TableCell>
+                  {employees.find((e) => e.id === payout.employee_id)?.full_name ?? '—'}
                 </TableCell>
+                <TableCell>{formatDate(payout.payout_date)}</TableCell>
+                <TableCell align="right">{formatMoney(payout.amount)}</TableCell>
+                <TableCell>{payout.payment_method}</TableCell>
                 <TableCell align="right">
-                  {!readOnly && balance.balance > 0 ? (
-                    <Button size="small" variant="contained" onClick={() => openPayoutDialog(balance.employee_id)}>
-                      Pay
-                    </Button>
-                  ) : (
-                    <Typography variant="body2" color="text.secondary">
-                      —
-                    </Typography>
-                  )}
+                  <Button size="small" variant="outlined" onClick={() => navigate(`/compensations/payouts/${payout.id}`)}>
+                    View
+                  </Button>
                 </TableCell>
               </TableRow>
             ))}
-            {!employeeBalances.length ? (
+            {loading && (
               <TableRow>
-                <TableCell colSpan={5} align="center">
-                  No employee balances found
-                </TableCell>
+                <td colSpan={6} className="px-4 py-8 text-center">
+                  <Spinner size="medium" />
+                </td>
               </TableRow>
-            ) : null}
+            )}
+            {!payouts.length && !loading && (
+              <TableRow>
+                <td colSpan={6} className="px-4 py-8 text-center">
+                  <Typography color="secondary">No payouts found</Typography>
+                </td>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
-      </Box>
+        <TablePagination
+          page={page}
+          rowsPerPage={limit}
+          count={total}
+          onPageChange={setPage}
+          onRowsPerPageChange={(newLimit) => {
+            setLimit(newLimit)
+            setPage(0)
+          }}
+        />
+      </div>
 
-      <Box sx={{ mb: 2 }}>
-        <Typography variant="h6" sx={{ mb: 2 }}>
-          Recent Payouts
-        </Typography>
-      </Box>
-
-      {error || createError || validationError ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error || createError || validationError}
-        </Alert>
-      ) : null}
-
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Payout Number</TableCell>
-            <TableCell>Employee</TableCell>
-            <TableCell>Date</TableCell>
-            <TableCell align="right">Amount</TableCell>
-            <TableCell>Method</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {payouts.map((payout) => (
-            <TableRow key={payout.id}>
-              <TableCell>{payout.payout_number}</TableCell>
-              <TableCell>
-                {employees.find((e) => e.id === payout.employee_id)?.full_name ?? '—'}
-              </TableCell>
-              <TableCell>{formatDate(payout.payout_date)}</TableCell>
-              <TableCell align="right">{formatMoney(payout.amount)}</TableCell>
-              <TableCell>{payout.payment_method}</TableCell>
-              <TableCell align="right">
-                <Button size="small" onClick={() => navigate(`/compensations/payouts/${payout.id}`)}>
-                  View
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-          {loading ? (
-            <TableRow>
-              <TableCell colSpan={6} align="center">
-                Loading…
-              </TableCell>
-            </TableRow>
-          ) : null}
-          {!payouts.length && !loading ? (
-            <TableRow>
-              <TableCell colSpan={6} align="center">
-                No payouts found
-              </TableCell>
-            </TableRow>
-          ) : null}
-        </TableBody>
-      </Table>
-      <TablePagination
-        component="div"
-        count={total}
-        page={page}
-        onPageChange={(_, nextPage) => setPage(nextPage)}
-        rowsPerPage={limit}
-        onRowsPerPageChange={(event) => {
-          setLimit(Number(event.target.value))
-          setPage(0)
-        }}
-      />
-
-      <Dialog open={payoutDialogOpen} onClose={() => setPayoutDialogOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={payoutDialogOpen} onClose={() => setPayoutDialogOpen(false)} maxWidth="md">
+        <DialogCloseButton onClose={() => setPayoutDialogOpen(false)} />
         <DialogTitle>Create payout</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <FormControl required>
-            <InputLabel>Employee</InputLabel>
+        <DialogContent>
+          <div className="grid gap-4">
             <Select
-              value={selectedEmployeeId}
               label="Employee"
-              onChange={(event) => setSelectedEmployeeId(Number(event.target.value))}
+              value={selectedEmployeeId ? String(selectedEmployeeId) : ''}
+              onChange={(e) => setSelectedEmployeeId(Number(e.target.value))}
+              required
             >
               {employees.map((emp) => (
-                <MenuItem key={emp.id} value={emp.id}>
+                <option key={emp.id} value={emp.id}>
                   {emp.full_name}
-                </MenuItem>
+                </option>
               ))}
             </Select>
-          </FormControl>
-          <TextField
-            label="Payout date"
-            type="date"
-            value={payoutDate}
-            onChange={(event) => setPayoutDate(event.target.value)}
-            InputLabelProps={{ shrink: true }}
-            required
-          />
-          <TextField
-            label="Amount"
-            type="number"
-            value={!amount || Number(amount) === 0 ? '' : amount}
-            onChange={(event) => setAmount(event.target.value)}
-            onFocus={(event) => event.currentTarget.select()}
-            onWheel={(event) => event.currentTarget.blur()}
-            inputProps={{ min: 0, step: 0.01 }}
-            required
-          />
-          <FormControl required>
-            <InputLabel>Payment method</InputLabel>
+            <Input
+              label="Payout date"
+              type="date"
+              value={payoutDate}
+              onChange={(e) => setPayoutDate(e.target.value)}
+              required
+            />
+            <Input
+              label="Amount"
+              type="number"
+              value={!amount || Number(amount) === 0 ? '' : amount}
+              onChange={(e) => setAmount(e.target.value)}
+              onFocus={(e) => e.currentTarget.select()}
+              onWheel={(e) => e.currentTarget.blur()}
+              min={0}
+              step={0.01}
+              required
+            />
             <Select
-              value={paymentMethod}
               label="Payment method"
-              onChange={(event) => setPaymentMethod(event.target.value)}
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value)}
+              required
             >
-              <MenuItem value="mpesa">M-Pesa</MenuItem>
-              <MenuItem value="bank">Bank Transfer</MenuItem>
-              <MenuItem value="cash">Cash</MenuItem>
-              <MenuItem value="other">Other</MenuItem>
+              <option value="mpesa">M-Pesa</option>
+              <option value="bank">Bank Transfer</option>
+              <option value="cash">Cash</option>
+              <option value="other">Other</option>
             </Select>
-          </FormControl>
-          <TextField
-            label="Reference number"
-            value={referenceNumber}
-            onChange={(event) => setReferenceNumber(event.target.value)}
-          />
-          <TextField
-            label="Reference / proof (text, optional if file uploaded)"
-            value={proofText}
-            onChange={(event) => setProofText(event.target.value)}
-            multiline
-            minRows={2}
-            helperText="Reference or confirmation file below is required"
-          />
-          <Box>
-            <Button
-              variant="outlined"
-              component="label"
+            <Input
+              label="Reference number"
+              value={referenceNumber}
+              onChange={(e) => setReferenceNumber(e.target.value)}
+            />
+            <Textarea
+              label="Reference / proof (text, optional if file uploaded)"
+              value={proofText}
+              onChange={(e) => setProofText(e.target.value)}
+              rows={3}
+              helperText="Reference or confirmation file below is required"
+            />
+            <FileDropzone
+              title="Upload confirmation (image/PDF)"
+              description="Drag & drop here, or click to choose. Upload starts immediately."
+              fileName={proofFileName}
               disabled={uploadingProof}
-              sx={{ mr: 1 }}
-            >
-              {uploadingProof ? 'Uploading…' : 'Upload confirmation (image/PDF)'}
-              <input
-                ref={proofFileInputRef}
-                type="file"
-                hidden
-                accept="image/*,.pdf,application/pdf"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0]
-                  if (!file) return
-                  setUploadingProof(true)
-                  try {
-                    const formData = new FormData()
-                    formData.append('file', file)
-                    const res = await api.post<ApiResponse<{ id: number }>>('/attachments', formData, {
-                      headers: { 'Content-Type': 'multipart/form-data' },
-                    })
-                    setProofAttachmentId(res.data.data.id)
-                    setProofFileName(file.name)
-                  } catch {
-                    setValidationError('Failed to upload confirmation file.')
-                  } finally {
-                    setUploadingProof(false)
-                  }
-                }}
-              />
-            </Button>
-            {proofFileName && (
-              <Typography variant="body2" color="text.secondary" component="span">
-                {proofFileName}
-              </Typography>
-            )}
-          </Box>
+              loading={uploadingProof}
+              accept="image/*,.pdf,application/pdf"
+              onFileSelected={uploadProofFile}
+            />
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPayoutDialogOpen(false)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => setPayoutDialogOpen(false)}>
+            Cancel
+          </Button>
           <Button
             variant="contained"
             onClick={handleCreatePayout}
             disabled={
               loading ||
+              creating ||
               (!proofText.trim() && proofAttachmentId == null)
             }
           >
@@ -405,6 +387,6 @@ export const PayoutsPage = () => {
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </div>
   )
 }

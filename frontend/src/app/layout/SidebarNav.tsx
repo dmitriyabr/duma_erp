@@ -1,22 +1,11 @@
-import {
-  Box,
-  Collapse,
-  Drawer,
-  List,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Typography,
-} from '@mui/material'
-import ExpandLessIcon from '@mui/icons-material/ExpandLess'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import SchoolIcon from '@mui/icons-material/School'
+import { School, ChevronDown, ChevronUp } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { accountantNavItems, navItems } from '../navigation/navItems'
 import { useAuth } from '../auth/AuthContext'
+import { cn } from '../utils/cn'
 
-const drawerWidth = 280
+export const drawerWidth = 280
 
 export const SidebarNav = () => {
   const { user } = useAuth()
@@ -39,200 +28,134 @@ export const SidebarNav = () => {
   }
 
   return (
-    <Drawer
-      variant="permanent"
-      sx={{
-        width: drawerWidth,
-        flexShrink: 0,
-        [`& .MuiDrawer-paper`]: {
-          width: drawerWidth,
-          boxSizing: 'border-box',
-          background: 'linear-gradient(180deg, #1e293b 0%, #0f172a 100%)',
-          color: '#e2e8f0',
-        },
-      }}
+    <aside
+      className="fixed left-0 top-0 h-full flex-shrink-0 z-50"
+      style={{ width: drawerWidth }}
     >
-      {/* Logo Section */}
-      <Box
-        sx={{
-          px: 3,
-          py: 3,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1.5,
-        }}
+      <div
+        className="h-full flex flex-col bg-gradient-to-b from-slate-800 to-slate-900 text-slate-200"
+        style={{ width: drawerWidth }}
       >
-        <Box
-          sx={{
-            width: 40,
-            height: 40,
-            borderRadius: 2,
-            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <SchoolIcon sx={{ color: 'white', fontSize: 24 }} />
-        </Box>
-        <Box>
-          <Typography
-            sx={{
-              fontWeight: 700,
-              fontSize: '1.125rem',
-              color: '#ffffff',
-              letterSpacing: '-0.02em',
-            }}
-          >
-            School ERP
-          </Typography>
-          <Typography
-            sx={{
-              fontSize: '0.75rem',
-              color: '#94a3b8',
-            }}
-          >
-            Management System
-          </Typography>
-        </Box>
-      </Box>
+        {/* Logo Section */}
+        <div className="px-6 py-6 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary to-primary-dark flex items-center justify-center">
+            <School className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-white tracking-tight">
+              School ERP
+            </h1>
+            <p className="text-xs text-slate-400">Management System</p>
+          </div>
+        </div>
 
-      {/* Navigation */}
-      <Box sx={{ px: 1.5, py: 1, flexGrow: 1, overflowY: 'auto' }}>
-        <List disablePadding>
-          {availableItems.map((item) => {
-            const hasChildren = !!item.children?.length
-            const isChildActive = item.children?.some(
-              (child) =>
-                location.pathname === child.path ||
-                (child.path !== item.path && location.pathname.startsWith(child.path + '/'))
-            )
-            const isActive = location.pathname === item.path || isChildActive
-            const isGroupOpen = openGroups[item.label] ?? !!isChildActive
+        {/* Navigation */}
+        <nav className="px-3 py-2 flex-1 overflow-y-auto">
+          <ul className="space-y-1">
+            {availableItems.map((item) => {
+              const hasChildren = !!item.children?.length
+              const isChildActive = item.children?.some(
+                (child) =>
+                  location.pathname === child.path ||
+                  (child.path !== item.path && location.pathname.startsWith(child.path + '/'))
+              )
+              const isActive = location.pathname === item.path || isChildActive
+              const isGroupOpen = openGroups[item.label] ?? !!isChildActive
 
-            return (
-              <Box key={item.label}>
-                <ListItemButton
-                  component={hasChildren ? 'button' : NavLink}
-                  to={hasChildren ? undefined : item.path}
-                  onClick={hasChildren ? () => toggleGroup(item.label) : undefined}
-                  sx={{
-                    borderRadius: 2,
-                    mb: 0.5,
-                    mx: 0,
-                    px: 2,
-                    py: 1.25,
-                    color: isActive ? '#ffffff' : '#94a3b8',
-                    backgroundColor: isActive ? 'rgba(99, 102, 241, 0.2)' : 'transparent',
-                    '&:hover': {
-                      backgroundColor: isActive
-                        ? 'rgba(99, 102, 241, 0.25)'
-                        : 'rgba(255, 255, 255, 0.05)',
-                      color: '#ffffff',
-                    },
-                    '& .MuiListItemIcon-root': {
-                      color: isActive ? '#818cf8' : '#64748b',
-                    },
-                    '&:hover .MuiListItemIcon-root': {
-                      color: isActive ? '#818cf8' : '#94a3b8',
-                    },
-                  }}
-                >
-                  {item.icon && (
-                    <ListItemIcon sx={{ minWidth: 36 }}>
-                      {item.icon}
-                    </ListItemIcon>
-                  )}
-                  <ListItemText
-                    primary={item.label}
-                    primaryTypographyProps={{
-                      fontSize: '0.875rem',
-                      fontWeight: isActive ? 600 : 500,
-                    }}
-                  />
+              return (
+                <li key={item.label}>
                   {hasChildren ? (
-                    isGroupOpen ? (
-                      <ExpandLessIcon sx={{ fontSize: 18, opacity: 0.7 }} />
-                    ) : (
-                      <ExpandMoreIcon sx={{ fontSize: 18, opacity: 0.7 }} />
-                    )
-                  ) : null}
-                </ListItemButton>
-                {hasChildren ? (
-                  <Collapse in={isGroupOpen} timeout="auto" unmountOnExit>
-                    <List disablePadding sx={{ pl: 2 }}>
-                      {item.children?.map((child) => {
-                        if (!role || !child.roles.includes(role)) {
-                          return null
-                        }
-                        const isChildItemActive =
-                          location.pathname === child.path ||
-                          location.pathname.startsWith(child.path + '/')
-                        return (
-                          <ListItemButton
-                            key={child.label}
-                            component={NavLink}
-                            to={child.path}
-                            sx={{
-                              borderRadius: 2,
-                              mb: 0.25,
-                              px: 2,
-                              py: 0.875,
-                              color: isChildItemActive ? '#ffffff' : '#94a3b8',
-                              backgroundColor: isChildItemActive
-                                ? 'rgba(99, 102, 241, 0.15)'
-                                : 'transparent',
-                              '&:hover': {
-                                backgroundColor: isChildItemActive
-                                  ? 'rgba(99, 102, 241, 0.2)'
-                                  : 'rgba(255, 255, 255, 0.05)',
-                                color: '#ffffff',
-                              },
-                              '&::before': {
-                                content: '""',
-                                position: 'absolute',
-                                left: 0,
-                                top: '50%',
-                                transform: 'translateY(-50%)',
-                                width: 4,
-                                height: isChildItemActive ? 20 : 0,
-                                borderRadius: 2,
-                                backgroundColor: '#6366f1',
-                                transition: 'height 0.2s ease',
-                              },
-                            }}
-                          >
-                            <ListItemText
-                              primary={child.label}
-                              primaryTypographyProps={{
-                                fontSize: '0.8125rem',
-                                fontWeight: isChildItemActive ? 600 : 400,
-                              }}
-                            />
-                          </ListItemButton>
-                        )
-                      })}
-                    </List>
-                  </Collapse>
-                ) : null}
-              </Box>
-            )
-          })}
-        </List>
-      </Box>
+                    <button
+                      onClick={() => toggleGroup(item.label)}
+                      className={cn(
+                        'w-full flex items-center gap-3 px-4 py-3 rounded-lg mb-1 transition-colors',
+                        isActive
+                          ? 'bg-primary/20 text-white'
+                          : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                      )}
+                    >
+                      {item.icon && (
+                        <span className={cn('flex-shrink-0', isActive ? 'text-primary-light' : 'text-slate-500')}>
+                          {item.icon}
+                        </span>
+                      )}
+                      <span className={cn('flex-1 text-sm text-left', isActive ? 'font-semibold' : 'font-medium')}>
+                        {item.label}
+                      </span>
+                      {isGroupOpen ? (
+                        <ChevronUp className="w-4 h-4 opacity-70" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 opacity-70" />
+                      )}
+                    </button>
+                  ) : (
+                    <NavLink
+                      to={item.path}
+                      className={cn(
+                        'flex items-center gap-3 px-4 py-3 rounded-lg mb-1 transition-colors',
+                        isActive
+                          ? 'bg-primary/20 text-white'
+                          : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                      )}
+                    >
+                      {item.icon && (
+                        <span className={cn('flex-shrink-0', isActive ? 'text-primary-light' : 'text-slate-500')}>
+                          {item.icon}
+                        </span>
+                      )}
+                      <span className={cn('text-sm', isActive ? 'font-semibold' : 'font-medium')}>
+                        {item.label}
+                      </span>
+                    </NavLink>
+                  )}
+                  {hasChildren && (
+                    <div
+                      className={cn(
+                        'overflow-hidden transition-all duration-200',
+                        isGroupOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+                      )}
+                    >
+                      <ul className="pl-2 space-y-0.5 mt-0.5">
+                        {item.children?.map((child) => {
+                          if (!role || !child.roles.includes(role)) {
+                            return null
+                          }
+                          const isChildItemActive =
+                            location.pathname === child.path ||
+                            location.pathname.startsWith(child.path + '/')
+                          return (
+                            <li key={child.label}>
+                              <NavLink
+                                to={child.path}
+                                className={cn(
+                                  'flex items-center px-4 py-2 rounded-lg text-sm transition-colors relative',
+                                  isChildItemActive
+                                    ? 'bg-primary/15 text-white font-semibold'
+                                    : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                                )}
+                              >
+                                {isChildItemActive && (
+                                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-primary rounded-r" />
+                                )}
+                                <span>{child.label}</span>
+                              </NavLink>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </nav>
 
-      {/* Footer */}
-      <Box
-        sx={{
-          px: 3,
-          py: 2,
-          borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-        }}
-      >
-        <Typography sx={{ fontSize: '0.75rem', color: '#64748b' }}>
-          Version 1.0.0
-        </Typography>
-      </Box>
-    </Drawer>
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-white/10">
+          <p className="text-xs text-slate-500">Version 1.0.0</p>
+        </div>
+      </div>
+    </aside>
   )
 }

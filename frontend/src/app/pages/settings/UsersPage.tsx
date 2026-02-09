@@ -1,25 +1,3 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TablePagination,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useMemo, useState } from 'react'
 import { DEFAULT_PAGE_SIZE } from '../../constants/pagination'
 import { api } from '../../services/api'
@@ -28,6 +6,15 @@ import { useApi, useApiMutation } from '../../hooks/useApi'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { formatDateTime } from '../../utils/format'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell, TablePagination } from '../../components/ui/Table'
+import { Typography } from '../../components/ui/Typography'
+import { Chip } from '../../components/ui/Chip'
+import { Alert } from '../../components/ui/Alert'
+import { Dialog, DialogTitle, DialogContent, DialogActions, DialogCloseButton } from '../../components/ui/Dialog'
+import { Spinner } from '../../components/ui/Spinner'
 
 type UserRole = 'SuperAdmin' | 'Admin' | 'User' | 'Accountant'
 
@@ -147,178 +134,184 @@ export const UsersPage = () => {
   }
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-        <Typography variant="h4" sx={{ fontWeight: 700 }}>
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <Typography variant="h4">
           Users
         </Typography>
         <Button variant="contained" onClick={openCreate}>
           New user
         </Button>
-      </Box>
+      </div>
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-        <TextField
-          label="Search"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          size="small"
-        />
-        <FormControl size="small" sx={{ minWidth: 160 }}>
-          <InputLabel>Role</InputLabel>
+      <div className="flex gap-4 mb-4 flex-wrap">
+        <div className="flex-1 min-w-[200px]">
+          <Input
+            label="Search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search users..."
+          />
+        </div>
+        <div className="min-w-[160px]">
           <Select
-            value={roleFilter}
             label="Role"
-            onChange={(event) => setRoleFilter(event.target.value as UserRole | 'all')}
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value as UserRole | 'all')}
           >
-            <MenuItem value="all">All</MenuItem>
+            <option value="all">All</option>
             {roleOptions.map((role) => (
-              <MenuItem key={role} value={role}>
+              <option key={role} value={role}>
                 {role}
-              </MenuItem>
+              </option>
             ))}
           </Select>
-        </FormControl>
-        <FormControl size="small" sx={{ minWidth: 160 }}>
-          <InputLabel>Status</InputLabel>
+        </div>
+        <div className="min-w-[160px]">
           <Select
-            value={statusFilter}
             label="Status"
-            onChange={(event) => setStatusFilter(event.target.value as 'all' | 'active' | 'inactive')}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
           >
-            <MenuItem value="all">All</MenuItem>
-            <MenuItem value="active">Active</MenuItem>
-            <MenuItem value="inactive">Inactive</MenuItem>
+            <option value="all">All</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
           </Select>
-        </FormControl>
-      </Box>
+        </div>
+      </div>
 
-      {error || saveError || toggleError ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {(error || saveError || toggleError) && (
+        <Alert severity="error" className="mb-4">
           {error || saveError || toggleError}
         </Alert>
-      ) : null}
+      )}
 
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Email</TableCell>
-            <TableCell>Full name</TableCell>
-            <TableCell>Role</TableCell>
-            <TableCell>Can login</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell>Last login</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.id}>
-              <TableCell>{row.email}</TableCell>
-              <TableCell>{row.full_name}</TableCell>
-              <TableCell>{row.role}</TableCell>
-              <TableCell>{row.can_login ? 'Yes' : 'No'}</TableCell>
-              <TableCell>
-                <Chip
-                  size="small"
-                  label={row.is_active ? 'Active' : 'Inactive'}
-                  color={row.is_active ? 'success' : 'default'}
-                />
-              </TableCell>
-              <TableCell>{formatDateTime(row.last_login_at)}</TableCell>
-              <TableCell align="right">
-                <Button size="small" onClick={() => openEdit(row)}>
-                  Edit
-                </Button>
-                <Button size="small" onClick={() => requestToggleActive(row)}>
-                  {row.is_active ? 'Deactivate' : 'Activate'}
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-          {loading ? (
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <Table>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={7} align="center">
-                Loading…
-              </TableCell>
+              <TableHeaderCell>Email</TableHeaderCell>
+              <TableHeaderCell>Full name</TableHeaderCell>
+              <TableHeaderCell>Role</TableHeaderCell>
+              <TableHeaderCell>Can login</TableHeaderCell>
+              <TableHeaderCell>Status</TableHeaderCell>
+              <TableHeaderCell>Last login</TableHeaderCell>
+              <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
-          ) : null}
-          {!rows.length && !loading ? (
-            <TableRow>
-              <TableCell colSpan={7} align="center">
-                No users found
-              </TableCell>
-            </TableRow>
-          ) : null}
-        </TableBody>
-      </Table>
-      <TablePagination
-        component="div"
-        count={total}
-        page={page}
-        onPageChange={(_, nextPage) => setPage(nextPage)}
-        rowsPerPage={limit}
-        onRowsPerPageChange={(event) => {
-          setLimit(Number(event.target.value))
-          setPage(0)
-        }}
-      />
+          </TableHead>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow key={row.id}>
+                <TableCell>{row.email}</TableCell>
+                <TableCell>{row.full_name}</TableCell>
+                <TableCell>{row.role}</TableCell>
+                <TableCell>{row.can_login ? 'Yes' : 'No'}</TableCell>
+                <TableCell>
+                  <Chip
+                    size="small"
+                    label={row.is_active ? 'Active' : 'Inactive'}
+                    color={row.is_active ? 'success' : 'default'}
+                  />
+                </TableCell>
+                <TableCell>{formatDateTime(row.last_login_at)}</TableCell>
+                <TableCell align="right">
+                  <div className="flex gap-2 justify-end">
+                    <Button size="small" variant="outlined" onClick={() => openEdit(row)}>
+                      Edit
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color={row.is_active ? 'error' : 'success'}
+                      onClick={() => requestToggleActive(row)}
+                    >
+                      {row.is_active ? 'Deactivate' : 'Activate'}
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+            {loading && (
+              <TableRow>
+                <td colSpan={7} className="px-4 py-8 text-center">
+                  <Spinner size="medium" />
+                </td>
+              </TableRow>
+            )}
+            {!rows.length && !loading && (
+              <TableRow>
+                <td colSpan={7} className="px-4 py-8 text-center">
+                  <Typography color="secondary">No users found</Typography>
+                </td>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+        <TablePagination
+          page={page}
+          rowsPerPage={limit}
+          count={total}
+          onPageChange={setPage}
+          onRowsPerPageChange={(newLimit) => {
+            setLimit(newLimit)
+            setPage(0)
+          }}
+        />
+      </div>
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md">
+        <DialogCloseButton onClose={() => setDialogOpen(false)} />
         <DialogTitle>{editingUser ? 'Edit user' : 'Create user'}</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <TextField
-            label="Email"
-            value={form.email}
-            onChange={(event) => setForm({ ...form, email: event.target.value })}
-            fullWidth
-            required
-          />
-          {!editingUser ? (
-            <TextField
-              label="Password"
-              value={form.password}
-              onChange={(event) => setForm({ ...form, password: event.target.value })}
-              fullWidth
-              type="password"
-              placeholder="Optional"
-              InputLabelProps={{ shrink: true }}
+        <DialogContent>
+          <div className="grid gap-4">
+            <Input
+              label="Email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              required
+              type="email"
             />
-          ) : null}
-          <TextField
-            label="Full name"
-            value={form.full_name}
-            onChange={(event) => setForm({ ...form, full_name: event.target.value })}
-            fullWidth
-            required
-          />
-          <TextField
-            label="Phone"
-            value={form.phone}
-            onChange={(event) => setForm({ ...form, phone: event.target.value })}
-            fullWidth
-            placeholder="+254..."
-            InputLabelProps={{ shrink: true }}
-          />
-          <FormControl fullWidth>
-            <InputLabel>Role</InputLabel>
+            {!editingUser && (
+              <Input
+                label="Password"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                type="password"
+                placeholder="Optional"
+                helperText="Leave empty to generate a random password"
+              />
+            )}
+            <Input
+              label="Full name"
+              value={form.full_name}
+              onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+              required
+            />
+            <Input
+              label="Phone"
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              placeholder="+254..."
+            />
             <Select
-              value={form.role}
               label="Role"
-              onChange={(event) => setForm({ ...form, role: event.target.value as UserRole })}
+              value={form.role}
+              onChange={(e) => setForm({ ...form, role: e.target.value as UserRole })}
             >
               {roleOptions.map((role) => (
-                <MenuItem key={role} value={role}>
+                <option key={role} value={role}>
                   {role}
-                </MenuItem>
+                </option>
               ))}
             </Select>
-          </FormControl>
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => setDialogOpen(false)}>
+            Cancel
+          </Button>
           <Button variant="contained" onClick={submitForm} disabled={loading || busy}>
-            Save
+            {busy ? <Spinner size="small" /> : 'Save'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -331,6 +324,6 @@ export const UsersPage = () => {
         onCancel={() => setConfirmState({ open: false })}
         onConfirm={confirmToggleActive}
       />
-    </Box>
+    </div>
   )
 }

@@ -1,6 +1,5 @@
-import { Alert, Box, Button, Tab, Tabs } from '@mui/material'
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { INVOICE_LIST_LIMIT } from '../../constants/pagination'
 import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { useApi } from '../../hooks/useApi'
@@ -17,25 +16,12 @@ import type {
   StudentResponse,
 } from './types'
 import { parseNumber } from './types'
-
-const TabPanel = ({
-  active,
-  name,
-  children,
-}: {
-  active: string
-  name: string
-  children: React.ReactNode
-}) => {
-  if (active !== name) {
-    return null
-  }
-  return <Box sx={{ mt: 2 }}>{children}</Box>
-}
+import { Alert } from '../../components/ui/Alert'
+import { Tabs, TabsList, Tab, TabPanel } from '../../components/ui/Tabs'
 
 export const StudentDetailPage = () => {
   const { studentId } = useParams()
-  const navigate = useNavigate()
+  // const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const resolvedId = Number(studentId)
 
@@ -88,7 +74,7 @@ export const StudentDetailPage = () => {
     loadBalance()
   }, [resolvedId, loadStudent, loadBalance])
 
-  const handleTabChange = (_: React.SyntheticEvent, value: string) => {
+  const handleTabChange = (value: string) => {
     if (value === 'overview') {
       setSearchParams({})
     } else {
@@ -100,86 +86,88 @@ export const StudentDetailPage = () => {
     setError(message)
   }
 
-  if (!resolvedId) {
+  const handleDebtChange = () => {
+    handleBalanceChange()
+  }
+
+  const handleAllocationResult = (message: string) => {
+    setAllocationResult(message)
+    setTimeout(() => setAllocationResult(null), 5000)
+  }
+
+  if (!student) {
     return (
-      <Box>
-        <Alert severity="error">Invalid student ID.</Alert>
-      </Box>
+      <div>
+        {error && <Alert severity="error">{error}</Alert>}
+      </div>
     )
   }
 
   return (
-    <Box>
-      <Button onClick={() => navigate('/students')} sx={{ mb: 2 }}>
-        Back
-      </Button>
-
-      {error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+    <div>
+      {error && (
+        <Alert severity="error" className="mb-4" onClose={() => setError(null)}>
           {error}
         </Alert>
-      ) : null}
-
-      {student ? (
-        <StudentHeader
-          student={student}
-          balance={balance}
-          debt={debt}
-          grades={grades}
-          transportZones={transportZones}
-          onStudentUpdate={loadStudent}
-          onError={handleError}
-        />
-      ) : null}
-
-      {allocationResult ? (
-        <Alert severity="success" sx={{ mb: 2 }}>
+      )}
+      {allocationResult && (
+        <Alert severity="success" className="mb-4" onClose={() => setAllocationResult(null)}>
           {allocationResult}
         </Alert>
-      ) : null}
+      )}
 
-      <Tabs value={tab} onChange={handleTabChange}>
-        <Tab label="Overview" value="overview" />
-        <Tab label="Invoices" value="invoices" />
-        <Tab label="Payments" value="payments" />
-        <Tab label="Items to Issue" value="items" />
-        <Tab label="Statement" value="statement" />
-      </Tabs>
+      <StudentHeader
+        student={student}
+        balance={balance}
+        debt={debt}
+        grades={grades}
+        transportZones={transportZones}
+        onStudentUpdate={loadStudent}
+        onError={handleError}
+      />
 
-      <TabPanel active={tab} name="overview">
-        {student ? (
+      <Tabs value={tab} onChange={handleTabChange} className="mt-6">
+        <TabsList>
+          <Tab value="overview">Overview</Tab>
+          <Tab value="invoices">Invoices</Tab>
+          <Tab value="payments">Payments</Tab>
+          <Tab value="items">Items to issue</Tab>
+          <Tab value="statement">Statement</Tab>
+        </TabsList>
+
+        <TabPanel value="overview">
           <OverviewTab student={student} studentId={resolvedId} onError={handleError} />
-        ) : null}
-      </TabPanel>
+        </TabPanel>
 
-      <TabPanel active={tab} name="invoices">
-        <InvoicesTab
-          studentId={resolvedId}
-          onError={handleError}
-          onDebtChange={handleBalanceChange}
-          initialInvoices={invoicesApi.data?.items ?? null}
-          invoicesLoading={invoicesApi.loading}
-        />
-      </TabPanel>
+        <TabPanel value="invoices">
+          <InvoicesTab
+            studentId={resolvedId}
+            onError={handleError}
+            onDebtChange={handleDebtChange}
+            initialInvoices={invoicesApi.data?.items ?? null}
+            invoicesLoading={invoicesApi.loading}
+          />
+        </TabPanel>
 
-      <TabPanel active={tab} name="payments">
-        <PaymentsTab
-          studentId={resolvedId}
-          onError={handleError}
-          onBalanceChange={handleBalanceChange}
-          onAllocationResult={setAllocationResult}
-          initialInvoices={invoicesApi.data?.items ?? null}
-          invoicesLoading={invoicesApi.loading}
-        />
-      </TabPanel>
+        <TabPanel value="payments">
+          <PaymentsTab
+            studentId={resolvedId}
+            onError={handleError}
+            onBalanceChange={handleBalanceChange}
+            onAllocationResult={handleAllocationResult}
+            initialInvoices={invoicesApi.data?.items ?? null}
+            invoicesLoading={invoicesApi.loading}
+          />
+        </TabPanel>
 
-      <TabPanel active={tab} name="items">
-        <ItemsToIssueTab studentId={resolvedId} onError={handleError} />
-      </TabPanel>
+        <TabPanel value="items">
+          <ItemsToIssueTab studentId={resolvedId} onError={handleError} />
+        </TabPanel>
 
-      <TabPanel active={tab} name="statement">
-        <StatementTab studentId={resolvedId} onError={handleError} />
-      </TabPanel>
-    </Box>
+        <TabPanel value="statement">
+          <StatementTab studentId={resolvedId} onError={handleError} />
+        </TabPanel>
+      </Tabs>
+    </div>
   )
 }

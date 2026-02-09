@@ -1,7 +1,9 @@
-import { Alert, Box, CircularProgress, Typography } from '@mui/material'
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../services/api'
+import { Alert } from '../components/ui/Alert'
+import { Typography } from '../components/ui/Typography'
+import { Spinner } from '../components/ui/Spinner'
 
 /**
  * Page opened from CSV export links: /payment/:id/receipt
@@ -45,21 +47,21 @@ export const PaymentReceiptDownloadPage = () => {
 
   if (error) {
     return (
-      <Box sx={{ p: 3 }}>
-        <Alert severity="error" sx={{ mb: 2 }}>
+      <div className="p-6">
+        <Alert severity="error" className="mb-4">
           {error}
         </Alert>
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" color="secondary">
           You can close this tab and open the receipt from the app.
         </Typography>
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box sx={{ p: 3, display: 'flex', alignItems: 'center', gap: 2 }}>
-      <CircularProgress size={24} />
+    <div className="p-6 flex items-center gap-4">
+      <Spinner size="small" />
       <Typography>Opening receipt…</Typography>
-    </Box>
+    </div>
   )
 }

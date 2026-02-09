@@ -1,5 +1,5 @@
-import { Box, Button, Typography } from '@mui/material'
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { Typography, Button } from './ui'
 
 interface Props {
   children: ReactNode
@@ -43,32 +43,22 @@ export class ErrorBoundary extends Component<Props, State> {
         return this.props.fallback
       }
       return (
-        <Box
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            minHeight: 280,
-            p: 3,
-            textAlign: 'center',
-          }}
-        >
-          <Typography variant="h6" color="error" gutterBottom>
+        <div className="flex flex-col items-center justify-center min-h-[280px] p-6 text-center">
+          <Typography variant="h6" color="error" className="mb-2">
             Something went wrong
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2, maxWidth: 400 }}>
+          <Typography variant="body2" color="secondary" className="mb-4 max-w-[400px]">
             {this.state.error.message}
           </Typography>
-          <Box sx={{ display: 'flex', gap: 1 }}>
+          <div className="flex gap-2">
             <Button variant="outlined" onClick={this.handleBack}>
               Go back
             </Button>
             <Button variant="contained" onClick={this.handleRetry}>
               Try again
             </Button>
-          </Box>
-        </Box>
+          </div>
+        </div>
       )
     }
     return this.props.children

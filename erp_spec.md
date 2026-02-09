@@ -67,7 +67,7 @@
 
 **Frontend:**
 - React / Vue.js / Next.js
-- UI Kit: Tailwind CSS / Material UI / Ant Design
+- UI Kit: Tailwind CSS (выбрано в проекте; UI на кастомных компонентах, без MUI)
 - PDF Generation: jsPDF / PDFKit / WeasyPrint
 
 **Infrastructure:**

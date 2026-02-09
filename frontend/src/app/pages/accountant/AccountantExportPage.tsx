@@ -1,6 +1,10 @@
-import { Alert, Box, Button, TextField, Typography } from '@mui/material'
 import { useState } from 'react'
 import { api } from '../../services/api'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Spinner } from '../../components/ui/Spinner'
 
 function getDefaultDateRange(): { start: string; end: string } {
   const now = new Date()
@@ -21,7 +25,7 @@ export const AccountantExportPage = () => {
   const [datesBalanceChanges, setDatesBalanceChanges] = useState(getDefaultDateRange)
   const [datesBankTransfers, setDatesBankTransfers] = useState(getDefaultDateRange)
   const [datesBankFiles, setDatesBankFiles] = useState(getDefaultDateRange)
-  const [loading, setLoading] = useState(false)
+  const [loadingType, setLoadingType] = useState<ExportTypeExtended | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const handleExport = async (
@@ -34,11 +38,19 @@ export const AccountantExportPage = () => {
       return
     }
     setError(null)
-    setLoading(true)
+    setLoadingType(type)
     try {
       const url = `/accountant/export/${type}?start_date=${startDate}&end_date=${endDate}&format=csv`
       const response = await api.get(url, { responseType: 'blob' })
-      const blob = new Blob([response.data], { type: 'text/csv' })
+      const rawBlob = response.data as Blob
+      const rawText = await rawBlob.text()
+      // Backend may generate absolute URLs using a localhost base. Rewrite them to the current origin
+      // so links in exported CSV are usable on production.
+      const rewrittenText = rawText.replace(
+        /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/g,
+        window.location.origin
+      )
+      const blob = new Blob([rewrittenText], { type: 'text/csv;charset=utf-8' })
       const disposition = response.headers['content-disposition']
       const filenameMatch = disposition?.match(/filename="?([^";]+)"?/)
       const filename = filenameMatch?.[1] ?? `export_${type}_${startDate}_${endDate}.csv`
@@ -53,222 +65,214 @@ export const AccountantExportPage = () => {
         : 'Export failed'
       setError(message)
     } finally {
-      setLoading(false)
+      setLoadingType((cur) => (cur === type ? null : cur))
     }
   }
 
+  const renderExportLabel = (type: ExportTypeExtended) => {
+    const isLoading = loadingType === type
+    return isLoading ? (
+      <span className="inline-flex items-center gap-2">
+        <Spinner size="small" />
+        Download CSV
+      </span>
+    ) : (
+      'Download CSV'
+    )
+  }
+
+  const isBusy = loadingType !== null
+
   return (
-    <Box>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+    <div>
+      <Typography variant="h4" className="mb-4">
         Data Export
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+      <Typography variant="body2" color="secondary" className="mb-6">
         Export data for accounting (QuickBooks, Xero, Excel). Select date range and download CSV.
       </Typography>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+        <Alert severity="error" className="mb-4" onClose={() => setError(null)}>
           {error}
         </Alert>
       )}
 
-      <Box sx={{ maxWidth: 560, display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <Box>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+      <div className="max-w-2xl flex flex-col gap-6">
+        <div>
+          <Typography variant="subtitle1" className="mb-2">
             Student Payments (Receipts)
           </Typography>
-          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 0.5 }}>
-            <TextField
-              label="Start date"
-              type="date"
-              value={datesPayments.start}
-              onChange={(e) => setDatesPayments((p) => ({ ...p, start: e.target.value }))}
-              size="small"
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 180 }}
-            />
-            <TextField
-              label="End date"
-              type="date"
-              value={datesPayments.end}
-              onChange={(e) => setDatesPayments((p) => ({ ...p, end: e.target.value }))}
-              size="small"
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 180 }}
-            />
+          <div className="flex gap-4 items-center flex-wrap mb-2">
+            <div className="min-w-[180px]">
+              <Input
+                label="Start date"
+                type="date"
+                value={datesPayments.start}
+                onChange={(e) => setDatesPayments((p) => ({ ...p, start: e.target.value }))}
+              />
+            </div>
+            <div className="min-w-[180px]">
+              <Input
+                label="End date"
+                type="date"
+                value={datesPayments.end}
+                onChange={(e) => setDatesPayments((p) => ({ ...p, end: e.target.value }))}
+              />
+            </div>
             <Button
-              variant="contained"
+              variant="outlined"
               onClick={() =>
                 handleExport('student-payments', datesPayments.start, datesPayments.end)
               }
-              disabled={loading}
+              disabled={isBusy}
             >
-              {loading ? 'Exporting…' : 'Download CSV'}
+              {renderExportLabel('student-payments')}
             </Button>
-          </Box>
-          <Typography variant="caption" color="text.secondary">
-            Columns: Receipt Date, Receipt#, Student Name, Admission#, Grade, Parent Name, Payment
-            Method, Amount, Received By, Receipt PDF link, Attachment link
-          </Typography>
-        </Box>
+          </div>
+        </div>
 
-        <Box>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+        <div>
+          <Typography variant="subtitle1" className="mb-2">
             Procurement Payments
           </Typography>
-          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 0.5 }}>
-            <TextField
-              label="Start date"
-              type="date"
-              value={datesProcurement.start}
-              onChange={(e) => setDatesProcurement((p) => ({ ...p, start: e.target.value }))}
-              size="small"
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 180 }}
-            />
-            <TextField
-              label="End date"
-              type="date"
-              value={datesProcurement.end}
-              onChange={(e) => setDatesProcurement((p) => ({ ...p, end: e.target.value }))}
-              size="small"
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 180 }}
-            />
+          <div className="flex gap-4 items-center flex-wrap mb-2">
+            <div className="min-w-[180px]">
+              <Input
+                label="Start date"
+                type="date"
+                value={datesProcurement.start}
+                onChange={(e) => setDatesProcurement((p) => ({ ...p, start: e.target.value }))}
+              />
+            </div>
+            <div className="min-w-[180px]">
+              <Input
+                label="End date"
+                type="date"
+                value={datesProcurement.end}
+                onChange={(e) => setDatesProcurement((p) => ({ ...p, end: e.target.value }))}
+              />
+            </div>
             <Button
               variant="outlined"
               onClick={() =>
                 handleExport('procurement-payments', datesProcurement.start, datesProcurement.end)
               }
-              disabled={loading}
+              disabled={isBusy}
             >
-              {loading ? 'Exporting…' : 'Download CSV'}
+              {renderExportLabel('procurement-payments')}
             </Button>
-          </Box>
-          <Typography variant="caption" color="text.secondary">
-            Columns: Payment Date, Payment#, Supplier, PO#, Gross Amount, Net Paid, Payment Method,
-            Reference, Attachment link
-          </Typography>
-        </Box>
+          </div>
+        </div>
 
-        <Box>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+        <div>
+          <Typography variant="subtitle1" className="mb-2">
             Student Balance Changes
           </Typography>
-          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 0.5 }}>
-            <TextField
-              label="Start date"
-              type="date"
-              value={datesBalanceChanges.start}
-              onChange={(e) => setDatesBalanceChanges((p) => ({ ...p, start: e.target.value }))}
-              size="small"
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 180 }}
-            />
-            <TextField
-              label="End date"
-              type="date"
-              value={datesBalanceChanges.end}
-              onChange={(e) => setDatesBalanceChanges((p) => ({ ...p, end: e.target.value }))}
-              size="small"
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 180 }}
-            />
+          <div className="flex gap-4 items-center flex-wrap mb-2">
+            <div className="min-w-[180px]">
+              <Input
+                label="Start date"
+                type="date"
+                value={datesBalanceChanges.start}
+                onChange={(e) => setDatesBalanceChanges((p) => ({ ...p, start: e.target.value }))}
+              />
+            </div>
+            <div className="min-w-[180px]">
+              <Input
+                label="End date"
+                type="date"
+                value={datesBalanceChanges.end}
+                onChange={(e) => setDatesBalanceChanges((p) => ({ ...p, end: e.target.value }))}
+              />
+            </div>
             <Button
               variant="outlined"
               onClick={() =>
-                handleExport(
-                  'student-balance-changes',
-                  datesBalanceChanges.start,
-                  datesBalanceChanges.end,
-                )
+                handleExport('student-balance-changes', datesBalanceChanges.start, datesBalanceChanges.end)
               }
-              disabled={loading}
+              disabled={isBusy}
             >
-              {loading ? 'Exporting…' : 'Download CSV'}
+              {renderExportLabel('student-balance-changes')}
             </Button>
-          </Box>
-          <Typography variant="caption" color="text.secondary">
+          </div>
+          <Typography variant="caption" color="secondary" className="block">
             Columns: Date, Student ID, Student Name, Type, Reference, Amount (+ in / − out)
           </Typography>
-        </Box>
+        </div>
 
-        <Box>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+        <div>
+          <Typography variant="subtitle1" className="mb-2">
             Bank Transfers (Outgoing)
           </Typography>
-          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 0.5 }}>
-            <TextField
-              label="Start date"
-              type="date"
-              value={datesBankTransfers.start}
-              onChange={(e) => setDatesBankTransfers((p) => ({ ...p, start: e.target.value }))}
-              size="small"
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 180 }}
-            />
-            <TextField
-              label="End date"
-              type="date"
-              value={datesBankTransfers.end}
-              onChange={(e) => setDatesBankTransfers((p) => ({ ...p, end: e.target.value }))}
-              size="small"
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 180 }}
-            />
+          <div className="flex gap-4 items-center flex-wrap mb-2">
+            <div className="min-w-[180px]">
+              <Input
+                label="Start date"
+                type="date"
+                value={datesBankTransfers.start}
+                onChange={(e) => setDatesBankTransfers((p) => ({ ...p, start: e.target.value }))}
+              />
+            </div>
+            <div className="min-w-[180px]">
+              <Input
+                label="End date"
+                type="date"
+                value={datesBankTransfers.end}
+                onChange={(e) => setDatesBankTransfers((p) => ({ ...p, end: e.target.value }))}
+              />
+            </div>
             <Button
               variant="outlined"
               onClick={() =>
                 handleExport('bank-transfers', datesBankTransfers.start, datesBankTransfers.end)
               }
-              disabled={loading}
+              disabled={isBusy}
             >
-              {loading ? 'Exporting…' : 'Download CSV'}
+              {renderExportLabel('bank-transfers')}
             </Button>
-          </Box>
-          <Typography variant="caption" color="text.secondary">
+          </div>
+          <Typography variant="caption" color="secondary" className="block">
             Columns: Value Date, Description, Reference, Type, Amount, Matched document#, Proof link
           </Typography>
-        </Box>
+        </div>
 
-        <Box>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+        <div>
+          <Typography variant="subtitle1" className="mb-2">
             Bank Statement Files
           </Typography>
-          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 0.5 }}>
-            <TextField
-              label="Start date"
-              type="date"
-              value={datesBankFiles.start}
-              onChange={(e) => setDatesBankFiles((p) => ({ ...p, start: e.target.value }))}
-              size="small"
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 180 }}
-            />
-            <TextField
-              label="End date"
-              type="date"
-              value={datesBankFiles.end}
-              onChange={(e) => setDatesBankFiles((p) => ({ ...p, end: e.target.value }))}
-              size="small"
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 180 }}
-            />
+          <div className="flex gap-4 items-center flex-wrap mb-2">
+            <div className="min-w-[180px]">
+              <Input
+                label="Start date"
+                type="date"
+                value={datesBankFiles.start}
+                onChange={(e) => setDatesBankFiles((p) => ({ ...p, start: e.target.value }))}
+              />
+            </div>
+            <div className="min-w-[180px]">
+              <Input
+                label="End date"
+                type="date"
+                value={datesBankFiles.end}
+                onChange={(e) => setDatesBankFiles((p) => ({ ...p, end: e.target.value }))}
+              />
+            </div>
             <Button
               variant="outlined"
               onClick={() =>
                 handleExport('bank-statement-files', datesBankFiles.start, datesBankFiles.end)
               }
-              disabled={loading}
+              disabled={isBusy}
             >
-              {loading ? 'Exporting…' : 'Download CSV'}
+              {renderExportLabel('bank-statement-files')}
             </Button>
-          </Box>
-          <Typography variant="caption" color="text.secondary">
+          </div>
+          <Typography variant="caption" color="secondary" className="block">
             Columns: Import ID, File name, Range from/to, Download link
           </Typography>
-        </Box>
-      </Box>
-    </Box>
+        </div>
+      </div>
+    </div>
   )
 }

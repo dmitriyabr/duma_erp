@@ -1,31 +1,30 @@
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import {
-  Alert,
-  Box,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControl,
-  IconButton,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatMoney } from '../../utils/format'
+import {
+  Typography,
+  Alert,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Select,
+  Input,
+  Textarea,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableHeaderCell,
+  Spinner,
+} from '../../components/ui'
+import { Autocomplete } from '../../components/ui/Autocomplete'
+import { Trash2, Plus } from 'lucide-react'
 
 interface PurposeRow {
   id: number
@@ -398,78 +397,73 @@ export const PurchaseOrderFormPage = () => {
   }
 
   return (
-    <Box>
-      <Button onClick={() => navigate(-1)} sx={{ mb: 2 }}>
+    <div>
+      <Button onClick={() => navigate(-1)} className="mb-4">
         Back
       </Button>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+      <Typography variant="h4" className="mb-4">
         {isEdit ? 'Edit purchase order' : 'New purchase order'}
       </Typography>
 
-      {error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {error && (
+        <Alert severity="error" className="mb-4" onClose={() => setError(null)}>
           {error}
         </Alert>
-      ) : null}
+      )}
 
-      <Box sx={{ display: 'grid', gap: 2, maxWidth: 600, mb: 3 }}>
-        <TextField
+      <div className="grid gap-4 max-w-[600px] mb-6">
+        <Input
           label="Supplier name"
           value={supplierName}
           onChange={(event) => setSupplierName(event.target.value)}
           required
         />
-        <TextField
+        <Input
           label="Supplier contact"
           value={supplierContact}
           onChange={(event) => setSupplierContact(event.target.value)}
         />
-        <FormControl required>
-          <InputLabel>Category / Purpose</InputLabel>
-          <Select
-            value={purposeId}
-            label="Category / Purpose"
-            onChange={(event) => handlePurposeSelect(event.target.value)}
-          >
-            {purposes.map((purpose) => (
-              <MenuItem key={purpose.id} value={purpose.id}>
-                {purpose.name}
-              </MenuItem>
-            ))}
-            <MenuItem value="create" sx={{ fontStyle: 'italic', color: 'primary.main' }}>
-              + Add new category
-            </MenuItem>
-          </Select>
-        </FormControl>
-        <TextField
+        <Select
+          value={purposeId === '' ? '' : String(purposeId)}
+          onChange={(event) => handlePurposeSelect(event.target.value)}
+          label="Category / Purpose"
+          required
+        >
+          {purposes.map((purpose) => (
+            <option key={purpose.id} value={purpose.id}>
+              {purpose.name}
+            </option>
+          ))}
+          <option value="create" className="italic text-primary">
+            + Add new category
+          </option>
+        </Select>
+        <Input
           label="Order date"
           type="date"
           value={orderDate}
           onChange={(event) => setOrderDate(event.target.value)}
-          InputLabelProps={{ shrink: true }}
           required
         />
-        <TextField
+        <Input
           label="Expected delivery date"
           type="date"
           value={expectedDeliveryDate}
           onChange={(event) => setExpectedDeliveryDate(event.target.value)}
-          InputLabelProps={{ shrink: true }}
         />
-        <TextField
+        <Textarea
           label="Notes"
           value={notes}
           onChange={(event) => setNotes(event.target.value)}
-          multiline
-          minRows={2}
+          rows={3}
         />
-      </Box>
+      </div>
 
-      <Box sx={{ mb: 2 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1, flexWrap: 'wrap', gap: 1 }}>
+      <div className="mb-4">
+        <div className="flex justify-between items-center mb-2 flex-wrap gap-2">
           <Typography variant="h6">Order lines</Typography>
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            {!isEdit ? (
+          <div className="flex gap-2 flex-wrap">
+            {!isEdit && (
               <>
                 <Button variant="outlined" size="small" onClick={downloadLinesTemplate}>
                   Download template
@@ -478,7 +472,7 @@ export const PurchaseOrderFormPage = () => {
                   ref={bulkCsvInputRef}
                   type="file"
                   accept=".csv"
-                  style={{ display: 'none' }}
+                  className="hidden"
                   onChange={() => uploadLinesCsv()}
                 />
                 <Button
@@ -487,37 +481,38 @@ export const PurchaseOrderFormPage = () => {
                   onClick={() => bulkCsvInputRef.current?.click()}
                   disabled={bulkCsvLoading}
                 >
-                  {bulkCsvLoading ? 'Parsing…' : 'Upload CSV'}
+                  {bulkCsvLoading ? <Spinner size="small" /> : 'Upload CSV'}
                 </Button>
               </>
-            ) : null}
+            )}
             <Button size="small" onClick={() => addLine('inventory')}>
               Add from inventory
             </Button>
             <Button size="small" onClick={() => addLine('new_item')}>
-              + New item
+              <Plus className="w-4 h-4 mr-1" />
+              New item
             </Button>
             <Button size="small" onClick={() => addLine('custom')}>
               Add custom line
             </Button>
-          </Box>
-        </Box>
-        {bulkCsvErrors.length > 0 ? (
-          <Alert severity="warning" sx={{ mt: 1, mb: 1 }}>
+          </div>
+        </div>
+        {bulkCsvErrors.length > 0 && (
+          <Alert severity="warning" className="mt-2 mb-2" onClose={() => {}}>
             {bulkCsvErrors.length} row(s) had errors:{' '}
             {bulkCsvErrors.slice(0, 5).map((e) => `Row ${e.row}: ${e.message}`).join('; ')}
             {bulkCsvErrors.length > 5 ? ` … and ${bulkCsvErrors.length - 5} more` : ''}
           </Alert>
-        ) : null}
+        )}
 
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Item / Description</TableCell>
-              <TableCell>Qty</TableCell>
-              <TableCell>Unit price</TableCell>
-              <TableCell align="right">Total</TableCell>
-              <TableCell align="right">Actions</TableCell>
+              <TableHeaderCell>Item / Description</TableHeaderCell>
+              <TableHeaderCell>Qty</TableHeaderCell>
+              <TableHeaderCell>Unit price</TableHeaderCell>
+              <TableHeaderCell align="right">Total</TableHeaderCell>
+              <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -525,30 +520,23 @@ export const PurchaseOrderFormPage = () => {
               <TableRow key={line.id}>
                 <TableCell>
                   {line.line_type === 'inventory' ? (
-                    <FormControl size="small" sx={{ minWidth: 240 }}>
-                      <InputLabel>Item</InputLabel>
-                      <Select
-                        value={line.item_id ? String(line.item_id) : ''}
-                        label="Item"
-                        onChange={(event) => {
-                          const itemId = event.target.value ? Number(event.target.value) : null
-                          const item = itemId ? inventoryItems.find((i) => i.id === itemId) : null
-                          updateLine(line.id, {
-                            item_id: itemId,
-                            description: item ? item.name : '',
-                          })
-                        }}
-                      >
-                        <MenuItem value="">Select item</MenuItem>
-                        {inventoryItems.map((item) => (
-                          <MenuItem key={item.id} value={item.id}>
-                            {item.name} ({item.sku_code})
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
+                    <Autocomplete
+                      options={inventoryItems}
+                      getOptionLabel={(item) => `${item.name} (${item.sku_code})`}
+                      getOptionValue={(item) => item.id}
+                      value={inventoryItems.find((item) => item.id === line.item_id) || null}
+                      onChange={(item) => {
+                        updateLine(line.id, {
+                          item_id: item ? item.id : null,
+                          description: item ? item.name : '',
+                        })
+                      }}
+                      label="Item"
+                      placeholder="Type to search items..."
+                      className="min-w-[240px]"
+                    />
                   ) : line.line_type === 'new_item' ? (
-                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <div className="flex gap-2 items-center">
                       <Button
                         size="small"
                         variant="outlined"
@@ -556,25 +544,23 @@ export const PurchaseOrderFormPage = () => {
                       >
                         Create item
                       </Button>
-                      {line.item_id ? (
+                      {line.item_id && (
                         <Typography variant="body2">
                           {inventoryItems.find((i) => i.id === line.item_id)?.name ?? 'Item'}
                         </Typography>
-                      ) : null}
-                    </Box>
+                      )}
+                    </div>
                   ) : (
-                    <TextField
-                      size="small"
+                    <Input
                       value={line.description}
                       onChange={(event) => updateLine(line.id, { description: event.target.value })}
                       placeholder="Description"
-                      sx={{ minWidth: 240 }}
+                      className="min-w-[240px]"
                     />
                   )}
                 </TableCell>
                 <TableCell>
-                  <TextField
-                    size="small"
+                  <Input
                     type="number"
                     value={line.quantity_expected === 0 ? '' : line.quantity_expected}
                     onChange={(event) =>
@@ -583,81 +569,93 @@ export const PurchaseOrderFormPage = () => {
                       })
                     }
                     onFocus={(event) => event.currentTarget.select()}
-                    onWheel={(event) => event.currentTarget.blur()}
-                    inputProps={{ min: 1 }}
-                    sx={{ width: 90 }}
+                    onWheel={(event) => (event.currentTarget as HTMLInputElement).blur()}
+                    min={1}
+                    className="w-[90px]"
                   />
                 </TableCell>
                 <TableCell>
-                  <TextField
-                    size="small"
+                  <Input
                     type="number"
                     value={line.unit_price === 0 ? '' : line.unit_price}
                     onChange={(event) =>
                       updateLine(line.id, { unit_price: Number(event.target.value) || 0 })
                     }
                     onFocus={(event) => event.currentTarget.select()}
-                    onWheel={(event) => event.currentTarget.blur()}
-                    inputProps={{ min: 0, step: 0.01 }}
-                    sx={{ width: 120 }}
+                    onWheel={(event) => (event.currentTarget as HTMLInputElement).blur()}
+                    min={0}
+                    step={0.01}
+                    className="w-[120px]"
                   />
                 </TableCell>
                 <TableCell align="right">
                   {formatMoney(line.quantity_expected * line.unit_price)}
                 </TableCell>
                 <TableCell align="right">
-                  <IconButton size="small" onClick={() => removeLine(line.id)}>
-                    <DeleteOutlineIcon />
-                  </IconButton>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="error"
+                    onClick={() => removeLine(line.id)}
+                    className="min-w-0"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
 
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+        <div className="flex justify-end mt-4">
           <Typography variant="subtitle1">
             Total: {formatMoney(totalExpected)}
           </Typography>
-        </Box>
-      </Box>
+        </div>
+      </div>
 
-      <Box sx={{ display: 'flex', gap: 1, mt: 3 }}>
-        <Button onClick={() => navigate(-1)}>Cancel</Button>
-        <Button variant="contained" onClick={handleSubmit} disabled={saving || poLoading}>
-          Save order
+      <div className="flex gap-2 mt-6">
+        <Button variant="outlined" onClick={() => navigate(-1)}>
+          Cancel
         </Button>
-      </Box>
+        <Button variant="contained" onClick={handleSubmit} disabled={saving || poLoading}>
+          {saving || poLoading ? <Spinner size="small" /> : 'Save order'}
+        </Button>
+      </div>
 
       <Dialog
         open={newItemDialogOpen}
         onClose={() => setNewItemDialogOpen(false)}
-        fullWidth
         maxWidth="sm"
       >
         <DialogTitle>Create new inventory item</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <FormControl>
-            <InputLabel>Category</InputLabel>
+        <DialogContent>
+          <div className="grid gap-4 mt-2">
             <Select
-              value={newItemCategoryId}
-              label="Category"
+              value={newItemCategoryId === '' ? '' : String(newItemCategoryId)}
               onChange={(event) => setNewItemCategoryId(Number(event.target.value))}
+              label="Category"
             >
+              <option value="">Select category</option>
               {categories.map((category) => (
-                <MenuItem key={category.id} value={category.id}>
+                <option key={category.id} value={category.id}>
                   {category.name}
-                </MenuItem>
+                </option>
               ))}
             </Select>
-          </FormControl>
-          <TextField
-            label="Name"
-            value={newItemName}
-            onChange={(event) => setNewItemName(event.target.value)}
-            required
-          />
-          <TextField label="SKU" value={newItemSku} disabled helperText="Will be auto-generated" />
+            <Input
+              label="Name"
+              value={newItemName}
+              onChange={(event) => setNewItemName(event.target.value)}
+              required
+            />
+            <Input
+              label="SKU"
+              value={newItemSku}
+              disabled
+              helperText="Will be auto-generated"
+            />
+          </div>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setNewItemDialogOpen(false)}>Cancel</Button>
@@ -666,7 +664,7 @@ export const PurchaseOrderFormPage = () => {
             onClick={createNewItemAndAssign}
             disabled={creatingItem || !newItemCategoryId || !newItemName.trim()}
           >
-            {creatingItem ? 'Creating…' : 'Create & assign'}
+            {creatingItem ? <Spinner size="small" /> : 'Create & assign'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -674,30 +672,28 @@ export const PurchaseOrderFormPage = () => {
       <Dialog
         open={newPurposeDialogOpen}
         onClose={() => setNewPurposeDialogOpen(false)}
-        fullWidth
         maxWidth="sm"
       >
         <DialogTitle>Create new category</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <TextField
-            label="Category name"
-            value={newPurposeName}
-            onChange={(event) => setNewPurposeName(event.target.value)}
-            fullWidth
-            required
-            autoFocus
-            placeholder="e.g., Uniforms, Stationery, Furniture"
-            InputLabelProps={{ shrink: true }}
-            helperText="Category for classifying purchases and payments"
-          />
+        <DialogContent>
+          <div className="grid gap-4 mt-2">
+            <Input
+              label="Category name"
+              value={newPurposeName}
+              onChange={(event) => setNewPurposeName(event.target.value)}
+              required
+              placeholder="e.g., Uniforms, Stationery, Furniture"
+              helperText="Category for classifying purchases and payments"
+            />
+          </div>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setNewPurposeDialogOpen(false)}>Cancel</Button>
           <Button variant="contained" onClick={createNewPurpose} disabled={saving || !newPurposeName.trim()}>
-            Create & select
+            {saving ? <Spinner size="small" /> : 'Create & select'}
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </div>
   )
 }

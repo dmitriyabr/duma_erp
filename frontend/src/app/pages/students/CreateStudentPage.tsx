@@ -1,16 +1,3 @@
-import {
-  Alert,
-  Box,
-  Button,
-  FormControl,
-  FormControlLabel,
-  InputLabel,
-  MenuItem,
-  Select,
-  Switch,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
@@ -18,6 +5,14 @@ import { api } from '../../services/api'
 import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { useApiMutation } from '../../hooks/useApi'
 import type { ApiResponse } from '../../types/api'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
+import { Textarea } from '../../components/ui/Textarea'
+import { Switch } from '../../components/ui/Switch'
+import { Spinner } from '../../components/ui/Spinner'
 
 type Gender = 'male' | 'female'
 
@@ -98,156 +93,133 @@ export const CreateStudentPage = () => {
   }
 
   return (
-    <Box>
-      <Button onClick={() => navigate(-1)} sx={{ mb: 2 }}>
+    <div>
+      <Button onClick={() => navigate(-1)} className="mb-4">
         Back
       </Button>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+      <Typography variant="h4" className="mb-4">
         New student
       </Typography>
 
-      {saveError ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {saveError && (
+        <Alert severity="error" className="mb-4" onClose={() => {}}>
           {saveError}
         </Alert>
-      ) : null}
+      )}
 
-      <Box sx={{ display: 'grid', gap: 2, maxWidth: 720 }}>
-        <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-          <TextField
+      <div className="grid gap-4 max-w-[720px]">
+        <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
+          <Input
             label="First name"
             value={form.first_name}
             onChange={(event) => setForm({ ...form, first_name: event.target.value })}
             required
           />
-          <TextField
+          <Input
             label="Last name"
             value={form.last_name}
             onChange={(event) => setForm({ ...form, last_name: event.target.value })}
             required
           />
-          <TextField
+          <Input
             label="Date of birth"
             type="date"
             value={form.date_of_birth}
             onChange={(event) => setForm({ ...form, date_of_birth: event.target.value })}
-            InputLabelProps={{ shrink: true }}
           />
-          <FormControl>
-            <InputLabel>Gender</InputLabel>
-            <Select
-              value={form.gender}
-              label="Gender"
-              onChange={(event) => setForm({ ...form, gender: event.target.value as Gender })}
-            >
-              <MenuItem value="male">Male</MenuItem>
-              <MenuItem value="female">Female</MenuItem>
-            </Select>
-          </FormControl>
-          <FormControl>
-            <InputLabel>Grade</InputLabel>
-            <Select
-              value={form.grade_id}
-              label="Grade"
-              onChange={(event) => setForm({ ...form, grade_id: event.target.value as string })}
-            >
-              {(grades || []).map((grade) => (
-                <MenuItem key={grade.id} value={String(grade.id)}>
-                  {grade.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <FormControl>
-            <InputLabel>Transport zone</InputLabel>
-            <Select
-              value={form.transport_zone_id}
-              label="Transport zone"
-              onChange={(event) => setForm({ ...form, transport_zone_id: event.target.value as string })}
-            >
-              <MenuItem value="">None</MenuItem>
-              {(transportZones || []).map((zone) => (
-                <MenuItem key={zone.id} value={String(zone.id)}>
-                  {zone.zone_name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <TextField
+          <Select
+            value={form.gender}
+            onChange={(event) => setForm({ ...form, gender: event.target.value as Gender })}
+            label="Gender"
+          >
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+          </Select>
+          <Select
+            value={form.grade_id}
+            onChange={(event) => setForm({ ...form, grade_id: event.target.value as string })}
+            label="Grade"
+          >
+            <option value="">Select grade</option>
+            {(grades || []).map((grade) => (
+              <option key={grade.id} value={String(grade.id)}>
+                {grade.name}
+              </option>
+            ))}
+          </Select>
+          <Select
+            value={form.transport_zone_id}
+            onChange={(event) => setForm({ ...form, transport_zone_id: event.target.value as string })}
+            label="Transport zone"
+          >
+            <option value="">None</option>
+            {(transportZones || []).map((zone) => (
+              <option key={zone.id} value={String(zone.id)}>
+                {zone.zone_name}
+              </option>
+            ))}
+          </Select>
+          <Input
             label="Enrollment date"
             type="date"
             value={form.enrollment_date}
             onChange={(event) => setForm({ ...form, enrollment_date: event.target.value })}
-            InputLabelProps={{ shrink: true }}
           />
-        </Box>
-        <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-          <TextField
+        </div>
+        <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
+          <Input
             label="Guardian name"
             value={form.guardian_name}
             onChange={(event) => setForm({ ...form, guardian_name: event.target.value })}
             required
           />
-          <TextField
+          <Input
             label="Guardian phone"
             value={form.guardian_phone}
             onChange={(event) => setForm({ ...form, guardian_phone: event.target.value })}
             placeholder="+254..."
-            InputLabelProps={{ shrink: true }}
             required
           />
-          <TextField
+          <Input
             label="Guardian email"
+            type="email"
             value={form.guardian_email}
             onChange={(event) => setForm({ ...form, guardian_email: event.target.value })}
           />
-        </Box>
-        <TextField
+        </div>
+        <Textarea
           label="Notes"
           value={form.notes}
           onChange={(event) => setForm({ ...form, notes: event.target.value })}
-          multiline
-          minRows={2}
+          rows={3}
         />
 
-        <Box>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={discountForm.enabled}
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <Switch
+              checked={discountForm.enabled}
+              onChange={(event) =>
+                setDiscountForm({ ...discountForm, enabled: event.target.checked })
+              }
+            />
+            <span className="text-sm font-medium text-slate-700">Add student discount</span>
+          </div>
+          {discountForm.enabled && (
+            <div className="mt-2 grid gap-4 grid-cols-[repeat(auto-fit,minmax(200px,1fr))]">
+              <Select
+                value={discountForm.value_type}
                 onChange={(event) =>
-                  setDiscountForm({ ...discountForm, enabled: event.target.checked })
+                  setDiscountForm({
+                    ...discountForm,
+                    value_type: event.target.value as DiscountValueType,
+                  })
                 }
-              />
-            }
-            label="Add student discount"
-          />
-          {discountForm.enabled ? (
-            <Box
-              sx={{
-                mt: 1,
-                display: 'grid',
-                gap: 2,
-                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-              }}
-            >
-              <FormControl>
-                <InputLabel>Value type</InputLabel>
-                <Select
-                  value={discountForm.value_type}
-                  label="Value type"
-                  onChange={(event) =>
-                    setDiscountForm({
-                      ...discountForm,
-                      value_type: event.target.value as DiscountValueType,
-                    })
-                  }
-                >
-                  <MenuItem value="percentage">Percentage</MenuItem>
-                  <MenuItem value="fixed">Fixed</MenuItem>
-                </Select>
-              </FormControl>
-              <TextField
+                label="Value type"
+              >
+                <option value="percentage">Percentage</option>
+                <option value="fixed">Fixed</option>
+              </Select>
+              <Input
                 label={discountForm.value_type === 'percentage' ? 'Percent' : 'Amount'}
                 value={discountForm.value}
                 onChange={(event) =>
@@ -255,24 +227,26 @@ export const CreateStudentPage = () => {
                 }
                 type="number"
               />
-              <TextField
+              <Input
                 label="Reason (optional)"
                 value={discountForm.reason_text}
                 onChange={(event) =>
                   setDiscountForm({ ...discountForm, reason_text: event.target.value })
                 }
               />
-            </Box>
-          ) : null}
-        </Box>
+            </div>
+          )}
+        </div>
 
-        <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
-          <Button onClick={() => navigate(-1)}>Cancel</Button>
-          <Button variant="contained" onClick={submitCreate} disabled={saving}>
-            Save
+        <div className="flex gap-2 mt-2">
+          <Button variant="outlined" onClick={() => navigate(-1)}>
+            Cancel
           </Button>
-        </Box>
-      </Box>
-    </Box>
+          <Button variant="contained" onClick={submitCreate} disabled={saving}>
+            {saving ? <Spinner size="small" /> : 'Save'}
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }

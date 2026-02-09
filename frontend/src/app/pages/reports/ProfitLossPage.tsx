@@ -1,27 +1,18 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CircularProgress,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
-import { formatMoney } from '../../utils/format'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Card, CardContent } from '../../components/ui/Card'
+import { Spinner } from '../../components/ui/Spinner'
 import { DateRangeShortcuts, getDateRangeForPreset } from '../../components/DateRangeShortcuts'
 import { downloadReportExcel } from '../../utils/reportExcel'
+import { formatMoney } from '../../utils/format'
+import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '../../components/ui/Table'
 
 interface RevenueLine {
   label: string
@@ -57,27 +48,24 @@ interface ProfitLossData {
 
 const defaultRange = () => getDateRangeForPreset('this_year')
 
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-function monthLabel(yyyyMm: string): string {
-  const [y, m] = yyyyMm.split('-').map(Number)
-  return `${MONTH_NAMES[m - 1]} ${y}`
-}
 
 export const ProfitLossPage = () => {
   const { user } = useAuth()
+  const hasAccess = canSeeReports(user)
   const [dateFrom, setDateFrom] = useState(() => defaultRange().from)
   const [dateTo, setDateTo] = useState(() => defaultRange().to)
   const [data, setData] = useState<ProfitLossData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [forbidden, setForbidden] = useState(false)
+  const [backendForbidden, setBackendForbidden] = useState(false)
 
-  const runReport = (overrideFrom?: string, overrideTo?: string) => {
-    if (!canSeeReports(user)) return
-    const from = overrideFrom ?? dateFrom
-    const to = overrideTo ?? dateTo
+  const runReportForRange = useCallback((from: string, to: string) => {
+    if (!hasAccess) return
+    setDateFrom(from)
+    setDateTo(to)
     setLoading(true)
     setError(null)
+    setBackendForbidden(false)
     const fromD = new Date(from)
     const toD = new Date(to)
     const multiMonth = fromD.getFullYear() !== toD.getFullYear() ||
@@ -93,68 +81,68 @@ export const ProfitLossPage = () => {
       .then((res) => {
         if (res.data?.data) {
           setData(res.data.data)
-          setDateFrom(from)
-          setDateTo(to)
         }
       })
       .catch((err) => {
-        if (err.response?.status === 403) setForbidden(true)
+        if (err.response?.status === 403) setBackendForbidden(true)
         else setError(err.response?.data?.detail ?? 'Failed to load report')
       })
       .finally(() => setLoading(false))
-  }
+  }, [hasAccess])
 
   useEffect(() => {
-    if (canSeeReports(user)) runReport()
-    else setForbidden(true)
-  }, [user])
+    if (!hasAccess) return
+    const { from, to } = defaultRange()
+    const t = window.setTimeout(() => runReportForRange(from, to), 0)
+    return () => window.clearTimeout(t)
+  }, [hasAccess, user, runReportForRange])
 
-  if (forbidden) {
+  if (!hasAccess || backendForbidden) {
     return (
-      <Box>
-        <Typography variant="h5" sx={{ mb: 2 }}>Profit & Loss</Typography>
+      <div>
+        <Typography variant="h5" className="mb-4">Profit & Loss</Typography>
         <Alert severity="warning">
           You do not have access to reports. This section is available to Admin and SuperAdmin.
         </Alert>
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>Profit & Loss</Typography>
+    <div>
+      <Typography variant="h5" className="mb-4">Profit & Loss</Typography>
 
-      <Card sx={{ mb: 2 }}>
+      <Card className="mb-4">
         <CardContent>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
+          <div className="flex flex-wrap gap-4 items-center">
             <DateRangeShortcuts
               dateFrom={dateFrom}
               dateTo={dateTo}
-              onRangeChange={(from, to) => { setDateFrom(from); setDateTo(to) }}
-              onRun={(from, to) => runReport(from, to)}
+              onRangeChange={(from, to) => {
+                setDateFrom(from)
+                setDateTo(to)
+              }}
+              onRun={(from, to) => runReportForRange(from ?? dateFrom, to ?? dateTo)}
             />
-            <TextField
-              label="From"
-              type="date"
-              size="small"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 160 }}
-            />
-            <TextField
-              label="To"
-              type="date"
-              size="small"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 160 }}
-            />
-            <Button variant="contained" onClick={() => runReport()}>Run report</Button>
+            <div className="min-w-[160px]">
+              <Input
+                label="From"
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
+            </div>
+            <div className="min-w-[160px]">
+              <Input
+                label="To"
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
+            </div>
+            <Button variant="contained" onClick={() => runReportForRange(dateFrom, dateTo)}>Run report</Button>
             <Button
               variant="outlined"
-              size="small"
               onClick={() => {
                 const from = dateFrom
                 const to = dateTo
@@ -170,179 +158,167 @@ export const ProfitLossPage = () => {
             >
               Export to Excel
             </Button>
-          </Box>
+          </div>
         </CardContent>
       </Card>
 
       {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress />
-        </Box>
+        <div className="flex justify-center py-8">
+          <Spinner size="large" />
+        </div>
       )}
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" className="mb-4">{error}</Alert>}
 
       {!loading && data && (
         <>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          <Typography variant="body2" color="secondary" className="mb-4">
             Period: {data.date_from} — {data.date_to}
           </Typography>
 
-          <TableContainer component={Card}>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell sx={{ fontWeight: 600 }}>Line</TableCell>
-                  {data.months && data.months.length > 0 ? (
-                    <>
-                      {data.months.map((mo) => (
-                        <TableCell key={mo} align="right" sx={{ fontWeight: 600 }}>{monthLabel(mo)}</TableCell>
-                      ))}
-                      <TableCell align="right" sx={{ fontWeight: 600 }}>Total (KES)</TableCell>
-                    </>
-                  ) : (
-                    <TableCell align="right" sx={{ fontWeight: 600 }}>Amount (KES)</TableCell>
-                  )}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                <TableRow sx={{ bgcolor: 'action.hover' }}>
-                  <TableCell colSpan={data.months && data.months.length > 0 ? (data.months.length + 2) : 2} sx={{ fontWeight: 600, py: 0.5 }}>
-                    REVENUE
-                  </TableCell>
-                </TableRow>
-                {data.revenue_lines.map((row) => (
-                  <TableRow key={row.label}>
-                    <TableCell sx={{ pl: 3 }}>{row.label}</TableCell>
-                    {data.months && data.months.length > 0 ? (
-                      <>
-                        {data.months.map((mo) => (
-                          <TableCell key={mo} align="right">{formatMoney(row.monthly?.[mo] ?? '0')}</TableCell>
-                        ))}
-                        <TableCell align="right">{formatMoney(row.amount)}</TableCell>
-                      </>
-                    ) : (
-                      <TableCell align="right">{formatMoney(row.amount)}</TableCell>
-                    )}
-                  </TableRow>
-                ))}
-                <TableRow>
-                  <TableCell sx={{ pl: 3, fontWeight: 600 }}>Gross Revenue</TableCell>
-                  {data.months && data.months.length > 0 ? (
-                    <>
-                      {data.months.map((mo) => (
-                        <TableCell key={mo} align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.gross_revenue_monthly?.[mo] ?? '0')}</TableCell>
-                      ))}
-                      <TableCell align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.gross_revenue)}</TableCell>
-                    </>
-                  ) : (
-                    <TableCell align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.gross_revenue)}</TableCell>
-                  )}
-                </TableRow>
-                <TableRow>
-                  <TableCell sx={{ pl: 3 }}>Less: Discounts</TableCell>
-                  {data.months && data.months.length > 0 ? (
-                    <>
-                      {data.months.map((mo) => (
-                        <TableCell key={mo} align="right">-{formatMoney(data.total_discounts_monthly?.[mo] ?? '0')}</TableCell>
-                      ))}
-                      <TableCell align="right">-{formatMoney(data.total_discounts)}</TableCell>
-                    </>
-                  ) : (
-                    <TableCell align="right">-{formatMoney(data.total_discounts)}</TableCell>
-                  )}
-                </TableRow>
-                <TableRow>
-                  <TableCell sx={{ pl: 3, fontWeight: 600 }}>Net Revenue</TableCell>
-                  {data.months && data.months.length > 0 ? (
-                    <>
-                      {data.months.map((mo) => (
-                        <TableCell key={mo} align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.net_revenue_monthly?.[mo] ?? '0')}</TableCell>
-                      ))}
-                      <TableCell align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.net_revenue)}</TableCell>
-                    </>
-                  ) : (
-                    <TableCell align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.net_revenue)}</TableCell>
-                  )}
-                </TableRow>
+          <div className="flex flex-wrap gap-4 mb-6">
+            <Card className="min-w-[220px]">
+              <CardContent>
+                <Typography variant="body2" color="secondary">Gross revenue</Typography>
+                <Typography variant="h6">{formatMoney(data.gross_revenue)}</Typography>
+              </CardContent>
+            </Card>
+            <Card className="min-w-[220px]">
+              <CardContent>
+                <Typography variant="body2" color="secondary">Discounts</Typography>
+                <Typography variant="h6">{formatMoney(data.total_discounts)}</Typography>
+              </CardContent>
+            </Card>
+            <Card className="min-w-[220px]">
+              <CardContent>
+                <Typography variant="body2" color="secondary">Net revenue</Typography>
+                <Typography variant="h6">{formatMoney(data.net_revenue)}</Typography>
+              </CardContent>
+            </Card>
+            <Card className="min-w-[220px]">
+              <CardContent>
+                <Typography variant="body2" color="secondary">Total expenses</Typography>
+                <Typography variant="h6">{formatMoney(data.total_expenses)}</Typography>
+              </CardContent>
+            </Card>
+            <Card className="min-w-[220px]">
+              <CardContent>
+                <Typography variant="body2" color="secondary">Net profit</Typography>
+                <Typography variant="h6">{formatMoney(data.net_profit)}</Typography>
+              </CardContent>
+            </Card>
+            <Card className="min-w-[220px]">
+              <CardContent>
+                <Typography variant="body2" color="secondary">Profit margin</Typography>
+                <Typography variant="h6">
+                  {data.profit_margin_percent != null ? `${data.profit_margin_percent}%` : '—'}
+                </Typography>
+              </CardContent>
+            </Card>
+          </div>
 
-                <TableRow sx={{ bgcolor: 'action.hover' }}>
-                  <TableCell colSpan={data.months && data.months.length > 0 ? (data.months.length + 2) : 2} sx={{ fontWeight: 600, py: 0.5 }}>
-                    EXPENSES
-                  </TableCell>
-                </TableRow>
-                {data.expense_lines.map((row) => (
-                  <TableRow key={row.label}>
-                    <TableCell sx={{ pl: 3 }}>{row.label}</TableCell>
-                    {data.months && data.months.length > 0 ? (
-                      <>
-                        {data.months.map((mo) => (
-                          <TableCell key={mo} align="right">{formatMoney(row.monthly?.[mo] ?? '0')}</TableCell>
-                        ))}
-                        <TableCell align="right">{formatMoney(row.amount)}</TableCell>
-                      </>
-                    ) : (
-                      <TableCell align="right">{formatMoney(row.amount)}</TableCell>
-                    )}
-                  </TableRow>
-                ))}
-                <TableRow>
-                  <TableCell sx={{ pl: 3, fontWeight: 600 }}>Total Expenses</TableCell>
-                  {data.months && data.months.length > 0 ? (
-                    <>
-                      {data.months.map((mo) => (
-                        <TableCell key={mo} align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.total_expenses_monthly?.[mo] ?? '0')}</TableCell>
-                      ))}
-                      <TableCell align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.total_expenses)}</TableCell>
-                    </>
-                  ) : (
-                    <TableCell align="right" sx={{ fontWeight: 600 }}>{formatMoney(data.total_expenses)}</TableCell>
-                  )}
-                </TableRow>
+          {(() => {
+            const months = data.months ?? []
+            const hasMonthly = months.length > 0
+            const cols = hasMonthly ? months.length + 2 : 2
 
-                <TableRow sx={{ bgcolor: 'action.selected', borderTop: 2, borderColor: 'divider' }}>
-                  <TableCell sx={{ fontWeight: 700 }}>NET PROFIT</TableCell>
-                  {data.months && data.months.length > 0 ? (
-                    <>
-                      {data.months.map((mo) => (
-                        <TableCell key={mo} align="right" sx={{ fontWeight: 700 }}>{formatMoney(data.net_profit_monthly?.[mo] ?? '0')}</TableCell>
+            const moneyCell = (value: string | undefined) => (
+              <TableCell align="right">{formatMoney(value ?? null)}</TableCell>
+            )
+
+            const percentCell = (value: number | undefined) => (
+              <TableCell align="right">{value != null ? `${value}%` : '—'}</TableCell>
+            )
+
+            const SectionRow = ({ label }: { label: string }) => (
+              <TableRow hover={false} className="bg-slate-100">
+                <td colSpan={cols} className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-slate-700">
+                  {label}
+                </td>
+              </TableRow>
+            )
+
+            return (
+              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden mb-6">
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableHeaderCell>Line</TableHeaderCell>
+                      {hasMonthly && months.map((m) => (
+                        <TableHeaderCell key={m} align="right">{m}</TableHeaderCell>
                       ))}
-                      <TableCell align="right" sx={{ fontWeight: 700 }}>{formatMoney(data.net_profit)}</TableCell>
-                    </>
-                  ) : (
-                    <TableCell align="right" sx={{ fontWeight: 700 }}>{formatMoney(data.net_profit)}</TableCell>
-                  )}
-                </TableRow>
-                {(data.profit_margin_percent != null || (data.months && data.months.length > 0 && data.profit_margin_percent_monthly)) && (
-                  <TableRow>
-                    <TableCell sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>Profit margin (%)</TableCell>
-                    {data.months && data.months.length > 0 && data.profit_margin_percent_monthly ? (
-                      <>
-                        {data.months.map((mo) => (
-                          <TableCell key={mo} align="right" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
-                            {data.profit_margin_percent_monthly?.[mo] != null ? `${data.profit_margin_percent_monthly?.[mo]}%` : '—'}
-                          </TableCell>
-                        ))}
-                        <TableCell align="right" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
-                          {data.profit_margin_percent != null ? `${data.profit_margin_percent}%` : '—'}
-                        </TableCell>
-                      </>
-                    ) : (
-                      <TableCell colSpan={2} sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
-                        {data.profit_margin_percent != null ? `Profit margin: ${data.profit_margin_percent}%` : '—'}
-                      </TableCell>
+                      <TableHeaderCell align="right">Total (KES)</TableHeaderCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    <SectionRow label="Revenue" />
+                    {data.revenue_lines.map((line) => (
+                      <TableRow key={`rev-${line.label}`}>
+                        <TableCell>{line.label}</TableCell>
+                        {hasMonthly && months.map((m) => moneyCell(line.monthly?.[m]))}
+                        <TableCell align="right">{formatMoney(line.amount)}</TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow hover={false} className="bg-slate-50">
+                      <TableCell className="font-semibold">Gross revenue</TableCell>
+                      {hasMonthly && months.map((m) => moneyCell(data.gross_revenue_monthly?.[m]))}
+                      <TableCell align="right" className="font-semibold">{formatMoney(data.gross_revenue)}</TableCell>
+                    </TableRow>
+                    <TableRow hover={false} className="bg-slate-50">
+                      <TableCell className="font-semibold">Discounts</TableCell>
+                      {hasMonthly && months.map((m) => moneyCell(data.total_discounts_monthly?.[m]))}
+                      <TableCell align="right" className="font-semibold">{formatMoney(data.total_discounts)}</TableCell>
+                    </TableRow>
+                    <TableRow hover={false} className="bg-slate-50">
+                      <TableCell className="font-semibold">Net revenue</TableCell>
+                      {hasMonthly && months.map((m) => moneyCell(data.net_revenue_monthly?.[m]))}
+                      <TableCell align="right" className="font-semibold">{formatMoney(data.net_revenue)}</TableCell>
+                    </TableRow>
+
+                    <SectionRow label="Expenses" />
+                    {data.expense_lines.map((line) => (
+                      <TableRow key={`exp-${line.label}`}>
+                        <TableCell>{line.label}</TableCell>
+                        {hasMonthly && months.map((m) => moneyCell(line.monthly?.[m]))}
+                        <TableCell align="right">{formatMoney(line.amount)}</TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow hover={false} className="bg-slate-50">
+                      <TableCell className="font-semibold">Total expenses</TableCell>
+                      {hasMonthly && months.map((m) => moneyCell(data.total_expenses_monthly?.[m]))}
+                      <TableCell align="right" className="font-semibold">{formatMoney(data.total_expenses)}</TableCell>
+                    </TableRow>
+
+                    <TableRow hover={false} className="bg-slate-200">
+                      <TableCell className="font-semibold uppercase tracking-wider text-slate-700">Net profit</TableCell>
+                      {hasMonthly && months.map((m) => moneyCell(data.net_profit_monthly?.[m]))}
+                      <TableCell align="right" className="font-semibold">{formatMoney(data.net_profit)}</TableCell>
+                    </TableRow>
+                    <TableRow hover={false}>
+                      <TableCell className="text-slate-600">Profit margin (%)</TableCell>
+                      {hasMonthly && months.map((m) => percentCell(data.profit_margin_percent_monthly?.[m]))}
+                      <TableCell align="right">{data.profit_margin_percent != null ? `${data.profit_margin_percent}%` : '—'}</TableCell>
+                    </TableRow>
+
+                    {!data.revenue_lines.length && !data.expense_lines.length && (
+                      <TableRow>
+                        <td colSpan={cols} className="px-4 py-6 text-center">
+                          <Typography color="secondary">No lines</Typography>
+                        </td>
+                      </TableRow>
                     )}
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                  </TableBody>
+                </Table>
+              </div>
+            )
+          })()}
+
         </>
       )}
 
       {!loading && !data && !error && canSeeReports(user) && (
-        <Typography color="text.secondary">Select period and run report.</Typography>
+        <Typography color="secondary">Select period and run report.</Typography>
       )}
-    </Box>
+    </div>
   )
 }

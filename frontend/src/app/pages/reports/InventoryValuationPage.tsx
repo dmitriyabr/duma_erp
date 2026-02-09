@@ -1,26 +1,24 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CircularProgress,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
-import { api } from '../../services/api'
-import type { ApiResponse } from '../../types/api'
 import { canSeeReports } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
 import { downloadReportExcel } from '../../utils/reportExcel'
+import { useApi } from '../../hooks/useApi'
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  Input,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableHeaderCell,
+  Typography,
+  Spinner,
+} from '../../components/ui'
 
 interface InventoryValuationRow {
   category_id: number
@@ -44,91 +42,84 @@ const defaultAsAt = () => new Date().toISOString().slice(0, 10)
 
 export const InventoryValuationPage = () => {
   const { user } = useAuth()
+  const hasAccess = canSeeReports(user)
   const [asAtDate, setAsAtDate] = useState(defaultAsAt)
-  const [data, setData] = useState<InventoryValuationData | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [forbidden, setForbidden] = useState(false)
+  const [requestedAsAtDate, setRequestedAsAtDate] = useState(defaultAsAt)
 
-  const runReport = () => {
-    if (!canSeeReports(user)) return
-    setLoading(true)
-    setError(null)
-    api
-      .get<ApiResponse<InventoryValuationData>>('/reports/inventory-valuation', {
-        params: { as_at_date: asAtDate },
-      })
-      .then((res) => {
-        if (res.data?.data) setData(res.data.data)
-      })
-      .catch((err) => {
-        if (err.response?.status === 403) setForbidden(true)
-        else setError(err.response?.data?.detail ?? 'Failed to load report')
-      })
-      .finally(() => setLoading(false))
-  }
+  const options = useMemo(
+    () => ({ params: { as_at_date: requestedAsAtDate } }),
+    [requestedAsAtDate]
+  )
+  const { data, loading, error, refetch } = useApi<InventoryValuationData>(
+    hasAccess ? '/reports/inventory-valuation' : null,
+    options
+  )
 
-  useEffect(() => {
-    if (canSeeReports(user)) runReport()
-    else setForbidden(true)
-  }, [user])
-
-  if (forbidden) {
+  if (!hasAccess) {
     return (
-      <Box>
-        <Typography variant="h5" sx={{ mb: 2 }}>Inventory Valuation</Typography>
+      <div>
+        <Typography variant="h5" className="mb-4">Inventory Valuation</Typography>
         <Alert severity="warning">
           You do not have access to reports. This section is available to Admin and SuperAdmin.
         </Alert>
-      </Box>
+      </div>
     )
   }
 
   return (
-    <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>Inventory Valuation</Typography>
+    <div>
+      <Typography variant="h5" className="mb-4">Inventory Valuation</Typography>
 
-      <Card sx={{ mb: 2 }}>
+      <Card className="mb-4">
         <CardContent>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
-            <TextField
+          <div className="flex flex-wrap gap-4 items-center">
+            <Input
               label="As at date"
               type="date"
-              size="small"
               value={asAtDate}
               onChange={(e) => setAsAtDate(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: 160 }}
+              className="w-40"
             />
-            <Button variant="contained" onClick={runReport}>Run report</Button>
-            <Button variant="outlined" size="small" onClick={() => downloadReportExcel('/reports/inventory-valuation', { as_at_date: asAtDate }, 'inventory-valuation.xlsx')}>Export to Excel</Button>
-          </Box>
+            <Button
+              variant="contained"
+              onClick={async () => {
+                setRequestedAsAtDate(asAtDate)
+                // if date didn't change, still allow manual refresh
+                if (asAtDate === requestedAsAtDate) {
+                  await refetch()
+                }
+              }}
+            >
+              Run report
+            </Button>
+            <Button variant="outlined" onClick={() => downloadReportExcel('/reports/inventory-valuation', { as_at_date: asAtDate }, 'inventory-valuation.xlsx')}>Export to Excel</Button>
+          </div>
         </CardContent>
       </Card>
 
       {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress />
-        </Box>
+        <div className="flex justify-center py-8">
+          <Spinner size="medium" />
+        </div>
       )}
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" className="mb-4">{error}</Alert>}
 
       {!loading && data && (
         <>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          <Typography variant="body2" color="secondary" className="mb-4">
             As at: {data.as_at_date}
           </Typography>
 
-          <TableContainer component={Card} sx={{ mb: 2 }}>
-            <Table size="small">
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden mb-4">
+            <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell><strong>Category</strong></TableCell>
-                  <TableCell align="right"><strong>Items</strong></TableCell>
-                  <TableCell align="right"><strong>Quantity</strong></TableCell>
-                  <TableCell align="right"><strong>Unit cost avg (KES)</strong></TableCell>
-                  <TableCell align="right"><strong>Total value (KES)</strong></TableCell>
+                  <TableHeaderCell>Category</TableHeaderCell>
+                  <TableHeaderCell align="right">Items</TableHeaderCell>
+                  <TableHeaderCell align="right">Quantity</TableHeaderCell>
+                  <TableHeaderCell align="right">Unit cost avg (KES)</TableHeaderCell>
+                  <TableHeaderCell align="right">Total value (KES)</TableHeaderCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -143,22 +134,22 @@ export const InventoryValuationPage = () => {
                     <TableCell align="right">{formatMoney(row.total_value)}</TableCell>
                   </TableRow>
                 ))}
-                <TableRow>
-                  <TableCell><strong>TOTAL</strong></TableCell>
-                  <TableCell align="right"><strong>{data.total_items}</strong></TableCell>
-                  <TableCell align="right"><strong>{data.total_quantity}</strong></TableCell>
-                  <TableCell />
-                  <TableCell align="right"><strong>{formatMoney(data.total_value)}</strong></TableCell>
+                <TableRow hover={false} className="bg-slate-50">
+                  <TableCell className="font-semibold">TOTAL</TableCell>
+                  <TableCell align="right" className="font-semibold">{data.total_items}</TableCell>
+                  <TableCell align="right" className="font-semibold">{data.total_quantity}</TableCell>
+                  <TableCell>—</TableCell>
+                  <TableCell align="right" className="font-semibold">{formatMoney(data.total_value)}</TableCell>
                 </TableRow>
               </TableBody>
             </Table>
-          </TableContainer>
+          </div>
         </>
       )}
 
       {!loading && !data && !error && canSeeReports(user) && (
-        <Typography color="text.secondary">Select date and run report.</Typography>
+        <Typography color="secondary">Select date and run report.</Typography>
       )}
-    </Box>
+    </div>
   )
 }

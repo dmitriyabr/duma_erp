@@ -423,15 +423,15 @@
 - [x] **Мелкое:** удалён ProcurementPaymentsListPage.tsx.bak. Константы лимитов в app/constants/pagination.ts (DEFAULT_PAGE_SIZE, USERS_LIST_LIMIT и др. — использованы в StudentsPage, UsersPage, PayoutsPage, ExpenseClaimsListPage, ProcurementPaymentFormPage, OverviewTab). Хелперы прав в app/utils/permissions.ts. В useApi зафиксировано в JSDoc: стабильные options (useMemo).
 
 ### 9.1 Общее
-> Решения: React + Vite + TypeScript + MUI, формат DD/MM/YYYY, валюта KES
+> Решения: React + Vite + TypeScript + Tailwind CSS (кастомные UI-компоненты, без MUI), формат DD/MM/YYYY, валюта KES
 
 - [x] Настройка проекта (React + Vite + TypeScript)
-- [x] UI kit (MUI)
+- [x] UI kit (Tailwind CSS + кастомные компоненты)
 - [x] Layout с навигацией по ролям
 - [x] Страница логина
 - [x] Обработка ошибок API
-- [x] Кастомная тема MUI (цвета Indigo/Slate, шрифт Inter, скругления, тени)
-- [x] MUI: фикс наложения label и placeholder — в теме заданы `MuiTextField.defaultProps.InputLabelProps.shrink: true` и `MuiInputLabel.defaultProps.shrink: true`, подпись всегда сверху у полей и селектов
+- [x] Кастомный UI-kit на Tailwind (цвета Indigo/Slate, Inter, скругления, тени)
+- [x] Фикс наложения label и placeholder: реализовано в кастомных Input/Select (floating label), без MUI темы
 - [x] Современный Sidebar (тёмный gradient, логотип)
 - [x] TopBar с аватаром и dropdown меню
 - [x] Dashboard Quick Actions (скрыты для Accountant): Admit New Student → /students/new (страница формы), Sell Items To Student (/billing/invoices/new), Receive Student Payment (/payments/new), Track Order Items, Receive Order Items, Track Payment, Issue Item From Stock, Issue Reserved Item. Унификация: из карточки студента «Record payment» → /payments/new с state.studentId; CreateInvoicePage блокирует студента при state.studentId или :studentId.

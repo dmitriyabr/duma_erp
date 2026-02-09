@@ -1,23 +1,3 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormHelperText,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TablePagination,
-  TableRow,
-  TextField,
-  ToggleButton,
-  ToggleButtonGroup,
-  Typography,
-} from '@mui/material'
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
@@ -25,6 +5,15 @@ import type { PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatDateTime } from '../../utils/format'
 import { canManageReservations } from '../../utils/permissions'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Textarea } from '../../components/ui/Textarea'
+import { ToggleButton, ToggleButtonGroup } from '../../components/ui/ToggleButton'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell, TablePagination } from '../../components/ui/Table'
+import { Dialog, DialogTitle, DialogContent, DialogActions, DialogCloseButton } from '../../components/ui/Dialog'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface ReservationItem {
   id: number
@@ -149,199 +138,220 @@ export const ReservationsPage = () => {
     }
   }
 
+  const filteredRows = rows.filter((row) => {
+    if (statusFilter !== 'active') {
+      return true
+    }
+    return row.status === 'pending' || row.status === 'partial'
+  })
+
   return (
-    <Box>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+    <div>
+      <Typography variant="h4" className="mb-4">
         Reservations
       </Typography>
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+      <div className="flex gap-4 mb-4 flex-wrap">
         <ToggleButtonGroup
           size="small"
           value={statusFilter}
           exclusive
-          onChange={(_, value) => value && setStatusFilter(value)}
+          onChange={(_, value) => {
+            if (value && (value === 'all' || value === 'active')) {
+              setStatusFilter(value)
+            }
+          }}
         >
           <ToggleButton value="active">Active</ToggleButton>
           <ToggleButton value="all">All</ToggleButton>
         </ToggleButtonGroup>
-      </Box>
+      </div>
 
-      {error || issueError || cancelError ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+      {(error || issueError || cancelError) && (
+        <Alert severity="error" className="mb-4">
           {error || issueError || cancelError}
         </Alert>
-      ) : null}
+      )}
 
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Reservation #</TableCell>
-            <TableCell>Student</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell>Items</TableCell>
-            <TableCell>Created</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {rows
-            .filter((row) => {
-              if (statusFilter !== 'active') {
-                return true
-              }
-              return row.status === 'pending' || row.status === 'partial'
-            })
-            .map((row) => (
-            <TableRow key={row.id}>
-              <TableCell>{row.id}</TableCell>
-              <TableCell>{row.student_name ?? `Student #${row.student_id}`}</TableCell>
-              <TableCell>{row.status}</TableCell>
-              <TableCell>{row.items.length}</TableCell>
-              <TableCell>{formatDateTime(row.created_at)}</TableCell>
-              <TableCell align="right">
-                {canManage ? (
-                  <>
-                    {row.status === 'pending' || row.status === 'partial' ? (
-                      <>
-                        <Button size="small" onClick={() => openIssueDialog(row)}>
-                          Issue
-                        </Button>
-                        <Button size="small" onClick={() => openCancelDialog(row)}>
-                          Cancel
-                        </Button>
-                      </>
-                    ) : (
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden mb-4">
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableHeaderCell>Reservation #</TableHeaderCell>
+              <TableHeaderCell>Student</TableHeaderCell>
+              <TableHeaderCell>Status</TableHeaderCell>
+              <TableHeaderCell>Items</TableHeaderCell>
+              <TableHeaderCell>Created</TableHeaderCell>
+              <TableHeaderCell align="right">Actions</TableHeaderCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+              {filteredRows.map((row) => (
+                <TableRow key={row.id}>
+                 <TableCell>{row.id}</TableCell>
+                 <TableCell>{row.student_name ?? `Student #${row.student_id}`}</TableCell>
+                 <TableCell>{row.status}</TableCell>
+                 <TableCell>{row.items.length}</TableCell>
+                 <TableCell>{formatDateTime(row.created_at)}</TableCell>
+                 <TableCell align="right">
+                  {canManage ? (
+                    <>
+                      {row.status === 'pending' || row.status === 'partial' ? (
+                        <div className="flex gap-2 justify-end">
+                          <Button size="small" variant="outlined" onClick={() => openIssueDialog(row)}>
+                            Issue
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="error"
+                            onClick={() => openCancelDialog(row)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      ) : (
+                        '—'
+                      )}
+                    </>
+                  ) : (
                       '—'
                     )}
-                  </>
-                ) : (
-                  '—'
-                )}
-              </TableCell>
-            </TableRow>
-          ))}
-          {loading ? (
-            <TableRow>
-              <TableCell colSpan={6} align="center">
-                Loading…
-              </TableCell>
-            </TableRow>
-          ) : null}
-          {!rows.length && !loading ? (
-            <TableRow>
-              <TableCell colSpan={6} align="center">
-                No reservations found
-              </TableCell>
-            </TableRow>
-          ) : null}
-        </TableBody>
-      </Table>
+                 </TableCell>
+                </TableRow>
+              ))}
+            {loading && (
+              <TableRow>
+                <td colSpan={6} className="px-4 py-8 text-center">
+                  <Spinner size="small" />
+                </td>
+              </TableRow>
+            )}
+            {!filteredRows.length && !loading && (
+              <TableRow>
+                <td colSpan={6} className="px-4 py-8 text-center">
+                  <Typography color="secondary">No reservations found</Typography>
+                </td>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
       <TablePagination
-        component="div"
-        count={statusFilter === 'active' ? rows.filter((row) => row.status === 'pending' || row.status === 'partial').length : total}
+        count={statusFilter === 'active' ? filteredRows.length : total}
         page={page}
-        onPageChange={(_, nextPage) => setPage(nextPage)}
+        onPageChange={(nextPage) => setPage(nextPage)}
         rowsPerPage={limit}
-        onRowsPerPageChange={(event) => {
-          setLimit(Number(event.target.value))
+        onRowsPerPageChange={(newLimit) => {
+          setLimit(newLimit)
           setPage(0)
         }}
       />
 
-      <Dialog open={issueDialogOpen} onClose={() => setIssueDialogOpen(false)} fullWidth maxWidth="md">
+      <Dialog open={issueDialogOpen} onClose={() => setIssueDialogOpen(false)} maxWidth="md">
+        <DialogCloseButton onClose={() => setIssueDialogOpen(false)} />
         <DialogTitle>Issue reservation items</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2 }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Item</TableCell>
-                <TableCell>Required</TableCell>
-                <TableCell>Issued</TableCell>
-                <TableCell>To issue</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {selected?.items.map((item) => {
-                const line = issueLines.find((entry) => entry.reservation_item_id === item.id)
-                const remaining = Math.max(0, item.quantity_required - item.quantity_issued)
-                const lineError = issueLineErrors[item.id]
-                return (
-                  <TableRow key={item.id}>
-                    <TableCell>{item.item_name ?? '—'}</TableCell>
-                    <TableCell>{item.quantity_required}</TableCell>
-                    <TableCell>{item.quantity_issued}</TableCell>
-                    <TableCell>
-                      <TextField
-                        size="small"
-                        type="number"
-                        value={line?.quantity ?? remaining}
-                        onChange={(event) => {
-                          const value = Number(event.target.value) || 0
-                          setIssueLines((prev) =>
-                            prev.map((entry) =>
-                              entry.reservation_item_id === item.id
-                                ? { ...entry, quantity: value }
-                                : entry
-                            )
-                          )
-                          if (issueLineErrors[item.id]) {
-                            setIssueLineErrors((prev) => {
-                              const next = { ...prev }
-                              delete next[item.id]
-                              return next
-                            })
-                          }
-                        }}
-                        inputProps={{ min: 0, max: remaining }}
-                        error={Boolean(lineError)}
-                      />
-                      {lineError ? (
-                        <FormHelperText error sx={{ mt: 0.5 }}>
-                          {lineError}
-                        </FormHelperText>
-                      ) : null}
-                    </TableCell>
+        <DialogContent>
+          <div className="space-y-4">
+            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableHeaderCell>Item</TableHeaderCell>
+                    <TableHeaderCell>Required</TableHeaderCell>
+                    <TableHeaderCell>Issued</TableHeaderCell>
+                    <TableHeaderCell>To issue</TableHeaderCell>
                   </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-          <TextField
-            label="Notes"
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            multiline
-            minRows={2}
-          />
+                </TableHead>
+                <TableBody>
+                  {selected?.items.map((item) => {
+                    const line = issueLines.find((entry) => entry.reservation_item_id === item.id)
+                    const remaining = Math.max(0, item.quantity_required - item.quantity_issued)
+                    const lineError = issueLineErrors[item.id]
+                      return (
+                        <TableRow key={item.id}>
+                         <TableCell>{item.item_name ?? '—'}</TableCell>
+                         <TableCell>{item.quantity_required}</TableCell>
+                         <TableCell>{item.quantity_issued}</TableCell>
+                          <TableCell>
+                          <div>
+                            <Input
+                              type="number"
+                              value={line?.quantity ?? remaining}
+                              onChange={(e) => {
+                                const value = Number(e.target.value) || 0
+                                setIssueLines((prev) =>
+                                  prev.map((entry) =>
+                                    entry.reservation_item_id === item.id
+                                      ? { ...entry, quantity: value }
+                                      : entry
+                                  )
+                                )
+                                if (issueLineErrors[item.id]) {
+                                  setIssueLineErrors((prev) => {
+                                    const next = { ...prev }
+                                    delete next[item.id]
+                                    return next
+                                  })
+                                }
+                              }}
+                              min={0}
+                              max={remaining}
+                              error={lineError || undefined}
+                              className="w-24"
+                            />
+                            {lineError && (
+                              <Typography variant="caption" color="error" className="mt-1 block">
+                                {lineError}
+                              </Typography>
+                            )}
+                            </div>
+                         </TableCell>
+                        </TableRow>
+                      )
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+            <Textarea
+              label="Notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+            />
+          </div>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setIssueDialogOpen(false)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => setIssueDialogOpen(false)}>
+            Cancel
+          </Button>
           <Button variant="contained" onClick={submitIssue} disabled={issuing}>
-            Issue
+            {issuing ? <Spinner size="small" /> : 'Issue'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={cancelDialogOpen} onClose={() => setCancelDialogOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={cancelDialogOpen} onClose={() => setCancelDialogOpen(false)} maxWidth="sm">
+        <DialogCloseButton onClose={() => setCancelDialogOpen(false)} />
         <DialogTitle>Cancel reservation</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, mt: 1 }}>
-          <TextField
+        <DialogContent>
+          <Textarea
             label="Reason"
             value={cancelReason}
-            onChange={(event) => setCancelReason(event.target.value)}
-            multiline
-            minRows={2}
+            onChange={(e) => setCancelReason(e.target.value)}
+            rows={3}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCancelDialogOpen(false)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => setCancelDialogOpen(false)}>
+            Cancel
+          </Button>
           <Button variant="contained" onClick={submitCancel} disabled={cancelling}>
-            Cancel reservation
+            {cancelling ? <Spinner size="small" /> : 'Cancel reservation'}
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </div>
   )
 }

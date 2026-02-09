@@ -1,20 +1,14 @@
-import {
-  Box,
-  Button,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useEffect, useState } from 'react'
 import { api } from '../../../services/api'
 import { useApiMutation } from '../../../hooks/useApi'
 import { formatDateTime, formatMoney } from '../../../utils/format'
 import type { ApiResponse, StatementResponse } from '../types'
 import { getMonthToDateRange, parseNumber } from '../types'
+import { Typography } from '../../../components/ui/Typography'
+import { Button } from '../../../components/ui/Button'
+import { Input } from '../../../components/ui/Input'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../../components/ui/Table'
+import { Spinner } from '../../../components/ui/Spinner'
 
 interface StatementTabProps {
   studentId: number
@@ -51,69 +45,68 @@ export const StatementTab = ({ studentId, onError }: StatementTabProps) => {
   }
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 2 }}>
-        <TextField
+    <div>
+      <div className="flex gap-4 flex-wrap mb-4">
+        <Input
           label="From"
           type="date"
           value={statementForm.date_from}
-          onChange={(event) => setStatementForm({ ...statementForm, date_from: event.target.value })}
-          InputLabelProps={{ shrink: true }}
+          onChange={(e) => setStatementForm({ ...statementForm, date_from: e.target.value })}
+          className="w-48"
         />
-        <TextField
+        <Input
           label="To"
           type="date"
           value={statementForm.date_to}
-          onChange={(event) => setStatementForm({ ...statementForm, date_to: event.target.value })}
-          InputLabelProps={{ shrink: true }}
+          onChange={(e) => setStatementForm({ ...statementForm, date_to: e.target.value })}
+          className="w-48"
         />
         <Button variant="contained" onClick={fetchStatement} disabled={loading}>
-          Load statement
+          {loading ? <Spinner size="small" /> : 'Load statement'}
         </Button>
-      </Box>
-      {statement ? (
-        <Box sx={{ mb: 2 }}>
+      </div>
+      {statement && (
+        <div className="mb-4">
           <Typography variant="body2">
             Opening balance: {formatMoney(parseNumber(statement.opening_balance))}
           </Typography>
-          <Typography variant="body2">
+          <Typography variant="body2" className="mt-1">
             Closing balance: {formatMoney(parseNumber(statement.closing_balance))}
           </Typography>
-        </Box>
-      ) : null}
-      {statement ? (
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Date</TableCell>
-              <TableCell>Description</TableCell>
-              <TableCell>Reference</TableCell>
-              <TableCell>Credit</TableCell>
-              <TableCell>Debit</TableCell>
-              <TableCell>Balance</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {statement.entries.map((entry, idx) => (
-              <TableRow key={`${entry.reference ?? 'entry'}-${idx}`}>
-                <TableCell>{formatDateTime(entry.date)}</TableCell>
-                <TableCell>{entry.description}</TableCell>
-                <TableCell>{entry.reference ?? '—'}</TableCell>
-                <TableCell>{entry.credit ? formatMoney(parseNumber(entry.credit)) : '—'}</TableCell>
-                <TableCell>{entry.debit ? formatMoney(parseNumber(entry.debit)) : '—'}</TableCell>
-                <TableCell>{formatMoney(parseNumber(entry.balance))}</TableCell>
-              </TableRow>
-            ))}
-            {!statement.entries.length ? (
+        </div>
+      )}
+      {statement && (
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          <Table>
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={6} align="center">
-                  No entries
-                </TableCell>
+                <TableHeaderCell>Date</TableHeaderCell>
+                <TableHeaderCell>Description</TableHeaderCell>
+                <TableHeaderCell>Reference</TableHeaderCell>
+                <TableHeaderCell align="right">Credit</TableHeaderCell>
+                <TableHeaderCell align="right">Debit</TableHeaderCell>
+                <TableHeaderCell align="right">Balance</TableHeaderCell>
               </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
-      ) : null}
-    </Box>
+            </TableHead>
+            <TableBody>
+              {statement.entries.map((entry, idx) => (
+                <TableRow key={`${entry.reference ?? 'entry'}-${idx}`}>
+                  <TableCell>{formatDateTime(entry.date)}</TableCell>
+                  <TableCell>{entry.description}</TableCell>
+                  <TableCell>{entry.reference ?? '—'}</TableCell>
+                  <TableCell align="right">
+                    {entry.credit ? formatMoney(parseNumber(entry.credit)) : '—'}
+                  </TableCell>
+                  <TableCell align="right">
+                    {entry.debit ? formatMoney(parseNumber(entry.debit)) : '—'}
+                  </TableCell>
+                  <TableCell align="right">{formatMoney(parseNumber(entry.balance))}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </div>
   )
 }

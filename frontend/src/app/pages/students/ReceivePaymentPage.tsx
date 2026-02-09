@@ -1,20 +1,16 @@
-import {
-  Alert,
-  Box,
-  Button,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  TextField,
-  Typography,
-} from '@mui/material'
 import React, { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api, unwrapResponse } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { DEFAULT_PAGE_SIZE } from '../../constants/pagination'
 import type { PaginatedResponse } from '../../types/api'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
+import { Textarea } from '../../components/ui/Textarea'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface StudentOption {
   id: number
@@ -116,35 +112,32 @@ export const ReceivePaymentPage = () => {
 
   if (!resolvedId) {
     return (
-      <Box>
-        <Button onClick={() => navigate(-1)} sx={{ mb: 2 }}>
+      <div>
+        <Button onClick={() => navigate(-1)} className="mb-4">
           Back
         </Button>
-        <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+        <Typography variant="h4" className="mb-4">
           Receive student payment
         </Typography>
         {(error || studentsApi.error) && (
-          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+          <Alert severity="error" className="mb-4" onClose={() => setError(null)}>
             {error ?? studentsApi.error}
           </Alert>
         )}
-        <FormControl size="small" sx={{ minWidth: 280, display: 'block', mb: 2 }}>
-          <InputLabel>Student</InputLabel>
-          <Select
-            value={selectedStudentId === '' ? '' : String(selectedStudentId)}
-            onChange={(e) => setSelectedStudentId(e.target.value ? Number(e.target.value) : '')}
-            label="Student"
-            displayEmpty
-          >
-            <MenuItem value="">Select student</MenuItem>
-            {students.map((s) => (
-              <MenuItem key={s.id} value={String(s.id)}>
-                {s.full_name} · #{s.student_number}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      </Box>
+        <Select
+          value={selectedStudentId === '' ? '' : String(selectedStudentId)}
+          onChange={(e) => setSelectedStudentId(e.target.value ? Number(e.target.value) : '')}
+          label="Student"
+          className="min-w-[280px] mb-4"
+        >
+          <option value="">Select student</option>
+          {students.map((s) => (
+            <option key={s.id} value={String(s.id)}>
+              {s.full_name} · #{s.student_number}
+            </option>
+          ))}
+        </Select>
+      </div>
     )
   }
 
@@ -152,95 +145,98 @@ export const ReceivePaymentPage = () => {
   const displayError = error ?? submitMutation.error ?? uploadMutation.error
 
   return (
-    <Box>
-      <Button onClick={() => navigate(-1)} sx={{ mb: 2 }}>
+    <div>
+      <Button onClick={() => navigate(-1)} className="mb-4">
         Back
       </Button>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
+      <Typography variant="h4" className="mb-2">
         Receive student payment
       </Typography>
       {student && (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        <Typography variant="body2" color="secondary" className="mb-4">
           {student.full_name} · #{student.student_number}
           {!studentIdLocked && (
-            <Button size="small" sx={{ ml: 1 }} onClick={() => setSelectedStudentId('')}>
+            <Button size="small" variant="text" className="ml-2" onClick={() => setSelectedStudentId('')}>
               Change student
             </Button>
           )}
         </Typography>
       )}
       {displayError && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+        <Alert severity="error" className="mb-4" onClose={() => setError(null)}>
           {displayError}
         </Alert>
       )}
-      <Box sx={{ display: 'grid', gap: 2, maxWidth: 420 }}>
-        <TextField
+      <div className="grid gap-4 max-w-[420px]">
+        <Input
           label="Amount"
           type="number"
           value={form.amount}
           onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
           required
         />
-        <FormControl>
-          <InputLabel>Method</InputLabel>
-          <Select
-            value={form.payment_method}
-            label="Method"
-            onChange={(e) => setForm((f) => ({ ...f, payment_method: e.target.value }))}
-          >
-            <MenuItem value="mpesa">M-Pesa</MenuItem>
-            <MenuItem value="bank_transfer">Bank transfer</MenuItem>
-          </Select>
-        </FormControl>
-        <TextField
+        <Select
+          value={form.payment_method}
+          onChange={(e) => setForm((f) => ({ ...f, payment_method: e.target.value }))}
+          label="Method"
+        >
+          <option value="mpesa">M-Pesa</option>
+          <option value="bank_transfer">Bank transfer</option>
+        </Select>
+        <Input
           label="Payment date"
           type="date"
           value={form.payment_date}
           onChange={(e) => setForm((f) => ({ ...f, payment_date: e.target.value }))}
-          InputLabelProps={{ shrink: true }}
         />
-        <TextField
+        <Input
           label="Reference (optional if file uploaded)"
           value={form.reference}
           onChange={(e) => setForm((f) => ({ ...f, reference: e.target.value }))}
           helperText="Reference or confirmation file below is required"
         />
-        <Box>
-          <Button variant="outlined" component="label" disabled={uploadMutation.loading} sx={{ mr: 1 }}>
-            {uploadMutation.loading ? 'Uploading…' : 'Upload confirmation (image/PDF)'}
+        <div>
+          <label className="inline-block">
             <input
               ref={fileInputRef}
               type="file"
-              hidden
+              className="hidden"
               accept="image/*,.pdf,application/pdf"
               onChange={handleFileChange}
             />
-          </Button>
+            <Button
+              variant="outlined"
+              disabled={uploadMutation.loading}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {uploadMutation.loading ? <Spinner size="small" /> : 'Upload confirmation (image/PDF)'}
+            </Button>
+          </label>
           {confirmationFileName && (
-            <Typography variant="body2" color="text.secondary" component="span">
+            <Typography variant="body2" color="secondary" className="ml-2 inline-block">
               {confirmationFileName}
             </Typography>
           )}
-        </Box>
-        <TextField
+        </div>
+        <Textarea
           label="Notes"
           value={form.notes}
           onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-          multiline
-          minRows={2}
+          rows={3}
         />
-      </Box>
-      <Box sx={{ display: 'flex', gap: 1, mt: 3 }}>
-        <Button onClick={() => navigate(-1)}>Cancel</Button>
+      </div>
+      <div className="flex gap-2 mt-6">
+        <Button variant="outlined" onClick={() => navigate(-1)}>
+          Cancel
+        </Button>
         <Button
           variant="contained"
           onClick={submitPayment}
           disabled={loading || (!form.reference?.trim() && confirmationAttachmentId == null)}
         >
-          Save
+          {loading ? <Spinner size="small" /> : 'Save'}
         </Button>
-      </Box>
-    </Box>
+      </div>
+    </div>
   )
 }

@@ -1,23 +1,13 @@
-import {
-  Alert,
-  Box,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TablePagination,
-  TableRow,
-  TextField,
-  Typography,
-} from '@mui/material'
 import { useMemo, useState } from 'react'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi } from '../../hooks/useApi'
 import { formatDate } from '../../utils/format'
+import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
+import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell, TablePagination } from '../../components/ui/Table'
+import { Typography } from '../../components/ui/Typography'
+import { Alert } from '../../components/ui/Alert'
+import { Spinner } from '../../components/ui/Spinner'
 
 interface AuditEntry {
   id: number
@@ -56,84 +46,76 @@ export const AuditTrailPage = () => {
   const total = data?.total ?? 0
 
   return (
-    <Box>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+    <div>
+      <Typography variant="h4" className="mb-4">
         Audit Trail
       </Typography>
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-        <TextField
-          label="Date from"
-          type="date"
-          value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
-          size="small"
-          InputLabelProps={{ shrink: true }}
-          sx={{ width: 160 }}
-        />
-        <TextField
-          label="Date to"
-          type="date"
-          value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
-          size="small"
-          InputLabelProps={{ shrink: true }}
-          sx={{ width: 160 }}
-        />
-        <FormControl size="small" sx={{ minWidth: 140 }}>
-          <InputLabel>Entity type</InputLabel>
+      <div className="flex gap-4 mb-4 flex-wrap items-center">
+        <div className="min-w-[160px]">
+          <Input
+            label="Date from"
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+          />
+        </div>
+        <div className="min-w-[160px]">
+          <Input
+            label="Date to"
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+          />
+        </div>
+        <div className="min-w-[140px]">
           <Select
-            value={entityType || '_'}
             label="Entity type"
+            value={entityType || '_'}
             onChange={(e) => setEntityType(e.target.value === '_' ? '' : e.target.value)}
           >
-            <MenuItem value="_">All</MenuItem>
-            <MenuItem value="Payment">Payment</MenuItem>
-            <MenuItem value="Invoice">Invoice</MenuItem>
-            <MenuItem value="PurchaseOrder">PurchaseOrder</MenuItem>
-            <MenuItem value="GoodsReceived">GoodsReceived</MenuItem>
-            <MenuItem value="Student">Student</MenuItem>
+            <option value="_">All</option>
+            <option value="Payment">Payment</option>
+            <option value="Invoice">Invoice</option>
+            <option value="PurchaseOrder">PurchaseOrder</option>
+            <option value="GoodsReceived">GoodsReceived</option>
+            <option value="Student">Student</option>
           </Select>
-        </FormControl>
-        <FormControl size="small" sx={{ minWidth: 120 }}>
-          <InputLabel>Action</InputLabel>
+        </div>
+        <div className="min-w-[120px]">
           <Select
-            value={actionFilter || '_'}
             label="Action"
+            value={actionFilter || '_'}
             onChange={(e) => setActionFilter(e.target.value === '_' ? '' : e.target.value)}
           >
-            <MenuItem value="_">All</MenuItem>
-            <MenuItem value="CREATE">CREATE</MenuItem>
-            <MenuItem value="UPDATE">UPDATE</MenuItem>
-            <MenuItem value="CANCEL">CANCEL</MenuItem>
-            <MenuItem value="APPROVE">APPROVE</MenuItem>
+            <option value="_">All</option>
+            <option value="CREATE">CREATE</option>
+            <option value="UPDATE">UPDATE</option>
+            <option value="CANCEL">CANCEL</option>
+            <option value="APPROVE">APPROVE</option>
           </Select>
-        </FormControl>
-      </Box>
+        </div>
+      </div>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Alert severity="error" className="mb-4">
           {error}
         </Alert>
       )}
 
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>Date / Time</TableCell>
-            <TableCell>User</TableCell>
-            <TableCell>Action</TableCell>
-            <TableCell>Document</TableCell>
-            <TableCell>Details</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {loading ? (
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <Table>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={5}>Loading…</TableCell>
+              <TableHeaderCell>Date / Time</TableHeaderCell>
+              <TableHeaderCell>User</TableHeaderCell>
+              <TableHeaderCell>Action</TableHeaderCell>
+              <TableHeaderCell>Document</TableHeaderCell>
+              <TableHeaderCell>Details</TableHeaderCell>
             </TableRow>
-          ) : (
-            items.map((row) => (
+          </TableHead>
+          <TableBody>
+            {items.map((row) => (
               <TableRow key={row.id}>
                 <TableCell>{formatDate(row.created_at)}</TableCell>
                 <TableCell>{row.user_full_name ?? '—'}</TableCell>
@@ -143,22 +125,35 @@ export const AuditTrailPage = () => {
                 </TableCell>
                 <TableCell>{row.comment ?? '—'}</TableCell>
               </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
-      <TablePagination
-        component="div"
-        count={total}
-        page={page}
-        onPageChange={(_, p) => setPage(p)}
-        rowsPerPage={limit}
-        onRowsPerPageChange={(e) => {
-          setLimit(Number(e.target.value))
-          setPage(0)
-        }}
-        rowsPerPageOptions={[25, 50, 100]}
-      />
-    </Box>
+            ))}
+            {loading && (
+              <TableRow>
+                <td colSpan={5} className="px-4 py-8 text-center">
+                  <Spinner size="medium" />
+                </td>
+              </TableRow>
+            )}
+            {!items.length && !loading && (
+              <TableRow>
+                <td colSpan={5} className="px-4 py-8 text-center">
+                  <Typography color="secondary">No audit entries found</Typography>
+                </td>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+        <TablePagination
+          page={page}
+          rowsPerPage={limit}
+          count={total}
+          onPageChange={setPage}
+          onRowsPerPageChange={(newLimit) => {
+            setLimit(newLimit)
+            setPage(0)
+          }}
+          rowsPerPageOptions={[25, 50, 100]}
+        />
+      </div>
+    </div>
   )
 }
