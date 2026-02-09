@@ -42,7 +42,15 @@ export const AccountantExportPage = () => {
     try {
       const url = `/accountant/export/${type}?start_date=${startDate}&end_date=${endDate}&format=csv`
       const response = await api.get(url, { responseType: 'blob' })
-      const blob = new Blob([response.data], { type: 'text/csv' })
+      const rawBlob = response.data as Blob
+      const rawText = await rawBlob.text()
+      // Backend may generate absolute URLs using a localhost base. Rewrite them to the current origin
+      // so links in exported CSV are usable on production.
+      const rewrittenText = rawText.replace(
+        /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/g,
+        window.location.origin
+      )
+      const blob = new Blob([rewrittenText], { type: 'text/csv;charset=utf-8' })
       const disposition = response.headers['content-disposition']
       const filenameMatch = disposition?.match(/filename="?([^";]+)"?/)
       const filename = filenameMatch?.[1] ?? `export_${type}_${startDate}_${endDate}.csv`
