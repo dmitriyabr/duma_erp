@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
@@ -53,10 +53,73 @@ export const ExpenseClaimDetailPage = () => {
   const { execute: approveClaim, loading: approving, error: approveError } = useApiMutation()
   const { execute: rejectClaim, loading: _rejecting, error: rejectError } = useApiMutation()
 
+  const [proofPreview, setState] = useState<{
+    url: string | null
+    contentType: string | null
+    fileName: string | null
+    loading: boolean
+    error: string | null
+  }>({ url: null, contentType: null, fileName: null, loading: false, error: null })
+
   const [approveDialogOpen, setApproveDialogOpen] = useState(false)
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [validationError, setValidationError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const attachmentId = claim?.proof_attachment_id
+    if (!attachmentId) {
+      queueMicrotask(() => {
+        setState((prev) => {
+          if (prev.url) URL.revokeObjectURL(prev.url)
+          return { url: null, contentType: null, fileName: null, loading: false, error: null }
+        })
+      })
+      return
+    }
+
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) setState((prev) => ({ ...prev, loading: true, error: null }))
+    })
+
+    api
+      .get(`/attachments/${attachmentId}/download`, { responseType: 'blob' })
+      .then((res) => {
+        const blob = res.data as Blob
+        const url = URL.createObjectURL(blob)
+
+        const disposition = (res.headers as Record<string, string | undefined>)['content-disposition']
+        const match = disposition?.match(/filename="?([^";]+)"?/)
+        const filename = match?.[1] ?? null
+
+        if (cancelled) {
+          URL.revokeObjectURL(url)
+          return
+        }
+
+        setState((prev) => {
+          if (prev.url) URL.revokeObjectURL(prev.url)
+          return {
+            url,
+            contentType: blob.type || null,
+            fileName: filename,
+            loading: false,
+            error: null,
+          }
+        })
+      })
+      .catch(() => {
+        if (!cancelled) setState((prev) => ({ ...prev, loading: false, error: 'Failed to load receipt preview.' }))
+      })
+      .finally(() => {
+        if (!cancelled) setState((prev) => ({ ...prev, loading: false }))
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [claim?.proof_attachment_id])
 
   const handleApprove = async () => {
     if (!resolvedId) return
@@ -227,17 +290,53 @@ export const ExpenseClaimDetailPage = () => {
               Proof
             </Typography>
             <div className="flex items-center gap-2 flex-wrap">
-              <Typography>{claim.proof_text ?? (claim.proof_attachment_id != null ? 'Receipt file attached' : '—')}</Typography>
+              <Typography>
+                {claim.proof_text ??
+                  (claim.proof_attachment_id != null ? `Receipt file attached${proofPreview.fileName ? ` (${proofPreview.fileName})` : ''}` : '—')}
+              </Typography>
               {claim.proof_attachment_id != null && (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => openAttachmentInNewTab(claim.proof_attachment_id!)}
-                >
-                  View file
+                <Button size="small" variant="outlined" onClick={() => openAttachmentInNewTab(claim.proof_attachment_id!)}>
+                  Open
                 </Button>
               )}
             </div>
+
+            {claim.proof_attachment_id != null && (
+              <div className="mt-3">
+                {proofPreview.loading && (
+                  <div className="flex items-center gap-2">
+                    <Spinner size="small" />
+                    <Typography variant="body2" color="secondary">
+                      Loading preview...
+                    </Typography>
+                  </div>
+                )}
+                {proofPreview.error && (
+                  <Alert severity="error">{proofPreview.error}</Alert>
+                )}
+                {!proofPreview.loading && !proofPreview.error && proofPreview.url && (
+                  <>
+                    {proofPreview.contentType?.startsWith('image/') ? (
+                      <img
+                        src={proofPreview.url}
+                        alt={proofPreview.fileName ?? 'Receipt'}
+                        className="w-full max-h-[70vh] object-contain rounded-xl border border-slate-200 bg-white"
+                      />
+                    ) : proofPreview.contentType === 'application/pdf' ? (
+                      <iframe
+                        src={proofPreview.url}
+                        title={proofPreview.fileName ?? 'Receipt PDF'}
+                        className="w-full h-[70vh] rounded-xl border border-slate-200 bg-white"
+                      />
+                    ) : (
+                      <Typography variant="body2" color="secondary">
+                        Preview is not available for this file type.
+                      </Typography>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

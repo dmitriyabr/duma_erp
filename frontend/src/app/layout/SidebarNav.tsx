@@ -50,7 +50,7 @@ export const SidebarNav = ({ mobileOpen = false, onMobileClose }: SidebarNavProp
           <School className="w-6 h-6 text-white" />
         </div>
         <div>
-          <h1 className="text-lg font-bold text-white tracking-tight">School ERP</h1>
+          <h1 className="text-lg font-bold text-white tracking-tight">DUMA School ERP</h1>
           <p className="text-xs text-slate-400">Management System</p>
         </div>
       </div>
