@@ -438,6 +438,20 @@
 - [x] New Student — отдельная страница /students/new (CreateStudentPage); после создания редирект на карточку студента /students/:id.
 - [x] Кнопка «Back»: на **карточках (detail)** — в список (семантический родитель), на **формах** — по истории (navigate(-1)). Пример: StudentDetailPage → Back → /students; формы (CreateStudent, CreateInvoice, ReceivePayment, TermForm, PO, ProcurementPayment, IssueForm) → Back/Cancel = navigate(-1).
 
+### 9.1.1 Mobile MVP (Dashboard + Expense Claims)
+> Цель: приложение в целом пока desktop-first, но **с телефона должны работать**: вход → навигация → dashboard (quick actions) → полный flow expense claims (list → new claim → detail).
+
+- [x] Навигация на мобильных:
+  - [x] Sidebar: скрывать на small, открывать по hamburger (TopBar) как overlay drawer
+  - [x] Контент: убрать фиксированный `margin-left: drawerWidth` на small; уменьшить padding контента на mobile
+- [ ] Dashboard (мобильный UX):
+  - [x] Quick Actions: кнопки не ломают иконки/текст, корректная сетка и переносы
+  - [ ] Summary блоки (Admin/SuperAdmin): читаемость на small (stack вместо 2/4 колонок)
+- [ ] Expense Claims (мобильный UX):
+  - [x] Claims list: вместо wide table — карточки на small (таблица остаётся на md+)
+  - [ ] New claim: форма без горизонтального скролла, file upload доступен с телефона
+  - [ ] Claim detail: ключевые поля и rejection reason читаемы на small
+
 **Рефакторинг обработки 401 (token refresh):**
 > Проблема: При истечении токена страницы показывали ошибку, даже если interceptor успешно обновлял токен
 > Решение: Создали хуки useApi и useApiMutation, которые игнорируют 401 (обработку делает interceptor)
