@@ -41,9 +41,11 @@ from src.core.exceptions import AppException
 from src.core.exceptions.handlers import (
     app_exception_handler,
     http_exception_handler,
+    sqlalchemy_db_error_handler,
     validation_exception_handler,
 )
 from fastapi import HTTPException
+from sqlalchemy.exc import DataError, IntegrityError, ProgrammingError
 
 
 @asynccontextmanager
@@ -77,6 +79,9 @@ def create_app() -> FastAPI:
     app.add_exception_handler(AppException, app_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(HTTPException, http_exception_handler)
+    app.add_exception_handler(IntegrityError, sqlalchemy_db_error_handler)
+    app.add_exception_handler(DataError, sqlalchemy_db_error_handler)
+    app.add_exception_handler(ProgrammingError, sqlalchemy_db_error_handler)
 
     # Health check endpoint (must be first for Railway/Heroku health checks)
     @app.get("/health")

@@ -8,6 +8,7 @@ import { useApi } from '../../hooks/useApi'
 import { api } from '../../services/api'
 import { formatDate, formatMoney } from '../../utils/format'
 import { isSuperAdmin } from '../../utils/permissions'
+import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell, TablePagination } from '../../components/ui/Table'
@@ -22,6 +23,7 @@ interface ClaimRow {
   id: number
   claim_number: string
   employee_id: number
+  employee_name: string
   amount: number
   description: string
   expense_date: string
@@ -64,6 +66,7 @@ export const ExpenseClaimsListPage = () => {
   const navigate = useNavigate()
   const { user } = useAuth()
   const userIsSuperAdmin = isSuperAdmin(user)
+  const canCreateClaim = user?.role !== 'Accountant'
 
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
@@ -114,13 +117,18 @@ export const ExpenseClaimsListPage = () => {
     }
   }
 
-  const colSpan = userIsSuperAdmin ? 9 : 8
+  const colSpan = 9
 
   return (
     <div>
-      <Typography variant="h4" className="mb-4">
-        Employee Expenses Claims
-      </Typography>
+      <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
+        <Typography variant="h4">Employee Expenses Claims</Typography>
+        {canCreateClaim && (
+          <Button onClick={() => navigate('/compensations/claims/new')}>
+            New claim
+          </Button>
+        )}
+      </div>
 
       {!userIsSuperAdmin && myBalance && (
         <div className="mb-6">
@@ -218,7 +226,7 @@ export const ExpenseClaimsListPage = () => {
           <TableHead>
             <TableRow>
               <TableHeaderCell>Claim Number</TableHeaderCell>
-              {userIsSuperAdmin && <TableHeaderCell>Employee</TableHeaderCell>}
+              <TableHeaderCell>Employee</TableHeaderCell>
               <TableHeaderCell>Description</TableHeaderCell>
               <TableHeaderCell>Date</TableHeaderCell>
               <TableHeaderCell align="right">Amount</TableHeaderCell>
@@ -236,11 +244,7 @@ export const ExpenseClaimsListPage = () => {
                 className="cursor-pointer"
               >
                 <TableCell>{claim.claim_number}</TableCell>
-                {userIsSuperAdmin && (
-                  <TableCell>
-                    {employees.find((e) => e.id === claim.employee_id)?.full_name ?? '—'}
-                  </TableCell>
-                )}
+                <TableCell>{claim.employee_name || '—'}</TableCell>
                 <TableCell>{claim.description}</TableCell>
                 <TableCell>{formatDate(claim.expense_date)}</TableCell>
                 <TableCell align="right">{formatMoney(claim.amount)}</TableCell>

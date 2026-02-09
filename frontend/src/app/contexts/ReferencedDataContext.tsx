@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from 'react'
 import { useApi } from '../hooks/useApi'
+import { useAuth } from '../auth/AuthContext'
 
 export interface GradeRef {
   id: number
@@ -43,19 +44,33 @@ const zonesUrl = '/terms/transport-zones'
 const zonesParams = { params: { include_inactive: true } }
 
 export function ReferencedDataProvider({ children }: { children: ReactNode }) {
-  const gradesApi = useApi<GradeRef[]>(gradesUrl, gradesParams, [])
-  const zonesApi = useApi<TransportZoneRef[]>(zonesUrl, zonesParams, [])
+  const { user } = useAuth()
+  const role = user?.role
+
+  // Avoid global 403 redirect loop for roles that don't have access to these endpoints.
+  // (api.ts redirects to /access-denied on any 403)
+  const canReadReferencedData = role !== 'User'
+
+  const gradesApi = useApi<GradeRef[]>(canReadReferencedData ? gradesUrl : null, gradesParams, [canReadReferencedData])
+  const zonesApi = useApi<TransportZoneRef[]>(canReadReferencedData ? zonesUrl : null, zonesParams, [canReadReferencedData])
 
   const grades = gradesApi.data ?? []
   const transportZones = zonesApi.data ?? []
   const loading = gradesApi.loading || zonesApi.loading
   const error = gradesApi.error ?? zonesApi.error ?? null
 
-  const refetchGrades = useCallback(() => gradesApi.refetch(), [gradesApi.refetch])
-  const refetchTransportZones = useCallback(() => zonesApi.refetch(), [zonesApi.refetch])
+  const refetchGrades = useCallback(() => {
+    if (!canReadReferencedData) return Promise.resolve()
+    return gradesApi.refetch()
+  }, [canReadReferencedData, gradesApi.refetch])
+  const refetchTransportZones = useCallback(() => {
+    if (!canReadReferencedData) return Promise.resolve()
+    return zonesApi.refetch()
+  }, [canReadReferencedData, zonesApi.refetch])
   const refetchAll = useCallback(async () => {
+    if (!canReadReferencedData) return
     await Promise.all([gradesApi.refetch(), zonesApi.refetch()])
-  }, [gradesApi.refetch, zonesApi.refetch])
+  }, [canReadReferencedData, gradesApi.refetch, zonesApi.refetch])
 
   const value = useMemo<ReferencedDataContextValue>(
     () => ({

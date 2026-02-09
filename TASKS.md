@@ -650,6 +650,16 @@
 - [x] Детальная страница claim
 - [x] Actions: Approve, Reject (только SuperAdmin)
 
+**Out-of-pocket (быстрые покупки сотрудника) → Expense Claim:**
+> Цель: отдельный простой флоу для мелких покупок (fuel, groceries, small repairs), без PO/GRN.
+> Сущность: `ExpenseClaim` создаётся напрямую сотрудником (или админом), затем утверждается и оплачивается `CompensationPayout`.
+- [x] Backend: сделать `expense_claims.payment_id` nullable и убрать unique (claim может существовать без procurement payment)
+- [x] Backend: добавить в claim собственные поля `payee_name`, `proof_text`, `proof_attachment_id` (чтобы не зависеть от procurement payment)
+- [x] Backend: добавить API для создания claim (User создаёт для себя; Admin/SuperAdmin — для любого сотрудника)
+- [x] Backend: разрешить User читать `GET /procurement/payment-purposes` (для выбора категории расходов)
+- [x] Frontend: страница создания claim `/compensations/claims/new` + кнопка "New claim" в списке
+- [x] Tests: покрыть создание claim (User), видимость "только своё", валидацию proof
+
 **Payouts `/compensations/payouts`:**
 - [x] Таблица Employee Balances (Name, Approved, Paid, Balance, [Pay])
 - [x] Кнопка [Pay] → модалка создания payout

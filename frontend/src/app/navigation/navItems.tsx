@@ -25,6 +25,7 @@ export interface NavItem {
 const allRoles: UserRole[] = ['SuperAdmin', 'Admin', 'User', 'Accountant']
 const adminRoles: UserRole[] = ['SuperAdmin', 'Admin']
 const viewRoles: UserRole[] = ['SuperAdmin', 'Admin', 'Accountant']
+const superAdminRoles: UserRole[] = ['SuperAdmin']
 
 /** Minimal nav for Accountant role (read-only: students, stock, billing, documents, export, audit). */
 export const accountantNavItems: NavItem[] = [
@@ -113,7 +114,7 @@ export const navItems: NavItem[] = [
       { label: 'Purchase Orders', path: '/procurement/orders', roles: viewRoles },
       { label: 'Goods Received', path: '/procurement/grn', roles: viewRoles },
       { label: 'Payments', path: '/procurement/payments', roles: viewRoles },
-      { label: 'Bank Reconciliation', path: '/bank-reconciliation', roles: adminRoles },
+      { label: 'Bank Reconciliation', path: '/bank-reconciliation', roles: ['SuperAdmin'] },
     ],
   },
   {
@@ -149,11 +150,11 @@ export const navItems: NavItem[] = [
     label: 'Settings',
     path: '/settings',
     icon: <Settings className="w-5 h-5" />,
-    roles: adminRoles,
+    roles: superAdminRoles,
     children: [
       { label: 'Users', path: '/settings/users', roles: ['SuperAdmin'] },
-      { label: 'Grades', path: '/settings/grades', roles: adminRoles },
-      { label: 'School', path: '/settings/school', roles: adminRoles },
+      { label: 'Grades', path: '/settings/grades', roles: superAdminRoles },
+      { label: 'School', path: '/settings/school', roles: superAdminRoles },
       { label: 'Transport Zones', path: '/settings/transport-zones', roles: ['SuperAdmin'] },
       { label: 'Payment Purposes', path: '/settings/payment-purposes', roles: ['SuperAdmin'] },
     ],

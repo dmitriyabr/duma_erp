@@ -251,8 +251,11 @@
 - `POST /procurement/payments/{payment_id}/cancel`
 
 ### 5.13. Compensations
+- `POST /compensations/claims` — создать out-of-pocket claim (без PO/GRN; для сотрудника возврат денег)
 - `GET /compensations/claims` — filters: `employee_id`, `status`, `date_from`, `date_to`, `page`, `limit`
 - `GET /compensations/claims/{claim_id}`
+- `PATCH /compensations/claims/{claim_id}` — обновить draft claim (до отправки на approve)
+- `POST /compensations/claims/{claim_id}/submit` — отправить draft на approve
 - `POST /compensations/claims/{claim_id}/approve`
 - `POST /compensations/payouts`
 - `GET /compensations/payouts` — filters: `employee_id`, `date_from`, `date_to`, `page`, `limit`
@@ -423,8 +426,10 @@
 - `CancelProcurementPaymentRequest`: `reason`
 
 ### 6.12. Compensations
-- `ExpenseClaimResponse`: `id`, `claim_number`, `payment_id`, `employee_id`, `purpose_id`, `amount`, `description`, `expense_date`, `status`, `paid_amount`, `remaining_amount`, `auto_created_from_payment`, `related_procurement_payment_id?`, `created_at`, `updated_at`
-- `ApproveExpenseClaimRequest`: `approve`, `reason?`
+- `ExpenseClaimResponse`: `id`, `claim_number`, `payment_id?`, `employee_id`, `employee_name`, `purpose_id`, `amount`, `payee_name?`, `description`, `rejection_reason?`, `expense_date`, `proof_text?`, `proof_attachment_id?`, `status`, `paid_amount`, `remaining_amount`, `auto_created_from_payment`, `related_procurement_payment_id?`, `created_at`, `updated_at`
+- `ExpenseClaimCreate`: `employee_id?`, `purpose_id`, `amount`, `payee_name?`, `description`, `expense_date`, `proof_text?`, `proof_attachment_id?`, `submit` (default true; если false — создаёт draft без proof)
+- `ExpenseClaimUpdate`: `employee_id?`, `purpose_id?`, `amount?`, `payee_name?`, `description?`, `expense_date?`, `proof_text?`, `proof_attachment_id?`, `submit?` (если true — переводит draft в pending_approval и требует proof)
+- `ApproveExpenseClaimRequest`: `approve`, `reason?` (для reject сохраняется в `rejection_reason`, описание не меняется)
 - `CompensationPayoutCreate`: `employee_id`, `payout_date`, `amount`, `payment_method`, `reference_number?`, `proof_text?`, `proof_attachment_id?`
 - `CompensationPayoutResponse`: `id`, `payout_number`, `employee_id`, `payout_date`, `amount`, `payment_method`, `reference_number?`, `proof_text?`, `proof_attachment_id?`, `created_at`, `updated_at`, `allocations[]`
 - `PayoutAllocationResponse`: `id`, `claim_id`, `allocated_amount`

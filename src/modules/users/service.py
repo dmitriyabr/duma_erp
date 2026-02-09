@@ -14,6 +14,11 @@ class UserService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    async def _refresh_user(self, user: User) -> None:
+        # Prevent Pydantic (or other callers) from triggering implicit lazy loads
+        # on server-generated columns like `updated_at` in async context.
+        await self.session.refresh(user)
+
     async def get_by_id(self, user_id: int) -> User | None:
         """Get user by ID."""
         stmt = select(User).where(User.id == user_id)
@@ -94,6 +99,7 @@ class UserService:
 
         self.session.add(user)
         await self.session.flush()
+        await self._refresh_user(user)
 
         # Audit log
         await create_audit_log(
@@ -148,6 +154,7 @@ class UserService:
             user.role = data.role.value
 
         await self.session.flush()
+        await self._refresh_user(user)
 
         new_values = {
             "email": user.email,
@@ -181,6 +188,7 @@ class UserService:
 
         user.is_active = False
         await self.session.flush()
+        await self._refresh_user(user)
 
         # Audit log
         await create_audit_log(
@@ -208,6 +216,7 @@ class UserService:
 
         user.is_active = True
         await self.session.flush()
+        await self._refresh_user(user)
 
         # Audit log
         await create_audit_log(
@@ -238,6 +247,7 @@ class UserService:
         had_password = user.can_login
         user.password_hash = hash_password(new_password)
         await self.session.flush()
+        await self._refresh_user(user)
 
         # Audit log
         await create_audit_log(
@@ -273,6 +283,7 @@ class UserService:
 
         user.password_hash = hash_password(new_password)
         await self.session.flush()
+        await self._refresh_user(user)
 
         # Audit log
         await create_audit_log(
@@ -298,6 +309,7 @@ class UserService:
 
         user.password_hash = None
         await self.session.flush()
+        await self._refresh_user(user)
 
         # Audit log
         await create_audit_log(

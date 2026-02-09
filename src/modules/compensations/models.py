@@ -31,7 +31,7 @@ class ExpenseClaimStatus(StrEnum):
 
 
 class ExpenseClaim(Base):
-    """Expense claim generated from a payment."""
+    """Expense claim (out-of-pocket reimbursement or generated from a procurement payment)."""
 
     __tablename__ = "expense_claims"
 
@@ -39,8 +39,8 @@ class ExpenseClaim(Base):
     claim_number: Mapped[str] = mapped_column(
         String(50), nullable=False, unique=True, index=True
     )
-    payment_id: Mapped[int] = mapped_column(
-        BigIntPK, ForeignKey("procurement_payments.id"), nullable=False, unique=True
+    payment_id: Mapped[int | None] = mapped_column(
+        BigIntPK, ForeignKey("procurement_payments.id"), nullable=True, index=True
     )
     employee_id: Mapped[int] = mapped_column(
         BigIntPK, ForeignKey("users.id"), nullable=False, index=True
@@ -49,8 +49,12 @@ class ExpenseClaim(Base):
         BigInteger, ForeignKey("payment_purposes.id"), nullable=False
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    payee_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
     description: Mapped[str] = mapped_column(Text, nullable=False)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     expense_date: Mapped[date] = mapped_column(Date, nullable=False)
+    proof_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    proof_attachment_id: Mapped[int | None] = mapped_column(BigIntPK, nullable=True)
 
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default=ExpenseClaimStatus.PENDING_APPROVAL.value, index=True
@@ -82,6 +86,11 @@ class ExpenseClaim(Base):
     payment: Mapped["ProcurementPayment"] = relationship("ProcurementPayment")
     employee: Mapped["User"] = relationship("User")
     purpose: Mapped["PaymentPurpose"] = relationship("PaymentPurpose")
+
+    @property
+    def employee_name(self) -> str:
+        # Expect relationship to be eager-loaded in service queries to avoid async lazy-load.
+        return self.employee.full_name
 
 
 class PayoutMethod(StrEnum):

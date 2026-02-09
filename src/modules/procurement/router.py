@@ -545,7 +545,7 @@ async def list_payment_purposes(
     include_inactive: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.USER)
     ),
 ):
     """List payment purposes."""

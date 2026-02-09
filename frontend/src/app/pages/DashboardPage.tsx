@@ -28,14 +28,14 @@ const quickActions: Array<{
   state?: Record<string, unknown>
   icon: React.ReactNode
 }> = [
-  { label: 'Admit New Student', path: '/students/new', icon: <UserPlus className="w-5 h-5" /> },
-  { label: 'Sell Items To Student', path: '/billing/invoices/new', icon: <ShoppingCart className="w-5 h-5" /> },
+  { label: 'Claim Expense', path: '/compensations/claims/new', icon: <Receipt className="w-5 h-5" /> },
   { label: 'Receive Student Payment', path: '/payments/new', icon: <CreditCard className="w-5 h-5" /> },
-  { label: 'Track Order Items', path: '/procurement/orders/new', icon: <Truck className="w-5 h-5" /> },
-  { label: 'Receive Order Items', path: '/procurement/orders', icon: <Package className="w-5 h-5" /> },
-  { label: 'Track Payment', path: '/procurement/payments/new', icon: <Receipt className="w-5 h-5" /> },
   { label: 'Issue Item From Stock', path: '/inventory/issue', icon: <Shirt className="w-5 h-5" /> },
   { label: 'Issue Reserved Item', path: '/inventory/reservations', icon: <CheckCircle className="w-5 h-5" /> },
+  { label: 'Admit New Student', path: '/students/new', icon: <UserPlus className="w-5 h-5" /> },
+  { label: 'Sell Items To Student', path: '/billing/invoices/new', icon: <ShoppingCart className="w-5 h-5" /> },
+  { label: 'Track Order Items', path: '/procurement/orders/new', icon: <Truck className="w-5 h-5" /> },
+  { label: 'Receive Order Items', path: '/procurement/orders', icon: <Package className="w-5 h-5" /> },
 ]
 
 interface DashboardData {
@@ -71,8 +71,14 @@ export const DashboardPage = () => {
   useEffect(() => {
     if (!showSummary) return
     let cancelled = false
-    setLoading(true)
-    setError(null)
+    // Avoid calling setState synchronously within an effect body (react-hooks/set-state-in-effect).
+    // We only need to show loading and clear previous error before the request.
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setLoading(true)
+        setError(null)
+      }
+    })
     api
       .get<ApiResponse<DashboardData>>('/dashboard')
       .then((res) => {
@@ -98,7 +104,7 @@ export const DashboardPage = () => {
           <Typography variant="subtitle1" className="mb-4" color="secondary">
             Quick Actions
           </Typography>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {quickActions.map((action) => (
               <Button
                 key={action.label}
@@ -106,10 +112,10 @@ export const DashboardPage = () => {
                 size="large"
                 fullWidth
                 onClick={() => navigate(action.path, action.state ? { state: action.state } : undefined)}
-                className="justify-start gap-2 py-6 px-4 text-base font-semibold shadow-sm hover:shadow-md"
+                className="justify-start gap-3 py-6 px-4 text-base font-semibold shadow-sm hover:shadow-md"
               >
-                {action.icon}
-                {action.label}
+                <span className="shrink-0">{action.icon}</span>
+                <span className="text-left whitespace-normal break-words leading-snug">{action.label}</span>
               </Button>
             ))}
           </div>
