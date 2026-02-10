@@ -91,6 +91,15 @@ const SuperAdminOnly: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>
 }
 
+const AdminOnly: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, isLoading } = useAuth()
+  const location = useLocation()
+  if (isLoading) return null
+  if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />
+  if (user.role !== 'SuperAdmin' && user.role !== 'Admin') return <Navigate to="/access-denied" replace />
+  return <>{children}</>
+}
+
 export const AppRoutes = () => {
   return (
     <BrowserRouter>
@@ -194,7 +203,14 @@ export const AppRoutes = () => {
               <Route path="kpis" element={<KpisPage />} />
             </Route>
           </Route>
-          <Route path="audit" element={<AuditTrailPage />} />
+          <Route
+            path="audit"
+            element={
+              <AdminOnly>
+                <AuditTrailPage />
+              </AdminOnly>
+            }
+          />
           <Route path="payments/new" element={<ReceivePaymentPage />} />
           <Route path="payments" element={<PaymentReceiptsPage />} />
           <Route path="accountant/export" element={<AccountantExportPage />} />

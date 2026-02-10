@@ -60,7 +60,6 @@ export const accountantNavItems: NavItem[] = [
     ],
   },
   { label: 'Data Export', path: '/accountant/export', icon: <Download className="w-5 h-5" />, roles: ['Accountant'] },
-  { label: 'Audit Trail', path: '/audit', icon: <FileCheck className="w-5 h-5" />, roles: ['Accountant'] },
 ]
 
 export const navItems: NavItem[] = [
@@ -144,7 +143,7 @@ export const navItems: NavItem[] = [
     label: 'Audit Log',
     path: '/audit',
     icon: <FileCheck className="w-5 h-5" />,
-    roles: viewRoles,
+    roles: adminRoles,
   },
   {
     label: 'Settings',
