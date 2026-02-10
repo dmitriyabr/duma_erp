@@ -374,6 +374,13 @@
 - [x] API endpoints
 - [x] Тесты
 
+### 6.3 Totals для сотрудника (Pending + Owed)
+> Решение: `EmployeeBalance` остаётся «company view» (учитывает только approved/paid). Для удобства сотрудника добавляем totals, которые включают `pending_approval` и показываем на странице claims.
+
+- [x] Backend: `GET /compensations/claims/employees/{employee_id}/totals` (total claimed, pending, approved, paid, owed)
+- [x] Frontend: карточка **My Totals** на странице Expense Claims
+- [x] Тесты totals endpoint
+
 ---
 
 ## Фаза 7: Интеграции

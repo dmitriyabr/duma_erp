@@ -38,11 +38,17 @@ interface UserRow {
   full_name: string
 }
 
-interface BalanceResponse {
+interface ClaimTotalsResponse {
   employee_id: number
-  total_approved: number
-  total_paid: number
-  balance: number
+  total_submitted: number | string
+  count_submitted: number
+  total_pending_approval: number | string
+  count_pending_approval: number
+  total_approved: number | string
+  total_paid: number | string
+  balance: number | string
+  total_rejected: number | string
+  count_rejected: number
 }
 
 const statusOptions = [
@@ -67,6 +73,7 @@ export const ExpenseClaimsListPage = () => {
   const { user } = useAuth()
   const userIsSuperAdmin = isSuperAdmin(user)
   const canCreateClaim = user?.role !== 'Accountant'
+  const showMyTotals = user?.role !== 'Accountant'
 
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
@@ -95,8 +102,8 @@ export const ExpenseClaimsListPage = () => {
     userIsSuperAdmin ? { params: { limit: USERS_LIST_LIMIT } } : undefined,
     [userIsSuperAdmin]
   )
-  const { data: myBalance } = useApi<BalanceResponse>(
-    user?.id && !userIsSuperAdmin ? `/compensations/payouts/employees/${user.id}/balance` : null
+  const { data: myTotals } = useApi<ClaimTotalsResponse>(
+    user?.id && showMyTotals ? `/compensations/claims/employees/${user.id}/totals` : null
   )
 
   const claims = claimsData?.items || []
@@ -130,33 +137,43 @@ export const ExpenseClaimsListPage = () => {
         )}
       </div>
 
-      {!userIsSuperAdmin && myBalance && (
+      {showMyTotals && myTotals && (
         <div className="mb-6">
           <Card>
             <CardContent>
               <Typography variant="subtitle2" color="secondary" className="mb-2">
-                My Balance
+                My Totals
               </Typography>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
                   <Typography variant="subtitle2" color="secondary">
-                    Total Approved
+                    Pending Approval
                   </Typography>
-                  <Typography variant="h6" className="mt-1">{formatMoney(myBalance.total_approved)}</Typography>
+                  <Typography variant="h6" className="mt-1">
+                    {formatMoney(myTotals.total_pending_approval)} ({myTotals.count_pending_approval})
+                  </Typography>
+                </div>
+                <div>
+                  <Typography variant="subtitle2" color="secondary">
+                    Owed (Approved Unpaid)
+                  </Typography>
+                  <Typography variant="h6" className={Number(myTotals.balance) > 0 ? 'text-error mt-1' : 'mt-1'}>
+                    {formatMoney(myTotals.balance)}
+                  </Typography>
+                </div>
+                <div>
+                  <Typography variant="subtitle2" color="secondary">
+                    Total Claimed
+                  </Typography>
+                  <Typography variant="h6" className="mt-1">
+                    {formatMoney(myTotals.total_submitted)} ({myTotals.count_submitted})
+                  </Typography>
                 </div>
                 <div>
                   <Typography variant="subtitle2" color="secondary">
                     Total Paid
                   </Typography>
-                  <Typography variant="h6" className="mt-1">{formatMoney(myBalance.total_paid)}</Typography>
-                </div>
-                <div>
-                  <Typography variant="subtitle2" color="secondary">
-                    Balance
-                  </Typography>
-                  <Typography variant="h6" className={myBalance.balance > 0 ? 'text-error mt-1' : 'mt-1'}>
-                    {formatMoney(myBalance.balance)}
-                  </Typography>
+                  <Typography variant="h6" className="mt-1">{formatMoney(myTotals.total_paid)}</Typography>
                 </div>
               </div>
             </CardContent>

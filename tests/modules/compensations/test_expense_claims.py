@@ -251,3 +251,110 @@ class TestExpenseClaimsOutOfPocket:
         assert payment["status"] == "cancelled"
         assert payment["cancelled_reason"] == "Not a company expense"
         assert payment["employee_paid_id"] == user_id
+
+    async def test_employee_claim_totals_include_pending_and_balance(self, client: AsyncClient, db_session: AsyncSession):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="superadmin-claims-totals@test.com",
+            password="Password123",
+            full_name="Super Admin",
+            role=UserRole.SUPER_ADMIN,
+        )
+        purpose_id = await self._create_purpose(client, super_token)
+
+        user1_id, user1_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="user-claims-totals1@test.com",
+            password="Password123",
+            full_name="User One",
+            role=UserRole.USER,
+        )
+        _, user2_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="user-claims-totals2@test.com",
+            password="Password123",
+            full_name="User Two",
+            role=UserRole.USER,
+        )
+
+        create_res = await client.post(
+            "/api/v1/compensations/claims",
+            headers={"Authorization": f"Bearer {user1_token}"},
+            json={
+                "purpose_id": purpose_id,
+                "amount": "10.00",
+                "description": "Snacks",
+                "expense_date": "2026-02-09",
+                "proof_text": "Receipt #snacks",
+                "submit": True,
+            },
+        )
+        assert create_res.status_code == 201
+        claim_id = create_res.json()["data"]["id"]
+
+        totals_res = await client.get(
+            f"/api/v1/compensations/claims/employees/{user1_id}/totals",
+            headers={"Authorization": f"Bearer {user1_token}"},
+        )
+        assert totals_res.status_code == 200
+        totals = totals_res.json()["data"]
+        assert totals["employee_id"] == user1_id
+        assert totals["total_submitted"] == "10.00"
+        assert totals["count_submitted"] == 1
+        assert totals["total_pending_approval"] == "10.00"
+        assert totals["count_pending_approval"] == 1
+        assert totals["total_approved"] == "0.00"
+        assert totals["total_paid"] == "0.00"
+        assert totals["balance"] == "0.00"
+
+        other_totals = await client.get(
+            f"/api/v1/compensations/claims/employees/{user1_id}/totals",
+            headers={"Authorization": f"Bearer {user2_token}"},
+        )
+        assert other_totals.status_code == 403
+
+        approve_res = await client.post(
+            f"/api/v1/compensations/claims/{claim_id}/approve",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={"approve": True},
+        )
+        assert approve_res.status_code == 200
+
+        totals_res2 = await client.get(
+            f"/api/v1/compensations/claims/employees/{user1_id}/totals",
+            headers={"Authorization": f"Bearer {user1_token}"},
+        )
+        assert totals_res2.status_code == 200
+        totals2 = totals_res2.json()["data"]
+        assert totals2["total_pending_approval"] == "0.00"
+        assert totals2["count_pending_approval"] == 0
+        assert totals2["total_approved"] == "10.00"
+        assert totals2["total_paid"] == "0.00"
+        assert totals2["balance"] == "10.00"
+
+        payout_res = await client.post(
+            "/api/v1/compensations/payouts",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "employee_id": user1_id,
+                "payout_date": "2026-02-10",
+                "amount": "4.00",
+                "payment_method": "cash",
+                "reference_number": "Payout-1",
+                "proof_text": "Cash payout",
+            },
+        )
+        assert payout_res.status_code == 200
+
+        totals_res3 = await client.get(
+            f"/api/v1/compensations/claims/employees/{user1_id}/totals",
+            headers={"Authorization": f"Bearer {user1_token}"},
+        )
+        assert totals_res3.status_code == 200
+        totals3 = totals_res3.json()["data"]
+        assert totals3["total_approved"] == "10.00"
+        assert totals3["total_paid"] == "4.00"
+        assert totals3["balance"] == "6.00"

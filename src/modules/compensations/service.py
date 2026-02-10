@@ -21,6 +21,7 @@ from src.modules.compensations.schemas import (
     ExpenseClaimCreate,
     ExpenseClaimUpdate,
     EmployeeBalanceResponse,
+    EmployeeClaimTotalsResponse,
 )
 from src.shared.utils.money import round_money
 from src.modules.procurement.models import (
@@ -480,3 +481,67 @@ class PayoutService:
             )
             for eid in employee_ids
         ]
+
+    async def get_employee_claim_totals(self, employee_id: int) -> EmployeeClaimTotalsResponse:
+        """Return claimant-friendly totals (includes pending approval)."""
+        submitted_statuses = [
+            ExpenseClaimStatus.PENDING_APPROVAL.value,
+            ExpenseClaimStatus.APPROVED.value,
+            ExpenseClaimStatus.REJECTED.value,
+            ExpenseClaimStatus.PARTIALLY_PAID.value,
+            ExpenseClaimStatus.PAID.value,
+        ]
+
+        rows = await self.db.execute(
+            select(
+                ExpenseClaim.status,
+                func.count(ExpenseClaim.id),
+                func.coalesce(func.sum(ExpenseClaim.amount), 0),
+            )
+            .where(
+                ExpenseClaim.employee_id == employee_id,
+                ExpenseClaim.status.in_(submitted_statuses),
+            )
+            .group_by(ExpenseClaim.status)
+        )
+        by_status = {row[0]: (int(row[1]), Decimal(str(row[2]))) for row in rows.all()}
+
+        count_submitted = sum(count for count, _ in by_status.values())
+        total_submitted = sum(total for _, total in by_status.values())
+
+        count_pending, total_pending = by_status.get(
+            ExpenseClaimStatus.PENDING_APPROVAL.value, (0, Decimal("0"))
+        )
+        count_rejected, total_rejected = by_status.get(
+            ExpenseClaimStatus.REJECTED.value, (0, Decimal("0"))
+        )
+
+        total_approved = sum(
+            by_status.get(status, (0, Decimal("0")))[1]
+            for status in (
+                ExpenseClaimStatus.APPROVED.value,
+                ExpenseClaimStatus.PARTIALLY_PAID.value,
+                ExpenseClaimStatus.PAID.value,
+            )
+        )
+
+        paid_total = await self.db.scalar(
+            select(func.coalesce(func.sum(CompensationPayout.amount), 0)).where(
+                CompensationPayout.employee_id == employee_id
+            )
+        )
+        total_paid = Decimal(str(paid_total or 0))
+        balance = total_approved - total_paid
+
+        return EmployeeClaimTotalsResponse(
+            employee_id=employee_id,
+            total_submitted=round_money(total_submitted),
+            count_submitted=count_submitted,
+            total_pending_approval=round_money(total_pending),
+            count_pending_approval=count_pending,
+            total_approved=round_money(total_approved),
+            total_paid=round_money(total_paid),
+            balance=round_money(balance),
+            total_rejected=round_money(total_rejected),
+            count_rejected=count_rejected,
+        )

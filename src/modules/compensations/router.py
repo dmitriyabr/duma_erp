@@ -15,6 +15,7 @@ from src.modules.compensations.schemas import (
     EmployeeBalanceResponse,
     EmployeeBalancesBatchRequest,
     EmployeeBalancesBatchResponse,
+    EmployeeClaimTotalsResponse,
     ExpenseClaimCreate,
     ExpenseClaimResponse,
     ExpenseClaimUpdate,
@@ -215,6 +216,25 @@ async def approve_claim(
         acted_by_id=current_user.id,
     )
     return ApiResponse(success=True, data=_claim_to_response(claim))
+
+
+@router.get(
+    "/employees/{employee_id}/totals",
+    response_model=ApiResponse[EmployeeClaimTotalsResponse],
+)
+async def get_employee_claim_totals(
+    employee_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(*UserRole)),
+):
+    """Get claimant-friendly totals (includes pending approval)."""
+    if current_user.role == UserRole.USER and employee_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view your own totals",
+        )
+    totals = await PayoutService(db).get_employee_claim_totals(employee_id)
+    return ApiResponse(success=True, data=totals)
 
 
 payouts_router = APIRouter(prefix="/compensations/payouts", tags=["Compensations"])

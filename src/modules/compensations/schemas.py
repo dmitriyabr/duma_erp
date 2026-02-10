@@ -140,6 +140,23 @@ class EmployeeBalanceResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class EmployeeClaimTotalsResponse(BaseModel):
+    """Claim totals for an employee (includes pending approval)."""
+
+    employee_id: int
+    total_submitted: Decimal
+    count_submitted: int
+    total_pending_approval: Decimal
+    count_pending_approval: int
+    total_approved: Decimal
+    total_paid: Decimal
+    balance: Decimal
+    total_rejected: Decimal
+    count_rejected: int
+
+    model_config = {"from_attributes": True}
+
+
 class EmployeeBalancesBatchRequest(BaseModel):
     """Request for batch employee balances."""
 
