@@ -202,6 +202,7 @@ class ProcurementPaymentResponse(BaseSchema):
     payment_number: str
     po_id: int | None
     purpose_id: int
+    purpose_name: str | None = None
     payee_name: str | None
     payment_date: date
     amount: Decimal

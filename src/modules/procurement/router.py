@@ -96,6 +96,7 @@ def _payment_to_response(payment) -> ProcurementPaymentResponse:
         payment_number=payment.payment_number,
         po_id=payment.po_id,
         purpose_id=payment.purpose_id,
+        purpose_name=getattr(getattr(payment, "purpose", None), "name", None),
         payee_name=payment.payee_name,
         payment_date=payment.payment_date,
         amount=payment.amount,

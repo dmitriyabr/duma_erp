@@ -8,6 +8,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload
 
 from src.core.documents.number_generator import get_document_number
 from src.core.exceptions import NotFoundError, ValidationError
@@ -967,7 +968,9 @@ class ProcurementPaymentService:
 
     async def get_payment_by_id(self, payment_id: int) -> ProcurementPayment:
         result = await self.db.execute(
-            select(ProcurementPayment).where(ProcurementPayment.id == payment_id)
+            select(ProcurementPayment)
+            .where(ProcurementPayment.id == payment_id)
+            .options(selectinload(ProcurementPayment.purpose))
         )
         payment = result.scalar_one_or_none()
         if not payment:
@@ -977,7 +980,7 @@ class ProcurementPaymentService:
     async def list_payments(
         self, filters: ProcurementPaymentFilters
     ) -> tuple[list[ProcurementPayment], int]:
-        query = select(ProcurementPayment)
+        query = select(ProcurementPayment).options(selectinload(ProcurementPayment.purpose))
         if filters.po_id:
             query = query.where(ProcurementPayment.po_id == filters.po_id)
         if filters.purpose_id:

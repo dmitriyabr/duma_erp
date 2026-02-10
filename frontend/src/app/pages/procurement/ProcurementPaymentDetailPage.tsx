@@ -17,6 +17,7 @@ interface PaymentResponse {
   payment_number: string
   po_id: number | null
   purpose_id: number
+  purpose_name: string | null
   payee_name: string | null
   payment_date: string
   amount: number
@@ -128,6 +129,12 @@ export const ProcurementPaymentDetailPage = () => {
             Amount
           </Typography>
           <Typography variant="h6">{formatMoney(payment.amount)}</Typography>
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Category
+          </Typography>
+          <Typography>{payment.purpose_name ?? '—'}</Typography>
         </div>
         <div>
           <Typography variant="subtitle2" color="secondary" className="mb-1">
