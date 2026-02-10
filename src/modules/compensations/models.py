@@ -49,12 +49,9 @@ class ExpenseClaim(Base):
         BigInteger, ForeignKey("payment_purposes.id"), nullable=False
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
-    payee_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     expense_date: Mapped[date] = mapped_column(Date, nullable=False)
-    proof_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    proof_attachment_id: Mapped[int | None] = mapped_column(BigIntPK, nullable=True)
 
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default=ExpenseClaimStatus.PENDING_APPROVAL.value, index=True

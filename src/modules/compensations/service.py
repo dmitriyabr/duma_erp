@@ -6,7 +6,6 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlalchemy.orm import selectinload
 
 from src.core.documents.number_generator import get_document_number
 from src.core.exceptions import NotFoundError, ValidationError
@@ -24,8 +23,12 @@ from src.modules.compensations.schemas import (
     EmployeeBalanceResponse,
 )
 from src.shared.utils.money import round_money
-from src.modules.procurement.models import ProcurementPayment
-from src.modules.procurement.models import PaymentPurpose
+from src.modules.procurement.models import (
+    PaymentPurpose,
+    ProcurementPayment,
+    ProcurementPaymentMethod,
+    ProcurementPaymentStatus,
+)
 
 
 class ExpenseClaimService:
@@ -43,11 +46,8 @@ class ExpenseClaimService:
             employee_id=payment.employee_paid_id,
             purpose_id=payment.purpose_id,
             amount=payment.amount,
-            payee_name=payment.payee_name,
             description=payment.reference_number or f"Payment {payment.payment_number}",
             expense_date=payment.payment_date,
-            proof_text=payment.proof_text,
-            proof_attachment_id=payment.proof_attachment_id,
             status=ExpenseClaimStatus.PENDING_APPROVAL.value,
             paid_amount=Decimal("0.00"),
             remaining_amount=payment.amount,
@@ -63,35 +63,53 @@ class ExpenseClaimService:
         data: ExpenseClaimCreate,
         *,
         employee_id: int,
+        created_by_id: int,
     ) -> ExpenseClaim:
-        """Create an out-of-pocket expense claim (no procurement payment required)."""
+        """Create an out-of-pocket expense claim (creates a procurement payment under the hood)."""
+        # Proof is always required (we don't support "draft" claims).
+        if not data.proof_text and not data.proof_attachment_id:
+            raise ValidationError("Proof is required: provide proof_text or proof_attachment_id")
+
         # Validate purpose exists (shared catalog for procurement + claims).
         purpose = await self.db.scalar(select(PaymentPurpose).where(PaymentPurpose.id == data.purpose_id))
         if not purpose:
             raise ValidationError("Invalid purpose_id")
 
-        claim_number = await get_document_number(self.db, "CLM")
-        status = (
-            ExpenseClaimStatus.PENDING_APPROVAL.value
-            if data.submit
-            else ExpenseClaimStatus.DRAFT.value
+        payment_number = await get_document_number(self.db, "PPAY")
+        payment = ProcurementPayment(
+            payment_number=payment_number,
+            po_id=None,
+            purpose_id=data.purpose_id,
+            payee_name=data.payee_name,
+            payment_date=data.expense_date,
+            amount=data.amount,
+            payment_method=ProcurementPaymentMethod.CASH.value,
+            reference_number=None,
+            proof_text=data.proof_text,
+            proof_attachment_id=data.proof_attachment_id,
+            company_paid=False,
+            employee_paid_id=employee_id,
+            status=ProcurementPaymentStatus.POSTED.value,
+            created_by_id=created_by_id,
         )
+        self.db.add(payment)
+        await self.db.flush()
+
+        claim_number = await get_document_number(self.db, "CLM")
+        status = ExpenseClaimStatus.PENDING_APPROVAL.value
         claim = ExpenseClaim(
             claim_number=claim_number,
-            payment_id=None,
+            payment_id=payment.id,
             employee_id=employee_id,
             purpose_id=data.purpose_id,
             amount=data.amount,
-            payee_name=data.payee_name,
             description=data.description,
             expense_date=data.expense_date,
-            proof_text=data.proof_text,
-            proof_attachment_id=data.proof_attachment_id,
             status=status,
             paid_amount=Decimal("0.00"),
             remaining_amount=data.amount,
             auto_created_from_payment=False,
-            related_procurement_payment_id=None,
+            related_procurement_payment_id=payment.id,
         )
         self.db.add(claim)
         await self.db.commit()
@@ -110,6 +128,8 @@ class ExpenseClaimService:
             raise ValidationError("Cannot update claim for another employee")
         if claim.status != ExpenseClaimStatus.DRAFT.value:
             raise ValidationError("Only draft claims can be updated")
+        if not claim.payment_id:
+            raise ValidationError("Cannot update claim without linked payment")
 
         update = data.model_dump(exclude_unset=True)
         submit = update.pop("submit", None)
@@ -124,6 +144,26 @@ class ExpenseClaimService:
         for field, value in update.items():
             setattr(claim, field, value)
 
+        # Keep linked procurement payment in sync for expense-related fields.
+        payment = claim.payment
+        if payment is None:
+            payment = await self.db.scalar(select(ProcurementPayment).where(ProcurementPayment.id == claim.payment_id))
+        if payment is None:
+            raise ValidationError("Linked payment not found")
+
+        if "purpose_id" in update and update["purpose_id"] is not None:
+            payment.purpose_id = update["purpose_id"]
+        if "payee_name" in update:
+            payment.payee_name = update["payee_name"]
+        if "expense_date" in update and update["expense_date"] is not None:
+            payment.payment_date = update["expense_date"]
+        if "amount" in update and update["amount"] is not None:
+            payment.amount = update["amount"]
+        if "proof_text" in update:
+            payment.proof_text = update["proof_text"]
+        if "proof_attachment_id" in update:
+            payment.proof_attachment_id = update["proof_attachment_id"]
+
         if "amount" in update and update["amount"] is not None:
             # Keep remaining_amount in sync while still draft (nothing allocated/paid yet).
             claim.paid_amount = Decimal("0.00")
@@ -131,7 +171,7 @@ class ExpenseClaimService:
 
         if submit is True:
             # Validate proof on submit (schema also validates, but keep defensive).
-            if not claim.proof_text and not claim.proof_attachment_id:
+            if not payment.proof_text and not payment.proof_attachment_id:
                 raise ValidationError("Proof is required: provide proof_text or proof_attachment_id")
             claim.status = ExpenseClaimStatus.PENDING_APPROVAL.value
 
@@ -145,14 +185,22 @@ class ExpenseClaimService:
             raise ValidationError("Cannot submit claim for another employee")
         if claim.status != ExpenseClaimStatus.DRAFT.value:
             raise ValidationError("Only draft claims can be submitted")
-        if not claim.proof_text and not claim.proof_attachment_id:
+        payment = claim.payment
+        if payment is None:
+            payment = await self.db.scalar(select(ProcurementPayment).where(ProcurementPayment.id == claim.payment_id))
+        if not payment or (not payment.proof_text and not payment.proof_attachment_id):
             raise ValidationError("Proof is required: provide proof_text or proof_attachment_id")
         claim.status = ExpenseClaimStatus.PENDING_APPROVAL.value
         await self.db.commit()
         return await self.get_claim_by_id(claim_id)
 
     async def approve_claim(
-        self, claim_id: int, approve: bool, reason: str | None = None
+        self,
+        claim_id: int,
+        approve: bool,
+        reason: str | None = None,
+        *,
+        acted_by_id: int,
     ) -> ExpenseClaim:
         """Approve or reject an expense claim."""
         claim = await self.get_claim_by_id(claim_id)
@@ -165,9 +213,25 @@ class ExpenseClaimService:
         if approve:
             claim.status = ExpenseClaimStatus.APPROVED.value
             claim.rejection_reason = None
+            # Ensure remaining_amount reflects the claim amount (defensive).
+            if claim.remaining_amount <= 0:
+                claim.remaining_amount = Decimal(str(claim.amount))
         else:
             claim.status = ExpenseClaimStatus.REJECTED.value
             claim.rejection_reason = reason.strip() if reason else None
+            # Rejected claim means no obligation remains.
+            claim.paid_amount = Decimal("0.00")
+            claim.remaining_amount = Decimal("0.00")
+            # Cancel the linked procurement payment so it doesn't count as an expense.
+            if claim.payment_id:
+                # Use ProcurementPaymentService so PO totals are adjusted if this payment is tied to a PO.
+                from src.modules.procurement.service import ProcurementPaymentService
+
+                await ProcurementPaymentService(self.db).cancel_payment(
+                    claim.payment_id,
+                    reason=claim.rejection_reason or "Rejected",
+                    cancelled_by_id=acted_by_id,
+                )
         await self.db.commit()
         return await self.get_claim_by_id(claim_id)
 
@@ -176,6 +240,7 @@ class ExpenseClaimService:
             select(ExpenseClaim)
             .where(ExpenseClaim.id == claim_id)
             .options(
+                selectinload(ExpenseClaim.payment),
                 selectinload(ExpenseClaim.employee),
                 selectinload(ExpenseClaim.purpose),
             )
@@ -195,6 +260,7 @@ class ExpenseClaimService:
         limit: int = 50,
     ) -> tuple[list[ExpenseClaim], int]:
         query = select(ExpenseClaim).options(
+            selectinload(ExpenseClaim.payment),
             selectinload(ExpenseClaim.employee),
             selectinload(ExpenseClaim.purpose),
         )

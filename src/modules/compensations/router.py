@@ -27,7 +27,29 @@ router = APIRouter(prefix="/compensations/claims", tags=["Compensations"])
 
 
 def _claim_to_response(claim) -> ExpenseClaimResponse:
-    return ExpenseClaimResponse.model_validate(claim)
+    payment = getattr(claim, "payment", None)
+    return ExpenseClaimResponse(
+        id=claim.id,
+        claim_number=claim.claim_number,
+        payment_id=claim.payment_id,
+        employee_id=claim.employee_id,
+        employee_name=claim.employee_name,
+        purpose_id=payment.purpose_id if payment else claim.purpose_id,
+        amount=payment.amount if payment else claim.amount,
+        payee_name=payment.payee_name if payment else None,
+        description=claim.description,
+        rejection_reason=claim.rejection_reason,
+        expense_date=payment.payment_date if payment else claim.expense_date,
+        proof_text=payment.proof_text if payment else None,
+        proof_attachment_id=payment.proof_attachment_id if payment else None,
+        status=claim.status,
+        paid_amount=claim.paid_amount,
+        remaining_amount=claim.remaining_amount,
+        auto_created_from_payment=claim.auto_created_from_payment,
+        related_procurement_payment_id=payment.id if payment else claim.related_procurement_payment_id,
+        created_at=claim.created_at,
+        updated_at=claim.updated_at,
+    )
 
 
 def _payout_to_response(payout) -> CompensationPayoutResponse:
@@ -62,7 +84,11 @@ async def create_claim(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
 
     service = ExpenseClaimService(db)
-    claim = await service.create_out_of_pocket_claim(data, employee_id=employee_id)
+    claim = await service.create_out_of_pocket_claim(
+        data,
+        employee_id=employee_id,
+        created_by_id=current_user.id,
+    )
     return ApiResponse(
         success=True,
         message="Expense claim created",
@@ -183,7 +209,10 @@ async def approve_claim(
     """Approve or reject an expense claim."""
     service = ExpenseClaimService(db)
     claim = await service.approve_claim(
-        claim_id, approve=data.approve, reason=data.reason
+        claim_id,
+        approve=data.approve,
+        reason=data.reason,
+        acted_by_id=current_user.id,
     )
     return ApiResponse(success=True, data=_claim_to_response(claim))
 

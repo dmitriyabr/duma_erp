@@ -352,6 +352,17 @@
 - [x] API endpoints
 - [x] Тесты
 
+### 6.1.1 Канонизация расходов через ProcurementPayment (ExpenseClaim → Payment)
+> Решение: `ProcurementPayment` — единый журнал расходов. Любой `ExpenseClaim` всегда создаёт `ProcurementPayment` (без PO) и становится workflow-обёрткой вокруг него. UX claim-страниц не меняем.
+
+- [x] Backend: при создании ExpenseClaim создавать связанный ProcurementPayment (company_paid=false, employee_paid_id=employee_id)
+- [x] Backend: убрать рекурсию/дубли (payment.employee_paid_id не должен автосоздавать второй claim, если payment создан из claim)
+- [x] Backend: в API ExpenseClaim возвращать поля расхода из ProcurementPayment (amount/date/purpose/payee/proof)
+- [x] Backend: при reject claim отменять связанный ProcurementPayment (status=cancelled + reason)
+- [x] Backend: если есть edit неаппрувнутого claim — синхронизировать изменения в ProcurementPayment
+- [x] Тесты: создание claim создаёт payment; reject claim отменяет payment
+- [x] Документация: обновить BACKEND_API.md (ExpenseClaims ↔ ProcurementPayments связь и поведение reject)
+
 ### 6.2 Выплаты (Payouts)
 > Решения: Можно выплатить больше баланса (аванс), FIFO аллокация, proof обязателен
 
@@ -667,8 +678,8 @@
 **Out-of-pocket (быстрые покупки сотрудника) → Expense Claim:**
 > Цель: отдельный простой флоу для мелких покупок (fuel, groceries, small repairs), без PO/GRN.
 > Сущность: `ExpenseClaim` создаётся напрямую сотрудником (или админом), затем утверждается и оплачивается `CompensationPayout`.
-- [x] Backend: сделать `expense_claims.payment_id` nullable и убрать unique (claim может существовать без procurement payment)
-- [x] Backend: добавить в claim собственные поля `payee_name`, `proof_text`, `proof_attachment_id` (чтобы не зависеть от procurement payment)
+- [x] Backend: `ExpenseClaim` создаётся напрямую, но под капотом всегда создаётся `ProcurementPayment` без PO (канонический журнал расходов)
+- [x] Backend: proof/payee живут в `ProcurementPayment` (claim-level `payee_name/proof_*` больше не нужны)
 - [x] Backend: добавить API для создания claim (User создаёт для себя; Admin/SuperAdmin — для любого сотрудника)
 - [x] Backend: разрешить User читать `GET /procurement/payment-purposes` (для выбора категории расходов)
 - [x] Frontend: страница создания claim `/compensations/claims/new` + кнопка "New claim" в списке

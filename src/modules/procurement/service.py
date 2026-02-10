@@ -896,7 +896,11 @@ class ProcurementPaymentService:
         self.po_service = PurchaseOrderService(db)
 
     async def create_payment(
-        self, data: ProcurementPaymentCreate, created_by_id: int
+        self,
+        data: ProcurementPaymentCreate,
+        created_by_id: int,
+        *,
+        auto_create_claim: bool = True,
     ) -> ProcurementPayment:
         payment_number = await get_document_number(self.db, "PPAY")
 
@@ -935,7 +939,7 @@ class ProcurementPaymentService:
             po.paid_total += data.amount
             await self.po_service._recalculate_totals(po.id)
 
-        if payment.employee_paid_id:
+        if auto_create_claim and payment.employee_paid_id:
             await ExpenseClaimService(self.db).create_from_payment(payment)
 
         await self.db.commit()

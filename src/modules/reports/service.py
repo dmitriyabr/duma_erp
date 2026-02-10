@@ -338,14 +338,9 @@ class ReportsService:
             )
         )
         proc_total = round_money(Decimal(str(proc.scalar() or 0)))
-        comp = await self.db.execute(
-            select(func.coalesce(func.sum(CompensationPayout.amount), 0)).where(
-                CompensationPayout.payout_date >= date_from,
-                CompensationPayout.payout_date <= date_to,
-            )
-        )
-        comp_total = round_money(Decimal(str(comp.scalar() or 0)))
-        total_expenses = round_money(proc_total + comp_total)
+        # P&L is accrual-based in MVP: expenses are recognized via ProcurementPayment journal.
+        # Compensation payouts are settlements and should not be counted as expenses again.
+        total_expenses = round_money(proc_total)
         net_profit = round_money(net_revenue - total_expenses)
         return {
             "revenue_lines": revenue_lines,
@@ -353,7 +348,6 @@ class ReportsService:
             "total_discounts": total_discounts,
             "net_revenue": net_revenue,
             "proc_total": proc_total,
-            "comp_total": comp_total,
             "total_expenses": total_expenses,
             "net_profit": net_profit,
         }
@@ -378,7 +372,6 @@ class ReportsService:
         ]
         expense_lines = [
             ProfitLossExpenseLine(label="Procurement (Inventory)", amount=full["proc_total"]),
-            ProfitLossExpenseLine(label="Employee Compensations", amount=full["comp_total"]),
         ]
         profit_margin_percent = (
             round(float(full["net_profit"] / full["net_revenue"] * 100), 2)
@@ -405,7 +398,6 @@ class ReportsService:
         discounts_monthly: dict[str, Decimal] = {}
         net_rev_monthly: dict[str, Decimal] = {}
         proc_monthly: dict[str, Decimal] = {}
-        comp_monthly: dict[str, Decimal] = {}
         total_exp_monthly: dict[str, Decimal] = {}
         net_profit_monthly: dict[str, Decimal] = {}
         profit_margin_monthly: dict[str, float] = {}
@@ -418,7 +410,6 @@ class ReportsService:
             discounts_monthly[mo] = period["total_discounts"]
             net_rev_monthly[mo] = period["net_revenue"]
             proc_monthly[mo] = period["proc_total"]
-            comp_monthly[mo] = period["comp_total"]
             total_exp_monthly[mo] = period["total_expenses"]
             net_profit_monthly[mo] = period["net_profit"]
             if period["net_revenue"] and period["net_revenue"] > 0:
@@ -430,7 +421,6 @@ class ReportsService:
         for line in revenue_lines:
             line.monthly = dict(rev_by_label.get(line.label, {}))
         expense_lines[0].monthly = dict(proc_monthly)
-        expense_lines[1].monthly = dict(comp_monthly)
         out["months"] = months
         out["gross_revenue_monthly"] = gross_monthly
         out["total_discounts_monthly"] = discounts_monthly
@@ -468,6 +458,7 @@ class ReportsService:
         proc_out = await self.db.execute(
             select(func.coalesce(func.sum(ProcurementPayment.amount), 0)).where(
                 ProcurementPayment.status == ProcurementPaymentStatus.POSTED.value,
+                ProcurementPayment.company_paid.is_(True),
                 ProcurementPayment.payment_date >= date_from,
                 ProcurementPayment.payment_date <= date_to,
             )
@@ -514,6 +505,7 @@ class ReportsService:
         proc_before = await self.db.execute(
             select(func.coalesce(func.sum(ProcurementPayment.amount), 0)).where(
                 ProcurementPayment.status == ProcurementPaymentStatus.POSTED.value,
+                ProcurementPayment.company_paid.is_(True),
                 ProcurementPayment.payment_date < date_from,
             )
         )
@@ -598,6 +590,7 @@ class ReportsService:
         proc = await self.db.execute(
             select(func.coalesce(func.sum(ProcurementPayment.amount), 0)).where(
                 ProcurementPayment.status == ProcurementPaymentStatus.POSTED.value,
+                ProcurementPayment.company_paid.is_(True),
                 ProcurementPayment.payment_date <= as_at_date,
             )
         )

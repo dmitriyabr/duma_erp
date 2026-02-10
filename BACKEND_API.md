@@ -251,12 +251,12 @@
 - `POST /procurement/payments/{payment_id}/cancel`
 
 ### 5.13. Compensations
-- `POST /compensations/claims` — создать out-of-pocket claim (без PO/GRN; для сотрудника возврат денег)
+- `POST /compensations/claims` — создать out-of-pocket claim (без PO/GRN; для сотрудника возврат денег). Под капотом создаёт `ProcurementPayment` без PO (универсальный журнал расходов) и привязывает его к claim.
 - `GET /compensations/claims` — filters: `employee_id`, `status`, `date_from`, `date_to`, `page`, `limit`
 - `GET /compensations/claims/{claim_id}`
 - `PATCH /compensations/claims/{claim_id}` — обновить draft claim (до отправки на approve)
 - `POST /compensations/claims/{claim_id}/submit` — отправить draft на approve
-- `POST /compensations/claims/{claim_id}/approve`
+- `POST /compensations/claims/{claim_id}/approve` — при `approve=false` linked `ProcurementPayment` переводится в `cancelled` (расход не признан компанией).
 - `POST /compensations/payouts`
 - `GET /compensations/payouts` — filters: `employee_id`, `date_from`, `date_to`, `page`, `limit`
 - `GET /compensations/payouts/{payout_id}`

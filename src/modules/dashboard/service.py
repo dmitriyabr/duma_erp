@@ -119,9 +119,9 @@ class DashboardService:
 
         procurement_total_this_year = expenses_data[0]
         employee_compensations_this_year = expenses_data[1]
-        total_expenses_this_year = round_money(
-            procurement_total_this_year + employee_compensations_this_year
-        )
+        # Align with P&L: expenses are recognized via ProcurementPayment journal.
+        # Compensation payouts are settlements and should not be counted as expenses again.
+        total_expenses_this_year = round_money(procurement_total_this_year)
 
         active_students_count = student_data[0]
         student_debts_total = student_data[1]

@@ -78,18 +78,29 @@ class TestExpenseClaimsOutOfPocket:
         claim = create_res.json()["data"]
         assert claim["employee_id"] == user_id
         assert claim["employee_name"] == "User"
-        assert claim["payment_id"] is None
+        assert claim["payment_id"] is not None
         assert claim["auto_created_from_payment"] is False
         assert claim["status"] == "pending_approval"
         assert claim["proof_text"] == "Receipt #ABC"
 
         claim_id = claim["id"]
+        payment_id = claim["payment_id"]
 
         get_res = await client.get(
             f"/api/v1/compensations/claims/{claim_id}",
             headers={"Authorization": f"Bearer {user_token}"},
         )
         assert get_res.status_code == 200
+
+        payment_res = await client.get(
+            f"/api/v1/procurement/payments/{payment_id}",
+            headers={"Authorization": f"Bearer {super_token}"},
+        )
+        assert payment_res.status_code == 200
+        payment = payment_res.json()["data"]
+        assert payment["company_paid"] is False
+        assert payment["employee_paid_id"] == user_id
+        assert payment["status"] == "posted"
 
     async def test_user_cannot_view_other_users_claim(self, client: AsyncClient, db_session: AsyncSession):
         _, super_token = await _create_user_and_token(
@@ -182,3 +193,61 @@ class TestExpenseClaimsOutOfPocket:
             },
         )
         assert res.status_code == 422
+
+    async def test_reject_claim_cancels_linked_payment(self, client: AsyncClient, db_session: AsyncSession):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="superadmin-claims4@test.com",
+            password="Password123",
+            full_name="Super Admin",
+            role=UserRole.SUPER_ADMIN,
+        )
+        purpose_id = await self._create_purpose(client, super_token)
+
+        user_id, user_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="user4-claims@test.com",
+            password="Password123",
+            full_name="User",
+            role=UserRole.USER,
+        )
+
+        create_res = await client.post(
+            "/api/v1/compensations/claims",
+            headers={"Authorization": f"Bearer {user_token}"},
+            json={
+                "purpose_id": purpose_id,
+                "amount": "10.00",
+                "description": "Snacks",
+                "expense_date": "2026-02-09",
+                "proof_text": "Receipt #snacks",
+                "submit": True,
+            },
+        )
+        assert create_res.status_code == 201
+        claim = create_res.json()["data"]
+        claim_id = claim["id"]
+        payment_id = claim["payment_id"]
+
+        reject_res = await client.post(
+            f"/api/v1/compensations/claims/{claim_id}/approve",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={"approve": False, "reason": "Not a company expense"},
+        )
+        assert reject_res.status_code == 200
+        rejected = reject_res.json()["data"]
+        assert rejected["status"] == "rejected"
+        assert rejected["rejection_reason"] == "Not a company expense"
+        assert rejected["remaining_amount"] == "0.00"
+
+        payment_res = await client.get(
+            f"/api/v1/procurement/payments/{payment_id}",
+            headers={"Authorization": f"Bearer {super_token}"},
+        )
+        assert payment_res.status_code == 200
+        payment = payment_res.json()["data"]
+        assert payment["status"] == "cancelled"
+        assert payment["cancelled_reason"] == "Not a company expense"
+        assert payment["employee_paid_id"] == user_id

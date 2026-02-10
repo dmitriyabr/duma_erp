@@ -201,7 +201,7 @@ export const DashboardPage = () => {
                     {formatMoney(dashboard.total_expenses_this_year)}
                   </Typography>
                   <button
-                    onClick={() => navigate('/reports/profit-loss')}
+                    onClick={() => navigate('/reports/financial/profit-loss')}
                     className="mt-2 text-xs text-primary hover:underline"
                   >
                     View report
