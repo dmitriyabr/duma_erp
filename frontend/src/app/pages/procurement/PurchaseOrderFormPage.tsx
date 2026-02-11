@@ -29,6 +29,7 @@ import { Trash2, Plus } from 'lucide-react'
 interface PurposeRow {
   id: number
   name: string
+  purpose_type?: 'expense' | 'fee'
 }
 
 interface InventoryItemRow {
@@ -123,7 +124,7 @@ export const PurchaseOrderFormPage = () => {
 
   const { data: purposesData } = useApi<PurposeRow[]>(
     '/procurement/payment-purposes',
-    { params: { include_inactive: true } }
+    { params: { include_inactive: true, purpose_type: 'expense' } }
   )
   const { data: itemsData, refetch: refetchItems } = useApi<InventoryItemRow[]>(
     '/items',
@@ -221,6 +222,7 @@ export const PurchaseOrderFormPage = () => {
     try {
       const response = await api.post<ApiResponse<PurposeRow>>('/procurement/payment-purposes', {
         name: newPurposeName.trim(),
+        purpose_type: 'expense',
       })
       const newPurpose = response.data.data
       setLocalPurposes((prev) => [newPurpose, ...prev])

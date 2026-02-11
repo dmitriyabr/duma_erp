@@ -223,6 +223,9 @@ class PaymentPurpose(Base):
         String(200), nullable=False, unique=True, index=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    purpose_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="expense", index=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -245,6 +248,7 @@ class ProcurementPaymentStatus(StrEnum):
 class ProcurementPaymentMethod(StrEnum):
     """Procurement payment method."""
 
+    EMPLOYEE = "employee"
     MPESA = "mpesa"
     BANK = "bank"
     CASH = "cash"

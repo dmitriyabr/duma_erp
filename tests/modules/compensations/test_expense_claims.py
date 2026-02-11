@@ -252,6 +252,91 @@ class TestExpenseClaimsOutOfPocket:
         assert payment["cancelled_reason"] == "Not a company expense"
         assert payment["employee_paid_id"] == user_id
 
+    async def test_claim_with_transaction_fee_creates_fee_payment_and_reimburses_total(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="superadmin-claims-fee@test.com",
+            password="Password123",
+            full_name="Super Admin",
+            role=UserRole.SUPER_ADMIN,
+        )
+        purpose_id = await self._create_purpose(client, super_token)
+
+        user_id, user_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="user-claims-fee@test.com",
+            password="Password123",
+            full_name="User",
+            role=UserRole.USER,
+        )
+
+        create_res = await client.post(
+            "/api/v1/compensations/claims",
+            headers={"Authorization": f"Bearer {user_token}"},
+            json={
+                "purpose_id": purpose_id,
+                "amount": "10.00",
+                "payee_name": "Shop",
+                "description": "Small purchase",
+                "expense_date": "2026-02-09",
+                "proof_text": "Receipt #123",
+                "fee_amount": "1.00",
+                "fee_proof_text": "M-Pesa fee SMS #FEE",
+                "submit": True,
+            },
+        )
+        assert create_res.status_code == 201
+        claim = create_res.json()["data"]
+        assert claim["employee_id"] == user_id
+        assert claim["amount"] == "11.00"
+        assert claim["expense_amount"] == "10.00"
+        assert claim["fee_amount"] == "1.00"
+        assert claim["fee_payment_id"] is not None
+
+        main_payment_id = claim["payment_id"]
+        fee_payment_id = claim["fee_payment_id"]
+
+        main_payment_res = await client.get(
+            f"/api/v1/procurement/payments/{main_payment_id}",
+            headers={"Authorization": f"Bearer {super_token}"},
+        )
+        assert main_payment_res.status_code == 200
+        main_payment = main_payment_res.json()["data"]
+        assert main_payment["company_paid"] is False
+        assert main_payment["employee_paid_id"] == user_id
+        assert main_payment["payment_method"] == "employee"
+        assert main_payment["status"] == "posted"
+
+        fee_payment_res = await client.get(
+            f"/api/v1/procurement/payments/{fee_payment_id}",
+            headers={"Authorization": f"Bearer {super_token}"},
+        )
+        assert fee_payment_res.status_code == 200
+        fee_payment = fee_payment_res.json()["data"]
+        assert fee_payment["purpose_name"] == "Transaction Fees"
+        assert fee_payment["company_paid"] is False
+        assert fee_payment["employee_paid_id"] == user_id
+        assert fee_payment["payment_method"] == "employee"
+        assert fee_payment["status"] == "posted"
+
+        reject_res = await client.post(
+            f"/api/v1/compensations/claims/{claim['id']}/approve",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={"approve": False, "reason": "Not approved"},
+        )
+        assert reject_res.status_code == 200
+
+        fee_payment_res2 = await client.get(
+            f"/api/v1/procurement/payments/{fee_payment_id}",
+            headers={"Authorization": f"Bearer {super_token}"},
+        )
+        assert fee_payment_res2.status_code == 200
+        assert fee_payment_res2.json()["data"]["status"] == "cancelled"
+
     async def test_employee_claim_totals_include_pending_and_balance(self, client: AsyncClient, db_session: AsyncSession):
         _, super_token = await _create_user_and_token(
             client,

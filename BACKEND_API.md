@@ -243,21 +243,22 @@
 - `POST /procurement/grns/{grn_id}/cancel`
 - `POST /procurement/grns/{grn_id}/rollback` — **SUPER_ADMIN only**. Откат approved GRN: отменяет этот GRN, откатывает `quantity_received` по линиям PO и (если `track_to_warehouse=true`) создаёт компенсационные stock movements, чтобы вернуть склад. Ограничения: для затронутых items не должно быть более поздних `receipt`-движений (иначе нельзя безопасно восстановить average cost). Если по PO уже есть оплаты (`paid_total > 0`), откат всё равно возможен — в этом случае после rollback `debt_amount` может стать отрицательным (это фактически аванс поставщику: “paid, not received”).
 - `POST /procurement/payment-purposes`
-- `GET /procurement/payment-purposes`
+- `GET /procurement/payment-purposes` — optional filter: `purpose_type=expense|fee`
 - `PUT /procurement/payment-purposes/{purpose_id}`
 - `POST /procurement/payments`
 - `GET /procurement/payments` — filters: `po_id`, `purpose_id`, `status`, `date_from`, `date_to`, `page`, `limit`
 - `GET /procurement/payments/{payment_id}`
 - `POST /procurement/payments/{payment_id}/cancel`
+> Note: если `employee_paid_id` указан (то есть платил сотрудник, `company_paid=false`), то `payment_method` канонизируется в `employee` (это не способ оплаты компании, а маркер “paid by employee”).
 
 ### 5.13. Compensations
-- `POST /compensations/claims` — создать out-of-pocket claim (без PO/GRN; для сотрудника возврат денег). Под капотом создаёт `ProcurementPayment` без PO (универсальный журнал расходов) и привязывает его к claim.
+- `POST /compensations/claims` — создать out-of-pocket claim (без PO/GRN; для сотрудника возврат денег). Под капотом создаёт `ProcurementPayment` без PO (универсальный журнал расходов) и привязывает его к claim. Опционально поддерживает `fee_amount` (+ отдельный proof): в этом случае создаётся второй linked payment (purpose="Transaction Fees") и fee включается в total claim amount.
 - `GET /compensations/claims` — filters: `employee_id`, `status`, `date_from`, `date_to`, `page`, `limit`
 - `GET /compensations/claims/{claim_id}`
 - `GET /compensations/claims/employees/{employee_id}/totals` — totals для сотрудника (включая pending approval): total claimed, pending approval, approved totals, paid totals, owed.
 - `PATCH /compensations/claims/{claim_id}` — обновить draft claim (до отправки на approve)
 - `POST /compensations/claims/{claim_id}/submit` — отправить draft на approve
-- `POST /compensations/claims/{claim_id}/approve` — при `approve=false` linked `ProcurementPayment` переводится в `cancelled` (расход не признан компанией).
+- `POST /compensations/claims/{claim_id}/approve` — при `approve=false` linked `ProcurementPayment` (и fee payment, если есть) переводится в `cancelled` (расход не признан компанией).
 - `POST /compensations/payouts`
 - `GET /compensations/payouts` — filters: `employee_id`, `date_from`, `date_to`, `page`, `limit`
 - `GET /compensations/payouts/{payout_id}`

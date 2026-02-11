@@ -61,6 +61,7 @@ class TestCompensationPayouts:
                 "amount": "100.00",
                 "payment_method": "cash",
                 "proof_text": "Receipt",
+                "company_paid": False,
                 "employee_paid_id": employee_id,
             },
         )

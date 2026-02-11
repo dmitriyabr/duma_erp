@@ -2,6 +2,7 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import Field, model_validator
 
@@ -154,6 +155,7 @@ class PaymentPurposeCreate(BaseSchema):
     """Schema for creating a payment purpose."""
 
     name: str = Field(..., min_length=1, max_length=200)
+    purpose_type: Literal["expense", "fee"] = "expense"
 
 
 class PaymentPurposeUpdate(BaseSchema):
@@ -161,6 +163,7 @@ class PaymentPurposeUpdate(BaseSchema):
 
     name: str | None = Field(None, min_length=1, max_length=200)
     is_active: bool | None = None
+    purpose_type: Literal["expense", "fee"] | None = None
 
 
 class PaymentPurposeResponse(BaseSchema):
@@ -169,6 +172,7 @@ class PaymentPurposeResponse(BaseSchema):
     id: int
     name: str
     is_active: bool
+    purpose_type: str
     created_at: datetime
     updated_at: datetime
 

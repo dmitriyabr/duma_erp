@@ -17,16 +17,22 @@ import { Spinner } from '../../components/ui/Spinner'
 interface ClaimResponse {
   id: number
   claim_number: string
+  payment_id: number | null
+  fee_payment_id: number | null
   employee_id: number
   employee_name: string
   purpose_id: number
   amount: number
+  expense_amount: number
+  fee_amount: number
   payee_name: string | null
   description: string
   rejection_reason: string | null
   expense_date: string
   proof_text: string | null
   proof_attachment_id: number | null
+  fee_proof_text: string | null
+  fee_proof_attachment_id: number | null
   status: string
   paid_amount: number
   remaining_amount: number
@@ -54,6 +60,14 @@ export const ExpenseClaimDetailPage = () => {
   const { execute: rejectClaim, loading: _rejecting, error: rejectError } = useApiMutation()
 
   const [proofPreview, setState] = useState<{
+    url: string | null
+    contentType: string | null
+    fileName: string | null
+    loading: boolean
+    error: string | null
+  }>({ url: null, contentType: null, fileName: null, loading: false, error: null })
+
+  const [feeProofPreview, setFeeProofPreview] = useState<{
     url: string | null
     contentType: string | null
     fileName: string | null
@@ -120,6 +134,61 @@ export const ExpenseClaimDetailPage = () => {
       cancelled = true
     }
   }, [claim?.proof_attachment_id])
+
+  useEffect(() => {
+    const attachmentId = claim?.fee_proof_attachment_id
+    if (!attachmentId) {
+      queueMicrotask(() => {
+        setFeeProofPreview((prev) => {
+          if (prev.url) URL.revokeObjectURL(prev.url)
+          return { url: null, contentType: null, fileName: null, loading: false, error: null }
+        })
+      })
+      return
+    }
+
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) setFeeProofPreview((prev) => ({ ...prev, loading: true, error: null }))
+    })
+
+    api
+      .get(`/attachments/${attachmentId}/download`, { responseType: 'blob' })
+      .then((res) => {
+        const blob = res.data as Blob
+        const url = URL.createObjectURL(blob)
+
+        const disposition = (res.headers as Record<string, string | undefined>)['content-disposition']
+        const match = disposition?.match(/filename="?([^";]+)"?/)
+        const filename = match?.[1] ?? null
+
+        if (cancelled) {
+          URL.revokeObjectURL(url)
+          return
+        }
+
+        setFeeProofPreview((prev) => {
+          if (prev.url) URL.revokeObjectURL(prev.url)
+          return {
+            url,
+            contentType: blob.type || null,
+            fileName: filename,
+            loading: false,
+            error: null,
+          }
+        })
+      })
+      .catch(() => {
+        if (!cancelled) setFeeProofPreview((prev) => ({ ...prev, loading: false, error: 'Failed to load fee proof preview.' }))
+      })
+      .finally(() => {
+        if (!cancelled) setFeeProofPreview((prev) => ({ ...prev, loading: false }))
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [claim?.fee_proof_attachment_id])
 
   const handleApprove = async () => {
     if (!resolvedId) return
@@ -235,9 +304,21 @@ export const ExpenseClaimDetailPage = () => {
         </div>
         <div>
           <Typography variant="subtitle2" color="secondary" className="mb-1">
-            Amount
+            Total amount
           </Typography>
           <Typography variant="h6">{formatMoney(claim.amount)}</Typography>
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Expense amount
+          </Typography>
+          <Typography>{formatMoney(claim.expense_amount)}</Typography>
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Transaction fee
+          </Typography>
+          <Typography>{formatMoney(claim.fee_amount)}</Typography>
         </div>
         <div>
           <Typography variant="subtitle2" color="secondary" className="mb-1">
@@ -338,6 +419,62 @@ export const ExpenseClaimDetailPage = () => {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {(claim.fee_amount > 0 || claim.fee_proof_text || claim.fee_proof_attachment_id != null) && (
+        <div className="mb-6">
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Fee proof
+          </Typography>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Typography>
+              {claim.fee_proof_text ??
+                (claim.fee_proof_attachment_id != null
+                  ? `Fee proof file attached${feeProofPreview.fileName ? ` (${feeProofPreview.fileName})` : ''}`
+                  : '—')}
+            </Typography>
+            {claim.fee_proof_attachment_id != null && (
+              <Button size="small" variant="outlined" onClick={() => openAttachmentInNewTab(claim.fee_proof_attachment_id!)}>
+                Open
+              </Button>
+            )}
+          </div>
+
+          {claim.fee_proof_attachment_id != null && (
+            <div className="mt-3">
+              {feeProofPreview.loading && (
+                <div className="flex items-center gap-2">
+                  <Spinner size="small" />
+                  <Typography variant="body2" color="secondary">
+                    Loading preview...
+                  </Typography>
+                </div>
+              )}
+              {feeProofPreview.error && <Alert severity="error">{feeProofPreview.error}</Alert>}
+              {!feeProofPreview.loading && !feeProofPreview.error && feeProofPreview.url && (
+                <>
+                  {feeProofPreview.contentType?.startsWith('image/') ? (
+                    <img
+                      src={feeProofPreview.url}
+                      alt={feeProofPreview.fileName ?? 'Fee proof'}
+                      className="w-full max-h-[70vh] object-contain rounded-xl border border-slate-200 bg-white"
+                    />
+                  ) : feeProofPreview.contentType === 'application/pdf' ? (
+                    <iframe
+                      src={feeProofPreview.url}
+                      title={feeProofPreview.fileName ?? 'Fee proof PDF'}
+                      className="w-full h-[70vh] rounded-xl border border-slate-200 bg-white"
+                    />
+                  ) : (
+                    <Typography variant="body2" color="secondary">
+                      Preview is not available for this file type.
+                    </Typography>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
 

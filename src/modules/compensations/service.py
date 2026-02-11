@@ -38,15 +38,33 @@ class ExpenseClaimService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    async def _get_or_create_transaction_fee_purpose(self) -> PaymentPurpose:
+        purpose = await self.db.scalar(
+            select(PaymentPurpose).where(PaymentPurpose.name.ilike("Transaction Fees"))
+        )
+        if purpose:
+            # Ensure correct type (backwards compatible if it existed before purpose_type).
+            if getattr(purpose, "purpose_type", None) != "fee":
+                purpose.purpose_type = "fee"
+                await self.db.flush()
+            return purpose
+
+        purpose = PaymentPurpose(name="Transaction Fees", is_active=True, purpose_type="fee")
+        self.db.add(purpose)
+        await self.db.flush()
+        return purpose
+
     async def create_from_payment(self, payment: ProcurementPayment) -> ExpenseClaim:
         """Create expense claim from procurement payment."""
         claim_number = await get_document_number(self.db, "CLM")
         claim = ExpenseClaim(
             claim_number=claim_number,
             payment_id=payment.id,
+            fee_payment_id=None,
             employee_id=payment.employee_paid_id,
             purpose_id=payment.purpose_id,
             amount=payment.amount,
+            fee_amount=Decimal("0.00"),
             description=payment.reference_number or f"Payment {payment.payment_number}",
             expense_date=payment.payment_date,
             status=ExpenseClaimStatus.PENDING_APPROVAL.value,
@@ -84,7 +102,7 @@ class ExpenseClaimService:
             payee_name=data.payee_name,
             payment_date=data.expense_date,
             amount=data.amount,
-            payment_method=ProcurementPaymentMethod.CASH.value,
+            payment_method=ProcurementPaymentMethod.EMPLOYEE.value,
             reference_number=None,
             proof_text=data.proof_text,
             proof_attachment_id=data.proof_attachment_id,
@@ -96,19 +114,48 @@ class ExpenseClaimService:
         self.db.add(payment)
         await self.db.flush()
 
+        fee_amount = Decimal(str(data.fee_amount)) if data.fee_amount and data.fee_amount > 0 else Decimal("0.00")
+        fee_payment_id: int | None = None
+        if fee_amount > 0:
+            fee_purpose = await self._get_or_create_transaction_fee_purpose()
+
+            fee_payment_number = await get_document_number(self.db, "PPAY")
+            fee_payment = ProcurementPayment(
+                payment_number=fee_payment_number,
+                po_id=None,
+                purpose_id=fee_purpose.id,
+                payee_name="M-Pesa",
+                payment_date=data.expense_date,
+                amount=fee_amount,
+                payment_method=ProcurementPaymentMethod.EMPLOYEE.value,
+                reference_number=None,
+                proof_text=data.fee_proof_text,
+                proof_attachment_id=data.fee_proof_attachment_id,
+                company_paid=False,
+                employee_paid_id=employee_id,
+                status=ProcurementPaymentStatus.POSTED.value,
+                created_by_id=created_by_id,
+            )
+            self.db.add(fee_payment)
+            await self.db.flush()
+            fee_payment_id = fee_payment.id
+
         claim_number = await get_document_number(self.db, "CLM")
         status = ExpenseClaimStatus.PENDING_APPROVAL.value
+        total_amount = Decimal(str(data.amount)) + fee_amount
         claim = ExpenseClaim(
             claim_number=claim_number,
             payment_id=payment.id,
+            fee_payment_id=fee_payment_id,
             employee_id=employee_id,
             purpose_id=data.purpose_id,
-            amount=data.amount,
+            amount=total_amount,
+            fee_amount=fee_amount,
             description=data.description,
             expense_date=data.expense_date,
             status=status,
             paid_amount=Decimal("0.00"),
-            remaining_amount=data.amount,
+            remaining_amount=total_amount,
             auto_created_from_payment=False,
             related_procurement_payment_id=payment.id,
         )
@@ -135,15 +182,14 @@ class ExpenseClaimService:
         update = data.model_dump(exclude_unset=True)
         submit = update.pop("submit", None)
 
-        if "purpose_id" in update and update["purpose_id"] is not None:
-            purpose = await self.db.scalar(
-                select(PaymentPurpose).where(PaymentPurpose.id == update["purpose_id"])
-            )
-            if not purpose:
-                raise ValidationError("Invalid purpose_id")
-
-        for field, value in update.items():
-            setattr(claim, field, value)
+        # Extract fee-related updates (these live on the optional fee payment, not on the claim row).
+        fee_amount = None
+        if "fee_amount" in update:
+            fee_amount = Decimal(str(update.pop("fee_amount") or 0))
+        fee_proof_text = update.pop("fee_proof_text", None) if "fee_proof_text" in update else None
+        fee_proof_attachment_id = (
+            update.pop("fee_proof_attachment_id", None) if "fee_proof_attachment_id" in update else None
+        )
 
         # Keep linked procurement payment in sync for expense-related fields.
         payment = claim.payment
@@ -152,28 +198,117 @@ class ExpenseClaimService:
         if payment is None:
             raise ValidationError("Linked payment not found")
 
+        # Validate purpose exists (shared catalog for procurement + claims).
         if "purpose_id" in update and update["purpose_id"] is not None:
+            purpose = await self.db.scalar(select(PaymentPurpose).where(PaymentPurpose.id == update["purpose_id"]))
+            if not purpose:
+                raise ValidationError("Invalid purpose_id")
+            claim.purpose_id = update["purpose_id"]
             payment.purpose_id = update["purpose_id"]
+
+        if "description" in update and update["description"] is not None:
+            claim.description = update["description"]
+
         if "payee_name" in update:
             payment.payee_name = update["payee_name"]
+
         if "expense_date" in update and update["expense_date"] is not None:
+            claim.expense_date = update["expense_date"]
             payment.payment_date = update["expense_date"]
+
         if "amount" in update and update["amount"] is not None:
             payment.amount = update["amount"]
+
         if "proof_text" in update:
             payment.proof_text = update["proof_text"]
         if "proof_attachment_id" in update:
             payment.proof_attachment_id = update["proof_attachment_id"]
 
-        if "amount" in update and update["amount"] is not None:
-            # Keep remaining_amount in sync while still draft (nothing allocated/paid yet).
-            claim.paid_amount = Decimal("0.00")
-            claim.remaining_amount = Decimal(str(claim.amount))
+        # Fee payment sync (optional)
+        if fee_amount is not None:
+            if fee_amount < 0:
+                raise ValidationError("fee_amount must be >= 0")
+
+            if fee_amount == 0:
+                # Remove fee from claim; cancel fee payment if exists.
+                if claim.fee_payment_id:
+                    from src.modules.procurement.service import ProcurementPaymentService
+
+                    await ProcurementPaymentService(self.db).cancel_payment(
+                        claim.fee_payment_id,
+                        reason="Fee removed",
+                        cancelled_by_id=employee_id,
+                    )
+                claim.fee_payment_id = None
+                claim.fee_amount = Decimal("0.00")
+            else:
+                # Ensure fee proof exists if fee is present.
+                if not fee_proof_text and not fee_proof_attachment_id:
+                    fee_payment = claim.fee_payment
+                    if fee_payment is None and claim.fee_payment_id:
+                        fee_payment = await self.db.scalar(
+                            select(ProcurementPayment).where(ProcurementPayment.id == claim.fee_payment_id)
+                        )
+                    if not fee_payment or (not fee_payment.proof_text and not fee_payment.proof_attachment_id):
+                        raise ValidationError("Fee proof is required: provide fee_proof_text or fee_proof_attachment_id")
+
+                fee_purpose = await self._get_or_create_transaction_fee_purpose()
+
+                fee_payment = claim.fee_payment
+                if fee_payment is None and claim.fee_payment_id:
+                    fee_payment = await self.db.scalar(
+                        select(ProcurementPayment).where(ProcurementPayment.id == claim.fee_payment_id)
+                    )
+
+                if fee_payment is None:
+                    fee_payment_number = await get_document_number(self.db, "PPAY")
+                    fee_payment = ProcurementPayment(
+                        payment_number=fee_payment_number,
+                        po_id=None,
+                        purpose_id=fee_purpose.id,
+                        payee_name="M-Pesa",
+                        payment_date=payment.payment_date,
+                        amount=fee_amount,
+                        payment_method=ProcurementPaymentMethod.EMPLOYEE.value,
+                        reference_number=None,
+                        proof_text=fee_proof_text,
+                        proof_attachment_id=fee_proof_attachment_id,
+                        company_paid=False,
+                        employee_paid_id=employee_id,
+                        status=ProcurementPaymentStatus.POSTED.value,
+                        created_by_id=employee_id,
+                    )
+                    self.db.add(fee_payment)
+                    await self.db.flush()
+                    claim.fee_payment_id = fee_payment.id
+                else:
+                    fee_payment.purpose_id = fee_purpose.id
+                    fee_payment.amount = fee_amount
+                    if fee_proof_text is not None:
+                        fee_payment.proof_text = fee_proof_text
+                    if fee_proof_attachment_id is not None:
+                        fee_payment.proof_attachment_id = fee_proof_attachment_id
+
+                claim.fee_amount = fee_amount
+
+        # Recalculate claim total (draft only; nothing allocated yet).
+        claim_total = Decimal(str(payment.amount)) + Decimal(str(claim.fee_amount or 0))
+        claim.amount = claim_total
+        claim.paid_amount = Decimal("0.00")
+        claim.remaining_amount = claim_total
 
         if submit is True:
             # Validate proof on submit (schema also validates, but keep defensive).
             if not payment.proof_text and not payment.proof_attachment_id:
                 raise ValidationError("Proof is required: provide proof_text or proof_attachment_id")
+            if claim.fee_amount and claim.fee_amount > 0:
+                fee_payment = claim.fee_payment
+                if fee_payment is None and claim.fee_payment_id:
+                    fee_payment = await self.db.scalar(
+                        select(ProcurementPayment).where(ProcurementPayment.id == claim.fee_payment_id)
+                    )
+                if not fee_payment or (not fee_payment.proof_text and not fee_payment.proof_attachment_id):
+                    raise ValidationError("Fee proof is required: provide fee_proof_text or fee_proof_attachment_id")
             claim.status = ExpenseClaimStatus.PENDING_APPROVAL.value
 
         await self.db.commit()
@@ -191,6 +326,14 @@ class ExpenseClaimService:
             payment = await self.db.scalar(select(ProcurementPayment).where(ProcurementPayment.id == claim.payment_id))
         if not payment or (not payment.proof_text and not payment.proof_attachment_id):
             raise ValidationError("Proof is required: provide proof_text or proof_attachment_id")
+        if claim.fee_amount and claim.fee_amount > 0:
+            fee_payment = claim.fee_payment
+            if fee_payment is None and claim.fee_payment_id:
+                fee_payment = await self.db.scalar(
+                    select(ProcurementPayment).where(ProcurementPayment.id == claim.fee_payment_id)
+                )
+            if not fee_payment or (not fee_payment.proof_text and not fee_payment.proof_attachment_id):
+                raise ValidationError("Fee proof is required: provide fee_proof_text or fee_proof_attachment_id")
         claim.status = ExpenseClaimStatus.PENDING_APPROVAL.value
         await self.db.commit()
         return await self.get_claim_by_id(claim_id)
@@ -233,6 +376,14 @@ class ExpenseClaimService:
                     reason=claim.rejection_reason or "Rejected",
                     cancelled_by_id=acted_by_id,
                 )
+            if getattr(claim, "fee_payment_id", None):
+                from src.modules.procurement.service import ProcurementPaymentService
+
+                await ProcurementPaymentService(self.db).cancel_payment(
+                    claim.fee_payment_id,
+                    reason=claim.rejection_reason or "Rejected",
+                    cancelled_by_id=acted_by_id,
+                )
         await self.db.commit()
         return await self.get_claim_by_id(claim_id)
 
@@ -242,6 +393,7 @@ class ExpenseClaimService:
             .where(ExpenseClaim.id == claim_id)
             .options(
                 selectinload(ExpenseClaim.payment),
+                selectinload(ExpenseClaim.fee_payment),
                 selectinload(ExpenseClaim.employee),
                 selectinload(ExpenseClaim.purpose),
             )
@@ -262,6 +414,7 @@ class ExpenseClaimService:
     ) -> tuple[list[ExpenseClaim], int]:
         query = select(ExpenseClaim).options(
             selectinload(ExpenseClaim.payment),
+            selectinload(ExpenseClaim.fee_payment),
             selectinload(ExpenseClaim.employee),
             selectinload(ExpenseClaim.purpose),
         )

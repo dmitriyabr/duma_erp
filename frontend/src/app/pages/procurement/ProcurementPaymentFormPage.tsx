@@ -26,6 +26,7 @@ import {
 interface PurposeRow {
   id: number
   name: string
+  purpose_type?: 'expense' | 'fee'
 }
 
 interface UserRow {
@@ -68,6 +69,15 @@ export const ProcurementPaymentFormPage = () => {
   const [uploadingProof, setUploadingProof] = useState(false)
   const [companyPaid, setCompanyPaid] = useState(true)
   const [employeePaidId, setEmployeePaidId] = useState<number | ''>('')
+  const isEmployeePaid = !companyPaid
+
+  useEffect(() => {
+    if (isEmployeePaid) {
+      queueMicrotask(() => setPaymentMethod('employee'))
+    } else if (paymentMethod === 'employee') {
+      queueMicrotask(() => setPaymentMethod('mpesa'))
+    }
+  }, [isEmployeePaid, paymentMethod])
 
   const [loadingPOs, setLoadingPOs] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -174,6 +184,7 @@ export const ProcurementPaymentFormPage = () => {
     const newPurpose = await createPurpose(() =>
       api.post<ApiResponse<PurposeRow>>('/procurement/payment-purposes', {
         name: newPurposeName.trim(),
+        purpose_type: 'expense',
       })
     )
 
@@ -250,7 +261,7 @@ export const ProcurementPaymentFormPage = () => {
       payee_name: payeeName.trim() || null,
       payment_date: paymentDate,
       amount: amountValue,
-      payment_method: paymentMethod,
+      payment_method: isEmployeePaid ? 'employee' : paymentMethod,
       reference_number: referenceNumber.trim() || null,
       proof_text: proofText.trim() || null,
       proof_attachment_id: proofAttachmentId ?? null,
@@ -365,7 +376,9 @@ export const ProcurementPaymentFormPage = () => {
           onChange={(event) => setPaymentMethod(event.target.value)}
           label="Payment method"
           required
+          disabled={isEmployeePaid}
         >
+          {isEmployeePaid && <option value="employee">Employee</option>}
           <option value="mpesa">M-Pesa</option>
           <option value="bank">Bank Transfer</option>
           <option value="cash">Cash</option>
@@ -398,7 +411,7 @@ export const ProcurementPaymentFormPage = () => {
           label="Company paid"
           className="rounded-full"
         />
-        {!companyPaid && (
+        {isEmployeePaid && (
           <Select
             value={employeePaidId === '' ? '' : String(employeePaidId)}
             onChange={(event) => setEmployeePaidId(event.target.value ? Number(event.target.value) : '')}

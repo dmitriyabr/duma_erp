@@ -23,6 +23,7 @@ from src.modules.procurement.models import (
     PurchaseOrder,
     PurchaseOrderLine,
     ProcurementPayment,
+    ProcurementPaymentMethod,
     ProcurementPaymentStatus,
     PurchaseOrderStatus,
 )
@@ -839,7 +840,10 @@ class PaymentPurposeService:
         )
         if existing.scalar_one_or_none():
             raise ValidationError("Payment purpose already exists")
-        purpose = PaymentPurpose(name=data.name.strip())
+        purpose = PaymentPurpose(
+            name=data.name.strip(),
+            purpose_type=(data.purpose_type or "expense").strip().lower(),
+        )
         self.db.add(purpose)
         await self.db.commit()
         await self.db.refresh(purpose)
@@ -850,17 +854,21 @@ class PaymentPurposeService:
     ) -> PaymentPurpose:
         purpose = await self.get_purpose_by_id(purpose_id)
         update_data = data.model_dump(exclude_unset=True)
+        if "purpose_type" in update_data and update_data["purpose_type"]:
+            update_data["purpose_type"] = str(update_data["purpose_type"]).strip().lower()
         for field, value in update_data.items():
             setattr(purpose, field, value)
         await self.db.commit()
         return await self.get_purpose_by_id(purpose_id)
 
     async def list_purposes(
-        self, include_inactive: bool = False
+        self, include_inactive: bool = False, *, purpose_type: str | None = None
     ) -> list[PaymentPurpose]:
         query = select(PaymentPurpose)
         if not include_inactive:
             query = query.where(PaymentPurpose.is_active.is_(True))
+        if purpose_type:
+            query = query.where(PaymentPurpose.purpose_type == purpose_type)
         query = query.order_by(PaymentPurpose.name)
         result = await self.db.execute(query)
         return list(result.scalars().all())
@@ -905,6 +913,9 @@ class ProcurementPaymentService:
     ) -> ProcurementPayment:
         payment_number = await get_document_number(self.db, "PPAY")
 
+        if data.employee_paid_id and data.company_paid:
+            raise ValidationError("employee_paid_id requires company_paid=false")
+
         if data.po_id:
             po = await self.po_service.get_purchase_order_by_id(data.po_id)
             purpose_id = po.purpose_id
@@ -918,6 +929,10 @@ class ProcurementPaymentService:
 
         await PaymentPurposeService(self.db).get_purpose_by_id(purpose_id)
 
+        payment_method = data.payment_method
+        if data.employee_paid_id:
+            payment_method = ProcurementPaymentMethod.EMPLOYEE.value
+
         payment = ProcurementPayment(
             payment_number=payment_number,
             po_id=data.po_id,
@@ -925,7 +940,7 @@ class ProcurementPaymentService:
             payee_name=data.payee_name,
             payment_date=data.payment_date,
             amount=data.amount,
-            payment_method=data.payment_method,
+            payment_method=payment_method,
             reference_number=data.reference_number,
             proof_text=data.proof_text,
             proof_attachment_id=data.proof_attachment_id,

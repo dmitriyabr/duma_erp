@@ -29,20 +29,28 @@ router = APIRouter(prefix="/compensations/claims", tags=["Compensations"])
 
 def _claim_to_response(claim) -> ExpenseClaimResponse:
     payment = getattr(claim, "payment", None)
+    fee_payment = getattr(claim, "fee_payment", None)
+    expense_amount = payment.amount if payment else claim.amount
+    fee_amount = fee_payment.amount if fee_payment else getattr(claim, "fee_amount", None) or 0
     return ExpenseClaimResponse(
         id=claim.id,
         claim_number=claim.claim_number,
         payment_id=claim.payment_id,
+        fee_payment_id=getattr(claim, "fee_payment_id", None),
         employee_id=claim.employee_id,
         employee_name=claim.employee_name,
         purpose_id=payment.purpose_id if payment else claim.purpose_id,
-        amount=payment.amount if payment else claim.amount,
+        amount=claim.amount,
+        expense_amount=expense_amount,
+        fee_amount=fee_amount,
         payee_name=payment.payee_name if payment else None,
         description=claim.description,
         rejection_reason=claim.rejection_reason,
         expense_date=payment.payment_date if payment else claim.expense_date,
         proof_text=payment.proof_text if payment else None,
         proof_attachment_id=payment.proof_attachment_id if payment else None,
+        fee_proof_text=fee_payment.proof_text if fee_payment else None,
+        fee_proof_attachment_id=fee_payment.proof_attachment_id if fee_payment else None,
         status=claim.status,
         paid_amount=claim.paid_amount,
         remaining_amount=claim.remaining_amount,

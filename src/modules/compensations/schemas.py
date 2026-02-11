@@ -12,16 +12,21 @@ class ExpenseClaimResponse(BaseModel):
     id: int
     claim_number: str
     payment_id: int | None
+    fee_payment_id: int | None
     employee_id: int
     employee_name: str
     purpose_id: int
     amount: Decimal
+    expense_amount: Decimal
+    fee_amount: Decimal
     payee_name: str | None
     description: str
     rejection_reason: str | None
     expense_date: date
     proof_text: str | None
     proof_attachment_id: int | None
+    fee_proof_text: str | None
+    fee_proof_attachment_id: int | None
     status: str
     paid_amount: Decimal
     remaining_amount: Decimal
@@ -44,12 +49,18 @@ class ExpenseClaimCreate(BaseModel):
     expense_date: date
     proof_text: str | None = None
     proof_attachment_id: int | None = None
+    fee_amount: Decimal | None = Field(None, ge=0)
+    fee_proof_text: str | None = None
+    fee_proof_attachment_id: int | None = None
     submit: bool = True
 
     @model_validator(mode="after")
     def validate_proof(self):
         if self.submit and not self.proof_text and not self.proof_attachment_id:
             raise ValueError("Proof is required: provide proof_text or proof_attachment_id")
+        if self.fee_amount and self.fee_amount > 0:
+            if not self.fee_proof_text and not self.fee_proof_attachment_id:
+                raise ValueError("Fee proof is required: provide fee_proof_text or fee_proof_attachment_id")
         return self
 
 
@@ -64,12 +75,18 @@ class ExpenseClaimUpdate(BaseModel):
     expense_date: date | None = None
     proof_text: str | None = None
     proof_attachment_id: int | None = None
+    fee_amount: Decimal | None = Field(None, ge=0)
+    fee_proof_text: str | None = None
+    fee_proof_attachment_id: int | None = None
     submit: bool | None = None
 
     @model_validator(mode="after")
     def validate_proof(self):
         if self.submit is True and not self.proof_text and not self.proof_attachment_id:
             raise ValueError("Proof is required: provide proof_text or proof_attachment_id")
+        if self.fee_amount and self.fee_amount > 0:
+            if not self.fee_proof_text and not self.fee_proof_attachment_id:
+                raise ValueError("Fee proof is required: provide fee_proof_text or fee_proof_attachment_id")
         return self
 
 

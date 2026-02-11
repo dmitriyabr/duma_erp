@@ -3,6 +3,7 @@ import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
 import { Typography } from '../../components/ui/Typography'
 import { Chip } from '../../components/ui/Chip'
@@ -14,9 +15,10 @@ interface PurposeRow {
   id: number
   name: string
   is_active: boolean
+  purpose_type: 'expense' | 'fee'
 }
 
-const emptyForm = { name: '' }
+const emptyForm: { name: string; purpose_type: 'expense' | 'fee' } = { name: '', purpose_type: 'expense' }
 
 export const PaymentPurposesPage = () => {
   const { data: rows, loading, error, refetch } = useApi<PurposeRow[]>('/procurement/payment-purposes?include_inactive=true')
@@ -35,7 +37,7 @@ export const PaymentPurposesPage = () => {
 
   const openEdit = (purpose: PurposeRow) => {
     setEditingPurpose(purpose)
-    setForm({ name: purpose.name })
+    setForm({ name: purpose.name, purpose_type: purpose.purpose_type })
     setDialogOpen(true)
   }
 
@@ -48,9 +50,11 @@ export const PaymentPurposesPage = () => {
       editingPurpose
         ? api.put(`/procurement/payment-purposes/${editingPurpose.id}`, {
             name: form.name.trim(),
+            purpose_type: form.purpose_type,
           })
         : api.post('/procurement/payment-purposes', {
             name: form.name.trim(),
+            purpose_type: form.purpose_type,
           })
     )
 
@@ -83,6 +87,7 @@ export const PaymentPurposesPage = () => {
           <TableHead>
             <TableRow>
               <TableHeaderCell>Name</TableHeaderCell>
+              <TableHeaderCell>Type</TableHeaderCell>
               <TableHeaderCell>Status</TableHeaderCell>
               <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
@@ -91,6 +96,7 @@ export const PaymentPurposesPage = () => {
             {(rows || []).map((row) => (
               <TableRow key={row.id}>
                 <TableCell>{row.name}</TableCell>
+                <TableCell className="capitalize">{row.purpose_type}</TableCell>
                 <TableCell>
                   <Chip
                     size="small"
@@ -107,14 +113,14 @@ export const PaymentPurposesPage = () => {
             ))}
             {loading && (
               <TableRow>
-                <td colSpan={3} className="px-4 py-8 text-center">
+                <td colSpan={4} className="px-4 py-8 text-center">
                   <Spinner size="medium" />
                 </td>
               </TableRow>
             )}
             {!rows?.length && !loading && (
               <TableRow>
-                <td colSpan={3} className="px-4 py-8 text-center">
+                <td colSpan={4} className="px-4 py-8 text-center">
                   <Typography color="secondary">No purposes found</Typography>
                 </td>
               </TableRow>
@@ -126,13 +132,22 @@ export const PaymentPurposesPage = () => {
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)}>
         <DialogTitle>{editingPurpose ? 'Edit purpose' : 'Create purpose'}</DialogTitle>
         <DialogContent>
-          <div className="mt-2">
+          <div className="mt-2 grid grid-cols-1 gap-4">
             <Input
               label="Name"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               required
             />
+            <Select
+              label="Type"
+              value={form.purpose_type}
+              onChange={(e) => setForm({ ...form, purpose_type: e.target.value as 'expense' | 'fee' })}
+              required
+            >
+              <option value="expense">Expense</option>
+              <option value="fee">Fee</option>
+            </Select>
           </div>
         </DialogContent>
         <DialogActions>

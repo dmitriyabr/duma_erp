@@ -20,6 +20,7 @@ interface PurposeRow {
   id: number
   name: string
   is_active: boolean
+  purpose_type: 'expense' | 'fee'
 }
 
 interface ExpenseClaimResponse {
@@ -53,11 +54,19 @@ export const NewExpenseClaimPage = () => {
   const [proofFileName, setProofFileName] = useState<string | null>(null)
   const [uploadingProof, setUploadingProof] = useState(false)
   const proofFileInputRef = useRef<HTMLInputElement>(null)
+
+  const [feeAmount, setFeeAmount] = useState('')
+  const [feeProofText, setFeeProofText] = useState('')
+  const [feeProofAttachmentId, setFeeProofAttachmentId] = useState<number | null>(null)
+  const [feeProofFileName, setFeeProofFileName] = useState<string | null>(null)
+  const [uploadingFeeProof, setUploadingFeeProof] = useState(false)
+  const feeProofFileInputRef = useRef<HTMLInputElement>(null)
+
   const [error, setError] = useState<string | null>(null)
 
   const { data: purposesData, loading: purposesLoading, error: purposesError } = useApi<PurposeRow[]>(
     '/procurement/payment-purposes',
-    { params: { include_inactive: false } },
+    { params: { include_inactive: false, purpose_type: 'expense' } },
     []
   )
   const purposes = useMemo(() => purposesData ?? [], [purposesData])
@@ -106,6 +115,34 @@ export const NewExpenseClaimPage = () => {
     }
   }, [])
 
+  const uploadFeeProofFile = useCallback(async (file: File) => {
+    const isPdf = file.type === 'application/pdf'
+    const isImage = file.type.startsWith('image/')
+    if (!isPdf && !isImage) {
+      setError('Only images or PDF files are supported.')
+      return
+    }
+
+    setUploadingFeeProof(true)
+    setError(null)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await api.post<ApiResponse<{ id: number }>>('/attachments', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setFeeProofAttachmentId(res.data.data.id)
+      setFeeProofFileName(file.name)
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 401) return
+      setError('Failed to upload fee proof file.')
+      setFeeProofAttachmentId(null)
+      setFeeProofFileName(null)
+    } finally {
+      setUploadingFeeProof(false)
+    }
+  }, [])
+
   const submit = async () => {
     if (readOnly) return
     if (!purposeId) {
@@ -132,6 +169,20 @@ export const NewExpenseClaimPage = () => {
       return
     }
 
+    const feeAmountValue = feeAmount.trim() ? Number(feeAmount) : 0
+    if (Number.isNaN(feeAmountValue) || feeAmountValue < 0) {
+      setError('Transaction fee must be 0 or greater.')
+      return
+    }
+    if (feeAmountValue > 0) {
+      const hasFeeProofText = Boolean(feeProofText.trim())
+      const hasFeeProofFile = feeProofAttachmentId != null
+      if (!hasFeeProofText && !hasFeeProofFile) {
+        setError('Fee proof (text) or file is required when fee is provided.')
+        return
+      }
+    }
+
     setError(null)
     const created = await createClaim(async () => {
       const res = await api.post('/compensations/claims', {
@@ -143,6 +194,9 @@ export const NewExpenseClaimPage = () => {
         expense_date: expenseDate,
         proof_text: proofText.trim() || null,
         proof_attachment_id: proofAttachmentId,
+        fee_amount: feeAmountValue > 0 ? feeAmountValue : 0,
+        fee_proof_text: feeProofText.trim() || null,
+        fee_proof_attachment_id: feeProofAttachmentId,
         submit: true,
       })
       return { data: { data: unwrapResponse<ExpenseClaimResponse>(res) } }
@@ -326,9 +380,89 @@ export const NewExpenseClaimPage = () => {
             </div>
           </div>
 
+          <div className="mt-6">
+            <Typography variant="subtitle1" className="mb-2">
+              Transaction fee (optional)
+            </Typography>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input
+                label="Fee amount"
+                type="number"
+                value={feeAmount}
+                onChange={(e) => setFeeAmount(e.target.value)}
+                disabled={readOnly}
+                placeholder="0.00"
+                min={0}
+              />
+
+              <div className="hidden md:block" />
+
+              <Textarea
+                label="Fee proof (text)"
+                value={feeProofText}
+                onChange={(e) => setFeeProofText(e.target.value)}
+                rows={3}
+                disabled={readOnly}
+                placeholder="M-Pesa fee SMS / reference"
+                required={feeAmount.trim() !== '' && Number(feeAmount) > 0 && feeProofAttachmentId == null}
+              />
+
+              <div>
+                <Typography variant="subtitle2" color="secondary" className="mb-1">
+                  Fee proof (file)
+                </Typography>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <input
+                    ref={feeProofFileInputRef}
+                    type="file"
+                    className="hidden"
+                    disabled={readOnly || uploadingFeeProof}
+                    accept="image/*,application/pdf"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) uploadFeeProofFile(file)
+                      e.target.value = ''
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outlined"
+                    disabled={readOnly || uploadingFeeProof}
+                    onClick={() => feeProofFileInputRef.current?.click()}
+                  >
+                    {uploadingFeeProof ? 'Uploading...' : 'Upload fee proof'}
+                  </Button>
+
+                  {uploadingFeeProof && <Spinner size="small" />}
+                  {feeProofAttachmentId != null && (
+                    <Typography variant="body2" className="truncate max-w-[320px]">
+                      {feeProofFileName ?? `Attachment #${feeProofAttachmentId}`}
+                    </Typography>
+                  )}
+                  {feeProofAttachmentId != null && !readOnly && (
+                    <Button
+                      type="button"
+                      variant="text"
+                      color="secondary"
+                      onClick={() => {
+                        setFeeProofAttachmentId(null)
+                        setFeeProofFileName(null)
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                </div>
+                <Typography variant="caption" color="secondary" className="mt-2">
+                  Upload image/PDF proof (max 10MB). You can also provide proof text instead.
+                </Typography>
+              </div>
+            </div>
+          </div>
+
           {!readOnly && (
             <div className="mt-6 flex justify-end">
-              <Button onClick={submit} disabled={creating || uploadingProof}>
+              <Button onClick={submit} disabled={creating || uploadingProof || uploadingFeeProof}>
                 {creating ? <Spinner size="small" /> : 'Submit claim'}
               </Button>
             </div>

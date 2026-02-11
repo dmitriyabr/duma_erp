@@ -42,6 +42,9 @@ class ExpenseClaim(Base):
     payment_id: Mapped[int | None] = mapped_column(
         BigIntPK, ForeignKey("procurement_payments.id"), nullable=True, index=True
     )
+    fee_payment_id: Mapped[int | None] = mapped_column(
+        BigIntPK, ForeignKey("procurement_payments.id"), nullable=True, index=True
+    )
     employee_id: Mapped[int] = mapped_column(
         BigIntPK, ForeignKey("users.id"), nullable=False, index=True
     )
@@ -49,6 +52,7 @@ class ExpenseClaim(Base):
         BigInteger, ForeignKey("payment_purposes.id"), nullable=False
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    fee_amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False, default=Decimal("0.00"))
     description: Mapped[str] = mapped_column(Text, nullable=False)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     expense_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -80,7 +84,12 @@ class ExpenseClaim(Base):
     )
 
     # Relationships
-    payment: Mapped["ProcurementPayment"] = relationship("ProcurementPayment")
+    payment: Mapped["ProcurementPayment"] = relationship(
+        "ProcurementPayment", foreign_keys=[payment_id]
+    )
+    fee_payment: Mapped["ProcurementPayment | None"] = relationship(
+        "ProcurementPayment", foreign_keys=[fee_payment_id]
+    )
     employee: Mapped["User"] = relationship("User")
     purpose: Mapped["PaymentPurpose"] = relationship("PaymentPurpose")
 

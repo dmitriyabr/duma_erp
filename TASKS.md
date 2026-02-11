@@ -332,6 +332,7 @@
 > Решения: Платеж может быть без PO, справочник PaymentPurpose, статусы posted/cancelled
 
 - [x] Справочник PaymentPurpose (name, is_active)
+- [x] `PaymentPurpose.purpose_type`: `expense` | `fee` (для выделения транзакционных комиссий)
 - [x] Модель ProcurementPayment (payment_number, po_id?, payee_name, purpose_id, payment_date, amount, payment_method, reference_number, company_paid, employee_paid_id, status)
 - [x] Сервис создания платежа с пересчётом debt (если есть PO)
 - [x] Автосоздание ExpenseClaim если employee_paid (реализовано в Фазе 6)
@@ -356,6 +357,8 @@
 > Решение: `ProcurementPayment` — единый журнал расходов. Любой `ExpenseClaim` всегда создаёт `ProcurementPayment` (без PO) и становится workflow-обёрткой вокруг него. UX claim-страниц не меняем.
 
 - [x] Backend: при создании ExpenseClaim создавать связанный ProcurementPayment (company_paid=false, employee_paid_id=employee_id)
+- [x] Backend: поддержать `fee_amount` в ExpenseClaim (отдельный proof) → создаётся второй linked ProcurementPayment (purpose_type=`fee`) и fee включается в total claim amount
+- [x] Backend: для employee-paid платежей `payment_method=employee` (канонизация, не “способ оплаты компании”)
 - [x] Backend: убрать рекурсию/дубли (payment.employee_paid_id не должен автосоздавать второй claim, если payment создан из claim)
 - [x] Backend: в API ExpenseClaim возвращать поля расхода из ProcurementPayment (amount/date/purpose/payee/proof)
 - [x] Backend: при reject claim отменять связанный ProcurementPayment (status=cancelled + reason)

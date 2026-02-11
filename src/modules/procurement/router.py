@@ -544,6 +544,7 @@ async def create_payment_purpose(
 )
 async def list_payment_purposes(
     include_inactive: bool = Query(False),
+    purpose_type: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
         require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.USER)
@@ -551,7 +552,7 @@ async def list_payment_purposes(
 ):
     """List payment purposes."""
     service = PaymentPurposeService(db)
-    purposes = await service.list_purposes(include_inactive=include_inactive)
+    purposes = await service.list_purposes(include_inactive=include_inactive, purpose_type=purpose_type)
     return ApiResponse(success=True, data=[_purpose_to_response(p) for p in purposes])
 
 

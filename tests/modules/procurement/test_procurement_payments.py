@@ -128,6 +128,7 @@ class TestProcurementPayments:
                 "amount": "10.00",
                 "payment_method": "bank",
                 "proof_text": "Proof",
+                "company_paid": False,
                 "employee_paid_id": employee_id,
             },
         )
