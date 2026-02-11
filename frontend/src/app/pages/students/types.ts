@@ -84,7 +84,6 @@ export interface ReservationItem {
   item_name?: string | null
   item_sku?: string | null
   quantity_required: number
-  quantity_reserved: number
   quantity_issued: number
 }
 

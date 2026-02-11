@@ -20,7 +20,7 @@ class StockResponse(BaseModel):
     item_sku: str | None = None
     item_name: str | None = None
     quantity_on_hand: int
-    quantity_reserved: int
+    quantity_owed: int = 0
     quantity_available: int
     average_cost: Decimal
 
@@ -221,4 +221,3 @@ class BulkUploadResponse(BaseModel):
     rows_processed: int
     items_created: int
     errors: list[BulkUploadError] = []
-

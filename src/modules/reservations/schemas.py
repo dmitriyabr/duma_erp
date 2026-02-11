@@ -15,7 +15,6 @@ class ReservationItemResponse(BaseModel):
     item_sku: str | None = None
     item_name: str | None = None
     quantity_required: int
-    quantity_reserved: int
     quantity_issued: int
 
     model_config = {"from_attributes": True}

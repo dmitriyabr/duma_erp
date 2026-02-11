@@ -9,7 +9,14 @@ from sqlalchemy.orm import selectinload
 from src.core.audit.service import AuditService
 from src.core.exceptions import NotFoundError, ValidationError
 from src.core.documents.number_generator import DocumentNumberGenerator
-from src.modules.inventory.models import Issuance, IssuanceItem, IssuanceStatus, IssuanceType, RecipientType
+from src.modules.inventory.models import (
+    Issuance,
+    IssuanceItem,
+    IssuanceStatus,
+    IssuanceType,
+    RecipientType,
+    Stock,
+)
 from src.modules.inventory.service import InventoryService
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceLineComponent, InvoiceStatus
 from src.modules.items.models import Item, ItemType, Kit, KitItem
@@ -150,17 +157,10 @@ class ReservationService:
         await self.db.flush()
 
         for item_id, quantity_required in reservation_items:
-            reserved_qty = await self._reserve_available(
-                item_id=item_id,
-                quantity_required=quantity_required,
-                reservation_id=reservation.id,
-                reserved_by_id=created_by_id,
-            )
             reservation_item = ReservationItem(
                 reservation_id=reservation.id,
                 item_id=item_id,
                 quantity_required=quantity_required,
-                quantity_reserved=reserved_qty,
                 quantity_issued=0,
             )
             self.db.add(reservation_item)
@@ -221,38 +221,32 @@ class ReservationService:
             if quantity > (reservation_item.quantity_required - reservation_item.quantity_issued):
                 raise ValidationError("Issue quantity exceeds required remaining amount")
 
-            # Ensure enough reserved quantity; reserve more if needed and available
-            if quantity > reservation_item.quantity_reserved:
-                additional = quantity - reservation_item.quantity_reserved
-                available = await self._get_available_stock(reservation_item.item_id)
-                if additional > available:
-                    raise ValidationError(
-                        f"Insufficient stock for reservation_item {reservation_item.id}. "
-                        f"Available: {available}, requested: {additional}"
-                    )
-                await self.inventory.reserve_stock(
-                    item_id=reservation_item.item_id,
-                    quantity=additional,
-                    reference_type="reservation",
-                    reference_id=reservation.id,
-                    reserved_by_id=issued_by_id,
-                    commit=False,
+            # Demand-based reservation: do not physically allocate stock to a specific reservation.
+            # Issuance is allowed as long as there is stock on hand.
+            stock_result = await self.db.execute(
+                select(Stock)
+                .where(Stock.item_id == reservation_item.item_id)
+                .with_for_update()
+            )
+            stock = stock_result.scalar_one_or_none()
+            if not stock:
+                item = await self.inventory._get_item(reservation_item.item_id)
+                raise ValidationError(f"No stock for item '{item.name}'. Receive stock first.")
+            if quantity > stock.quantity_on_hand:
+                raise ValidationError(
+                    f"Insufficient stock for reservation_item {reservation_item.id}. "
+                    f"On hand: {stock.quantity_on_hand}, requested: {quantity}"
                 )
-                reservation_item.quantity_reserved += additional
 
-            stock = await self.inventory.get_stock_by_item_id(reservation_item.item_id)
             unit_cost = stock.average_cost if stock else Decimal("0.00")
 
-            await self.inventory.issue_reserved_stock(
-                item_id=reservation_item.item_id,
+            await self.inventory._issue_stock_internal(
+                stock=stock,
                 quantity=quantity,
                 reference_type="reservation",
                 reference_id=reservation.id,
                 issued_by_id=issued_by_id,
-                commit=False,
             )
-
-            reservation_item.quantity_reserved -= quantity
             reservation_item.quantity_issued += quantity
 
             issuance_item = IssuanceItem(
@@ -305,19 +299,6 @@ class ReservationService:
                 cancelled_by_id=cancelled_by_id,
                 commit=False,
             )
-
-        # Unreserve any remaining reserved quantities
-        for item in reservation.items:
-            if item.quantity_reserved > 0:
-                await self.inventory.unreserve_stock(
-                    item_id=item.item_id,
-                    quantity=item.quantity_reserved,
-                    reference_type="reservation",
-                    reference_id=reservation.id,
-                    unreserved_by_id=cancelled_by_id,
-                    commit=False,
-                )
-                item.quantity_reserved = 0
 
         reservation.status = ReservationStatus.CANCELLED.value
 
@@ -406,32 +387,6 @@ class ReservationService:
                 items.append((item_id_to_use, quantity_required))
 
         return items
-
-    async def _reserve_available(
-        self,
-        item_id: int,
-        quantity_required: int,
-        reservation_id: int,
-        reserved_by_id: int,
-    ) -> int:
-        available = await self._get_available_stock(item_id)
-        reserve_qty = min(quantity_required, available)
-        if reserve_qty > 0:
-            await self.inventory.reserve_stock(
-                item_id=item_id,
-                quantity=reserve_qty,
-                reference_type="reservation",
-                reference_id=reservation_id,
-                reserved_by_id=reserved_by_id,
-                commit=False,
-            )
-        return reserve_qty
-
-    async def _get_available_stock(self, item_id: int) -> int:
-        stock = await self.inventory.get_stock_by_item_id(item_id)
-        if not stock:
-            return 0
-        return stock.quantity_on_hand - stock.quantity_reserved
 
     def _calculate_status(self, reservation: Reservation) -> str:
         total_required = sum(item.quantity_required for item in reservation.items)

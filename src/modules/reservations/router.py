@@ -40,7 +40,6 @@ def _map_reservation(reservation) -> ReservationResponse:
                 item_sku=item.item.sku_code if item.item else None,
                 item_name=item.item.name if item.item else None,
                 quantity_required=item.quantity_required,
-                quantity_reserved=item.quantity_reserved,
                 quantity_issued=item.quantity_issued,
             )
             for item in reservation.items

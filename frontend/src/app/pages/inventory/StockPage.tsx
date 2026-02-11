@@ -26,7 +26,7 @@ interface StockRow {
   item_sku?: string | null
   item_name?: string | null
   quantity_on_hand: number
-  quantity_reserved: number
+  quantity_owed: number
   quantity_available: number
   average_cost: number
 }
@@ -353,7 +353,7 @@ export const StockPage = () => {
                 <TableRow key={row.id}>
                  <TableCell>{row.item_name ?? '—'}</TableCell>
                  <TableCell>{row.quantity_on_hand}</TableCell>
-                 <TableCell>{row.quantity_reserved}</TableCell>
+                 <TableCell>{row.quantity_owed}</TableCell>
                  <TableCell>{row.quantity_available}</TableCell>
                  <TableCell>{formatMoney(Number(row.average_cost))}</TableCell>
                   <TableCell>

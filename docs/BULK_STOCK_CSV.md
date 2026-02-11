@@ -42,7 +42,7 @@
   - Права: ADMIN (как inventory count).
   - Логика:
     1. Парсинг CSV, валидация заголовков и строк (category, item_name, quantity; unit_cost, sku опционально).
-    2. Если `mode == overwrite`: обнулить **только quantity_on_hand** по всем product (quantity_reserved не трогаем).
+    2. Если `mode == overwrite`: обнулить **только quantity_on_hand** по всем product (если нет outstanding reservations).
     3. Для каждой строки: get_or_create_item(category, item_name, sku?) → item; парсинг unit_cost из CSV (опционально). Если unit_cost указан и остаток по строке увеличивается (delta > 0) — **receive**(delta, unit_cost), иначе — **adjustment** до target quantity. Так цена из CSV применяется и для новых позиций, и при добавлении к существующим (взвешенная средняя).
   - Ответ: обработано строк, создано позиций, ошибки по строкам (при необходимости).
 
@@ -60,7 +60,7 @@
 ### Важно
 
 - Stock создаётся при первом receive/adjust (_get_or_create_stock). Новая позиция: создать Item → receive или adjustment.
-- При overwrite: обнуляем **только quantity_on_hand**. quantity_reserved не трогаем (производная от резерваций/выдач).
+- При overwrite: обнуляем **только quantity_on_hand**, но блокируем overwrite если есть outstanding reservations (owed > 0).
 
 ## Frontend
 

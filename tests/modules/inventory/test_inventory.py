@@ -4,6 +4,7 @@ from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth.models import UserRole
@@ -21,6 +22,10 @@ from src.modules.inventory.service import InventoryService
 from src.modules.items.models import ItemType, PriceType
 from src.modules.items.schemas import CategoryCreate, ItemCreate
 from src.modules.items.service import ItemService
+from src.modules.items.models import Item, Kit
+from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
+from src.modules.reservations.models import Reservation, ReservationItem, ReservationStatus
+from src.modules.students.models import Gender, Grade, Student
 
 
 class TestInventoryService:
@@ -265,76 +270,7 @@ class TestInventoryService:
             )
         assert "negative stock" in str(exc_info.value)
 
-    async def test_reserve_stock(self, db_session: AsyncSession):
-        """Test reserving stock."""
-        admin_id = await self._create_super_admin(db_session)
-        item_id = await self._create_product_item(db_session, admin_id)
-        service = InventoryService(db_session)
-
-        # Receive stock
-        await service.receive_stock(
-            ReceiveStockRequest(
-                item_id=item_id,
-                quantity=100,
-                unit_cost=Decimal("50.00"),
-            ),
-            received_by_id=admin_id,
-        )
-
-        # Reserve stock
-        movement = await service.reserve_stock(
-            item_id=item_id,
-            quantity=30,
-            reference_type="invoice",
-            reference_id=1,
-            reserved_by_id=admin_id,
-        )
-
-        assert movement.movement_type == MovementType.RESERVE.value
-
-        stock = await service.get_stock_by_item_id(item_id)
-        assert stock.quantity_on_hand == 100  # Unchanged
-        assert stock.quantity_reserved == 30
-        assert stock.quantity_available == 70
-
-    async def test_issue_reserved_stock(self, db_session: AsyncSession):
-        """Test issuing reserved stock."""
-        admin_id = await self._create_super_admin(db_session)
-        item_id = await self._create_product_item(db_session, admin_id)
-        service = InventoryService(db_session)
-
-        # Receive and reserve
-        await service.receive_stock(
-            ReceiveStockRequest(
-                item_id=item_id,
-                quantity=100,
-                unit_cost=Decimal("50.00"),
-            ),
-            received_by_id=admin_id,
-        )
-        await service.reserve_stock(
-            item_id=item_id,
-            quantity=30,
-            reference_type="invoice",
-            reference_id=1,
-            reserved_by_id=admin_id,
-        )
-
-        # Issue reserved stock
-        movement = await service.issue_reserved_stock(
-            item_id=item_id,
-            quantity=20,
-            reference_type="issuance",
-            reference_id=1,
-            issued_by_id=admin_id,
-        )
-
-        assert movement.movement_type == MovementType.ISSUE.value
-
-        stock = await service.get_stock_by_item_id(item_id)
-        assert stock.quantity_on_hand == 80  # 100 - 20
-        assert stock.quantity_reserved == 10  # 30 - 20
-        assert stock.quantity_available == 70  # 80 - 10
+    # Demand-based reservations: InventoryService no longer supports reserve/unreserve/issue_reserved_stock.
 
     async def test_cannot_stock_service_item(self, db_session: AsyncSession):
         """Test that service items cannot have stock."""
@@ -459,8 +395,8 @@ class TestInventoryService:
         stock = await service.get_stock_by_item_id(item_id)
         assert stock.quantity_on_hand == 30
 
-    async def test_bulk_upload_from_csv_overwrite_fails_with_reserved(self, db_session: AsyncSession):
-        """Test overwrite mode raises when any product has reserved stock."""
+    async def test_bulk_upload_from_csv_overwrite_fails_with_outstanding_reservations(self, db_session: AsyncSession):
+        """Test overwrite mode raises when there are outstanding reservations (owed > 0)."""
         admin_id = await self._create_super_admin(db_session)
         item_id = await self._create_product_item(db_session, admin_id)
         service = InventoryService(db_session)
@@ -469,19 +405,105 @@ class TestInventoryService:
             ReceiveStockRequest(item_id=item_id, quantity=50, unit_cost=Decimal("5.00")),
             received_by_id=admin_id,
         )
-        await service.reserve_stock(
-            item_id=item_id,
-            quantity=10,
-            reference_type="invoice",
-            reference_id=1,
-            reserved_by_id=admin_id,
+        # Create a reservation row directly (we only need outstanding owed quantity in DB).
+        grade = Grade(code="G1", name="Grade 1", display_order=1, is_active=True)
+        db_session.add(grade)
+        await db_session.flush()
+
+        student = Student(
+            student_number="STU-TEST-000001",
+            first_name="Test",
+            last_name="Student",
+            gender=Gender.MALE.value,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Guardian",
+            guardian_phone="+254700000000",
+            guardian_email=None,
+            status="active",
+            enrollment_date=None,
+            notes=None,
+            created_by_id=admin_id,
         )
+        db_session.add(student)
+        await db_session.flush()
+
+        item_result = await db_session.execute(
+            select(Item).where(Item.id == item_id)
+        )
+        item = item_result.scalar_one()
+
+        kit = Kit(
+            category_id=item.category_id,
+            sku_code="KIT-TEST-000001",
+            name="Test Kit",
+            item_type=ItemType.SERVICE.value,
+            price_type="standard",
+            price=Decimal("0.00"),
+            requires_full_payment=False,
+            is_editable_components=False,
+            is_active=True,
+        )
+        db_session.add(kit)
+        await db_session.flush()
+
+        invoice = Invoice(
+            invoice_number="INV-TEST-000001",
+            student_id=student.id,
+            term_id=None,
+            invoice_type=InvoiceType.ADHOC.value,
+            status=InvoiceStatus.ISSUED.value,
+            issue_date=None,
+            due_date=None,
+            subtotal=Decimal("0.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("0.00"),
+            paid_total=Decimal("0.00"),
+            amount_due=Decimal("0.00"),
+            notes=None,
+            created_by_id=admin_id,
+        )
+        db_session.add(invoice)
+        await db_session.flush()
+
+        line = InvoiceLine(
+            invoice_id=invoice.id,
+            kit_id=kit.id,
+            description="Test line",
+            quantity=1,
+            unit_price=Decimal("0.00"),
+            line_total=Decimal("0.00"),
+            discount_amount=Decimal("0.00"),
+            net_amount=Decimal("0.00"),
+            paid_amount=Decimal("0.00"),
+            remaining_amount=Decimal("0.00"),
+        )
+        db_session.add(line)
+        await db_session.flush()
+
+        reservation = Reservation(
+            student_id=student.id,
+            invoice_id=invoice.id,
+            invoice_line_id=line.id,
+            status=ReservationStatus.PENDING.value,
+            created_by_id=admin_id,
+        )
+        db_session.add(reservation)
+        await db_session.flush()
+
+        reservation_item = ReservationItem(
+            reservation_id=reservation.id,
+            item_id=item_id,
+            quantity_required=1,
+            quantity_issued=0,
+        )
+        db_session.add(reservation_item)
         await db_session.commit()
 
         csv_content = "category,item_name,sku,quantity\nTest Category,Test Product,PROD-001,20\n"
         with pytest.raises(ValidationError) as exc_info:
             await service.bulk_upload_from_csv(csv_content.encode("utf-8"), "overwrite", admin_id)
-        assert "reserved" in str(exc_info.value).lower()
+        assert "outstanding reservations" in str(exc_info.value).lower()
 
     async def test_bulk_upload_from_csv_creates_items(self, db_session: AsyncSession):
         """Test bulk upload creates new category and product when not present."""

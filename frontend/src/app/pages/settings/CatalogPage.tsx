@@ -870,6 +870,8 @@ export const CatalogPage = () => {
                 setKitForm({
                   ...kitForm,
                   item_type: event.target.value as ItemType,
+                  is_editable_components:
+                    event.target.value === 'product' ? kitForm.is_editable_components : false,
                 })
               }
               label="Type"
@@ -891,6 +893,23 @@ export const CatalogPage = () => {
               min={0}
               step={0.01}
             />
+
+            <div>
+              <Switch
+                checked={Boolean(kitForm.is_editable_components)}
+                onChange={(event) =>
+                  setKitForm((prev) => ({
+                    ...prev,
+                    is_editable_components: event.target.checked,
+                  }))
+                }
+                label="Editable components (uniform kit)"
+                disabled={readOnly || kitForm.item_type !== 'product'}
+              />
+              <Typography variant="caption" color="secondary" className="mt-1 block">
+                When enabled, components can be selected per invoice line (e.g. uniform size).
+              </Typography>
+            </div>
 
             {kitForm.item_type === 'product' && (
               <div className="grid gap-3">
@@ -920,7 +939,9 @@ export const CatalogPage = () => {
                             options={inventoryItems}
                             getOptionLabel={(invItem) => `${invItem.name} (${invItem.sku_code})`}
                             getOptionValue={(invItem) => invItem.id}
-                            value={inventoryItems.find((invItem) => String(invItem.id) === String(item.item_id)) || null}
+                            value={
+                              inventoryItems.find((invItem) => String(invItem.id) === String(item.item_id)) || null
+                            }
                             onChange={(invItem) => {
                               if (invItem) {
                                 updateKitItem(index, 'item_id', String(invItem.id))
@@ -956,9 +977,11 @@ export const CatalogPage = () => {
                             options={variants.find((v) => String(v.id) === String(item.variant_id))?.items || []}
                             getOptionLabel={(variantItem) => `${variantItem.name} (${variantItem.sku_code})`}
                             getOptionValue={(variantItem) => variantItem.id}
-                            value={variants
-                              .find((v) => String(v.id) === String(item.variant_id))
-                              ?.items.find((vi) => String(vi.id) === String(item.default_item_id)) || null}
+                            value={
+                              variants
+                                .find((v) => String(v.id) === String(item.variant_id))
+                                ?.items.find((vi) => String(vi.id) === String(item.default_item_id)) || null
+                            }
                             onChange={(variantItem) => {
                               if (variantItem) {
                                 updateKitItem(index, 'default_item_id', String(variantItem.id))

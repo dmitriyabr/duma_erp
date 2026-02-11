@@ -13,6 +13,7 @@ import { Autocomplete } from '../../components/ui/Autocomplete'
 import { Textarea } from '../../components/ui/Textarea'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../components/ui/Table'
 import { Spinner } from '../../components/ui/Spinner'
+import { Dialog, DialogTitle, DialogContent, DialogActions, DialogCloseButton } from '../../components/ui/Dialog'
 import { Trash2 } from 'lucide-react'
 import type { ItemOption, KitOption } from './types'
 
@@ -30,6 +31,19 @@ interface StudentOption {
 
 interface InvoiceDetail {
   id: number
+}
+
+interface VariantGroupItemRow {
+  id: number
+  name: string
+  sku_code: string
+}
+
+interface VariantRow {
+  id: number
+  name: string
+  is_active: boolean
+  items: VariantGroupItemRow[]
 }
 
 type DiscountType = 'percentage' | 'fixed'
@@ -84,6 +98,7 @@ export const CreateInvoicePage = () => {
   const inventoryApi = useApi<ItemOption[]>('/items', {
     params: { item_type: 'product', include_inactive: false },
   })
+  const variantsApi = useApi<VariantRow[]>('/items/variants', { params: { include_inactive: false } })
   const studentsListApi = useApi<{ items: StudentOption[]; total: number }>(
     isStandalone ? '/students' : null,
     isStandalone ? { params: { page: 1, limit: DEFAULT_PAGE_SIZE, status: 'active' } } : undefined,
@@ -104,37 +119,84 @@ export const CreateInvoicePage = () => {
     validationError ??
     kitsApi.error ??
     inventoryApi.error ??
+    variantsApi.error ??
     studentApi.error ??
     studentsListApi.error ??
     createMutation.error
   const loading = createMutation.loading
 
+  const [componentsDialog, setComponentsDialog] = useState<{ open: boolean; lineId: string | null }>({
+    open: false,
+    lineId: null,
+  })
+
+  const buildDefaultComponents = (kit: KitOption, lineQty: number): LineComponentDraft[] => {
+    const kitItems = kit.items ?? []
+    return kitItems.map((ki) => {
+      const defaultItemId = ki.source_type === 'item' ? ki.item_id : ki.default_item_id
+      return {
+        item_id: (defaultItemId ?? '') as number | '',
+        quantity: Math.max(1, ki.quantity) * Math.max(1, lineQty),
+      }
+    })
+  }
+
+  const syncComponents = (
+    kit: KitOption,
+    lineQty: number,
+    current: LineComponentDraft[]
+  ): LineComponentDraft[] => {
+    const kitItems = kit.items ?? []
+    if (!kitItems.length) return []
+    return kitItems.map((ki, index) => {
+      const prev = current[index]
+      const defaultItemId = ki.source_type === 'item' ? ki.item_id : ki.default_item_id
+      const itemId = (prev?.item_id || defaultItemId || '') as number | ''
+      return {
+        item_id: itemId,
+        quantity: Math.max(1, ki.quantity) * Math.max(1, lineQty),
+      }
+    })
+  }
+
   const updateLine = (lineId: string, updates: Partial<DraftLine>) => {
     setLines((prev) => prev.map((line) => {
       if (line.id === lineId) {
         const updated = { ...line, ...updates }
-        // If kit changed and it's editable, initialize components from kit's default items
-        if (updates.kit_id !== undefined && updates.kit_id !== null) {
-          const selectedKit = kits.find((k) => k.id === updates.kit_id)
-          if (selectedKit?.is_editable_components && selectedKit.items && selectedKit.items.length > 0) {
-            updated.components = selectedKit.items.map((ki) => {
-              // Determine item_id based on source_type
-              const itemId = ki.source_type === 'item' 
-                ? ki.item_id 
-                : ki.default_item_id
-              return {
-                item_id: itemId ?? '',
-                quantity: ki.quantity,
-              }
-            })
+        const kitId = updated.kit_id
+        const selectedKit = kitId ? kits.find((k) => k.id === kitId) : null
+
+        // If kit changed, (re)initialize components for editable kits.
+        if (updates.kit_id !== undefined) {
+          if (selectedKit?.is_editable_components) {
+            updated.components = buildDefaultComponents(selectedKit, updated.quantity)
           } else {
             updated.components = []
           }
+        }
+
+        // If quantity changed and kit is editable, keep selections but sync quantities.
+        if (updates.quantity !== undefined && selectedKit?.is_editable_components) {
+          updated.components = syncComponents(selectedKit, updated.quantity, updated.components)
         }
         return updated
       }
       return line
     }))
+  }
+
+  const updateLineComponentItem = (lineId: string, index: number, itemId: number | '') => {
+    setLines((prev) =>
+      prev.map((line) => {
+        if (line.id !== lineId) return line
+        const kit = line.kit_id ? kits.find((k) => k.id === line.kit_id) : null
+        if (!kit?.is_editable_components) return line
+        const nextComponents = syncComponents(kit, line.quantity, line.components).map((c, i) =>
+          i === index ? { ...c, item_id: itemId } : c
+        )
+        return { ...line, components: nextComponents }
+      })
+    )
   }
 
   const removeLine = (lineId: string) => {
@@ -217,9 +279,18 @@ export const CreateInvoicePage = () => {
       if (!line.kit_id) continue
       const kit = kitsById.get(line.kit_id)
       if (kit?.is_editable_components) {
-        const effectiveComponents = line.components.filter((c) => c.item_id && c.quantity > 0)
-        if (!effectiveComponents.length) {
-          setValidationError('Configured kits must have at least one component item.')
+        const kitItems = kit.items ?? []
+        const synced = syncComponents(kit, line.quantity, line.components)
+        if (!kitItems.length) {
+          setValidationError('Configured kit has no default components.')
+          return
+        }
+        if (synced.length !== kitItems.length) {
+          setValidationError('Configured kit components are not initialized. Please re-select the kit.')
+          return
+        }
+        if (synced.some((c) => !c.item_id || c.quantity <= 0)) {
+          setValidationError('Select a concrete inventory item for each component.')
           return
         }
       }
@@ -238,12 +309,10 @@ export const CreateInvoicePage = () => {
               discount_amount: discountAmountForLine(line),
             }
             if (kit?.is_editable_components) {
-              const components = line.components
-                .filter((c) => c.item_id && c.quantity > 0)
-                .map((c) => ({
-                  item_id: c.item_id as number,
-                  quantity: c.quantity,
-                }))
+              const components = syncComponents(kit, line.quantity, line.components).map((c) => ({
+                item_id: c.item_id as number,
+                quantity: c.quantity,
+              }))
               return { ...base, components }
             }
             return base
@@ -335,6 +404,8 @@ export const CreateInvoicePage = () => {
         <TableBody>
           {lines.map((line) => {
             const unitPrice = unitPriceForLine(line)
+            const kit = line.kit_id ? kits.find((k) => k.id === line.kit_id) : null
+            const canConfigure = Boolean(kit?.is_editable_components)
             return (
               <TableRow key={line.id}>
                 <TableCell>
@@ -398,9 +469,20 @@ export const CreateInvoicePage = () => {
                 </TableCell>
                 <TableCell>{formatMoney(lineTotalForLine(line))}</TableCell>
                 <TableCell align="right">
-                  <Button size="small" variant="text" onClick={() => removeLine(line.id)}>
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                  <div className="flex justify-end gap-2">
+                    {canConfigure && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => setComponentsDialog({ open: true, lineId: line.id })}
+                      >
+                        Components
+                      </Button>
+                    )}
+                    <Button size="small" variant="text" onClick={() => removeLine(line.id)}>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             )
@@ -442,6 +524,109 @@ export const CreateInvoicePage = () => {
           {loading ? <Spinner size="small" /> : 'Create invoice'}
         </Button>
       </div>
+
+      <Dialog
+        open={componentsDialog.open}
+        onClose={() => setComponentsDialog({ open: false, lineId: null })}
+        maxWidth="lg"
+      >
+        <DialogCloseButton onClose={() => setComponentsDialog({ open: false, lineId: null })} />
+        <DialogTitle>Configure components</DialogTitle>
+        <DialogContent>
+          {(() => {
+            const line = componentsDialog.lineId ? lines.find((l) => l.id === componentsDialog.lineId) : null
+            const kit = line?.kit_id ? kits.find((k) => k.id === line.kit_id) : null
+            if (!line || !kit) {
+              return <Alert severity="error">Line not found.</Alert>
+            }
+            if (!kit.is_editable_components) {
+              return <Alert severity="warning">This item does not support editable components.</Alert>
+            }
+            const kitItems = kit.items ?? []
+            if (!kitItems.length) {
+              return <Alert severity="warning">This kit has no default components configured.</Alert>
+            }
+
+            const synced = syncComponents(kit, line.quantity, line.components)
+            const variants = variantsApi.data ?? []
+
+            return (
+              <div className="grid gap-4 mt-2">
+                <Typography variant="body2" color="secondary">
+                  Quantities are calculated automatically based on line quantity ({line.quantity}).
+                </Typography>
+
+                {variantsApi.loading && (
+                  <div className="flex items-center gap-2">
+                    <Spinner size="small" />
+                    <Typography variant="body2" color="secondary">
+                      Loading variants...
+                    </Typography>
+                  </div>
+                )}
+
+                {kitItems.map((ki, index) => {
+                  const qty = Math.max(1, ki.quantity) * Math.max(1, line.quantity)
+                  const currentItemId = synced[index]?.item_id ?? ''
+                  if (ki.source_type === 'variant') {
+                    const variantItems = variants.find((v) => v.id === ki.variant_id)?.items ?? []
+                    return (
+                      <div key={`${kit.id}-comp-${index}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="grid gap-3 sm:grid-cols-[1fr_140px] items-end">
+                          <Select
+                            value={currentItemId === '' ? '' : String(currentItemId)}
+                            onChange={(event) =>
+                              updateLineComponentItem(
+                                line.id,
+                                index,
+                                event.target.value ? Number(event.target.value) : ''
+                              )
+                            }
+                            label={ki.variant_name ? `Variant: ${ki.variant_name}` : 'Variant'}
+                            disabled={variantsApi.loading}
+                            required
+                          >
+                            <option value="">Select item</option>
+                            {variantItems.map((it) => (
+                              <option key={it.id} value={it.id}>
+                                {`${it.name} (${it.sku_code})`}
+                              </option>
+                            ))}
+                          </Select>
+                          <Input label="Qty" type="number" value={qty} disabled />
+                        </div>
+                      </div>
+                    )
+                  }
+
+                  const invOptions = inventoryApi.data ?? []
+                  const selected = invOptions.find((it) => it.id === currentItemId) ?? null
+                  return (
+                    <div key={`${kit.id}-comp-${index}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                      <div className="grid gap-3 sm:grid-cols-[1fr_140px] items-end">
+                        <Select
+                          value={selected?.id ? String(selected.id) : ''}
+                          onChange={() => {}}
+                          label={ki.item_name ? `Item: ${ki.item_name}` : 'Item'}
+                          disabled
+                        >
+                          <option value="">
+                            {selected ? `${selected.name} (${selected.sku_code})` : '—'}
+                          </option>
+                        </Select>
+                        <Input label="Qty" type="number" value={qty} disabled />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })()}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setComponentsDialog({ open: false, lineId: null })}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </div>
   )
 }

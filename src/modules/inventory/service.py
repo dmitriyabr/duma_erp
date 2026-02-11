@@ -31,6 +31,7 @@ from src.modules.inventory.schemas import (
 )
 from src.core.auth.models import User
 from src.modules.items.models import Item, ItemType
+from src.modules.reservations.models import Reservation, ReservationItem, ReservationStatus
 from src.modules.students.models import Student
 from src.shared.utils.money import round_money
 
@@ -66,7 +67,6 @@ class InventoryService:
             stock = Stock(
                 item_id=item_id,
                 quantity_on_hand=0,
-                quantity_reserved=0,
                 average_cost=Decimal("0.00"),
             )
             self.db.add(stock)
@@ -116,6 +116,34 @@ class InventoryService:
         stocks = list(result.scalars().all())
 
         return stocks, total
+
+    async def get_owed_quantities_by_item_id(self, item_ids: list[int]) -> dict[int, int]:
+        """Return outstanding owed quantities for active reservations per item_id.
+
+        Owed = sum(quantity_required - quantity_issued) for reservations in pending/partial status.
+        This represents demand, not physical stock allocation.
+        """
+        if not item_ids:
+            return {}
+
+        result = await self.db.execute(
+            select(
+                ReservationItem.item_id,
+                func.coalesce(
+                    func.sum(ReservationItem.quantity_required - ReservationItem.quantity_issued),
+                    0,
+                ).label("owed"),
+            )
+            .join(Reservation, Reservation.id == ReservationItem.reservation_id)
+            .where(
+                Reservation.status.in_(
+                    [ReservationStatus.PENDING.value, ReservationStatus.PARTIAL.value]
+                )
+            )
+            .where(ReservationItem.item_id.in_(item_ids))
+            .group_by(ReservationItem.item_id)
+        )
+        return {int(row[0]): int(row[1] or 0) for row in result.all()}
 
     async def receive_stock(
         self,
@@ -225,11 +253,6 @@ class InventoryService:
                 f"Receipt would result in negative stock ({new_total_quantity}). "
                 f"Current quantity: {quantity_before}, change: {quantity_delta}"
             )
-        if new_total_quantity < stock.quantity_reserved:
-            raise ValidationError(
-                f"Receipt would result in quantity ({new_total_quantity}) less than reserved ({stock.quantity_reserved})"
-            )
-
         total_value_before = Decimal(quantity_before) * average_cost_before
         total_value_new = Decimal(quantity_delta) * unit_cost
 
@@ -378,11 +401,6 @@ class InventoryService:
                 f"Current quantity: {quantity_before}, adjustment: {quantity_delta}"
             )
 
-        if new_quantity < stock.quantity_reserved:
-            raise ValidationError(
-                f"Adjustment would result in quantity ({new_quantity}) less than reserved ({stock.quantity_reserved})"
-            )
-
         stock.quantity_on_hand = new_quantity
 
         movement = StockMovement(
@@ -429,12 +447,9 @@ class InventoryService:
         # Store before values
         quantity_before = stock.quantity_on_hand
 
-        # Check available quantity (on_hand minus reserved)
-        available = stock.quantity_on_hand - stock.quantity_reserved
-        if data.quantity > available:
+        if data.quantity > stock.quantity_on_hand:
             raise ValidationError(
-                f"Insufficient stock. Available: {available}, requested: {data.quantity}. "
-                f"(On hand: {stock.quantity_on_hand}, reserved: {stock.quantity_reserved})"
+                f"Insufficient stock. On hand: {stock.quantity_on_hand}, requested: {data.quantity}."
             )
 
         # Update stock
@@ -472,219 +487,6 @@ class InventoryService:
 
         await self.db.commit()
         await self.db.refresh(movement)
-        return movement
-
-    async def reserve_stock(
-        self,
-        item_id: int,
-        quantity: int,
-        reference_type: str,
-        reference_id: int,
-        reserved_by_id: int,
-        commit: bool = True,
-    ) -> StockMovement:
-        """Reserve stock for pending issuance.
-
-        Increases quantity_reserved without changing quantity_on_hand.
-        Will be called from Reservation module when Invoice is paid.
-        """
-        if quantity <= 0:
-            raise ValidationError("Reserve quantity must be positive")
-
-        stock = await self._get_or_create_stock(item_id)
-
-        # Check available quantity
-        available = stock.quantity_on_hand - stock.quantity_reserved
-        if quantity > available:
-            raise ValidationError(
-                f"Insufficient stock to reserve. Available: {available}, requested: {quantity}"
-            )
-
-        # Store before values
-        reserved_before = stock.quantity_reserved
-
-        # Update stock
-        stock.quantity_reserved += quantity
-
-        # Create movement record
-        movement = StockMovement(
-            stock_id=stock.id,
-            item_id=item_id,
-            movement_type=MovementType.RESERVE.value,
-            quantity=quantity,
-            unit_cost=None,
-            quantity_before=stock.quantity_on_hand,  # On hand doesn't change
-            quantity_after=stock.quantity_on_hand,
-            average_cost_before=stock.average_cost,
-            average_cost_after=stock.average_cost,
-            reference_type=reference_type,
-            reference_id=reference_id,
-            notes=f"Reserved {quantity} units",
-            created_by_id=reserved_by_id,
-        )
-        self.db.add(movement)
-
-        await self.audit.log(
-            action="inventory.reserve",
-            entity_type="Stock",
-            entity_id=stock.id,
-            user_id=reserved_by_id,
-            old_values={"quantity_reserved": reserved_before},
-            new_values={
-                "quantity_reserved": stock.quantity_reserved,
-                "reserved_quantity": quantity,
-            },
-        )
-
-        if commit:
-            await self.db.commit()
-            await self.db.refresh(movement)
-        return movement
-
-    async def unreserve_stock(
-        self,
-        item_id: int,
-        quantity: int,
-        reference_type: str,
-        reference_id: int,
-        unreserved_by_id: int,
-        commit: bool = True,
-    ) -> StockMovement:
-        """Unreserve stock (cancel reservation).
-
-        Decreases quantity_reserved without changing quantity_on_hand.
-        Will be called when Invoice is cancelled or reservation is fulfilled.
-        """
-        if quantity <= 0:
-            raise ValidationError("Unreserve quantity must be positive")
-
-        result = await self.db.execute(
-            select(Stock).where(Stock.item_id == item_id)
-        )
-        stock = result.scalar_one_or_none()
-        if not stock:
-            raise NotFoundError(f"No stock record for item {item_id}")
-
-        if quantity > stock.quantity_reserved:
-            raise ValidationError(
-                f"Cannot unreserve {quantity} units. Only {stock.quantity_reserved} reserved."
-            )
-
-        # Store before values
-        reserved_before = stock.quantity_reserved
-
-        # Update stock
-        stock.quantity_reserved -= quantity
-
-        # Create movement record
-        movement = StockMovement(
-            stock_id=stock.id,
-            item_id=item_id,
-            movement_type=MovementType.UNRESERVE.value,
-            quantity=-quantity,
-            unit_cost=None,
-            quantity_before=stock.quantity_on_hand,
-            quantity_after=stock.quantity_on_hand,
-            average_cost_before=stock.average_cost,
-            average_cost_after=stock.average_cost,
-            reference_type=reference_type,
-            reference_id=reference_id,
-            notes=f"Unreserved {quantity} units",
-            created_by_id=unreserved_by_id,
-        )
-        self.db.add(movement)
-
-        await self.audit.log(
-            action="inventory.unreserve",
-            entity_type="Stock",
-            entity_id=stock.id,
-            user_id=unreserved_by_id,
-            old_values={"quantity_reserved": reserved_before},
-            new_values={
-                "quantity_reserved": stock.quantity_reserved,
-                "unreserved_quantity": quantity,
-            },
-        )
-
-        if commit:
-            await self.db.commit()
-            await self.db.refresh(movement)
-        return movement
-
-    async def issue_reserved_stock(
-        self,
-        item_id: int,
-        quantity: int,
-        reference_type: str,
-        reference_id: int,
-        issued_by_id: int,
-        commit: bool = True,
-    ) -> StockMovement:
-        """Issue previously reserved stock.
-
-        Decreases both quantity_on_hand and quantity_reserved.
-        Used when fulfilling a reservation (actual issuance to student).
-        """
-        if quantity <= 0:
-            raise ValidationError("Issue quantity must be positive")
-
-        result = await self.db.execute(
-            select(Stock).where(Stock.item_id == item_id)
-        )
-        stock = result.scalar_one_or_none()
-        if not stock:
-            raise NotFoundError(f"No stock record for item {item_id}")
-
-        if quantity > stock.quantity_reserved:
-            raise ValidationError(
-                f"Cannot issue {quantity} reserved units. Only {stock.quantity_reserved} reserved."
-            )
-
-        # Store before values
-        quantity_before = stock.quantity_on_hand
-        reserved_before = stock.quantity_reserved
-
-        # Update stock
-        stock.quantity_on_hand -= quantity
-        stock.quantity_reserved -= quantity
-
-        # Create movement record
-        movement = StockMovement(
-            stock_id=stock.id,
-            item_id=item_id,
-            movement_type=MovementType.ISSUE.value,
-            quantity=-quantity,
-            unit_cost=stock.average_cost,
-            quantity_before=quantity_before,
-            quantity_after=stock.quantity_on_hand,
-            average_cost_before=stock.average_cost,
-            average_cost_after=stock.average_cost,
-            reference_type=reference_type,
-            reference_id=reference_id,
-            notes=f"Issued {quantity} reserved units",
-            created_by_id=issued_by_id,
-        )
-        self.db.add(movement)
-
-        await self.audit.log(
-            action="inventory.issue_reserved",
-            entity_type="Stock",
-            entity_id=stock.id,
-            user_id=issued_by_id,
-            old_values={
-                "quantity_on_hand": quantity_before,
-                "quantity_reserved": reserved_before,
-            },
-            new_values={
-                "quantity_on_hand": stock.quantity_on_hand,
-                "quantity_reserved": stock.quantity_reserved,
-                "issued_quantity": quantity,
-            },
-        )
-
-        if commit:
-            await self.db.commit()
-            await self.db.refresh(movement)
         return movement
 
     async def get_movements(
@@ -785,11 +587,10 @@ class InventoryService:
                 raise ValidationError(
                     f"No stock for item '{item.name}'. Receive stock first."
                 )
-            available = stock.quantity_on_hand - stock.quantity_reserved
-            if item_data.quantity > available:
+            if item_data.quantity > stock.quantity_on_hand:
                 raise ValidationError(
                     f"Insufficient stock for item {item_data.item_id}. "
-                    f"Available: {available}, requested: {item_data.quantity}"
+                    f"On hand: {stock.quantity_on_hand}, requested: {item_data.quantity}"
                 )
 
         # Generate issuance number
@@ -1079,7 +880,27 @@ class InventoryService:
         errors: list[dict] = []
 
         if mode == "overwrite":
-            # Zero quantity_on_hand only (do not touch quantity_reserved)
+            # Under demand-based reservations, we do not physically allocate stock.
+            # Still, overwriting warehouse counts while there are outstanding reservations is unsafe.
+            outstanding_result = await self.db.execute(
+                select(func.count())
+                .select_from(ReservationItem)
+                .join(Reservation, Reservation.id == ReservationItem.reservation_id)
+                .where(
+                    Reservation.status.in_(
+                        [ReservationStatus.PENDING.value, ReservationStatus.PARTIAL.value]
+                    )
+                )
+                .where(ReservationItem.quantity_required > ReservationItem.quantity_issued)
+            )
+            outstanding = int(outstanding_result.scalar() or 0)
+            if outstanding > 0:
+                raise ValidationError(
+                    "Cannot overwrite warehouse while there are outstanding reservations. "
+                    "Cancel or fulfill reservations first."
+                )
+
+            # Zero quantity_on_hand only.
             result = await self.db.execute(
                 select(Stock)
                 .options(selectinload(Stock.item))
@@ -1088,12 +909,6 @@ class InventoryService:
                 .where(Stock.quantity_on_hand > 0)
             )
             stocks_to_zero = list(result.scalars().unique().all())
-            for stock in stocks_to_zero:
-                if stock.quantity_reserved > 0:
-                    raise ValidationError(
-                        "Cannot overwrite warehouse while there is reserved stock. "
-                        "Cancel or fulfill reservations first."
-                    )
             for stock in stocks_to_zero:
                 await self._apply_adjustment(
                     item_id=stock.item_id,
@@ -1150,15 +965,6 @@ class InventoryService:
 
             stock = await self._get_or_create_stock(item.id)
             target = qty
-            if target < stock.quantity_reserved:
-                errors.append(
-                    {
-                        "row": row_num,
-                        "message": f"quantity {target} less than reserved {stock.quantity_reserved}",
-                    }
-                )
-                continue
-
             delta = target - stock.quantity_on_hand
             if delta == 0:
                 rows_processed += 1

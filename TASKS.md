@@ -158,11 +158,11 @@
 ### 1.7 Инвентарь — Часть 1: Остатки и выдача
 > Решения: Один склад, средневзвешенная себестоимость, единая сущность Issuance
 
-- [x] Модель Stock (item_id, quantity_on_hand, quantity_reserved, average_cost)
+- [x] Модель Stock (item_id, quantity_on_hand, average_cost)
 - [x] Модель StockMovement (item_id, movement_type, quantity, unit_cost, reference_type, reference_id, notes)
 - [x] Модель Issuance (issuance_number, issuance_type, recipient_type, recipient_id, recipient_name, reservation_id)
 - [x] Модель IssuanceItem (issuance_id, item_id, quantity, unit_cost, reservation_item_id)
-- [x] Сервис InventoryService (receive/adjust/issue/reserve/unreserve)
+- [x] Сервис InventoryService (receive/adjust/issue)
 - [x] API endpoints (stock, movements, issuances)
 - [x] Миграция (004_inventory.py)
 - [x] Тесты
@@ -171,7 +171,7 @@
 > Решения: Резерв при fully paid line, Kit разворачивается в ReservationItem, выдача частями
 
 - [x] Модель Reservation (student_id, invoice_id, invoice_line_id, status)
-- [x] Модель ReservationItem (reservation_id, item_id, quantity_required, quantity_reserved, quantity_issued)
+- [x] Модель ReservationItem (reservation_id, item_id, quantity_required, quantity_issued)
 - [x] Сервис ReservationService (create_from_line, issue_items, cancel_reservation)
 - [x] Интеграция с PaymentService (trigger при allocation)
 - [x] API endpoints (list/get/issue/cancel)
@@ -539,7 +539,7 @@
 - [x] **Backend:** POST `/inventory/bulk-upload` (file CSV + mode: overwrite | update).
   - Парсинг CSV: category, item_name, quantity, unit_cost? (и опционально sku). Reserved в CSV не участвует.
   - Get-or-create категории по имени; get-or-create Item (product) по (category, item_name) или sku, автоСКУ при создании.
-  - Режим overwrite: обнулить **только quantity_on_hand** по всем product (quantity_reserved не трогаем).
+  - Режим overwrite: обнулить **только quantity_on_hand** по всем product (но запрещать overwrite при outstanding reservations).
   - Режим update: только для позиций из CSV установить quantity_on_hand (adjustment до target quantity).
   - Аудит и движения StockMovement.
 - [x] **Backend:** GET `/inventory/bulk-upload/export` — выгрузка **текущего склада** в CSV (не пустой шаблон), чтобы редактировать и заливать обратно.

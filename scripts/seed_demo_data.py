@@ -910,7 +910,6 @@ async def seed_procurement(
                     st = Stock(
                         item_id=pl.item_id,
                         quantity_on_hand=0,
-                        quantity_reserved=0,
                         average_cost=Decimal("0.00"),
                     )
                     session.add(st)

@@ -394,7 +394,7 @@
 - `WriteOffRequest`: `items[]` (каждый: `item_id`, `quantity`, `reason_category`, `reason_detail?`)
 - `InventoryCountRequest`: `items[]` (каждый: `item_id`, `actual_quantity`)
 - `IssueStockRequest`: `item_id`, `quantity`, `reference_type?`, `reference_id?`, `notes?`
-- `StockResponse`: `id`, `item_id`, `item_sku?`, `item_name?`, `quantity_on_hand`, `quantity_reserved`, `quantity_available`, `average_cost`
+- `StockResponse`: `id`, `item_id`, `item_sku?`, `item_name?`, `quantity_on_hand`, `quantity_owed`, `quantity_available`, `average_cost`
 - `StockMovementResponse`: `id`, `stock_id`, `item_id`, `item_sku?`, `item_name?`, `movement_type`, `quantity`, `unit_cost?`, `quantity_before`, `quantity_after`, `average_cost_before`, `average_cost_after`, `reference_type?`, `reference_id?`, `notes?`, `created_by_id`, `created_by_name?`, `created_at`
 - `WriteOffResponse`: `movements[]`, `total`
 - `InventoryCountResponse`: `movements[]`, `adjustments_created`, `total_variance`
@@ -406,7 +406,7 @@
 - `ReservationIssueRequest`: `items[]` (каждый: `reservation_item_id`, `quantity`), `notes?`
 - `ReservationCancelRequest`: `reason?`
 - `ReservationResponse`: `id`, `student_id`, `invoice_id`, `invoice_line_id`, `status`, `created_by_id`, `created_at`, `updated_at`, `items[]`
-- `ReservationItemResponse`: `id`, `item_id`, `item_sku?`, `item_name?`, `quantity_required`, `quantity_reserved`, `quantity_issued`
+- `ReservationItemResponse`: `id`, `item_id`, `item_sku?`, `item_name?`, `quantity_required`, `quantity_issued`
 
 ### 6.11. Procurement
 - `PurchaseOrderCreate`: `supplier_name`, `supplier_contact?`, `purpose_id`, `order_date?`, `expected_delivery_date?`, `track_to_warehouse`, `notes?`, `lines[]`

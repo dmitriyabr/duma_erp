@@ -155,7 +155,8 @@ class TestReservationService:
         assert reservation.status == ReservationStatus.PENDING.value
         assert len(reservation.items) == 1
         assert reservation.items[0].quantity_required == 2
-        assert reservation.items[0].quantity_reserved == 2
+        # Demand-based reservation: no physical allocation at reservation creation time.
+        assert not hasattr(reservation.items[0], "quantity_reserved")
 
     async def test_issue_and_cancel_reservation(self, db_session: AsyncSession):
         data = await self._setup_test_data(db_session)
@@ -175,12 +176,11 @@ class TestReservationService:
         reservation = await service.get_by_id(reservation.id)
         assert reservation.status == ReservationStatus.PARTIAL.value
         assert reservation.items[0].quantity_issued == 1
-        assert reservation.items[0].quantity_reserved == 1
+        assert not hasattr(reservation.items[0], "quantity_reserved")
 
         inventory = InventoryService(db_session)
         stock_before = await inventory.get_stock_by_item_id(data["item"].id)
         on_hand_before = stock_before.quantity_on_hand
-        reserved_before = stock_before.quantity_reserved
 
         await service.cancel_reservation(
             reservation_id=reservation.id,
@@ -193,7 +193,7 @@ class TestReservationService:
 
         stock_after = await inventory.get_stock_by_item_id(data["item"].id)
         assert stock_after.quantity_on_hand == on_hand_before + 1
-        assert stock_after.quantity_reserved == reserved_before - 1
+        assert not hasattr(stock_after, "quantity_reserved")
 
     async def test_reservation_created_on_invoice_issue_before_payment(
         self, db_session: AsyncSession
@@ -343,7 +343,7 @@ class TestReservationService:
         reservation = await service.get_by_id(reservation.id)
         assert reservation.status == ReservationStatus.PARTIAL.value
         assert reservation.items[0].quantity_issued == 1
-        assert reservation.items[0].quantity_reserved == 1
+        assert not hasattr(reservation.items[0], "quantity_reserved")
 
     async def test_issue_reservation_rejects_all_zero_quantities(
         self, db_session: AsyncSession

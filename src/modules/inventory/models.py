@@ -67,9 +67,6 @@ class Stock(Base):
     quantity_on_hand: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0
     )  # Physical quantity in warehouse
-    quantity_reserved: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0
-    )  # Reserved for pending issuance
     average_cost: Mapped[Decimal] = mapped_column(
         Numeric(15, 2), nullable=False, default=Decimal("0.00")
     )  # Weighted average cost
@@ -88,8 +85,13 @@ class Stock(Base):
 
     @property
     def quantity_available(self) -> int:
-        """Quantity available for new reservations."""
-        return self.quantity_on_hand - self.quantity_reserved
+        """Quantity available on hand.
+
+        Note: reservations are demand-based (no physical allocation), so availability
+        for issuing is determined by quantity_on_hand only. UI/API may compute "free"
+        as on_hand - owed.
+        """
+        return self.quantity_on_hand
 
 
 class StockMovement(Base):

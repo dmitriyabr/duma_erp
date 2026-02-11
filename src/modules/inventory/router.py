@@ -77,6 +77,7 @@ async def list_stock(
         page=page,
         limit=limit,
     )
+    owed_by_item_id = await service.get_owed_quantities_by_item_id([s.item_id for s in stocks])
     return ApiResponse(
         success=True,
         data=PaginatedResponse.create(
@@ -87,8 +88,8 @@ async def list_stock(
                     item_sku=s.item.sku_code if s.item else None,
                     item_name=s.item.name if s.item else None,
                     quantity_on_hand=s.quantity_on_hand,
-                    quantity_reserved=s.quantity_reserved,
-                    quantity_available=s.quantity_available,
+                    quantity_owed=owed_by_item_id.get(s.item_id, 0),
+                    quantity_available=max(0, s.quantity_on_hand - owed_by_item_id.get(s.item_id, 0)),
                     average_cost=s.average_cost,
                 )
                 for s in stocks
@@ -114,6 +115,8 @@ async def get_stock(
     """Get stock for a specific item."""
     service = InventoryService(db)
     stock = await service.get_stock_by_item_id(item_id)
+    owed_by_item_id = await service.get_owed_quantities_by_item_id([item_id])
+    owed = owed_by_item_id.get(item_id, 0)
     if not stock:
         return ApiResponse(
             success=True,
@@ -123,7 +126,7 @@ async def get_stock(
                 item_sku=None,
                 item_name=None,
                 quantity_on_hand=0,
-                quantity_reserved=0,
+                quantity_owed=owed,
                 quantity_available=0,
                 average_cost="0.00",
             ),
@@ -136,8 +139,8 @@ async def get_stock(
             item_sku=stock.item.sku_code if stock.item else None,
             item_name=stock.item.name if stock.item else None,
             quantity_on_hand=stock.quantity_on_hand,
-            quantity_reserved=stock.quantity_reserved,
-            quantity_available=stock.quantity_available,
+            quantity_owed=owed,
+            quantity_available=max(0, stock.quantity_on_hand - owed),
             average_cost=stock.average_cost,
         ),
     )
