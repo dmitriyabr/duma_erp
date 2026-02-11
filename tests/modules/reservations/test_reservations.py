@@ -11,8 +11,21 @@ from src.core.auth.service import AuthService
 from src.modules.inventory.schemas import ReceiveStockRequest
 from src.modules.inventory.service import InventoryService
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
-from src.modules.items.models import Category, Item, ItemType, Kit, KitItem, PriceType
+from src.modules.items.models import (
+    Category,
+    Item,
+    ItemType,
+    ItemVariant,
+    ItemVariantMembership,
+    Kit,
+    KitItem,
+    PriceType,
+)
 from src.modules.reservations.models import ReservationStatus
+from src.modules.reservations.schemas import (
+    ReservationConfigureComponentsAllocation,
+    ReservationConfigureComponentsComponent,
+)
 from src.modules.reservations.service import ReservationService
 from src.modules.students.models import Gender, Grade, Student, StudentStatus
 
@@ -344,6 +357,169 @@ class TestReservationService:
         assert reservation.status == ReservationStatus.PARTIAL.value
         assert reservation.items[0].quantity_issued == 1
         assert not hasattr(reservation.items[0], "quantity_reserved")
+
+    async def test_configure_components_for_editable_variant_kit(self, db_session: AsyncSession):
+        auth_service = AuthService(db_session)
+        user = await auth_service.create_user(
+            email="reservation_components_test@school.com",
+            password="Test123!",
+            full_name="Reservation Components Tester",
+            role=UserRole.SUPER_ADMIN,
+        )
+        await db_session.flush()
+
+        category = Category(name="Reservation Components Category", is_active=True)
+        db_session.add(category)
+        await db_session.flush()
+
+        item_a = Item(
+            category_id=category.id,
+            sku_code="RES-COMP-001",
+            name="Dress 20",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("500.00"),
+            is_active=True,
+        )
+        item_b = Item(
+            category_id=category.id,
+            sku_code="RES-COMP-002",
+            name="Dress 22",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("500.00"),
+            is_active=True,
+        )
+        db_session.add_all([item_a, item_b])
+        await db_session.flush()
+
+        variant = ItemVariant(name="Dress", is_active=True)
+        db_session.add(variant)
+        await db_session.flush()
+        db_session.add_all(
+            [
+                ItemVariantMembership(variant_id=variant.id, item_id=item_a.id, is_default=True),
+                ItemVariantMembership(variant_id=variant.id, item_id=item_b.id, is_default=False),
+            ]
+        )
+        await db_session.flush()
+
+        kit = Kit(
+            category_id=category.id,
+            sku_code="RES-COMP-KIT-001",
+            name="Uniform kit",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("500.00"),
+            requires_full_payment=False,
+            is_editable_components=True,
+            is_active=True,
+        )
+        db_session.add(kit)
+        await db_session.flush()
+        db_session.add(
+            KitItem(
+                kit_id=kit.id,
+                source_type="variant",
+                variant_id=variant.id,
+                default_item_id=item_a.id,
+                item_id=None,
+                quantity=2,
+            )
+        )
+
+        grade = Grade(code="RESC1", name="Reservation Components Grade", display_order=1, is_active=True)
+        db_session.add(grade)
+        await db_session.flush()
+
+        student = Student(
+            student_number="STU-RESC-000001",
+            first_name="ResC",
+            last_name="Student",
+            gender=Gender.MALE.value,
+            grade_id=grade.id,
+            guardian_name="ResC Guardian",
+            guardian_phone="+254700000001",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add(student)
+        await db_session.flush()
+
+        invoice = Invoice(
+            invoice_number="INV-RESC-000001",
+            student_id=student.id,
+            invoice_type=InvoiceType.ADHOC.value,
+            status=InvoiceStatus.ISSUED.value,
+            issue_date=date.today(),
+            due_date=date.today() + timedelta(days=30),
+            subtotal=Decimal("500.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("500.00"),
+            paid_total=Decimal("0.00"),
+            amount_due=Decimal("500.00"),
+            created_by_id=user.id,
+        )
+        invoice.lines = []
+        db_session.add(invoice)
+        await db_session.flush()
+
+        line = InvoiceLine(
+            invoice_id=invoice.id,
+            kit_id=kit.id,
+            description="Uniform kit",
+            quantity=1,
+            unit_price=Decimal("500.00"),
+            line_total=Decimal("500.00"),
+            discount_amount=Decimal("0.00"),
+            net_amount=Decimal("500.00"),
+            paid_amount=Decimal("0.00"),
+            remaining_amount=Decimal("500.00"),
+        )
+        db_session.add(line)
+        invoice.lines.append(line)
+        await db_session.flush()
+
+        inventory = InventoryService(db_session)
+        await inventory.receive_stock(
+            ReceiveStockRequest(
+                item_id=item_a.id,
+                quantity=10,
+                unit_cost=Decimal("200.00"),
+            ),
+            received_by_id=user.id,
+        )
+        await inventory.receive_stock(
+            ReceiveStockRequest(
+                item_id=item_b.id,
+                quantity=10,
+                unit_cost=Decimal("200.00"),
+            ),
+            received_by_id=user.id,
+        )
+
+        service = ReservationService(db_session)
+        reservation = await service.create_from_line(invoice_line_id=line.id, created_by_id=user.id)
+        assert reservation is not None
+        assert reservation.items[0].item_id == item_a.id
+        assert reservation.items[0].quantity_required == 2
+
+        reservation = await service.configure_components(
+            reservation_id=reservation.id,
+            components=[
+                ReservationConfigureComponentsComponent(
+                    allocations=[
+                        ReservationConfigureComponentsAllocation(item_id=item_a.id, quantity=1),
+                        ReservationConfigureComponentsAllocation(item_id=item_b.id, quantity=1),
+                    ]
+                )
+            ],
+            configured_by_id=user.id,
+        )
+
+        assert sorted([(ri.item_id, ri.quantity_required) for ri in reservation.items]) == sorted(
+            [(item_a.id, 1), (item_b.id, 1)]
+        )
 
     async def test_issue_reservation_rejects_all_zero_quantities(
         self, db_session: AsyncSession

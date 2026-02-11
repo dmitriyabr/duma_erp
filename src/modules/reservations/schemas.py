@@ -55,3 +55,24 @@ class ReservationCancelRequest(BaseModel):
     """Cancel reservation request."""
 
     reason: str | None = Field(None, max_length=500)
+
+
+class ReservationConfigureComponentsAllocation(BaseModel):
+    item_id: int
+    quantity: int = Field(..., ge=1)
+
+
+class ReservationConfigureComponentsComponent(BaseModel):
+    allocations: list[ReservationConfigureComponentsAllocation] = Field(..., min_length=1)
+
+
+class ReservationConfigureComponentsRequest(BaseModel):
+    """Configure concrete components for an editable kit reservation.
+
+    `components` must be provided in the same order as the kit's components.
+    Each component contains `allocations` that must sum to the required quantity
+    for that kit component (kit_item.quantity * invoice_line.quantity).
+    Only variant components are changeable; fixed item components must match the kit.
+    """
+
+    components: list[ReservationConfigureComponentsComponent] = Field(..., min_length=1)

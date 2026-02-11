@@ -55,7 +55,10 @@ class Reservation(Base):
     )
     created_by: Mapped["User"] = relationship("User")
     items: Mapped[list["ReservationItem"]] = relationship(
-        "ReservationItem", back_populates="reservation", cascade="all, delete-orphan"
+        "ReservationItem",
+        back_populates="reservation",
+        cascade="all, delete-orphan",
+        order_by="ReservationItem.id",
     )
 
 

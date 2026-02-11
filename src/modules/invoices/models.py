@@ -14,7 +14,7 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, backref, mapped_column, relationship
 
 from src.core.database.base import Base, BigIntPK
 
@@ -237,7 +237,9 @@ class InvoiceLineComponent(Base):
     quantity: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
 
     # Relationships
-    line: Mapped["InvoiceLine"] = relationship("InvoiceLine", backref="components")
+    line: Mapped["InvoiceLine"] = relationship(
+        "InvoiceLine", backref=backref("components", order_by="InvoiceLineComponent.id")
+    )
     item: Mapped["Item"] = relationship("Item")
 
 

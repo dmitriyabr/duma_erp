@@ -2,7 +2,7 @@
 
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -20,7 +20,9 @@ from src.modules.inventory.models import (
 from src.modules.inventory.service import InventoryService
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceLineComponent, InvoiceStatus
 from src.modules.items.models import Item, ItemType, Kit, KitItem
+from src.modules.items.models import ItemVariantMembership
 from src.modules.reservations.models import Reservation, ReservationItem, ReservationStatus
+from src.modules.reservations.schemas import ReservationConfigureComponentsComponent
 from src.modules.students.models import Student
 
 
@@ -315,6 +317,147 @@ class ReservationService:
             await self.db.commit()
             await self.db.refresh(reservation)
         return reservation
+
+    async def configure_components(
+        self,
+        reservation_id: int,
+        components: list[ReservationConfigureComponentsComponent],
+        configured_by_id: int,
+    ) -> Reservation:
+        """Configure concrete components for an editable-kit reservation.
+
+        This allows selecting actual inventory items for kit variant components *at issuance time*.
+        Only allowed before any issuance (quantity_issued must be 0 for all reservation items).
+        """
+        reservation = await self.get_by_id(reservation_id)
+
+        if reservation.status == ReservationStatus.CANCELLED.value:
+            raise ValidationError("Reservation is cancelled")
+        if reservation.status == ReservationStatus.FULFILLED.value:
+            raise ValidationError("Reservation already fulfilled")
+        if any((ri.quantity_issued or 0) > 0 for ri in reservation.items):
+            raise ValidationError("Cannot configure components after items have been issued")
+
+        line = await self._get_invoice_line(reservation.invoice_line_id)
+        kit = line.kit
+        if not kit:
+            raise ValidationError("Invoice line has no kit")
+        if not kit.is_editable_components:
+            raise ValidationError(f"Kit '{kit.name}' does not support editable components")
+
+        kit_items = kit.kit_items or []
+        if not kit_items:
+            raise ValidationError("Kit has no components configured")
+
+        if len(components) != len(kit_items):
+            raise ValidationError(
+                f"Expected {len(kit_items)} components, got {len(components)}"
+            )
+
+        # Replace invoice line components
+        await self.db.execute(
+            delete(InvoiceLineComponent).where(
+                InvoiceLineComponent.invoice_line_id == line.id
+            )
+        )
+
+        new_components_by_item: dict[int, int] = {}
+        new_reservation_items_by_item: dict[int, int] = {}
+
+        def _add_qty(target: dict[int, int], item_id: int, qty: int) -> None:
+            target[item_id] = int(target.get(item_id, 0)) + int(qty)
+
+        for index, kit_item in enumerate(kit_items):
+            component = components[index]
+            allocations = component.allocations
+            if not allocations:
+                raise ValidationError("Component allocations are required")
+
+            expected_qty = max(1, int(kit_item.quantity)) * max(1, int(line.quantity))
+            allocations_total = sum(int(a.quantity) for a in allocations)
+            if allocations_total != expected_qty:
+                raise ValidationError(
+                    f"Component {index + 1} allocations must sum to {expected_qty}, got {allocations_total}"
+                )
+
+            if kit_item.source_type == "item":
+                if not kit_item.item_id:
+                    raise ValidationError("Kit item missing item_id")
+                if len(allocations) != 1:
+                    raise ValidationError("Fixed kit components must have exactly one allocation")
+                if allocations[0].item_id != kit_item.item_id:
+                    raise ValidationError("Fixed kit components cannot be changed")
+            elif kit_item.source_type == "variant":
+                if not kit_item.variant_id:
+                    raise ValidationError("Variant kit item missing variant_id")
+            else:
+                raise ValidationError(f"Unknown kit item source_type: {kit_item.source_type}")
+
+            for allocation in allocations:
+                chosen_item_id = int(allocation.item_id)
+                allocation_qty = int(allocation.quantity)
+
+                if kit_item.source_type == "variant":
+                    membership_result = await self.db.execute(
+                        select(ItemVariantMembership).where(
+                            ItemVariantMembership.variant_id == kit_item.variant_id,
+                            ItemVariantMembership.item_id == chosen_item_id,
+                        )
+                    )
+                    if not membership_result.scalar_one_or_none():
+                        raise ValidationError(
+                            "Selected item is not allowed for this variant component"
+                        )
+
+                # Validate item exists and is product
+                item_result = await self.db.execute(
+                    select(Item).where(Item.id == chosen_item_id)
+                )
+                item = item_result.scalar_one_or_none()
+                if not item:
+                    raise NotFoundError(f"Item with id {chosen_item_id} not found")
+                if item.item_type != ItemType.PRODUCT.value:
+                    raise ValidationError("Kit components must be product items")
+
+                _add_qty(new_components_by_item, chosen_item_id, allocation_qty)
+                _add_qty(new_reservation_items_by_item, chosen_item_id, allocation_qty)
+
+        for item_id, qty in new_components_by_item.items():
+            self.db.add(
+                InvoiceLineComponent(
+                    invoice_line_id=line.id,
+                    item_id=item_id,
+                    quantity=qty,
+                )
+            )
+
+        await self.db.execute(
+            delete(ReservationItem).where(ReservationItem.reservation_id == reservation.id)
+        )
+        for item_id, qty in new_reservation_items_by_item.items():
+            self.db.add(
+                ReservationItem(
+                    reservation_id=reservation.id,
+                    item_id=item_id,
+                    quantity_required=qty,
+                    quantity_issued=0,
+                )
+            )
+
+        reservation.status = ReservationStatus.PENDING.value
+
+        await self.audit.log(
+            action="reservation.configure_components",
+            entity_type="Reservation",
+            entity_id=reservation.id,
+            user_id=configured_by_id,
+            new_values={"invoice_line_id": reservation.invoice_line_id},
+        )
+
+        await self.db.commit()
+        # Ensure we don't return stale relationship state from the identity map.
+        self.db.expunge_all()
+        return await self.get_by_id(reservation.id)
 
     # --- Helpers ---
 

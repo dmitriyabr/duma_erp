@@ -9,6 +9,7 @@ from src.core.database.session import get_db
 from src.modules.reservations.models import ReservationStatus
 from src.modules.reservations.schemas import (
     ReservationCancelRequest,
+    ReservationConfigureComponentsRequest,
     ReservationIssueRequest,
     ReservationItemResponse,
     ReservationResponse,
@@ -137,5 +138,28 @@ async def cancel_reservation(
         cancelled_by_id=current_user.id,
         reason=payload.reason,
         commit=True,
+    )
+    return ApiResponse(success=True, data=_map_reservation(reservation))
+
+
+@router.post(
+    "/{reservation_id}/components",
+    response_model=ApiResponse[ReservationResponse],
+)
+async def configure_reservation_components(
+    reservation_id: int,
+    payload: ReservationConfigureComponentsRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
+):
+    """Configure concrete components for an editable-kit reservation.
+
+    Allowed only before any items are issued.
+    """
+    service = ReservationService(db)
+    reservation = await service.configure_components(
+        reservation_id=reservation_id,
+        components=payload.components,
+        configured_by_id=current_user.id,
     )
     return ApiResponse(success=True, data=_map_reservation(reservation))

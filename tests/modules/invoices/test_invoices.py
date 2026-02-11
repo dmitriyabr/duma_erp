@@ -440,12 +440,22 @@ class TestInvoiceService:
         db_session.add(editable_kit)
         await db_session.flush()
 
-        # Add default items to kit
+        # Create a variant so we can swap S -> M via editable components
+        from src.modules.items.service import ItemService
+        from src.modules.items.schemas import ItemVariantCreate
+
+        item_service = ItemService(db_session)
+        variant = await item_service.create_variant(
+            ItemVariantCreate(name="Shirt Sizes S-M", item_ids=[item_s.id, item_m.id]),
+            created_by_id=data["user"].id,
+        )
+
         kit_item = KitItem(
             kit_id=editable_kit.id,
-            item_id=item_s.id,
+            variant_id=variant.id,
+            default_item_id=item_s.id,
             quantity=1,
-            source_type="item",
+            source_type="variant",
         )
         db_session.add(kit_item)
         await db_session.flush()
@@ -477,7 +487,10 @@ class TestInvoiceService:
 
         # Create invoice with editable kit and custom components
         service = InvoiceService(db_session)
-        from src.modules.invoices.schemas import InvoiceLineComponentInput
+        from src.modules.invoices.schemas import (
+            InvoiceLineComponentAllocation,
+            InvoiceLineComponentConfig,
+        )
 
         invoice = await service.create_adhoc_invoice(
             InvoiceCreate(
@@ -487,7 +500,11 @@ class TestInvoiceService:
                         kit_id=editable_kit.id,
                         quantity=1,
                         components=[
-                            InvoiceLineComponentInput(item_id=item_m.id, quantity=1)  # Changed from S to M
+                            InvoiceLineComponentConfig(
+                                allocations=[
+                                    InvoiceLineComponentAllocation(item_id=item_m.id, quantity=1)
+                                ]
+                            )
                         ],
                     )
                 ],
@@ -561,11 +578,22 @@ class TestInvoiceService:
         db_session.add(editable_kit)
         await db_session.flush()
 
+        # Create a variant so we can swap S -> M via editable components
+        from src.modules.items.service import ItemService
+        from src.modules.items.schemas import ItemVariantCreate
+
+        item_service = ItemService(db_session)
+        variant = await item_service.create_variant(
+            ItemVariantCreate(name="Shirt Sizes S-M", item_ids=[item_s.id, item_m.id]),
+            created_by_id=data["user"].id,
+        )
+
         kit_item = KitItem(
             kit_id=editable_kit.id,
-            item_id=item_s.id,
+            variant_id=variant.id,
+            default_item_id=item_s.id,
             quantity=1,
-            source_type="item",
+            source_type="variant",
         )
         db_session.add(kit_item)
         await db_session.flush()
@@ -597,7 +625,10 @@ class TestInvoiceService:
 
         # Create invoice with editable kit, custom component (M instead of S)
         service = InvoiceService(db_session)
-        from src.modules.invoices.schemas import InvoiceLineComponentInput
+        from src.modules.invoices.schemas import (
+            InvoiceLineComponentAllocation,
+            InvoiceLineComponentConfig,
+        )
 
         invoice = await service.create_adhoc_invoice(
             InvoiceCreate(
@@ -607,7 +638,11 @@ class TestInvoiceService:
                         kit_id=editable_kit.id,
                         quantity=1,
                         components=[
-                            InvoiceLineComponentInput(item_id=item_m.id, quantity=1)  # Changed to M
+                            InvoiceLineComponentConfig(
+                                allocations=[
+                                    InvoiceLineComponentAllocation(item_id=item_m.id, quantity=1)
+                                ]
+                            )
                         ],
                     )
                 ],
@@ -715,10 +750,13 @@ class TestInvoiceService:
 
         # Try to create invoice with XL (not in variant) - should fail
         service = InvoiceService(db_session)
-        from src.modules.invoices.schemas import InvoiceLineComponentInput
+        from src.modules.invoices.schemas import (
+            InvoiceLineComponentAllocation,
+            InvoiceLineComponentConfig,
+        )
         from src.core.exceptions import ValidationError
 
-        with pytest.raises(ValidationError, match="cannot replace a component"):
+        with pytest.raises(ValidationError, match="variant"):
             await service.create_adhoc_invoice(
                 InvoiceCreate(
                     student_id=data["student"].id,
@@ -727,7 +765,11 @@ class TestInvoiceService:
                             kit_id=editable_kit.id,
                             quantity=1,
                             components=[
-                                InvoiceLineComponentInput(item_id=item_xl.id, quantity=1)  # XL not in variant
+                                InvoiceLineComponentConfig(
+                                    allocations=[
+                                        InvoiceLineComponentAllocation(item_id=item_xl.id, quantity=1)
+                                    ]
+                                )
                             ],
                         )
                     ],
@@ -744,7 +786,11 @@ class TestInvoiceService:
                         kit_id=editable_kit.id,
                         quantity=1,
                         components=[
-                            InvoiceLineComponentInput(item_id=item_m.id, quantity=1)  # M is in variant
+                            InvoiceLineComponentConfig(
+                                allocations=[
+                                    InvoiceLineComponentAllocation(item_id=item_m.id, quantity=1)
+                                ]
+                            )
                         ],
                     )
                 ],

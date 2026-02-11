@@ -3,7 +3,7 @@
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -22,7 +22,7 @@ from src.modules.invoices.schemas import (
     InvoiceCreate,
     InvoiceFilters,
     InvoiceLineCreate,
-    InvoiceLineComponentInput,
+    InvoiceLineComponentConfig,
     OutstandingTotalItem,
     TermInvoiceGenerationResult,
 )
@@ -158,7 +158,7 @@ class InvoiceService:
         self,
         line: InvoiceLine,
         kit: Kit,
-        components: list[InvoiceLineComponentInput],
+        components: list[InvoiceLineComponentConfig],
     ) -> None:
         """Set concrete inventory components for an invoice line (for configurable kits)."""
         # Get kit_id safely to avoid lazy loading issues
@@ -185,68 +185,98 @@ class InvoiceService:
                 f"Kit '{kit_with_items.name}' does not support editable components"
             )
 
-        # Build map of kit items by index for validation
-        # For variant source_type, we need to validate that replacement item is in the variant
+        kit_items = kit_with_items.kit_items or []
+        if not kit_items:
+            raise ValidationError("Kit has no components configured")
 
-        # Clear existing components (if any)
-        # For new lines (just created in _add_line_to_invoice), there are no existing components
-        # We only need to delete if this is an update to an existing line
-        # Since _add_line_to_invoice creates new lines, we skip deletion to avoid lazy loading issues
-        # If this method is ever called for updates, we would need to handle deletion differently
-
-        # Validate and create new components
-        for comp in components:
-            if comp.quantity <= 0:
-                raise ValidationError("Component quantity must be positive")
-
-            item_result = await self.db.execute(
-                select(Item).where(Item.id == comp.item_id)
+        if len(components) != len(kit_items):
+            raise ValidationError(
+                f"Expected {len(kit_items)} components, got {len(components)}"
             )
-            item = item_result.scalar_one_or_none()
-            if not item:
-                raise NotFoundError(f"Item with id {comp.item_id} not found")
-            if item.item_type != ItemType.PRODUCT.value:
+
+        line_id = getattr(line, "id", None)
+        if not line_id:
+            raise ValidationError("Invoice line must be flushed before setting components")
+
+        await self.db.execute(
+            delete(InvoiceLineComponent).where(
+                InvoiceLineComponent.invoice_line_id == line_id
+            )
+        )
+
+        components_by_item: dict[int, int] = {}
+
+        def _add_qty(item_id: int, qty: int) -> None:
+            components_by_item[item_id] = int(components_by_item.get(item_id, 0)) + int(qty)
+
+        for index, kit_item in enumerate(kit_items):
+            component_cfg = components[index]
+            allocations = component_cfg.allocations
+            if not allocations:
+                raise ValidationError("Component allocations are required")
+
+            expected_qty = max(1, int(kit_item.quantity)) * max(1, int(line.quantity))
+            allocations_total = sum(int(a.quantity) for a in allocations)
+            if allocations_total != expected_qty:
                 raise ValidationError(
-                    f"Item '{item.name}' is not a product and cannot be used in a kit component"
+                    f"Component {index + 1} allocations must sum to {expected_qty}, got {allocations_total}"
                 )
 
-            # Validate variant: if kit item source_type is 'variant',
-            # replacement item must be in that variant
-            # Find corresponding kit_item (by position in components list)
-            kit_item_index = components.index(comp)
-            if kit_item_index < len(kit_with_items.kit_items):
-                kit_item = kit_with_items.kit_items[kit_item_index]
+            if kit_item.source_type == "item":
+                if not kit_item.item_id:
+                    raise ValidationError("Kit item missing item_id")
+                if len(allocations) != 1:
+                    raise ValidationError("Fixed kit components must have exactly one allocation")
+                if allocations[0].item_id != kit_item.item_id:
+                    raise ValidationError("Fixed kit components cannot be changed")
+            elif kit_item.source_type == "variant":
+                if not kit_item.variant_id:
+                    raise ValidationError("Variant kit item missing variant_id")
+            else:
+                raise ValidationError(f"Unknown kit item source_type: {kit_item.source_type}")
+
+            for allocation in allocations:
+                chosen_item_id = int(allocation.item_id)
+                allocation_qty = int(allocation.quantity)
+
                 if kit_item.source_type == "variant":
-                    # Verify that selected item is in the variant
                     membership_result = await self.db.execute(
                         select(ItemVariantMembership).where(
                             ItemVariantMembership.variant_id == kit_item.variant_id,
-                            ItemVariantMembership.item_id == comp.item_id,
+                            ItemVariantMembership.item_id == chosen_item_id,
                         )
                     )
                     if not membership_result.scalar_one_or_none():
-                        # Get variant name by querying directly to avoid lazy load
                         variant_result = await self.db.execute(
                             select(ItemVariant).where(ItemVariant.id == kit_item.variant_id)
                         )
                         variant = variant_result.scalar_one_or_none()
                         variant_name = variant.name if variant else f"variant {kit_item.variant_id}"
                         raise ValidationError(
-                            f"Item '{item.name}' cannot replace a component in this kit. "
                             f"Replacement items must be from the variant '{variant_name}'"
                         )
 
-            # Create component with invoice_line_id (line.id is available after flush)
-            # Get line_id safely to avoid lazy loading issues
-            line_id = getattr(line, 'id', None)
-            if not line_id:
-                raise ValidationError("Invoice line must be flushed before setting components")
-            component = InvoiceLineComponent(
-                invoice_line_id=line_id,
-                item_id=comp.item_id,
-                quantity=comp.quantity,
+                item_result = await self.db.execute(
+                    select(Item).where(Item.id == chosen_item_id)
+                )
+                item = item_result.scalar_one_or_none()
+                if not item:
+                    raise NotFoundError(f"Item with id {chosen_item_id} not found")
+                if item.item_type != ItemType.PRODUCT.value:
+                    raise ValidationError(
+                        f"Item '{item.name}' is not a product and cannot be used in a kit component"
+                    )
+
+                _add_qty(chosen_item_id, allocation_qty)
+
+        for item_id, qty in components_by_item.items():
+            self.db.add(
+                InvoiceLineComponent(
+                    invoice_line_id=line_id,
+                    item_id=item_id,
+                    quantity=qty,
+                )
             )
-            self.db.add(component)
 
     async def _apply_student_discounts(
         self,

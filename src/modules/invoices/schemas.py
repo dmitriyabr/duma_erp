@@ -12,10 +12,25 @@ from src.modules.invoices.models import InvoiceStatus, InvoiceType
 
 
 class InvoiceLineComponentInput(BaseModel):
-    """Actual inventory item component for an invoice line (for configurable kits)."""
+    """Persisted inventory component row for an invoice line (invoice_line_components)."""
 
     item_id: int
     quantity: int = Field(1, ge=1)
+
+
+class InvoiceLineComponentAllocation(BaseModel):
+    item_id: int
+    quantity: int = Field(..., ge=1)
+
+
+class InvoiceLineComponentConfig(BaseModel):
+    """Configuration for one kit component (by position in Kit.kit_items).
+
+    `allocations` must sum to required quantity for that kit item:
+    kit_item.quantity * invoice_line.quantity.
+    """
+
+    allocations: list[InvoiceLineComponentAllocation] = Field(..., min_length=1)
 
 
 class InvoiceLineCreate(BaseModel):
@@ -27,7 +42,7 @@ class InvoiceLineCreate(BaseModel):
     unit_price_override: Decimal | None = None
     discount_amount: Decimal = Field(default=Decimal("0.00"), ge=0)
     # Optional per-line components for configurable kits (uniform etc.)
-    components: list[InvoiceLineComponentInput] | None = None
+    components: list[InvoiceLineComponentConfig] | None = None
 
 
 class InvoiceLineResponse(BaseModel):

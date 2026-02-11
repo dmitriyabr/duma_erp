@@ -204,7 +204,10 @@ class Kit(Base):
     # Relationships
     category: Mapped["Category"] = relationship("Category", back_populates="kits")
     kit_items: Mapped[list["KitItem"]] = relationship(
-        "KitItem", back_populates="kit", cascade="all, delete-orphan"
+        "KitItem",
+        back_populates="kit",
+        cascade="all, delete-orphan",
+        order_by="KitItem.id",
     )
     price_history: Mapped[list["KitPriceHistory"]] = relationship(
         "KitPriceHistory", back_populates="kit", order_by="desc(KitPriceHistory.effective_from)"

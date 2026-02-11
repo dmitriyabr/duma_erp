@@ -49,8 +49,7 @@ interface VariantRow {
 type DiscountType = 'percentage' | 'fixed'
 
 interface LineComponentDraft {
-  item_id: number | ''
-  quantity: number
+  unit_item_ids: Array<number | ''>
 }
 
 interface DraftLine {
@@ -134,9 +133,9 @@ export const CreateInvoicePage = () => {
     const kitItems = kit.items ?? []
     return kitItems.map((ki) => {
       const defaultItemId = ki.source_type === 'item' ? ki.item_id : ki.default_item_id
+      const totalUnits = Math.max(1, ki.quantity) * Math.max(1, lineQty)
       return {
-        item_id: (defaultItemId ?? '') as number | '',
-        quantity: Math.max(1, ki.quantity) * Math.max(1, lineQty),
+        unit_item_ids: Array.from({ length: totalUnits }, () => (defaultItemId ?? '') as number | ''),
       }
     })
   }
@@ -151,10 +150,14 @@ export const CreateInvoicePage = () => {
     return kitItems.map((ki, index) => {
       const prev = current[index]
       const defaultItemId = ki.source_type === 'item' ? ki.item_id : ki.default_item_id
-      const itemId = (prev?.item_id || defaultItemId || '') as number | ''
+      const totalUnits = Math.max(1, ki.quantity) * Math.max(1, lineQty)
+      const prevUnits = prev?.unit_item_ids ?? []
+      const nextUnits = prevUnits.slice(0, totalUnits)
+      while (nextUnits.length < totalUnits) {
+        nextUnits.push((defaultItemId ?? '') as number | '')
+      }
       return {
-        item_id: itemId,
-        quantity: Math.max(1, ki.quantity) * Math.max(1, lineQty),
+        unit_item_ids: nextUnits,
       }
     })
   }
@@ -185,15 +188,24 @@ export const CreateInvoicePage = () => {
     }))
   }
 
-  const updateLineComponentItem = (lineId: string, index: number, itemId: number | '') => {
+  const updateLineComponentUnitItem = (
+    lineId: string,
+    componentIndex: number,
+    unitIndex: number,
+    itemId: number | ''
+  ) => {
     setLines((prev) =>
       prev.map((line) => {
         if (line.id !== lineId) return line
         const kit = line.kit_id ? kits.find((k) => k.id === line.kit_id) : null
         if (!kit?.is_editable_components) return line
-        const nextComponents = syncComponents(kit, line.quantity, line.components).map((c, i) =>
-          i === index ? { ...c, item_id: itemId } : c
-        )
+        const nextComponents = syncComponents(kit, line.quantity, line.components).map((c, i) => {
+          if (i !== componentIndex) return c
+          return {
+            ...c,
+            unit_item_ids: c.unit_item_ids.map((v, vi) => (vi === unitIndex ? itemId : v)),
+          }
+        })
         return { ...line, components: nextComponents }
       })
     )
@@ -289,7 +301,7 @@ export const CreateInvoicePage = () => {
           setValidationError('Configured kit components are not initialized. Please re-select the kit.')
           return
         }
-        if (synced.some((c) => !c.item_id || c.quantity <= 0)) {
+        if (synced.some((c) => c.unit_item_ids.some((v) => !v))) {
           setValidationError('Select a concrete inventory item for each component.')
           return
         }
@@ -309,10 +321,19 @@ export const CreateInvoicePage = () => {
               discount_amount: discountAmountForLine(line),
             }
             if (kit?.is_editable_components) {
-              const components = syncComponents(kit, line.quantity, line.components).map((c) => ({
-                item_id: c.item_id as number,
-                quantity: c.quantity,
-              }))
+              const components = syncComponents(kit, line.quantity, line.components).map((c) => {
+                const counts = new Map<number, number>()
+                for (const unit of c.unit_item_ids) {
+                  const id = unit as number
+                  counts.set(id, (counts.get(id) ?? 0) + 1)
+                }
+                return {
+                  allocations: Array.from(counts.entries()).map(([item_id, quantity]) => ({
+                    item_id,
+                    quantity,
+                  })),
+                }
+              })
               return { ...base, components }
             }
             return base
@@ -567,40 +588,51 @@ export const CreateInvoicePage = () => {
 
                 {kitItems.map((ki, index) => {
                   const qty = Math.max(1, ki.quantity) * Math.max(1, line.quantity)
-                  const currentItemId = synced[index]?.item_id ?? ''
                   if (ki.source_type === 'variant') {
                     const variantItems = variants.find((v) => v.id === ki.variant_id)?.items ?? []
                     return (
                       <div key={`${kit.id}-comp-${index}`} className="rounded-xl border border-slate-200 bg-white p-3">
                         <div className="grid gap-3 sm:grid-cols-[1fr_140px] items-end">
-                          <Select
-                            value={currentItemId === '' ? '' : String(currentItemId)}
-                            onChange={(event) =>
-                              updateLineComponentItem(
-                                line.id,
-                                index,
-                                event.target.value ? Number(event.target.value) : ''
-                              )
-                            }
-                            label={ki.variant_name ? `Variant: ${ki.variant_name}` : 'Variant'}
-                            disabled={variantsApi.loading}
-                            required
-                          >
-                            <option value="">Select item</option>
-                            {variantItems.map((it) => (
-                              <option key={it.id} value={it.id}>
-                                {`${it.name} (${it.sku_code})`}
-                              </option>
-                            ))}
-                          </Select>
-                          <Input label="Qty" type="number" value={qty} disabled />
+                          <div className="grid gap-3">
+                            <Typography variant="body2" className="font-medium">
+                              {ki.variant_name ? `Variant: ${ki.variant_name}` : 'Variant'}
+                            </Typography>
+                            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                              {synced[index]?.unit_item_ids.map((unitId, unitIndex) => (
+                                <Select
+                                  key={`${kit.id}-comp-${index}-${unitIndex}`}
+                                  value={unitId === '' ? '' : String(unitId)}
+                                  onChange={(event) =>
+                                    updateLineComponentUnitItem(
+                                      line.id,
+                                      index,
+                                      unitIndex,
+                                      event.target.value ? Number(event.target.value) : ''
+                                    )
+                                  }
+                                  label={`Item ${unitIndex + 1} of ${qty}`}
+                                  disabled={variantsApi.loading}
+                                  required
+                                >
+                                  <option value="">Select item</option>
+                                  {variantItems.map((it) => (
+                                    <option key={it.id} value={it.id}>
+                                      {`${it.name} (${it.sku_code})`}
+                                    </option>
+                                  ))}
+                                </Select>
+                              ))}
+                            </div>
+                          </div>
+                          <Input label="Total qty" type="number" value={qty} disabled />
                         </div>
                       </div>
                     )
                   }
 
                   const invOptions = inventoryApi.data ?? []
-                  const selected = invOptions.find((it) => it.id === currentItemId) ?? null
+                  const defaultItemId = ki.source_type === 'item' ? ki.item_id : null
+                  const selected = invOptions.find((it) => it.id === defaultItemId) ?? null
                   return (
                     <div key={`${kit.id}-comp-${index}`} className="rounded-xl border border-slate-200 bg-white p-3">
                       <div className="grid gap-3 sm:grid-cols-[1fr_140px] items-end">
@@ -614,7 +646,7 @@ export const CreateInvoicePage = () => {
                             {selected ? `${selected.name} (${selected.sku_code})` : '—'}
                           </option>
                         </Select>
-                        <Input label="Qty" type="number" value={qty} disabled />
+                        <Input label="Total qty" type="number" value={qty} disabled />
                       </div>
                     </div>
                   )
