@@ -192,3 +192,33 @@ railway run psql $DATABASE_URL < backup_before_reset.sql
 - Railway автоматически создает daily backups
 - Backups хранятся 7-30 дней в зависимости от плана
 - Manual backups можно создавать в любое время
+
+---
+
+## backfill_reservation_issued_from_issuances.py
+
+Исправляет ситуацию, когда **issuance был отменён (cancelled)**, склад вернулся, но
+в `reservation_items.quantity_issued` цифры **не откатились** (старый баг).
+
+Скрипт **идемпотентный и безопасный**: он не “вычитает”, а **пересчитывает**
+`quantity_issued` по реально **COMPLETED** выдачам (cancelled не учитывает),
+и пересчитывает `Reservation.status` (кроме `cancelled`).
+
+### Использование
+
+```bash
+# Сначала dry-run (рекомендуется)
+python3 scripts/backfill_reservation_issued_from_issuances.py --dry-run --issuance-id 123
+
+# Применить (попросит подтверждение фразой)
+python3 scripts/backfill_reservation_issued_from_issuances.py --confirm --issuance-id 123
+
+# Можно ограничить по reservation_id
+python3 scripts/backfill_reservation_issued_from_issuances.py --dry-run --reservation-id 456
+```
+
+### Запуск на Railway (wrapper)
+
+```bash
+./scripts/backfill_reservation_issued_from_issuances_railway.sh --issuance-id 123
+```

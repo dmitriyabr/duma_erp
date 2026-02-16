@@ -773,6 +773,19 @@ class InventoryService:
         if issuance.status == IssuanceStatus.CANCELLED.value:
             raise ValidationError("Issuance is already cancelled")
 
+        # If this issuance came from a reservation, we should also roll back the
+        # reservation's issued quantities. Stock and reservations are tracked
+        # separately:
+        # - stock.quantity_on_hand tracks physical stock
+        # - reservation_items.quantity_issued tracks progress of fulfilling demand
+        rollback_by_reservation_item_id: dict[int, int] = {}
+        for issuance_item in issuance.items:
+            if issuance_item.reservation_item_id:
+                rid = int(issuance_item.reservation_item_id)
+                rollback_by_reservation_item_id[rid] = int(
+                    rollback_by_reservation_item_id.get(rid, 0)
+                ) + int(issuance_item.quantity)
+
         # Return stock for each item
         for issuance_item in issuance.items:
             stock = await self._get_or_create_stock(issuance_item.item_id)
@@ -799,6 +812,60 @@ class InventoryService:
             )
             self.db.add(movement)
 
+        reservation_status_before: str | None = None
+        reservation_status_after: str | None = None
+        if issuance.reservation_id and rollback_by_reservation_item_id:
+            # Lock and update reservation items
+            for reservation_item_id, qty in rollback_by_reservation_item_id.items():
+                res_item_result = await self.db.execute(
+                    select(ReservationItem)
+                    .where(ReservationItem.id == reservation_item_id)
+                    .with_for_update()
+                )
+                res_item = res_item_result.scalar_one_or_none()
+                if not res_item:
+                    raise NotFoundError(
+                        f"ReservationItem with id {reservation_item_id} not found"
+                    )
+                if int(res_item.reservation_id) != int(issuance.reservation_id):
+                    raise ValidationError(
+                        f"ReservationItem {reservation_item_id} does not belong to "
+                        f"Reservation {issuance.reservation_id}"
+                    )
+                if qty <= 0:
+                    continue
+                if res_item.quantity_issued < qty:
+                    raise ValidationError(
+                        f"Cannot rollback reservation_item {reservation_item_id}: "
+                        f"issued={res_item.quantity_issued}, rollback={qty}"
+                    )
+                res_item.quantity_issued -= qty
+
+            # Recalculate reservation status (unless it's already cancelled)
+            reservation_result = await self.db.execute(
+                select(Reservation)
+                .where(Reservation.id == issuance.reservation_id)
+                .options(selectinload(Reservation.items))
+            )
+            reservation = reservation_result.scalar_one_or_none()
+            if not reservation:
+                raise NotFoundError(
+                    f"Reservation with id {issuance.reservation_id} not found"
+                )
+            reservation_status_before = reservation.status
+            if reservation.status != ReservationStatus.CANCELLED.value:
+                total_required = sum(
+                    int(i.quantity_required) for i in reservation.items
+                )
+                total_issued = sum(int(i.quantity_issued) for i in reservation.items)
+                if total_required > 0 and total_issued >= total_required:
+                    reservation.status = ReservationStatus.FULFILLED.value
+                elif total_issued > 0:
+                    reservation.status = ReservationStatus.PARTIAL.value
+                else:
+                    reservation.status = ReservationStatus.PENDING.value
+            reservation_status_after = reservation.status
+
         # Update issuance status
         issuance.status = IssuanceStatus.CANCELLED.value
 
@@ -808,7 +875,13 @@ class InventoryService:
             entity_id=issuance.id,
             user_id=cancelled_by_id,
             old_values={"status": IssuanceStatus.COMPLETED.value},
-            new_values={"status": IssuanceStatus.CANCELLED.value},
+            new_values={
+                "status": IssuanceStatus.CANCELLED.value,
+                "reservation_id": issuance.reservation_id,
+                "reservation_items_rollback": rollback_by_reservation_item_id or None,
+                "reservation_status_before": reservation_status_before,
+                "reservation_status_after": reservation_status_after,
+            },
         )
 
         if commit:

@@ -180,7 +180,7 @@ class TestReservationService:
             created_by_id=data["user"].id,
         )
 
-        await service.issue_items(
+        issuance = await service.issue_items(
             reservation_id=reservation.id,
             items=[(reservation.items[0].id, 1)],
             issued_by_id=data["user"].id,
@@ -194,6 +194,20 @@ class TestReservationService:
         inventory = InventoryService(db_session)
         stock_before = await inventory.get_stock_by_item_id(data["item"].id)
         on_hand_before = stock_before.quantity_on_hand
+
+        # Cancelling the issuance should roll back reservation quantities
+        # and return stock.
+        await inventory.cancel_issuance(
+            issuance.id, cancelled_by_id=data["user"].id
+        )
+        reservation = await service.get_by_id(reservation.id)
+        assert reservation.status == ReservationStatus.PENDING.value
+        assert reservation.items[0].quantity_issued == 0
+
+        stock_after_issuance_cancel = await inventory.get_stock_by_item_id(
+            data["item"].id
+        )
+        assert stock_after_issuance_cancel.quantity_on_hand == on_hand_before + 1
 
         await service.cancel_reservation(
             reservation_id=reservation.id,
