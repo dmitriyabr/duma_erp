@@ -145,6 +145,7 @@ export const BankReconciliationPage = () => {
   const accessDenied = !isSuperAdmin(user)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null)
   const [selectedImportId, setSelectedImportId] = useState<number | null>(null)
   const [onlyUnmatched, setOnlyUnmatched] = useState(true)
@@ -229,7 +230,7 @@ export const BankReconciliationPage = () => {
   const unmatchMutation = useApiMutation<{ ok: boolean }>()
 
   const handleUpload = async () => {
-    const file = fileInputRef.current?.files?.[0]
+    const file = selectedFile
     if (!file) {
       setError('Select a CSV file.')
       return
@@ -256,6 +257,7 @@ export const BankReconciliationPage = () => {
       }
 
       if (fileInputRef.current) fileInputRef.current.value = ''
+      setSelectedFile(null)
       setSelectedFileName(null)
       await refetchImports()
       setSelectedImportId(result.id)
@@ -263,6 +265,13 @@ export const BankReconciliationPage = () => {
       if (axios.isAxiosError(e) && e.response?.status === 401) return
       setError('Failed to import bank statement.')
     }
+  }
+
+  const openFilePicker = () => {
+    setError(null)
+    // Reset the input so picking the same file again triggers onChange reliably.
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    fileInputRef.current?.click()
   }
 
   const handleAutoMatch = async () => {
@@ -434,27 +443,29 @@ export const BankReconciliationPage = () => {
       <div className="mb-4">
         {/* Row 1: import + primary actions */}
         <div className="flex flex-wrap items-center gap-3">
-          <label className="inline-flex">
-            <span className="inline-flex">
-              <Button variant="outlined" disabled={uploadMutation.loading} className="cursor-pointer">
-                {selectedFileName ? 'Change CSV' : 'Select CSV'}
-              </Button>
-            </span>
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="hidden"
-              accept=".csv,text/csv"
-              onChange={(e) => {
-                const file = e.currentTarget.files?.[0]
-                setSelectedFileName(file ? file.name : null)
-              }}
-            />
-          </label>
+          <Button
+            variant="outlined"
+            type="button"
+            onClick={openFilePicker}
+            disabled={uploadMutation.loading}
+          >
+            {selectedFileName ? 'Change CSV' : 'Select CSV'}
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="sr-only"
+            accept=".csv,text/csv"
+            onChange={(e) => {
+              const file = e.currentTarget.files?.[0] || null
+              setSelectedFile(file)
+              setSelectedFileName(file ? file.name : null)
+            }}
+          />
           <Button
             variant="contained"
             onClick={handleUpload}
-            disabled={uploadMutation.loading || !selectedFileName}
+            disabled={uploadMutation.loading || !selectedFile}
           >
             {uploadMutation.loading ? 'Importing…' : 'Import statement'}
           </Button>
