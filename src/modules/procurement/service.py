@@ -8,7 +8,6 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlalchemy.orm import selectinload
 
 from src.core.documents.number_generator import get_document_number
 from src.core.exceptions import NotFoundError, ValidationError
@@ -109,6 +108,26 @@ class PurchaseOrderService:
             setattr(purchase_order, field, value)
 
         if lines is not None:
+            # Safety: PO lines may already be referenced by GRNs (draft/approved/cancelled).
+            # The current update implementation replaces all lines by deleting and
+            # re-creating them. If any GRN exists, deleting lines would either:
+            # - violate FK constraints (goods_received_lines.po_line_id), or
+            # - corrupt receiving history.
+            grn_line_count = await self.db.scalar(
+                select(func.count())
+                .select_from(GoodsReceivedLine)
+                .join(
+                    PurchaseOrderLine,
+                    PurchaseOrderLine.id == GoodsReceivedLine.po_line_id,
+                )
+                .where(PurchaseOrderLine.po_id == purchase_order.id)
+            )
+            if int(grn_line_count or 0) > 0:
+                raise ValidationError(
+                    "Cannot edit purchase order lines after a GRN exists. "
+                    "Cancel draft GRNs or rollback receiving first."
+                )
+
             await self.db.execute(
                 PurchaseOrderLine.__table__.delete().where(
                     PurchaseOrderLine.po_id == purchase_order.id
@@ -732,9 +751,40 @@ class GoodsReceivedService:
                         )
                     )
                     if int(later_receipts or 0) > 0:
+                        blocking = await self.db.scalar(
+                            select(StockMovement)
+                            .where(StockMovement.item_id == line.item_id)
+                            .where(
+                                StockMovement.movement_type
+                                == MovementType.RECEIPT.value
+                            )
+                            .where(
+                                (StockMovement.created_at > receipt_movement.created_at)
+                                | (
+                                    (StockMovement.created_at == receipt_movement.created_at)
+                                    & (StockMovement.id > receipt_movement.id)
+                                )
+                            )
+                            .order_by(
+                                StockMovement.created_at.asc(),
+                                StockMovement.id.asc(),
+                            )
+                        )
+                        blocking_hint = ""
+                        if blocking:
+                            ref = (
+                                f"{blocking.reference_type}:{blocking.reference_id}"
+                                if blocking.reference_type
+                                else "unknown"
+                            )
+                            blocking_hint = (
+                                f" First later receipt movement: "
+                                f"id={blocking.id}, at={blocking.created_at.isoformat()}, "
+                                f"ref={ref}."
+                            )
                         raise ValidationError(
                             "Cannot rollback: item has later receipt movements; "
-                            "rollback would corrupt average cost"
+                            f"rollback would corrupt average cost.{blocking_hint}"
                         )
 
                 unit_cost = (receipt_movement.unit_cost if receipt_movement else None) or po_line.unit_price
