@@ -737,9 +737,26 @@ class GoodsReceivedService:
                     .order_by(StockMovement.created_at.desc(), StockMovement.id.desc())
                 )
                 if receipt_movement:
+                    # Block rollback only if there are *effective* later receipts.
+                    #
+                    # Important nuance:
+                    # - When a GRN is rolled back, we do NOT delete its original receipt movement
+                    #   (reference_type="grn"), we add a compensating receipt movement
+                    #   (reference_type="grn_rollback"). The GRN itself becomes status=cancelled.
+                    # - A cancelled GRN's historical receipt movement should NOT block rolling
+                    #   back an older GRN, because it's already neutralized by its rollback.
+                    #
+                    # Therefore we treat later receipts as blocking if:
+                    # - reference_type is not "grn" (e.g. inventory.receive, other receipts), OR
+                    # - reference_type is "grn" AND the GRN is still approved.
                     later_receipts = await self.db.scalar(
                         select(func.count())
                         .select_from(StockMovement)
+                        .outerjoin(
+                            GoodsReceivedNote,
+                            (StockMovement.reference_type == "grn")
+                            & (StockMovement.reference_id == GoodsReceivedNote.id),
+                        )
                         .where(StockMovement.item_id == line.item_id)
                         .where(StockMovement.movement_type == MovementType.RECEIPT.value)
                         .where(
@@ -749,20 +766,37 @@ class GoodsReceivedService:
                                 & (StockMovement.id > receipt_movement.id)
                             )
                         )
+                        .where(StockMovement.reference_type != "grn_rollback")
+                        .where(
+                            (StockMovement.reference_type != "grn")
+                            | (GoodsReceivedNote.status == GoodsReceivedStatus.APPROVED.value)
+                        )
                     )
                     if int(later_receipts or 0) > 0:
                         blocking = await self.db.scalar(
                             select(StockMovement)
+                            .outerjoin(
+                                GoodsReceivedNote,
+                                (StockMovement.reference_type == "grn")
+                                & (StockMovement.reference_id == GoodsReceivedNote.id),
+                            )
                             .where(StockMovement.item_id == line.item_id)
                             .where(
-                                StockMovement.movement_type
-                                == MovementType.RECEIPT.value
+                                StockMovement.movement_type == MovementType.RECEIPT.value
                             )
                             .where(
                                 (StockMovement.created_at > receipt_movement.created_at)
                                 | (
                                     (StockMovement.created_at == receipt_movement.created_at)
                                     & (StockMovement.id > receipt_movement.id)
+                                )
+                            )
+                            .where(StockMovement.reference_type != "grn_rollback")
+                            .where(
+                                (StockMovement.reference_type != "grn")
+                                | (
+                                    GoodsReceivedNote.status
+                                    == GoodsReceivedStatus.APPROVED.value
                                 )
                             )
                             .order_by(

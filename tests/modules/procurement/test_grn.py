@@ -36,7 +36,9 @@ class TestGoodsReceivedEndpoints:
         )
         return response.json()["data"]["access_token"]
 
-    async def _create_product_item(self, client: AsyncClient, token: str) -> int:
+    async def _create_product_item(
+        self, client: AsyncClient, token: str
+    ) -> int:
         cat_response = await client.post(
             "/api/v1/items/categories",
             headers={"Authorization": f"Bearer {token}"},
@@ -58,7 +60,9 @@ class TestGoodsReceivedEndpoints:
         )
         return item_response.json()["data"]["id"]
 
-    async def _create_payment_purpose(self, client: AsyncClient, token: str) -> int:
+    async def _create_payment_purpose(
+        self, client: AsyncClient, token: str
+    ) -> int:
         response = await client.post(
             "/api/v1/procurement/payment-purposes",
             headers={"Authorization": f"Bearer {token}"},
@@ -101,7 +105,9 @@ class TestGoodsReceivedEndpoints:
             client, db_session, role=UserRole.SUPER_ADMIN
         )
         item_id = await self._create_product_item(client, token)
-        po_data = await self._create_po(client, token, item_id, track_to_warehouse=True)
+        po_data = await self._create_po(
+            client, token, item_id, track_to_warehouse=True
+        )
         po_id = po_data["id"]
         po_line_id = po_data["lines"][0]["id"]
 
@@ -222,10 +228,16 @@ class TestGoodsReceivedEndpoints:
     async def test_rollback_grn_error_includes_blocking_receipt_details(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        token = await self._get_admin_token(client, db_session, role=UserRole.SUPER_ADMIN)
+        token = await self._get_admin_token(
+            client, db_session, role=UserRole.SUPER_ADMIN
+        )
         item_id = await self._create_product_item(client, token)
         po_data = await self._create_po(
-            client, token, item_id, track_to_warehouse=True, quantity_expected=10
+            client,
+            token,
+            item_id,
+            track_to_warehouse=True,
+            quantity_expected=10,
         )
         po_id = po_data["id"]
         po_line_id = po_data["lines"][0]["id"]
@@ -264,8 +276,8 @@ class TestGoodsReceivedEndpoints:
         )
         assert approve2.status_code == 200
 
-        # Make ordering deterministic: ensure GRN #2 receipt movement is "later"
-        # than GRN #1 receipt movement by created_at.
+        # Make ordering deterministic: ensure GRN #2 receipt movement is
+        # "later" than GRN #1 receipt movement by created_at.
         m1 = await db_session.scalar(
             select(StockMovement)
             .where(StockMovement.item_id == item_id)
@@ -293,7 +305,8 @@ class TestGoodsReceivedEndpoints:
         )
         await db_session.commit()
 
-        # Now rolling back GRN #1 must fail and include details about the later receipt.
+        # Now rolling back GRN #1 must fail and include details about the
+        # later receipt.
         rollback1 = await client.post(
             f"/api/v1/procurement/grns/{grn1_id}/rollback",
             headers={"Authorization": f"Bearer {token}"},
@@ -303,6 +316,75 @@ class TestGoodsReceivedEndpoints:
         msg = (rollback1.json().get("message") or "").lower()
         assert "later receipt movement" in msg
         assert "ref=grn" in msg
+
+    async def test_rollback_ignores_receipts_from_cancelled_grns(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await self._get_admin_token(
+            client, db_session, role=UserRole.SUPER_ADMIN
+        )
+        item_id = await self._create_product_item(client, token)
+        po_data = await self._create_po(
+            client,
+            token,
+            item_id,
+            track_to_warehouse=True,
+            quantity_expected=10,
+        )
+        po_id = po_data["id"]
+        po_line_id = po_data["lines"][0]["id"]
+
+        # GRN #1 approved
+        grn1 = await client.post(
+            "/api/v1/procurement/grns",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "po_id": po_id,
+                "lines": [{"po_line_id": po_line_id, "quantity_received": 2}],
+            },
+        )
+        assert grn1.status_code == 201
+        grn1_id = grn1.json()["data"]["id"]
+        approve1 = await client.post(
+            f"/api/v1/procurement/grns/{grn1_id}/approve",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert approve1.status_code == 200
+
+        # GRN #2 approved then rolled back (becomes cancelled)
+        grn2 = await client.post(
+            "/api/v1/procurement/grns",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "po_id": po_id,
+                "lines": [{"po_line_id": po_line_id, "quantity_received": 1}],
+            },
+        )
+        assert grn2.status_code == 201
+        grn2_id = grn2.json()["data"]["id"]
+        approve2 = await client.post(
+            f"/api/v1/procurement/grns/{grn2_id}/approve",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert approve2.status_code == 200
+
+        rollback2 = await client.post(
+            f"/api/v1/procurement/grns/{grn2_id}/rollback",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"reason": "Rollback later GRN first"},
+        )
+        assert rollback2.status_code == 200
+        assert rollback2.json()["data"]["status"] == "cancelled"
+
+        # Now rollback of GRN #1 should succeed
+        # (cancelled GRN #2 receipts ignored).
+        rollback1 = await client.post(
+            f"/api/v1/procurement/grns/{grn1_id}/rollback",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"reason": "Rollback older GRN after later cancelled"},
+        )
+        assert rollback1.status_code == 200
+        assert rollback1.json()["data"]["status"] == "cancelled"
 
     async def test_admin_cannot_approve_own_grn(
         self, client: AsyncClient, db_session: AsyncSession
@@ -339,9 +421,13 @@ class TestGoodsReceivedEndpoints:
     async def test_grn_without_warehouse_tracking(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        token = await self._get_admin_token(client, db_session, role=UserRole.SUPER_ADMIN)
+        token = await self._get_admin_token(
+            client, db_session, role=UserRole.SUPER_ADMIN
+        )
         item_id = await self._create_product_item(client, token)
-        po_data = await self._create_po(client, token, item_id, track_to_warehouse=False)
+        po_data = await self._create_po(
+            client, token, item_id, track_to_warehouse=False
+        )
         po_id = po_data["id"]
         po_line_id = po_data["lines"][0]["id"]
 
