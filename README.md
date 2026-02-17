@@ -167,7 +167,7 @@ claude_duma_erp/
 ### Текущий статус
 
 - Фазы 0-7: Backend готов (160 тестов)
-- Фаза 9: UI частично готов (Students, Inventory, Settings)
+- Фаза 9: UI частично готов (Students, Warehouse: Stock/Reservations/Restock, Settings)
 - Фаза 10.2: PDF счёта и квитанции готовы (GET /invoices/{id}/pdf, GET /payments/{id}/receipt/pdf)
 - Фазы 8, 11: Не начаты (Отчёты, CRM)
 

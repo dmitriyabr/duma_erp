@@ -32,6 +32,7 @@ export const accountantNavItems: NavItem[] = [
   { label: 'Dashboard', path: '/', icon: <LayoutDashboard className="w-5 h-5" />, roles: ['Accountant'] },
   { label: 'Students', path: '/students', icon: <Users className="w-5 h-5" />, roles: ['Accountant'] },
   { label: 'Stock', path: '/inventory/stock', icon: <ShoppingCart className="w-5 h-5" />, roles: ['Accountant'] },
+  { label: 'Restock', path: '/inventory/restock', icon: <ShoppingCart className="w-5 h-5" />, roles: ['Accountant'] },
   {
     label: 'Billing',
     path: '/billing',
@@ -94,6 +95,7 @@ export const navItems: NavItem[] = [
     children: [
       { label: 'Items', path: '/inventory/items', roles: adminRoles },
       { label: 'Stock', path: '/inventory/stock', roles: allRoles },
+      { label: 'Restock', path: '/inventory/restock', roles: allRoles },
       { label: 'Movements', path: '/inventory/movements', roles: allRoles },
       { label: 'Issuances', path: '/inventory/issuances', roles: adminRoles },
       { label: 'Reservations', path: '/inventory/reservations', roles: adminRoles },

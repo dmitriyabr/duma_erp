@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field, model_validator
 
-from src.modules.inventory.models import IssuanceType, MovementType, RecipientType
+from src.modules.inventory.models import RecipientType
 
 
 # --- Stock Schemas ---
@@ -25,6 +25,22 @@ class StockResponse(BaseModel):
     average_cost: Decimal
 
     model_config = {"from_attributes": True}
+
+
+class RestockRowResponse(BaseModel):
+    """Schema for restock planning row (sellable items only)."""
+
+    item_id: int
+    item_sku: str | None = None
+    item_name: str | None = None
+    category_id: int | None = None
+    category_name: str | None = None
+
+    quantity_on_hand: int
+    quantity_owed: int
+    quantity_inbound: int
+    quantity_net: int
+    quantity_to_order: int
 
 
 # --- Stock Movement Schemas ---

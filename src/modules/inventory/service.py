@@ -4,7 +4,7 @@ import csv
 import io
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -30,7 +30,8 @@ from src.modules.inventory.schemas import (
     InventoryCountItem,
 )
 from src.core.auth.models import User
-from src.modules.items.models import Item, ItemType
+from src.modules.items.models import Category, Item, ItemType, ItemVariantMembership, Kit, KitItem
+from src.modules.procurement.models import PurchaseOrder, PurchaseOrderLine, PurchaseOrderStatus
 from src.modules.reservations.models import Reservation, ReservationItem, ReservationStatus
 from src.modules.students.models import Student
 from src.shared.utils.money import round_money
@@ -144,6 +145,181 @@ class InventoryService:
             .group_by(ReservationItem.item_id)
         )
         return {int(row[0]): int(row[1] or 0) for row in result.all()}
+
+    async def _get_sellable_item_ids_from_active_product_kits(self) -> set[int]:
+        """Return item IDs that are sellable/issuable based on active product kits.
+
+        Definition:
+        - Includes KitItem.source_type == 'item' → KitItem.item_id
+        - Includes KitItem.source_type == 'variant' → ALL items from the variant group
+          (ItemVariantMembership.variant_id == KitItem.variant_id)
+        - Only kits with Kit.is_active == True and Kit.item_type == product are considered.
+        """
+        fixed_ids_result = await self.db.execute(
+            select(func.distinct(KitItem.item_id))
+            .join(Kit, Kit.id == KitItem.kit_id)
+            .where(Kit.is_active.is_(True))
+            .where(Kit.item_type == ItemType.PRODUCT.value)
+            .where(KitItem.source_type == "item")
+            .where(KitItem.item_id.is_not(None))
+        )
+        fixed_ids = {int(r[0]) for r in fixed_ids_result.all() if r[0] is not None}
+
+        variant_ids_result = await self.db.execute(
+            select(func.distinct(ItemVariantMembership.item_id))
+            .select_from(KitItem)
+            .join(Kit, Kit.id == KitItem.kit_id)
+            .join(
+                ItemVariantMembership,
+                ItemVariantMembership.variant_id == KitItem.variant_id,
+            )
+            .where(Kit.is_active.is_(True))
+            .where(Kit.item_type == ItemType.PRODUCT.value)
+            .where(KitItem.source_type == "variant")
+            .where(KitItem.variant_id.is_not(None))
+        )
+        variant_item_ids = {
+            int(r[0]) for r in variant_ids_result.all() if r[0] is not None
+        }
+
+        return fixed_ids | variant_item_ids
+
+    async def get_inbound_quantities_by_item_id(self, item_ids: list[int]) -> dict[int, int]:
+        """Return inbound quantities (ordered but not yet received) per item_id.
+
+        Inbound is computed from Purchase Orders:
+        inbound = sum(max(0, quantity_expected - quantity_cancelled - quantity_received))
+
+        Only includes:
+        - PurchaseOrder.track_to_warehouse == True
+        - PurchaseOrder.status not in (cancelled, closed)
+        - PurchaseOrderLine.item_id is not null
+        """
+        if not item_ids:
+            return {}
+
+        remaining_raw = (
+            PurchaseOrderLine.quantity_expected
+            - PurchaseOrderLine.quantity_cancelled
+            - PurchaseOrderLine.quantity_received
+        )
+        remaining_expr = case((remaining_raw > 0, remaining_raw), else_=0)
+        result = await self.db.execute(
+            select(
+                PurchaseOrderLine.item_id,
+                func.coalesce(func.sum(remaining_expr), 0).label("inbound"),
+            )
+            .join(PurchaseOrder, PurchaseOrder.id == PurchaseOrderLine.po_id)
+            .where(PurchaseOrder.track_to_warehouse.is_(True))
+            .where(
+                PurchaseOrder.status.notin_(
+                    [
+                        PurchaseOrderStatus.CANCELLED.value,
+                        PurchaseOrderStatus.CLOSED.value,
+                    ]
+                )
+            )
+            .where(PurchaseOrderLine.item_id.in_(item_ids))
+            .group_by(PurchaseOrderLine.item_id)
+        )
+        return {int(r[0]): int(r[1] or 0) for r in result.all() if r[0] is not None}
+
+    async def list_restock_rows(
+        self,
+        *,
+        search: str | None = None,
+        category_id: int | None = None,
+        only_demand: bool = True,
+    ) -> list[dict]:
+        """Return restock-planning rows for sellable items only."""
+        sellable_ids = await self._get_sellable_item_ids_from_active_product_kits()
+        if not sellable_ids:
+            return []
+
+        q = (
+            select(
+                Item.id,
+                Item.sku_code,
+                Item.name,
+                Item.category_id,
+                Category.name.label("category_name"),
+            )
+            .join(Category, Category.id == Item.category_id)
+            .where(Item.id.in_(sorted(sellable_ids)))
+            .where(Item.item_type == ItemType.PRODUCT.value)
+            .where(Item.is_active.is_(True))
+        )
+        if category_id is not None:
+            q = q.where(Item.category_id == category_id)
+        if search and search.strip():
+            s = f"%{search.strip()}%"
+            q = q.where(Item.name.ilike(s) | Item.sku_code.ilike(s))
+
+        q = q.order_by(Item.name)
+        items = list((await self.db.execute(q)).all())
+        item_ids = [int(r.id) for r in items]
+        if not item_ids:
+            return []
+
+        stock_rows = await self.db.execute(
+            select(Stock.item_id, Stock.quantity_on_hand)
+            .where(Stock.item_id.in_(item_ids))
+        )
+        on_hand_by_item_id = {
+            int(r[0]): int(r[1] or 0) for r in stock_rows.all() if r[0] is not None
+        }
+        owed_by_item_id = await self.get_owed_quantities_by_item_id(item_ids)
+        inbound_by_item_id = await self.get_inbound_quantities_by_item_id(item_ids)
+
+        rows: list[dict] = []
+        for r in items:
+            item_id = int(r.id)
+            on_hand = int(on_hand_by_item_id.get(item_id, 0))
+            owed = int(owed_by_item_id.get(item_id, 0))
+            inbound = int(inbound_by_item_id.get(item_id, 0))
+            net = on_hand + inbound - owed
+            to_order = max(0, owed - (on_hand + inbound))
+
+            if only_demand and not (owed > 0 or to_order > 0):
+                continue
+
+            rows.append(
+                {
+                    "item_id": item_id,
+                    "item_sku": r.sku_code,
+                    "item_name": r.name,
+                    "category_id": int(r.category_id) if r.category_id is not None else None,
+                    "category_name": r.category_name,
+                    "quantity_on_hand": on_hand,
+                    "quantity_owed": owed,
+                    "quantity_inbound": inbound,
+                    "quantity_net": net,
+                    "quantity_to_order": to_order,
+                }
+            )
+
+        rows.sort(
+            key=lambda x: (
+                -int(x["quantity_to_order"]),
+                -int(x["quantity_owed"]),
+                str(x["item_name"] or ""),
+            )
+        )
+        return rows
+
+    async def list_reorder_rows(
+        self,
+        *,
+        search: str | None = None,
+        category_id: int | None = None,
+        only_demand: bool = True,
+    ) -> list[dict]:
+        """Backward-compatible alias for list_restock_rows."""
+        return await self.list_restock_rows(
+            search=search,
+            category_id=category_id,
+            only_demand=only_demand,
+        )
 
     async def receive_stock(
         self,

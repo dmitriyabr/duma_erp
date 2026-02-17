@@ -1,5 +1,6 @@
 """Tests for Inventory module."""
 
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -7,7 +8,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.auth.models import UserRole
+from src.core.auth.models import User, UserRole
 from src.core.auth.service import AuthService
 from src.core.exceptions import NotFoundError, ValidationError
 from src.modules.inventory.models import IssuanceType, MovementType, RecipientType
@@ -22,8 +23,14 @@ from src.modules.inventory.service import InventoryService
 from src.modules.items.models import ItemType, PriceType
 from src.modules.items.schemas import CategoryCreate, ItemCreate
 from src.modules.items.service import ItemService
-from src.modules.items.models import Item, Kit
+from src.modules.items.models import Item, Kit, KitItem
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
+from src.modules.procurement.models import (
+    PaymentPurpose,
+    PurchaseOrder,
+    PurchaseOrderLine,
+    PurchaseOrderStatus,
+)
 from src.modules.reservations.models import Reservation, ReservationItem, ReservationStatus
 from src.modules.students.models import Gender, Grade, Student
 
@@ -687,6 +694,177 @@ class TestInventoryEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert data["data"]["total"] == 1
+
+    async def test_list_restock_endpoint(self, client: AsyncClient, db_session: AsyncSession):
+        """Test GET /inventory/restock returns owed/on_hand/inbound for sellable items."""
+        token = await self._get_admin_token(client, db_session)
+        item_id = await self._create_product_item(client, token)
+
+        # Receive stock so on_hand is present.
+        await client.post(
+            "/api/v1/inventory/receive",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"item_id": item_id, "quantity": 5, "unit_cost": "10.00"},
+        )
+
+        # Create an active PRODUCT kit and include this item as a component.
+        item = (await db_session.execute(select(Item).where(Item.id == item_id))).scalar_one()
+        kit = Kit(
+            category_id=item.category_id,
+            sku_code="KIT-REORDER-000001",
+            name="Restock Kit",
+            item_type=ItemType.PRODUCT.value,
+            price_type="standard",
+            price=Decimal("0.00"),
+            requires_full_payment=False,
+            is_editable_components=False,
+            is_active=True,
+        )
+        db_session.add(kit)
+        await db_session.flush()
+        db_session.add(
+            KitItem(
+                kit_id=kit.id,
+                source_type="item",
+                item_id=item_id,
+                variant_id=None,
+                default_item_id=None,
+                quantity=1,
+            )
+        )
+
+        # Create outstanding owed quantity (reservation pending).
+        admin_user = (
+            await db_session.execute(select(User).where(User.email == "admin@test.com"))
+        ).scalar_one()
+
+        grade = Grade(code="G1", name="Grade 1", display_order=1, is_active=True)
+        db_session.add(grade)
+        await db_session.flush()
+
+        student = Student(
+            student_number="STU-REORDER-000001",
+            first_name="Test",
+            last_name="Student",
+            gender=Gender.MALE.value,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Guardian",
+            guardian_phone="+254700000000",
+            guardian_email=None,
+            status="active",
+            enrollment_date=None,
+            notes=None,
+            created_by_id=admin_user.id,
+        )
+        db_session.add(student)
+        await db_session.flush()
+
+        inv = Invoice(
+            invoice_number="INV-REORDER-000001",
+            student_id=student.id,
+            term_id=None,
+            invoice_type=InvoiceType.ADHOC.value,
+            status=InvoiceStatus.ISSUED.value,
+            issue_date=None,
+            due_date=None,
+            subtotal=Decimal("0.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("0.00"),
+            paid_total=Decimal("0.00"),
+            amount_due=Decimal("0.00"),
+            notes=None,
+            created_by_id=admin_user.id,
+        )
+        db_session.add(inv)
+        await db_session.flush()
+
+        inv_line = InvoiceLine(
+            invoice_id=inv.id,
+            kit_id=kit.id,
+            description="Restock line",
+            quantity=1,
+            unit_price=Decimal("0.00"),
+            line_total=Decimal("0.00"),
+            discount_amount=Decimal("0.00"),
+            net_amount=Decimal("0.00"),
+            paid_amount=Decimal("0.00"),
+            remaining_amount=Decimal("0.00"),
+        )
+        db_session.add(inv_line)
+        await db_session.flush()
+
+        reservation = Reservation(
+            student_id=student.id,
+            invoice_id=inv.id,
+            invoice_line_id=inv_line.id,
+            status=ReservationStatus.PENDING.value,
+            created_by_id=admin_user.id,
+        )
+        db_session.add(reservation)
+        await db_session.flush()
+        db_session.add(
+            ReservationItem(
+                reservation_id=reservation.id,
+                item_id=item_id,
+                quantity_required=10,
+                quantity_issued=0,
+            )
+        )
+
+        # Create inbound via PO: 20 expected, 0 received.
+        purpose = PaymentPurpose(name="Restock purpose", purpose_type="expense", is_active=True)
+        db_session.add(purpose)
+        await db_session.flush()
+
+        po = PurchaseOrder(
+            po_number="PO-REORDER-000001",
+            supplier_name="Test Supplier",
+            supplier_contact=None,
+            purpose_id=purpose.id,
+            status=PurchaseOrderStatus.ORDERED.value,
+            order_date=date.today(),
+            expected_delivery_date=None,
+            track_to_warehouse=True,
+            expected_total=Decimal("0.00"),
+            received_value=Decimal("0.00"),
+            paid_total=Decimal("0.00"),
+            debt_amount=Decimal("0.00"),
+            notes=None,
+            cancelled_reason=None,
+            created_by_id=admin_user.id,
+        )
+        db_session.add(po)
+        await db_session.flush()
+        db_session.add(
+            PurchaseOrderLine(
+                po_id=po.id,
+                item_id=item_id,
+                description="Inbound",
+                quantity_expected=20,
+                quantity_cancelled=0,
+                unit_price=Decimal("0.00"),
+                line_total=Decimal("0.00"),
+                quantity_received=0,
+                line_order=0,
+            )
+        )
+        await db_session.commit()
+
+        resp = await client.get(
+            "/api/v1/inventory/restock",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+        payload = resp.json()["data"]
+        assert payload["total"] == 1
+        row = payload["items"][0]
+        assert row["item_id"] == item_id
+        assert row["quantity_on_hand"] == 5
+        assert row["quantity_owed"] == 10
+        assert row["quantity_inbound"] == 20
+        assert row["quantity_net"] == 15  # 5 + 20 - 10
+        assert row["quantity_to_order"] == 0  # owed covered by on_hand+inbound
 
     async def test_export_stock_csv_endpoint(self, client: AsyncClient, db_session: AsyncSession):
         """Test GET /inventory/bulk-upload/export returns CSV."""

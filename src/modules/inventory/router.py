@@ -18,6 +18,7 @@ from src.modules.inventory.schemas import (
     InventoryCountRequest,
     InventoryCountResponse,
     ReceiveStockRequest,
+    RestockRowResponse,
     StockMovementResponse,
     StockResponse,
     WriteOffRequest,
@@ -94,6 +95,52 @@ async def list_stock(
                 )
                 for s in stocks
             ],
+            total=total,
+            page=page,
+            limit=limit,
+        ),
+    )
+
+
+@router.get(
+    "/restock",
+    response_model=ApiResponse[PaginatedResponse[RestockRowResponse]],
+)
+@router.get(
+    "/reorder",
+    response_model=ApiResponse[PaginatedResponse[RestockRowResponse]],
+)
+async def list_restock_rows(
+    search: str | None = Query(None, description="Search by SKU or name"),
+    category_id: int | None = Query(None, description="Filter by category"),
+    only_demand: bool = Query(
+        True,
+        description="Show only items with owed>0 or to_order>0",
+    ),
+    page: int = Query(1, ge=1),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(
+            UserRole.SUPER_ADMIN,
+            UserRole.ADMIN,
+            UserRole.ACCOUNTANT,
+            UserRole.USER,
+        )
+    ),
+):
+    """Restock planning table for sellable items (active product kit components)."""
+    service = InventoryService(db)
+    rows = await service.list_restock_rows(
+        search=search, category_id=category_id, only_demand=only_demand
+    )
+    total = len(rows)
+    offset = (page - 1) * limit
+    items = rows[offset:offset + limit]
+    return ApiResponse(
+        success=True,
+        data=PaginatedResponse.create(
+            items=[RestockRowResponse(**r) for r in items],
             total=total,
             page=page,
             limit=limit,

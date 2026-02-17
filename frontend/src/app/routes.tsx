@@ -32,6 +32,7 @@ import { StudentDetailPage } from './pages/students/StudentDetailPage'
 import { CreateInvoicePage } from './pages/students/CreateInvoicePage'
 import { ReceivePaymentPage } from './pages/students/ReceivePaymentPage'
 import { StockPage } from './pages/inventory/StockPage'
+import { RestockPage } from './pages/inventory/RestockPage'
 import { IssueFormPage } from './pages/inventory/IssueFormPage'
 import { MovementsPage } from './pages/inventory/MovementsPage'
 import { IssuancesPage } from './pages/inventory/IssuancesPage'
@@ -144,6 +145,8 @@ export const AppRoutes = () => {
           <Route path="inventory" element={<PlaceholderPage title="Warehouse" />} />
           <Route path="inventory/items" element={<ItemsPage />} />
           <Route path="inventory/stock" element={<StockPage />} />
+          <Route path="inventory/restock" element={<RestockPage />} />
+          <Route path="inventory/reorder" element={<Navigate to="/inventory/restock" replace />} />
           <Route path="inventory/issue" element={<IssueFormPage />} />
           <Route path="inventory/movements" element={<MovementsPage />} />
           <Route path="inventory/issuances" element={<IssuancesPage />} />
