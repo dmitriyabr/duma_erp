@@ -236,8 +236,9 @@ Profit Margin: 51.2%
 ### 3.2 Cash Flow Report
 
 **Параметры:**
-- Period: Daily / Weekly / Monthly
-- Payment Method: All / Cash / M-Pesa / Bank / Cheque
+- Period: Custom date range (from/to)
+- Breakdown: Monthly (если диапазон больше 1 месяца)
+- Payment Method (optional): фильтр по способу оплаты входящих student payments (например `mpesa`, `bank_transfer`)
 
 **Структура:**
 ```
@@ -245,20 +246,20 @@ OPENING BALANCE: 5,800,000 KES (as at 01 Jan 2026)
 
 CASH INFLOWS (Поступления)
 ├─ Student Payments
-│  ├─ Cash: 3,200,000 KES
-│  ├─ M-Pesa: 8,500,000 KES
-│  ├─ Bank Transfer: 12,800,000 KES
-│  └─ Cheque: 1,200,000 KES
-│  Total: 25,700,000 KES
+│  ├─ School Fee: 14,200,000 KES
+│  ├─ Transport: 9,800,000 KES
+│  ├─ Other Fees: 1,700,000 KES
+│  └─ Unallocated / Credit: 300,000 KES
+│  Total: 26,000,000 KES
 │
-└─ Other Income: 300,000 KES
+└─ Other Income: (optional / future)
 
 TOTAL INFLOWS: 26,000,000 KES
 
 CASH OUTFLOWS (Выплаты)
 ├─ Supplier Payments: 18,500,000 KES
 ├─ Employee Compensations: 3,600,000 KES
-└─ Other Expenses: 1,500,000 KES
+└─ Other Expenses: (optional / future)
 
 TOTAL OUTFLOWS: 23,600,000 KES
 
@@ -266,6 +267,11 @@ NET CASH FLOW: +2,400,000 KES
 
 CLOSING BALANCE: 8,200,000 KES (as at 31 Jan 2026)
 ```
+
+**Примечание (важно):** Разбивка inflows по категориям делается по тому, куда платеж был
+аллоцирован **в этот же день** (по `invoice_type`). Остаток показывается как
+`Unallocated / Credit`, чтобы сумма строк всегда сходилась с общей суммой денег,
+полученных за период.
 
 **Visual:**
 - Waterfall chart показывающий движение денег
@@ -687,8 +693,8 @@ GET /api/v1/dashboard?period=current_term
 # Возвращает: карточки (revenue, expenses, collection rate, …), ключевые метрики, данные для 1–2 графиков, алерты, последнюю активность.
 
 # Отчёты (раздел Reports) — единый префикс /api/v1/reports/ или по ресурсам
-GET /api/v1/reports/profit-loss?start_date=...&end_date=...&format=pdf
-GET /api/v1/reports/cash-flow?period=...&format=excel
+GET /api/v1/reports/profit-loss?date_from=...&date_to=...&breakdown=monthly&format=xlsx
+GET /api/v1/reports/cash-flow?date_from=...&date_to=...&payment_method=mpesa&breakdown=monthly&format=xlsx
 GET /api/v1/reports/balance-sheet?as_at_date=...
 
 GET /api/v1/reports/student-fees?term_id=...&format=excel
