@@ -520,6 +520,133 @@ class TestCashFlow:
         )
         assert response.status_code == 403
 
+    async def test_cash_flow_inflows_breakdown_by_invoice_type_and_credit(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """
+        Cash flow inflows are cash received split by invoice_type allocations created the same day,
+        with the remainder shown as Unallocated / Credit.
+        """
+        from datetime import datetime, timezone
+
+        from src.modules.payments.models import CreditAllocation, Payment
+        from src.modules.students.models import Grade, Student, Gender, StudentStatus
+
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_cf_inflows_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        grade = Grade(code="CF1", name="CashFlow Grade", display_order=1, is_active=True)
+        db_session.add(grade)
+        await db_session.flush()
+
+        student = Student(
+            student_number="STU-2026-007777",
+            first_name="Cash",
+            last_name="Flow",
+            gender=Gender.MALE.value,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Parent",
+            guardian_phone="+254700000002",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add(student)
+        await db_session.flush()
+
+        inv_fee = Invoice(
+            invoice_number="INV-2026-777701",
+            student_id=student.id,
+            term_id=None,
+            invoice_type="school_fee",
+            status=InvoiceStatus.ISSUED.value,
+            issue_date=date(2026, 1, 10),
+            due_date=date(2026, 1, 31),
+            subtotal=Decimal("60.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("60.00"),
+            paid_total=Decimal("0.00"),
+            amount_due=Decimal("60.00"),
+            created_by_id=user.id,
+        )
+        inv_trn = Invoice(
+            invoice_number="INV-2026-777702",
+            student_id=student.id,
+            term_id=None,
+            invoice_type="transport",
+            status=InvoiceStatus.ISSUED.value,
+            issue_date=date(2026, 1, 10),
+            due_date=date(2026, 1, 31),
+            subtotal=Decimal("20.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("20.00"),
+            paid_total=Decimal("0.00"),
+            amount_due=Decimal("20.00"),
+            created_by_id=user.id,
+        )
+        db_session.add_all([inv_fee, inv_trn])
+        await db_session.flush()
+
+        pay = Payment(
+            payment_number="PAY-2026-777700",
+            receipt_number="RCP-2026-777700",
+            student_id=student.id,
+            amount=Decimal("100.00"),
+            payment_method="mpesa",
+            payment_date=date(2026, 1, 10),
+            status="completed",
+            received_by_id=user.id,
+        )
+        db_session.add(pay)
+        await db_session.flush()
+
+        created_at = datetime(2026, 1, 10, 12, 0, tzinfo=timezone.utc)
+        a1 = CreditAllocation(
+            student_id=student.id,
+            invoice_id=inv_fee.id,
+            invoice_line_id=None,
+            amount=Decimal("60.00"),
+            allocated_by_id=user.id,
+        )
+        a2 = CreditAllocation(
+            student_id=student.id,
+            invoice_id=inv_trn.id,
+            invoice_line_id=None,
+            amount=Decimal("20.00"),
+            allocated_by_id=user.id,
+        )
+        db_session.add_all([a1, a2])
+        await db_session.flush()
+        # Ensure created_at is within the report period for deterministic grouping by day.
+        from sqlalchemy import update
+
+        await db_session.execute(
+            update(CreditAllocation)
+            .where(CreditAllocation.id.in_([a1.id, a2.id]))
+            .values(created_at=created_at)
+        )
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate("reports_cf_inflows_admin@test.com", "Pass123")
+        response = await client.get(
+            "/api/v1/reports/cash-flow?date_from=2026-01-01&date_to=2026-01-31",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        d = response.json()["data"]
+
+        lines = {r["label"]: Decimal(r["amount"]) for r in d["inflow_lines"]}
+        assert lines["School Fee"] == Decimal("60.00")
+        assert lines["Transport"] == Decimal("20.00")
+        assert lines["Unallocated / Credit"] == Decimal("20.00")
+        assert Decimal(d["total_inflows"]) == Decimal("100.00")
+
 
 class TestBalanceSheet:
     """Tests for GET /reports/balance-sheet."""

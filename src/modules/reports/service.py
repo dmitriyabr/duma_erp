@@ -19,7 +19,7 @@ from src.modules.compensations.models import (
 )
 from src.modules.discounts.models import Discount, DiscountReason
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus
-from src.modules.inventory.models import Issuance, Stock, StockMovement, MovementType
+from src.modules.inventory.models import Issuance, Stock, StockMovement
 from src.modules.items.models import Category, Item
 from src.modules.payments.models import CreditAllocation, Payment, PaymentStatus
 from src.modules.procurement.models import (
@@ -469,25 +469,126 @@ class ReportsService:
         date_to: date,
         payment_method: str | None,
     ) -> dict:
-        """Inflows and outflows for a single period (no opening/closing)."""
-        q_in = (
+        """
+        Inflows and outflows for a single period (no opening/closing).
+
+        Inflows are cash received (completed payments) broken down by the fee type it was allocated
+        to *on the same day* (by invoice_type). Any remainder becomes "Unallocated / Credit".
+        This keeps totals consistent with actual cash received.
+        """
+        type_labels = {
+            "school_fee": "School Fee",
+            "transport": "Transport",
+            "adhoc": "Other Fees",
+        }
+
+        # Payments received per student per day
+        pay_q = (
             select(
-                Payment.payment_method,
-                func.coalesce(func.sum(Payment.amount), 0).label("amt"),
+                Payment.student_id,
+                Payment.payment_date,
+                func.coalesce(func.sum(Payment.amount), 0).label("paid"),
             )
             .where(
                 Payment.status == PaymentStatus.COMPLETED.value,
                 Payment.payment_date >= date_from,
                 Payment.payment_date <= date_to,
             )
-            .group_by(Payment.payment_method)
+            .group_by(Payment.student_id, Payment.payment_date)
         )
         if payment_method:
-            q_in = q_in.where(Payment.payment_method == payment_method)
-        inflow_res = await self.db.execute(q_in)
-        method_labels = {"mpesa": "M-Pesa", "bank_transfer": "Bank Transfer"}
-        inflow_rows = [(m, round_money(Decimal(str(a)))) for m, a in inflow_res.all()]
-        total_inflows = round_money(sum(a for _, a in inflow_rows))
+            pay_q = pay_q.where(Payment.payment_method == payment_method)
+        pay_rows = (await self.db.execute(pay_q)).all()
+        payments_by_key: dict[tuple[int, date], Decimal] = {
+            (int(sid), pdate): Decimal(str(paid or 0)) for sid, pdate, paid in pay_rows
+        }
+
+        # Allocations created per student per day, grouped by invoice_type
+        # Cross-database date extraction:
+        # - SQLite: date(<timestamp>) returns "YYYY-MM-DD" even when timezone is present
+        # - Postgres: date(<timestamptz>) returns date
+        alloc_date_expr = func.date(CreditAllocation.created_at)
+        alloc_date = alloc_date_expr.label("alloc_date")
+        alloc_q = (
+            select(
+                CreditAllocation.student_id,
+                alloc_date,
+                Invoice.invoice_type,
+                func.coalesce(func.sum(CreditAllocation.amount), 0).label("allocated"),
+            )
+            .select_from(CreditAllocation)
+            .join(Invoice, CreditAllocation.invoice_id == Invoice.id)
+            .where(
+                alloc_date_expr >= date_from.isoformat(),
+                alloc_date_expr <= date_to.isoformat(),
+            )
+            .group_by(CreditAllocation.student_id, alloc_date_expr, Invoice.invoice_type)
+        )
+        alloc_rows = (await self.db.execute(alloc_q)).all()
+        alloc_by_key: dict[tuple[int, date], dict[str, Decimal]] = defaultdict(
+            lambda: defaultdict(lambda: Decimal("0"))
+        )
+        for sid, adate, inv_type, allocated in alloc_rows:
+            if adate is None:
+                continue
+            # Normalize to python `date` across DBs/drivers:
+            # - SQLite may return "YYYY-MM-DD" (str) for CAST(datetime AS DATE)
+            # - Some drivers may return datetime
+            if isinstance(adate, str):
+                adate = date.fromisoformat(adate)
+            elif not isinstance(adate, date) and hasattr(adate, "date"):
+                adate = adate.date()
+            alloc_by_key[(int(sid), adate)][str(inv_type)] += Decimal(str(allocated or 0))
+
+        totals_by_type: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+        unallocated_total = Decimal("0")
+        payments_total = Decimal("0")
+
+        # Cap allocations to cash received per student/day; remainder goes to credit
+        for key, paid_total in payments_by_key.items():
+            paid_total = round_money(Decimal(str(paid_total)))
+            payments_total += paid_total
+
+            by_type = alloc_by_key.get(key) or {}
+            alloc_total = round_money(sum(by_type.values(), start=Decimal("0")))
+
+            if alloc_total <= 0:
+                unallocated_total += paid_total
+                continue
+
+            applied_total = min(paid_total, alloc_total)
+
+            items = list(by_type.items())
+            running = Decimal("0")
+            for idx, (inv_type, alloc_amt) in enumerate(items):
+                alloc_amt = Decimal(str(alloc_amt))
+                if idx == len(items) - 1:
+                    part = round_money(applied_total - running)
+                else:
+                    part = round_money((alloc_amt / alloc_total) * applied_total)
+                    running += part
+                if part > 0:
+                    totals_by_type[str(inv_type)] += part
+
+            if paid_total > applied_total:
+                unallocated_total += round_money(paid_total - applied_total)
+
+        inflow_rows: list[tuple[str, Decimal]] = []
+        for inv_type in ("school_fee", "transport", "adhoc"):
+            amt = round_money(totals_by_type.get(inv_type, Decimal("0")))
+            if amt > 0:
+                inflow_rows.append((type_labels.get(inv_type, inv_type), amt))
+        for inv_type, amt in sorted(totals_by_type.items()):
+            if inv_type in ("school_fee", "transport", "adhoc"):
+                continue
+            amt = round_money(amt)
+            if amt > 0:
+                inflow_rows.append((type_labels.get(inv_type, inv_type), amt))
+        unallocated_total = round_money(unallocated_total)
+        if unallocated_total > 0:
+            inflow_rows.append(("Unallocated / Credit", unallocated_total))
+
+        total_inflows = round_money(payments_total)
         proc_out = await self.db.execute(
             select(func.coalesce(func.sum(ProcurementPayment.amount), 0)).where(
                 ProcurementPayment.status == ProcurementPaymentStatus.POSTED.value,
@@ -507,7 +608,6 @@ class ReportsService:
         total_outflows = round_money(proc_amt + comp_amt)
         return {
             "inflow_rows": inflow_rows,
-            "method_labels": method_labels,
             "total_inflows": total_inflows,
             "proc_amt": proc_amt,
             "comp_amt": comp_amt,
@@ -551,13 +651,12 @@ class ReportsService:
             pay_in_val - Decimal(str(proc_before.scalar() or 0)) - Decimal(str(comp_before.scalar() or 0))
         )
         full = await self._cash_flow_period(date_from, date_to, payment_method)
-        method_labels = full["method_labels"]
         inflow_lines = [
             CashFlowInflowLine(
-                label=method_labels.get(m, m or "Other"),
-                amount=round_money(Decimal(str(a))),
+                label=str(lbl),
+                amount=round_money(Decimal(str(amt))),
             )
-            for m, a in full["inflow_rows"]
+            for lbl, amt in full["inflow_rows"]
         ]
         total_inflows = full["total_inflows"]
         outflow_lines = [
@@ -597,9 +696,8 @@ class ReportsService:
             proc_monthly[mo] = period["proc_amt"]
             comp_monthly[mo] = period["comp_amt"]
             total_outflows_monthly[mo] = period["total_outflows"]
-            for method_key, amt in period["inflow_rows"]:
-                lbl = method_labels.get(method_key, method_key or "Other")
-                inflow_by_label[lbl][mo] = amt
+            for lbl, amt in period["inflow_rows"]:
+                inflow_by_label[str(lbl)][mo] = amt
             cum = round_money(cum + period["total_inflows"] - period["total_outflows"])
             closing_balance_monthly[mo] = cum
         for line in inflow_lines:
