@@ -1,6 +1,7 @@
 """Tests for Reports API: GET aged-receivables, GET student-fees (Admin/SuperAdmin only)."""
 
 from datetime import date
+from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
@@ -8,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth.models import UserRole
 from src.core.auth.service import AuthService
+from src.modules.invoices.models import Invoice, InvoiceStatus
+from src.modules.students.models import Gender, Grade, Student, StudentStatus
 from src.modules.terms.models import Term, TermStatus
 
 
@@ -68,6 +71,86 @@ class TestAgedReceivables:
         )
         assert response.status_code == 200
         assert response.json()["data"]["as_at_date"] == "2026-01-31"
+
+    async def test_aged_receivables_respects_as_at_date_snapshot(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """
+        Aged receivables is a snapshot as at date:
+        - invoices issued after as_at_date must be excluded
+        - last_payment_date must be <= as_at_date
+        """
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_ar_snapshot_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        grade = Grade(code="G2", name="Grade 2", display_order=2, is_active=True)
+        db_session.add(grade)
+        await db_session.flush()
+
+        student = Student(
+            student_number="STU-2026-008888",
+            first_name="Aged",
+            last_name="Snapshot",
+            gender=Gender.FEMALE.value,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Parent",
+            guardian_phone="+254700000001",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add(student)
+        await db_session.flush()
+
+        # Invoice issued after as_at_date (should not appear)
+        future_inv = Invoice(
+            invoice_number="INV-2026-888888",
+            student_id=student.id,
+            term_id=None,
+            invoice_type="school_fee",
+            status=InvoiceStatus.ISSUED.value,
+            issue_date=date(2026, 2, 1),
+            due_date=date(2026, 2, 10),
+            subtotal=Decimal("200.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("200.00"),
+            paid_total=Decimal("0.00"),
+            amount_due=Decimal("200.00"),
+            created_by_id=user.id,
+        )
+        db_session.add(future_inv)
+
+        # Future payment (should not be used as last_payment_date for as_at_date=2026-01-31)
+        from src.modules.payments.models import Payment
+
+        future_pay = Payment(
+            payment_number="PAY-2026-888888",
+            receipt_number="RCP-2026-888888",
+            student_id=student.id,
+            amount=Decimal("50.00"),
+            payment_method="mpesa",
+            payment_date=date(2026, 2, 5),
+            status="completed",
+            received_by_id=user.id,
+        )
+        db_session.add(future_pay)
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate("reports_ar_snapshot_admin@test.com", "Pass123")
+        response = await client.get(
+            "/api/v1/reports/aged-receivables?as_at_date=2026-01-31",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        d = response.json()["data"]
+        assert d["as_at_date"] == "2026-01-31"
+        assert d["rows"] == []
 
     async def test_aged_receivables_format_xlsx_returns_excel(
         self, client: AsyncClient, db_session: AsyncSession
@@ -217,6 +300,139 @@ class TestProfitLoss:
         assert "total_expenses" in d
         assert "net_profit" in d
         assert "profit_margin_percent" in d
+
+    async def test_profit_loss_math_uses_gross_less_discounts(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """
+        Validate Profit & Loss math:
+        gross_revenue = sum(invoice.subtotal)
+        total_discounts = sum(invoice.discount_total)
+        net_revenue = gross - discounts (= sum(invoice.total))
+        """
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_pl_math_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        grade = Grade(code="G1", name="Grade 1", display_order=1, is_active=True)
+        db_session.add(grade)
+        await db_session.flush()
+
+        student = Student(
+            student_number="STU-2026-009999",
+            first_name="John",
+            last_name="Doe",
+            gender=Gender.MALE.value,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Parent",
+            guardian_phone="+254700000000",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add(student)
+        await db_session.flush()
+
+        inv = Invoice(
+            invoice_number="INV-2026-999999",
+            student_id=student.id,
+            term_id=None,
+            invoice_type="school_fee",
+            status=InvoiceStatus.ISSUED.value,
+            issue_date=date(2026, 1, 15),
+            due_date=date(2026, 1, 31),
+            subtotal=Decimal("100.00"),
+            discount_total=Decimal("10.00"),
+            total=Decimal("90.00"),
+            paid_total=Decimal("0.00"),
+            amount_due=Decimal("90.00"),
+            created_by_id=user.id,
+        )
+        db_session.add(inv)
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate("reports_pl_math_admin@test.com", "Pass123")
+        response = await client.get(
+            "/api/v1/reports/profit-loss?date_from=2026-01-01&date_to=2026-01-31",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        d = response.json()["data"]
+
+        assert Decimal(d["gross_revenue"]) == Decimal("100.00")
+        assert Decimal(d["total_discounts"]) == Decimal("10.00")
+        assert Decimal(d["net_revenue"]) == Decimal("90.00")
+        assert Decimal(d["total_expenses"]) == Decimal("0.00")
+        assert Decimal(d["net_profit"]) == Decimal("90.00")
+        assert any(
+            r["label"] == "School Fee" and Decimal(r["amount"]) == Decimal("100.00")
+            for r in d["revenue_lines"]
+        )
+
+    async def test_profit_loss_expenses_breakdown_by_purpose(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Expenses should be broken down by ProcurementPayment purpose/category."""
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_pl_exp_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        from src.modules.procurement.models import PaymentPurpose, ProcurementPayment
+
+        uniforms = PaymentPurpose(name="Uniforms", purpose_type="expense", is_active=True)
+        stationery = PaymentPurpose(name="Stationery", purpose_type="expense", is_active=True)
+        db_session.add_all([uniforms, stationery])
+        await db_session.flush()
+
+        p1 = ProcurementPayment(
+            payment_number="PP-2026-000001",
+            po_id=None,
+            purpose_id=uniforms.id,
+            payee_name="ABC",
+            payment_date=date(2026, 1, 10),
+            amount=Decimal("1000.00"),
+            payment_method="bank",
+            company_paid=True,
+            status="posted",
+            created_by_id=user.id,
+        )
+        p2 = ProcurementPayment(
+            payment_number="PP-2026-000002",
+            po_id=None,
+            purpose_id=stationery.id,
+            payee_name="XYZ",
+            payment_date=date(2026, 1, 11),
+            amount=Decimal("250.00"),
+            payment_method="mpesa",
+            company_paid=True,
+            status="posted",
+            created_by_id=user.id,
+        )
+        db_session.add_all([p1, p2])
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate("reports_pl_exp_admin@test.com", "Pass123")
+        response = await client.get(
+            "/api/v1/reports/profit-loss?date_from=2026-01-01&date_to=2026-01-31",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        d = response.json()["data"]
+
+        exp = {r["label"]: Decimal(r["amount"]) for r in d["expense_lines"]}
+        assert exp["Stationery"] == Decimal("250.00")
+        assert exp["Uniforms"] == Decimal("1000.00")
+        assert Decimal(d["total_expenses"]) == Decimal("1250.00")
 
     async def test_profit_loss_400_if_date_from_after_date_to(
         self, client: AsyncClient, db_session: AsyncSession

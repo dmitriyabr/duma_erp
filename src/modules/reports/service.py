@@ -96,6 +96,8 @@ class ReportsService:
         Current = 0-30 days (not yet due or up to 30 days overdue).
         Then 31-60, 61-90, 90+ days overdue.
         as_at_date: report date (default today). Aging = (as_at_date - invoice.due_date).days.
+        The report is a snapshot as at the given date: it excludes invoices issued after as_at_date,
+        and last payment date is capped at as_at_date.
         """
         as_at = as_at_date or date.today()
 
@@ -107,6 +109,8 @@ class ReportsService:
                 Invoice.status.in_(
                     [InvoiceStatus.ISSUED.value, InvoiceStatus.PARTIALLY_PAID.value]
                 ),
+                Invoice.issue_date.is_not(None),
+                Invoice.issue_date <= as_at,
             )
             .options(selectinload(Invoice.student))
         )
@@ -154,7 +158,10 @@ class ReportsService:
                 Payment.student_id,
                 func.max(Payment.payment_date).label("last_date"),
             )
-            .where(Payment.status == PaymentStatus.COMPLETED.value)
+            .where(
+                Payment.status == PaymentStatus.COMPLETED.value,
+                Payment.payment_date <= as_at,
+            )
             .group_by(Payment.student_id)
         )
         last_payment_by_student = {r[0]: r[1] for r in last_pay.all()}
@@ -303,7 +310,7 @@ class ReportsService:
         rev_q = (
             select(
                 Invoice.invoice_type,
-                func.coalesce(func.sum(Invoice.total), 0).label("total"),
+                func.coalesce(func.sum(Invoice.subtotal), 0).label("gross_total"),
                 func.coalesce(func.sum(Invoice.discount_total), 0).label("discounts"),
             )
             .where(
@@ -323,31 +330,55 @@ class ReportsService:
         revenue_lines: list[dict] = []
         gross_revenue = Decimal("0")
         total_discounts = Decimal("0")
-        for inv_type, tot, disc in rev_rows:
-            tot = round_money(Decimal(str(tot)))
+        for inv_type, gross_tot, disc in rev_rows:
+            # Invoice.total is already net (subtotal - discount_total). For P&L we expose:
+            # - gross revenue = sum(subtotal)
+            # - discounts = sum(discount_total)
+            # - net revenue = gross - discounts
+            tot = round_money(Decimal(str(gross_tot)))
             disc = round_money(Decimal(str(disc)))
             gross_revenue += tot
             total_discounts += disc
             revenue_lines.append({"label": type_labels.get(inv_type, inv_type or "Other"), "amount": tot})
         net_revenue = round_money(gross_revenue - total_discounts)
-        proc = await self.db.execute(
-            select(func.coalesce(func.sum(ProcurementPayment.amount), 0)).where(
+
+        # Expenses: group procurement journal by purpose/category.
+        proc_q = (
+            select(
+                PaymentPurpose.name,
+                func.coalesce(func.sum(ProcurementPayment.amount), 0).label("amt"),
+            )
+            .select_from(ProcurementPayment)
+            .join(PaymentPurpose, ProcurementPayment.purpose_id == PaymentPurpose.id)
+            .where(
                 ProcurementPayment.status == ProcurementPaymentStatus.POSTED.value,
                 ProcurementPayment.payment_date >= date_from,
                 ProcurementPayment.payment_date <= date_to,
             )
+            .group_by(PaymentPurpose.name)
+            .order_by(PaymentPurpose.name)
         )
-        proc_total = round_money(Decimal(str(proc.scalar() or 0)))
+        proc_rows = (await self.db.execute(proc_q)).all()
+        expense_lines: list[dict] = []
+        total_expenses = Decimal("0")
+        for purpose_name, amt in proc_rows:
+            amt = round_money(Decimal(str(amt)))
+            total_expenses += amt
+            expense_lines.append({"label": str(purpose_name), "amount": amt})
+
         # P&L is accrual-based in MVP: expenses are recognized via ProcurementPayment journal.
         # Compensation payouts are settlements and should not be counted as expenses again.
-        total_expenses = round_money(proc_total)
+        total_expenses = round_money(total_expenses)
         net_profit = round_money(net_revenue - total_expenses)
+
+        proc_total = total_expenses
         return {
             "revenue_lines": revenue_lines,
             "gross_revenue": gross_revenue,
             "total_discounts": total_discounts,
             "net_revenue": net_revenue,
             "proc_total": proc_total,
+            "expense_lines": expense_lines,
             "total_expenses": total_expenses,
             "net_profit": net_profit,
         }
@@ -365,13 +396,13 @@ class ReportsService:
         If breakdown_monthly=True, adds months list and monthly amounts per line and per total.
         """
         full = await self._profit_loss_period(date_from, date_to)
-        type_labels = {"school_fee": "School Fee", "transport": "Transport", "adhoc": "Other Fees"}
         revenue_lines = [
             ProfitLossRevenueLine(label=r["label"], amount=r["amount"])
             for r in full["revenue_lines"]
         ]
         expense_lines = [
-            ProfitLossExpenseLine(label="Procurement (Inventory)", amount=full["proc_total"]),
+            ProfitLossExpenseLine(label=e["label"], amount=e["amount"])
+            for e in (full.get("expense_lines") or [])
         ]
         profit_margin_percent = (
             round(float(full["net_profit"] / full["net_revenue"] * 100), 2)
@@ -394,10 +425,10 @@ class ReportsService:
             return out
         months = _months_in_range(date_from, date_to)
         rev_by_label: dict[str, dict[str, Decimal]] = defaultdict(lambda: {})
+        exp_by_label: dict[str, dict[str, Decimal]] = defaultdict(lambda: {})
         gross_monthly: dict[str, Decimal] = {}
         discounts_monthly: dict[str, Decimal] = {}
         net_rev_monthly: dict[str, Decimal] = {}
-        proc_monthly: dict[str, Decimal] = {}
         total_exp_monthly: dict[str, Decimal] = {}
         net_profit_monthly: dict[str, Decimal] = {}
         profit_margin_monthly: dict[str, float] = {}
@@ -409,7 +440,6 @@ class ReportsService:
             gross_monthly[mo] = period["gross_revenue"]
             discounts_monthly[mo] = period["total_discounts"]
             net_rev_monthly[mo] = period["net_revenue"]
-            proc_monthly[mo] = period["proc_total"]
             total_exp_monthly[mo] = period["total_expenses"]
             net_profit_monthly[mo] = period["net_profit"]
             if period["net_revenue"] and period["net_revenue"] > 0:
@@ -418,9 +448,12 @@ class ReportsService:
                 )
             for r in period["revenue_lines"]:
                 rev_by_label[r["label"]][mo] = r["amount"]
+            for e in period.get("expense_lines") or []:
+                exp_by_label[e["label"]][mo] = e["amount"]
         for line in revenue_lines:
             line.monthly = dict(rev_by_label.get(line.label, {}))
-        expense_lines[0].monthly = dict(proc_monthly)
+        for line in expense_lines:
+            line.monthly = dict(exp_by_label.get(line.label, {}))
         out["months"] = months
         out["gross_revenue_monthly"] = gross_monthly
         out["total_discounts_monthly"] = discounts_monthly
