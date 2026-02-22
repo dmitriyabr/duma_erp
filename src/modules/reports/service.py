@@ -509,6 +509,12 @@ class ReportsService:
         # - Postgres: date(<timestamptz>) returns date
         alloc_date_expr = func.date(CreditAllocation.created_at)
         alloc_date = alloc_date_expr.label("alloc_date")
+        bind = self.db.get_bind()
+        dialect_name = bind.dialect.name if bind is not None else ""
+        # SQLite returns string from date(); comparing to ISO strings is safe.
+        # Postgres returns DATE; comparing to python date keeps correct typing.
+        alloc_from = date_from.isoformat() if dialect_name == "sqlite" else date_from
+        alloc_to = date_to.isoformat() if dialect_name == "sqlite" else date_to
         alloc_q = (
             select(
                 CreditAllocation.student_id,
@@ -519,8 +525,8 @@ class ReportsService:
             .select_from(CreditAllocation)
             .join(Invoice, CreditAllocation.invoice_id == Invoice.id)
             .where(
-                alloc_date_expr >= date_from.isoformat(),
-                alloc_date_expr <= date_to.isoformat(),
+                alloc_date_expr >= alloc_from,
+                alloc_date_expr <= alloc_to,
             )
             .group_by(CreditAllocation.student_id, alloc_date_expr, Invoice.invoice_type)
         )
