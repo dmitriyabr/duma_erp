@@ -307,12 +307,18 @@ class ReportsService:
             InvoiceStatus.PARTIALLY_PAID.value,
             InvoiceStatus.PAID.value,
         )
+        # IMPORTANT: derive gross/discounts from invoice lines, not Invoice.discount_total.
+        # In production we may have historical invoices where Discount records/line.discount_amount
+        # exist but Invoice.discount_total wasn't recalculated (e.g., during bulk generation).
+        # Summing by lines makes P&L discounts resilient and matches "discounts given" semantics.
         rev_q = (
             select(
                 Invoice.invoice_type,
-                func.coalesce(func.sum(Invoice.subtotal), 0).label("gross_total"),
-                func.coalesce(func.sum(Invoice.discount_total), 0).label("discounts"),
+                func.coalesce(func.sum(InvoiceLine.line_total), 0).label("gross_total"),
+                func.coalesce(func.sum(InvoiceLine.discount_amount), 0).label("discounts"),
             )
+            .select_from(Invoice)
+            .join(InvoiceLine, InvoiceLine.invoice_id == Invoice.id)
             .where(
                 Invoice.issue_date >= date_from,
                 Invoice.issue_date <= date_to,

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.auth.models import UserRole
 from src.core.auth.service import AuthService
 from src.modules.invoices.models import Invoice, InvoiceStatus
+from src.modules.invoices.models import InvoiceLine
 from src.modules.students.models import Gender, Grade, Student, StudentStatus
 from src.modules.terms.models import Term, TermStatus
 
@@ -354,6 +355,41 @@ class TestProfitLoss:
             created_by_id=user.id,
         )
         db_session.add(inv)
+        await db_session.flush()
+
+        # P&L aggregates are derived from invoice lines. Create a line matching totals.
+        from src.modules.items.models import Category, Kit
+
+        cat = Category(name="Fees", is_active=True)
+        db_session.add(cat)
+        await db_session.flush()
+        kit = Kit(
+            category_id=cat.id,
+            sku_code="SCHOOL_FEE_KIT_TEST",
+            name="School Fee",
+            item_type="service",
+            price_type="standard",
+            price=Decimal("100.00"),
+            requires_full_payment=True,
+            is_editable_components=False,
+            is_active=True,
+        )
+        db_session.add(kit)
+        await db_session.flush()
+
+        line = InvoiceLine(
+            invoice_id=inv.id,
+            kit_id=kit.id,
+            description="School fee",
+            quantity=1,
+            unit_price=Decimal("100.00"),
+            line_total=Decimal("100.00"),
+            discount_amount=Decimal("10.00"),
+            net_amount=Decimal("90.00"),
+            paid_amount=Decimal("0.00"),
+            remaining_amount=Decimal("90.00"),
+        )
+        db_session.add(line)
         await db_session.commit()
 
         _, token, _ = await auth.authenticate("reports_pl_math_admin@test.com", "Pass123")

@@ -862,8 +862,8 @@ class InvoiceService:
         transport_created = 0
         skipped = 0
         affected_student_ids: set[int] = set()
-        # Store lines that need discounts applied
-        lines_for_discounts: list[tuple[InvoiceLine, int]] = []
+        # Store invoice+line that need discounts applied (so we can recalc invoice totals afterwards)
+        lines_for_discounts: list[tuple[Invoice, InvoiceLine, int]] = []
 
         for student in students:
             # Check initial fees (using batch data)
@@ -926,7 +926,7 @@ class InvoiceService:
             await self.db.flush()
 
             # Store for batch discount application
-            lines_for_discounts.append((school_fee_line, student.id))
+            lines_for_discounts.append((school_fee_invoice, school_fee_line, student.id))
 
             self._recalculate_invoice(school_fee_invoice)
             school_fee_created += 1
@@ -975,7 +975,7 @@ class InvoiceService:
                         affected_student_ids.add(student.id)
 
         # Apply discounts in batch (after all invoices created)
-        for line, student_id in lines_for_discounts:
+        for invoice, line, student_id in lines_for_discounts:
             student_discounts = discounts_by_student.get(student_id, [])
             for sd in student_discounts:
                 if sd.value_type == DiscountValueType.FIXED.value:
@@ -1015,6 +1015,10 @@ class InvoiceService:
                 line.remaining_amount = round_money(
                     line.net_amount - line.paid_amount
                 )
+
+            # Keep invoice aggregates consistent with applied line discounts.
+            # Without this, Invoice.discount_total may remain 0 even when discounts exist.
+            self._recalculate_invoice(invoice)
 
         await self.audit.log(
             action="invoice.generate_term",
