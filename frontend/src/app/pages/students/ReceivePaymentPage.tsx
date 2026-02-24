@@ -4,6 +4,7 @@ import { api, unwrapResponse } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { DEFAULT_PAGE_SIZE } from '../../constants/pagination'
 import type { PaginatedResponse } from '../../types/api'
+import { formatStudentNumberShort } from '../../utils/studentNumber'
 import { Typography } from '../../components/ui/Typography'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
@@ -133,7 +134,7 @@ export const ReceivePaymentPage = () => {
           <option value="">Select student</option>
           {students.map((s) => (
             <option key={s.id} value={String(s.id)}>
-              {s.full_name} · #{s.student_number}
+              {s.full_name} · #{formatStudentNumberShort(s.student_number)}
             </option>
           ))}
         </Select>
@@ -154,7 +155,7 @@ export const ReceivePaymentPage = () => {
       </Typography>
       {student && (
         <Typography variant="body2" color="secondary" className="mb-4">
-          {student.full_name} · #{student.student_number}
+          {student.full_name} · #{formatStudentNumberShort(student.student_number)}
           {!studentIdLocked && (
             <Button size="small" variant="text" className="ml-2" onClick={() => setSelectedStudentId('')}>
               Change student

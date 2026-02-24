@@ -8,6 +8,7 @@ import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { useApi } from '../../hooks/useApi'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { formatMoney } from '../../utils/format'
+import { formatStudentNumberShort } from '../../utils/studentNumber'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
@@ -175,7 +176,7 @@ export const StudentsPage = () => {
                 className="cursor-pointer hover:bg-slate-50 transition-colors"
                 onClick={() => navigate(`/students/${row.id}`)}
               >
-                <TableCell>{row.student_number}</TableCell>
+                <TableCell>{formatStudentNumberShort(row.student_number)}</TableCell>
                 <TableCell>{row.full_name}</TableCell>
                 <TableCell>{row.grade_name ?? '—'}</TableCell>
                 <TableCell>{row.transport_zone_name ?? '—'}</TableCell>

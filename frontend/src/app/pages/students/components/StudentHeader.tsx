@@ -5,6 +5,7 @@ import { canManageStudents } from '../../../utils/permissions'
 import { api } from '../../../services/api'
 import { useApiMutation } from '../../../hooks/useApi'
 import { formatMoney } from '../../../utils/format'
+import { formatStudentNumberShort } from '../../../utils/studentNumber'
 import type { Gender, GradeOption, StudentBalance, StudentResponse, TransportZoneOption } from '../types'
 import { parseNumber } from '../types'
 import { Typography } from '../../../components/ui/Typography'
@@ -131,7 +132,7 @@ export const StudentHeader = ({
           {student.full_name}
         </Typography>
         <Typography variant="body2" color="secondary" className="mt-1">
-          Student #{student.student_number} · {student.grade_name ?? 'No grade'}
+          Student #{formatStudentNumberShort(student.student_number)} · {student.grade_name ?? 'No grade'}
         </Typography>
       </div>
       <div className="flex gap-2 flex-wrap">

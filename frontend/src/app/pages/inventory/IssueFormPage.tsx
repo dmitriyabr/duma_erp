@@ -6,6 +6,7 @@ import type { ApiResponse, PaginatedResponse } from '../../types/api'
 import { MAX_DROPDOWN_SIZE } from '../../constants/pagination'
 import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
+import { formatStudentNumberShort } from '../../utils/studentNumber'
 import { Typography } from '../../components/ui/Typography'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
@@ -228,7 +229,9 @@ export const IssueFormPage = () => {
         {recipientType === 'student' && (
           <Autocomplete
             options={students}
-            getOptionLabel={(s) => `${s.first_name} ${s.last_name} (${s.student_number})`}
+            getOptionLabel={(s) =>
+              `${s.first_name} ${s.last_name} (${formatStudentNumberShort(s.student_number)})`
+            }
             getOptionValue={(s) => s.id}
             value={students.find((s) => String(s.id) === recipientId) || null}
             onChange={(s) => setRecipientId(s ? String(s.id) : '')}

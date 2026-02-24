@@ -4,6 +4,7 @@ import { useApi, useApiMutation } from '../../hooks/useApi'
 import { DEFAULT_PAGE_SIZE } from '../../constants/pagination'
 import { api, unwrapResponse } from '../../services/api'
 import { formatMoney } from '../../utils/format'
+import { formatStudentNumberShort } from '../../utils/studentNumber'
 import { Typography } from '../../components/ui/Typography'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
@@ -366,7 +367,7 @@ export const CreateInvoicePage = () => {
           <option value="">Select student</option>
           {students.map((s) => (
             <option key={s.id} value={String(s.id)}>
-              {s.full_name} · #{s.student_number}
+              {s.full_name} · #{formatStudentNumberShort(s.student_number)}
             </option>
           ))}
         </Select>
@@ -384,7 +385,7 @@ export const CreateInvoicePage = () => {
       </Typography>
       {student && (
         <Typography variant="body2" color="secondary" className="mb-6">
-          {student.full_name} · Student #{student.student_number}
+          {student.full_name} · Student #{formatStudentNumberShort(student.student_number)}
           {!studentIdLocked && (
             <Button size="small" variant="text" className="ml-2" onClick={() => setSelectedStudentId('')}>
               Change student
