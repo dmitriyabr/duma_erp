@@ -251,6 +251,7 @@
 - [x] API endpoints (CRUD payments, complete, cancel, balance)
 - [x] Миграция 008_payments.py
 - [x] Тесты
+- [x] Интеграция M-Pesa C2B (Paybill webhooks) → автозачисление на баланс по Admission#
 
 ### 3.2 Аллокация средств
 > Решения: Товары requires_full_payment, услуги можно частично, smallest first
