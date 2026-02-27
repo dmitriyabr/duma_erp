@@ -44,6 +44,16 @@ class Settings(BaseSettings):
     bank_branch: str = ""
     bank_swift_code: str = ""
 
+    # M-Pesa C2B webhooks (incoming Paybill payments)
+    mpesa_webhook_token: str = ""
+    mpesa_system_user_id: int = 1
+
+    # Optional (for future automation / URL registration / API calls)
+    mpesa_environment: str = "sandbox"  # sandbox | production
+    mpesa_consumer_key: str = ""
+    mpesa_consumer_secret: str = ""
+    mpesa_short_code: str = ""
+
     @property
     def school_info(self) -> dict[str, str]:
         """One dict for PDF templates: school name, address, phone, email."""
