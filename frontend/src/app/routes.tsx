@@ -70,6 +70,7 @@ import { StockMovementPage } from './pages/reports/StockMovementPage'
 import { TermComparisonPage } from './pages/reports/TermComparisonPage'
 import { StudentFeesPage } from './pages/reports/StudentFeesPage'
 import { ReportsSectionLayout } from './pages/reports/ReportsSectionLayout'
+import { MpesaUnmatchedPage } from './pages/billing/MpesaUnmatchedPage'
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useAuth()
@@ -136,6 +137,14 @@ export const AppRoutes = () => {
           <Route path="billing/catalog/items" element={<CatalogPage />} />
           <Route path="billing/catalog/categories" element={<CatalogPage />} />
           <Route path="billing/catalog/variants" element={<CatalogPage />} />
+          <Route
+            path="billing/mpesa-unmatched"
+            element={
+              <AdminOnly>
+                <MpesaUnmatchedPage />
+              </AdminOnly>
+            }
+          />
           <Route path="billing/invoices" element={<InvoicesListPage />} />
           <Route path="billing/invoices/new" element={<CreateInvoicePage />} />
           <Route path="billing/payments" element={<PlaceholderPage title="Payments" />} />

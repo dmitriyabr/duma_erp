@@ -85,6 +85,11 @@ export const navItems: NavItem[] = [
       { label: 'Terms', path: '/billing/terms', roles: ['SuperAdmin'] },
       { label: 'Fixed Fees', path: '/billing/fixed-fees', roles: ['SuperAdmin'] },
       { label: 'Catalog', path: '/billing/catalog', roles: adminRoles },
+      {
+        label: 'M-Pesa Unmatched',
+        path: '/billing/mpesa-unmatched',
+        roles: adminRoles,
+      },
     ],
   },
   {
