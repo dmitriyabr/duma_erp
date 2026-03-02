@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from datetime import date, datetime
 from enum import StrEnum
 
@@ -11,6 +12,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Numeric,
     String,
     Text,
     func,
@@ -77,6 +79,7 @@ class Employee(Base):
     # Job info
     job_title: Mapped[str | None] = mapped_column(String(200), nullable=True)
     employee_start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    salary: Mapped[Decimal | None] = mapped_column(Numeric(15, 2), nullable=True)
 
     # Government / tax ids
     national_id_number: Mapped[str | None] = mapped_column(String(50), nullable=True)

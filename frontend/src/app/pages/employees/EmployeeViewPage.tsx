@@ -29,6 +29,7 @@ interface EmployeeResponse {
   postal_code: string | null
   job_title: string | null
   employee_start_date: string | null
+  salary: string | null
   national_id_number: string | null
   kra_pin_number: string | null
   nssf_number: string | null
@@ -146,6 +147,7 @@ export const EmployeeViewPage = () => {
         <div className="grid gap-3 grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
           <Value label="Status" value={employee.status} />
           <Value label="Job title" value={employee.job_title} />
+          <Value label="Salary (KES)" value={employee.salary} />
           <Value label="Date of birth" value={employee.date_of_birth} />
           <Value label="Employee start date" value={employee.employee_start_date} />
           <Value label="Gender" value={employee.gender} />

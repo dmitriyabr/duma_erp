@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from datetime import date, datetime
 
 from pydantic import EmailStr, field_validator
@@ -29,6 +30,8 @@ class EmployeeBase(BaseSchema):
 
     job_title: str | None = None
     employee_start_date: date | None = None
+    salary: Decimal | None = None
+    salary: Decimal | None = None
 
     national_id_number: str | None = None
     kra_pin_number: str | None = None
@@ -150,6 +153,7 @@ class EmployeeResponse(BaseSchema):
 
     job_title: str | None
     employee_start_date: date | None
+    salary: Decimal | None
 
     national_id_number: str | None
     kra_pin_number: str | None

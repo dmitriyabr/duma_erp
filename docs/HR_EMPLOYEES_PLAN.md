@@ -137,6 +137,7 @@
 | postal_code | VARCHAR(20) NULL | |
 | job_title | VARCHAR(200) NULL | Teacher, Cleaner, … |
 | employee_start_date | DATE NULL | Дата начала работы |
+| salary | DECIMAL(15,2) NULL | Оклад/зарплата (KES) |
 | national_id_number | VARCHAR(50) NULL | |
 | kra_pin_number | VARCHAR(50) NULL | |
 | nssf_number | VARCHAR(50) NULL | |
@@ -172,6 +173,7 @@
 
 Пример набора для выгрузки (формат CSV/Excel на выбор):
 - employee_number, surname, first_name, second_name, job_title, employee_start_date
+- salary
 - national_id_number, kra_pin_number, nssf_number, nhif_number
 - bank_name, bank_branch_name, bank_code, branch_code, bank_account_number, bank_account_holder_name
 - has_mortgage_relief, has_insurance_relief

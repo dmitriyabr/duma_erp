@@ -113,9 +113,9 @@
   - roles: `SuperAdmin`, `Admin`, `Accountant`
 - `GET /employees/{employee_id}` — карточка сотрудника
   - roles: `SuperAdmin`, `Admin`, `Accountant`
-- `POST /employees` — создание сотрудника (поддерживает attachment_id полей)
+- `POST /employees` — создание сотрудника (поддерживает `salary` и attachment_id полей)
   - roles: `SuperAdmin`, `Admin`
-- `PUT /employees/{employee_id}` — обновление сотрудника (поддерживает очистку nullable полей через `null`)
+- `PUT /employees/{employee_id}` — обновление сотрудника (поддерживает `salary`; очистку nullable полей через `null`)
   - roles: `SuperAdmin`, `Admin`
 - `DELETE /employees/{employee_id}` — удаление сотрудника
   - roles: `SuperAdmin`, `Admin`
@@ -124,7 +124,7 @@
   - body: `multipart/form-data`, поле `file`
   - result: `{ rows_processed, employees_created, employees_updated, errors[] }`
   - roles: `SuperAdmin`, `Admin`
-- `GET /employees/export?format=csv` — экспорт сотрудников в CSV (attachment download)
+- `GET /employees/export?format=csv` — экспорт сотрудников в CSV (включая `salary`, attachment download)
   - roles: `SuperAdmin`, `Admin`, `Accountant`
 
 ### 5.3. Terms & Pricing

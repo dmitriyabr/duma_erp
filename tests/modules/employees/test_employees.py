@@ -20,6 +20,7 @@ class TestEmployeeService:
                 first_name="John",
                 job_title="Teacher",
                 mobile_phone="0712345678",
+                salary="45000.00",
             ),
             created_by_id=1,
         )
@@ -30,6 +31,7 @@ class TestEmployeeService:
         assert employee.first_name == "John"
         assert employee.job_title == "Teacher"
         assert employee.status == EmployeeStatus.ACTIVE.value
+        assert str(employee.salary) == "45000.00"
 
     async def test_list_employees_filters(self, db_session: AsyncSession) -> None:
         service = EmployeeService(db_session)
@@ -78,7 +80,7 @@ class TestEmployeeService:
         service = EmployeeService(db_session)
         csv_content = (
             "Surname / Last Name,First Name,Date of Birth,Employee Start Date\n"
-            "Date,Tester,3/2/2026,12/15/2025\n"
+            "Date,Tester,3/2/2026,12/15/2025 00:00:00\n"
         )
 
         result = await service.import_from_csv(csv_content, created_by_id=1)
@@ -89,6 +91,31 @@ class TestEmployeeService:
         assert total == 1
         assert employees[0].date_of_birth is not None
         assert employees[0].employee_start_date is not None
+
+    async def test_import_does_not_overwrite_existing_date_with_empty_value(
+        self, db_session: AsyncSession
+    ) -> None:
+        service = EmployeeService(db_session)
+        existing = await service.create_employee(
+            EmployeeCreate(
+                surname="Keep",
+                first_name="Date",
+                employee_start_date="2026-01-06",
+                national_id_number="999001",
+            ),
+            created_by_id=1,
+        )
+
+        csv_content = (
+            "Surname / Last Name,First Name,Employee Start Date,National ID Number\n"
+            "Keep,Date,,999001\n"
+        )
+        result = await service.import_from_csv(csv_content, created_by_id=1)
+        assert result.employees_updated == 1
+
+        refreshed = await service.get_employee(existing.id)
+        assert refreshed is not None
+        assert str(refreshed.employee_start_date) == "2026-01-06"
 
 
 class TestEmployeeEndpoints:

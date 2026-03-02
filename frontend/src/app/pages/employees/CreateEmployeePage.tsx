@@ -41,6 +41,7 @@ const emptyForm = {
   postal_code: '',
   job_title: '',
   employee_start_date: '',
+  salary: '',
   national_id_number: '',
   kra_pin_number: '',
   nssf_number: '',
@@ -108,6 +109,7 @@ export const CreateEmployeePage = () => {
       nssf_number: form.nssf_number.trim() || null,
       nhif_number: form.nhif_number.trim() || null,
       employee_start_date: form.employee_start_date || null,
+      salary: form.salary.trim() || null,
       bank_name: form.bank_name.trim() || null,
       bank_branch_name: form.bank_branch_name.trim() || null,
       bank_code: form.bank_code.trim() || null,
@@ -211,6 +213,13 @@ export const CreateEmployeePage = () => {
               type="date"
               value={form.employee_start_date}
               onChange={(event) => setForm({ ...form, employee_start_date: event.target.value })}
+            />
+            <Input
+              label="Salary (KES)"
+              type="number"
+              step="0.01"
+              value={form.salary}
+              onChange={(event) => setForm({ ...form, salary: event.target.value })}
             />
             <Select
               label="Status"

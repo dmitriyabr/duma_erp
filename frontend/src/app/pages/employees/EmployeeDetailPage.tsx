@@ -33,6 +33,7 @@ interface EmployeeResponse {
   postal_code: string | null
   job_title: string | null
   employee_start_date: string | null
+  salary: string | null
   national_id_number: string | null
   kra_pin_number: string | null
   nssf_number: string | null
@@ -105,6 +106,7 @@ export const EmployeeDetailPage = () => {
       postal_code: form.postal_code?.trim() || null,
       job_title: form.job_title?.trim() || null,
       employee_start_date: form.employee_start_date || null,
+      salary: form.salary?.toString().trim() || null,
       national_id_number: form.national_id_number?.trim() || null,
       kra_pin_number: form.kra_pin_number?.trim() || null,
       nssf_number: form.nssf_number?.trim() || null,
@@ -258,6 +260,13 @@ export const EmployeeDetailPage = () => {
               type="date"
               value={form.employee_start_date ?? ''}
               onChange={(e) => handleFieldChange('employee_start_date', e.target.value)}
+            />
+            <Input
+              label="Salary (KES)"
+              type="number"
+              step="0.01"
+              value={form.salary ?? ''}
+              onChange={(e) => handleFieldChange('salary', e.target.value)}
             />
             <Select
               label="Status"

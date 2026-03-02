@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,7 +34,9 @@ class EmployeeService:
 
         if filters.status:
             stmt = stmt.where(Employee.status == filters.status.value)
-            count_stmt = count_stmt.where(Employee.status == filters.status.value)
+            count_stmt = count_stmt.where(
+                Employee.status == filters.status.value
+            )
 
         if filters.search:
             pattern = f"%{filters.search.strip()}%"
@@ -88,6 +91,7 @@ class EmployeeService:
             postal_code=(data.postal_code or "").strip() or None,
             job_title=(data.job_title or "").strip() or None,
             employee_start_date=data.employee_start_date,
+            salary=data.salary,
             national_id_number=(data.national_id_number or "").strip() or None,
             kra_pin_number=(data.kra_pin_number or "").strip() or None,
             nssf_number=(data.nssf_number or "").strip() or None,
@@ -101,7 +105,10 @@ class EmployeeService:
             bank_branch_name=(data.bank_branch_name or "").strip() or None,
             bank_code=(data.bank_code or "").strip() or None,
             branch_code=(data.branch_code or "").strip() or None,
-            bank_account_number=(data.bank_account_number or "").strip() or None,
+            bank_account_number=(
+                data.bank_account_number or ""
+            ).strip()
+            or None,
             bank_account_holder_name=(
                 data.bank_account_holder_name or ""
             ).strip() or None,
@@ -111,7 +118,10 @@ class EmployeeService:
             ).strip()
             or None,
             next_of_kin_phone=(data.next_of_kin_phone or "").strip() or None,
-            next_of_kin_address=(data.next_of_kin_address or "").strip() or None,
+            next_of_kin_address=(
+                data.next_of_kin_address or ""
+            ).strip()
+            or None,
             has_mortgage_relief=data.has_mortgage_relief,
             has_insurance_relief=data.has_insurance_relief,
             status=(
@@ -130,7 +140,7 @@ class EmployeeService:
     async def update_employee(
         self, employee: Employee, data: EmployeeUpdate
     ) -> Employee:
-        # Respect explicit nulls: update only fields that were provided in payload.
+        # Respect explicit nulls: only update fields provided in payload.
         provided_fields = data.model_fields_set
 
         for field in (
@@ -167,6 +177,7 @@ class EmployeeService:
             "next_of_kin_phone",
             "next_of_kin_address",
             "notes",
+            "salary",
         ):
             if field not in provided_fields:
                 continue
@@ -219,6 +230,7 @@ class EmployeeService:
                 "NSSF Number",
                 "NHIF Number",
                 "Employee Start Date",
+                "Salary",
             ]
         )
         for employee in employees:
@@ -239,6 +251,11 @@ class EmployeeService:
                     employee.employee_start_date.isoformat()
                     if employee.employee_start_date
                     else "",
+                    (
+                        str(employee.salary)
+                        if employee.salary is not None
+                        else ""
+                    ),
                 ]
             )
         return output.getvalue()
@@ -248,12 +265,41 @@ class EmployeeService:
         raw = value.strip()
         if not raw:
             return None
-        for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%d/%m/%Y", "%d/%m/%y"):
+        # Accept Google-form-like dates with or without time.
+        for fmt in (
+            "%Y-%m-%d",
+            "%m/%d/%Y",
+            "%m/%d/%y",
+            "%d/%m/%Y",
+            "%d/%m/%y",
+            "%m/%d/%Y %H:%M:%S",
+            "%m/%d/%Y %I:%M:%S %p",
+            "%d/%m/%Y %H:%M:%S",
+            "%d/%m/%Y %I:%M:%S %p",
+        ):
             try:
                 return datetime.strptime(raw, fmt).date()
             except ValueError:
                 continue
+        # Fallback for strings where date token is first.
+        first_token = raw.split(" ")[0]
+        for fmt in ("%m/%d/%Y", "%m/%d/%y", "%d/%m/%Y", "%d/%m/%y"):
+            try:
+                return datetime.strptime(first_token, fmt).date()
+            except ValueError:
+                continue
         return None
+
+    @staticmethod
+    def _parse_import_salary(value: str) -> Decimal | None:
+        raw = value.strip()
+        if not raw:
+            return None
+        normalized = raw.replace(",", "")
+        try:
+            return Decimal(normalized)
+        except InvalidOperation:
+            return None
 
     async def import_from_csv(
         self, content: bytes | str, *, created_by_id: int
@@ -294,7 +340,9 @@ class EmployeeService:
                     existing_by_nat_id[employee.national_id_number] = employee
         if emails_lower:
             result = await self.db.execute(
-                select(Employee).where(func.lower(Employee.email).in_(emails_lower))
+                select(Employee).where(
+                    func.lower(Employee.email).in_(emails_lower)
+                )
             )
             for employee in result.scalars().all():
                 if employee.email:
@@ -340,21 +388,52 @@ class EmployeeService:
                     first_name=first_name,
                     second_name=(row.get("Second Name") or "").strip() or None,
                     gender=(row.get("Gender") or "").strip() or None,
-                    marital_status=(row.get("Marital Status") or "").strip() or None,
-                    nationality=(row.get("Nationality") or "").strip() or None,
+                    marital_status=(
+                        row.get("Marital Status") or ""
+                    ).strip()
+                    or None,
+                    nationality=(
+                        row.get("Nationality") or ""
+                    ).strip()
+                    or None,
                     date_of_birth=dob,
-                    mobile_phone=(row.get("Mobile Phone Number") or "").strip() or None,
+                    mobile_phone=(
+                        row.get("Mobile Phone Number") or ""
+                    ).strip()
+                    or None,
                     email=email_raw,
-                    physical_address=(row.get("Physical Address") or "").strip() or None,
+                    physical_address=(
+                        row.get("Physical Address") or ""
+                    ).strip()
+                    or None,
                     town=(row.get("Town") or "").strip() or None,
-                    postal_address=(row.get("Postal Address") or "").strip() or None,
-                    postal_code=(row.get("Postal Code") or "").strip() or None,
-                    job_title=(row.get("Job Title / Role") or "").strip() or None,
+                    postal_address=(
+                        row.get("Postal Address") or ""
+                    ).strip()
+                    or None,
+                    postal_code=(
+                        row.get("Postal Code") or ""
+                    ).strip()
+                    or None,
+                    job_title=(
+                        row.get("Job Title / Role") or ""
+                    ).strip()
+                    or None,
                     employee_start_date=start_date,
+                    salary=self._parse_import_salary(row.get("Salary") or ""),
                     national_id_number=nat_id or None,
-                    kra_pin_number=(row.get("KRA PIN Number") or "").strip() or None,
-                    nssf_number=(row.get("NSSF Number") or "").strip() or None,
-                    nhif_number=(row.get("NHIF / SHA Number") or "").strip() or None,
+                    kra_pin_number=(
+                        row.get("KRA PIN Number") or ""
+                    ).strip()
+                    or None,
+                    nssf_number=(
+                        row.get("NSSF Number") or ""
+                    ).strip()
+                    or None,
+                    nhif_number=(
+                        row.get("NHIF / SHA Number") or ""
+                    ).strip()
+                    or None,
                     bank_name=(row.get("Bank Name") or "").strip() or None,
                     bank_branch_name=(
                         row.get("Bank Branch Name") or ""
@@ -402,11 +481,15 @@ class EmployeeService:
 
                 if existing:
                     for key, value in base_kwargs.items():
-                        setattr(existing, key, value)
+                        if value is not None:
+                            setattr(existing, key, value)
                     target_employee = existing
                     updated += 1
                 else:
-                    employee_number = await get_document_number(self.db, prefix="EMP")
+                    employee_number = await get_document_number(
+                        self.db,
+                        prefix="EMP",
+                    )
                     employee = Employee(
                         employee_number=employee_number,
                         created_by_id=created_by_id,
@@ -434,4 +517,3 @@ class EmployeeService:
             employees_updated=updated,
             errors=errors,
         )
-
