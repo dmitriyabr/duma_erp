@@ -207,7 +207,7 @@ class EmployeeService:
         await self.db.delete(employee)
         await self.db.commit()
 
-    async def export_csv(self) -> str:
+    async def export_csv(self, *, include_internal_number: bool = True) -> str:
         result = await self.db.execute(
             select(Employee).order_by(Employee.surname, Employee.first_name)
         )
@@ -215,49 +215,57 @@ class EmployeeService:
 
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(
-            [
-                "Employee Number",
-                "Surname",
-                "First Name",
-                "Second Name",
-                "Job Title",
-                "Status",
-                "Mobile Phone",
-                "Email",
-                "National ID Number",
-                "KRA PIN Number",
-                "NSSF Number",
-                "NHIF Number",
-                "Employee Start Date",
-                "Salary",
-            ]
-        )
+        columns = [
+            "Full Name",
+            "Mobile Phone",
+            "Date of Birth",
+            "National ID Number",
+            "KRA PIN Number",
+            "NSSF Number",
+            "NHIF Number",
+            "Job Title",
+            "Employee Start Date",
+            "Salary",
+            "Bank Name",
+            "Bank Branch Name",
+            "Bank Code",
+            "Branch Code",
+            "Bank Account Number",
+            "Bank Account Holder Name",
+        ]
+        if include_internal_number:
+            columns = ["Employee Number", *columns]
+        writer.writerow(columns)
         for employee in employees:
-            writer.writerow(
-                [
-                    employee.employee_number,
-                    employee.surname,
-                    employee.first_name,
-                    employee.second_name or "",
-                    employee.job_title or "",
-                    employee.status,
-                    employee.mobile_phone or "",
-                    employee.email or "",
-                    employee.national_id_number or "",
-                    employee.kra_pin_number or "",
-                    employee.nssf_number or "",
-                    employee.nhif_number or "",
+            row = [
+                employee.full_name,
+                employee.mobile_phone or "",
+                (
+                    employee.date_of_birth.isoformat()
+                    if employee.date_of_birth
+                    else ""
+                ),
+                employee.national_id_number or "",
+                employee.kra_pin_number or "",
+                employee.nssf_number or "",
+                employee.nhif_number or "",
+                employee.job_title or "",
+                (
                     employee.employee_start_date.isoformat()
                     if employee.employee_start_date
-                    else "",
-                    (
-                        str(employee.salary)
-                        if employee.salary is not None
-                        else ""
-                    ),
-                ]
-            )
+                    else ""
+                ),
+                str(employee.salary) if employee.salary is not None else "",
+                employee.bank_name or "",
+                employee.bank_branch_name or "",
+                employee.bank_code or "",
+                employee.branch_code or "",
+                employee.bank_account_number or "",
+                employee.bank_account_holder_name or "",
+            ]
+            if include_internal_number:
+                row = [employee.employee_number, *row]
+            writer.writerow(row)
         return output.getvalue()
 
     @staticmethod
@@ -333,7 +341,9 @@ class EmployeeService:
         existing_by_email: dict[str, Employee] = {}
         if nat_ids:
             result = await self.db.execute(
-                select(Employee).where(Employee.national_id_number.in_(nat_ids))
+                select(Employee).where(
+                    Employee.national_id_number.in_(nat_ids)
+                )
             )
             for employee in result.scalars().all():
                 if employee.national_id_number:

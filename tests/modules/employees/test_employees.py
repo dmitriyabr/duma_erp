@@ -4,7 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.auth.models import UserRole
 from src.core.auth.service import AuthService
 from src.modules.employees.models import EmployeeStatus
-from src.modules.employees.schemas import EmployeeCreate, EmployeeListFilters, EmployeeUpdate
+from src.modules.employees.schemas import (
+    EmployeeCreate,
+    EmployeeListFilters,
+    EmployeeUpdate,
+)
 from src.modules.employees.service import EmployeeService
 
 
@@ -37,11 +41,19 @@ class TestEmployeeService:
         service = EmployeeService(db_session)
 
         await service.create_employee(
-            EmployeeCreate(surname="One", first_name="Alice", job_title="Teacher"),
+            EmployeeCreate(
+                surname="One",
+                first_name="Alice",
+                job_title="Teacher",
+            ),
             created_by_id=1,
         )
         await service.create_employee(
-            EmployeeCreate(surname="Two", first_name="Bob", job_title="Guard"),
+            EmployeeCreate(
+                surname="Two",
+                first_name="Bob",
+                job_title="Guard",
+            ),
             created_by_id=1,
         )
 
@@ -49,7 +61,9 @@ class TestEmployeeService:
         assert total == 2
         assert len(employees) == 2
 
-        employees, total = await service.list_employees(EmployeeListFilters(search="Alice"))
+        employees, total = await service.list_employees(
+            EmployeeListFilters(search="Alice")
+        )
         assert total == 1
         assert employees[0].first_name == "Alice"
 
@@ -87,7 +101,9 @@ class TestEmployeeService:
         assert result.rows_processed == 1
         assert result.employees_created == 1
 
-        employees, total = await service.list_employees(EmployeeListFilters(search="Date"))
+        employees, total = await service.list_employees(
+            EmployeeListFilters(search="Date")
+        )
         assert total == 1
         assert employees[0].date_of_birth is not None
         assert employees[0].employee_start_date is not None
@@ -134,7 +150,10 @@ class TestEmployeeEndpoints:
         )
         await db_session.commit()
 
-        _, access_token, _ = await auth_service.authenticate("superadmin@school.com", "SuperAdmin123")
+        _, access_token, _ = await auth_service.authenticate(
+            "superadmin@school.com",
+            "SuperAdmin123",
+        )
         return access_token, user.id
 
     async def _create_accountant(
@@ -180,11 +199,17 @@ class TestEmployeeEndpoints:
         assert data["success"] is True
         emp_id = data["data"]["id"]
 
-        list_resp = await client.get("/api/v1/employees", headers={"Authorization": f"Bearer {token}"})
+        list_resp = await client.get(
+            "/api/v1/employees",
+            headers={"Authorization": f"Bearer {token}"},
+        )
         assert list_resp.status_code == 200
         list_data = list_resp.json()
         assert list_data["data"]["total"] >= 1
-        assert any(item["id"] == emp_id for item in list_data["data"]["items"])
+        assert any(
+            item["id"] == emp_id
+            for item in list_data["data"]["items"]
+        )
 
     async def test_delete_employee(
         self,
@@ -272,4 +297,46 @@ class TestEmployeeEndpoints:
             json={"surname": "No", "first_name": "Write"},
         )
         assert forbid_create.status_code == 403
+
+    async def test_accountant_export_excludes_internal_number(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        admin_token, _ = await self._create_super_admin(db_session)
+        acct_token, _ = await self._create_accountant(db_session)
+        await client.post(
+            "/api/v1/employees",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={
+                "surname": "Exporter",
+                "first_name": "Accountant",
+                "mobile_phone": "0700000000",
+                "date_of_birth": "1990-01-01",
+                "national_id_number": "11223344",
+                "kra_pin_number": "A123456789X",
+                "nssf_number": "99887766",
+                "nhif_number": "55443322",
+                "job_title": "Teacher",
+                "employee_start_date": "2026-01-06",
+                "salary": "50000.00",
+                "bank_name": "KCB",
+                "bank_branch_name": "Kitengela",
+                "bank_code": "01",
+                "branch_code": "02",
+                "bank_account_number": "1234567890",
+                "bank_account_holder_name": "Accountant Exporter",
+            },
+        )
+
+        export_resp = await client.get(
+            "/api/v1/employees/export?format=csv",
+            headers={"Authorization": f"Bearer {acct_token}"},
+        )
+        assert export_resp.status_code == 200
+        csv_text = export_resp.text
+        assert "Employee Number" not in csv_text
+        assert "Full Name" in csv_text
+        assert "Date of Birth" in csv_text
+        assert "Salary" in csv_text
 

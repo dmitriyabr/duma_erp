@@ -59,6 +59,7 @@ export const EmployeesPage = () => {
   const [importResult, setImportResult] = useState<EmployeeImportResult | null>(null)
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
+  const showInternalNumber = true
 
   const { execute: importCsv, loading: importing } = useApiMutation<EmployeeImportResult>()
 
@@ -143,39 +144,41 @@ export const EmployeesPage = () => {
         <Typography variant="h4">
           Employees
         </Typography>
-        {!readOnly && (
-          <div className="flex gap-2">
-            <Button variant="contained" onClick={() => navigate('/employees/new')}>
-              New employee
-            </Button>
-            <Button
-              variant="outlined"
-              onClick={handleExportCsv}
-              disabled={exporting}
-            >
-              {exporting ? 'Exporting...' : 'Export CSV'}
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv"
-              className="hidden"
-              onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
-            />
-            <Button variant="outlined" onClick={handleImportClick} disabled={importing}>
-              {selectedFile ? `Import: ${selectedFile.name}` : 'Import from CSV'}
-            </Button>
-            {selectedFile && (
-              <Button
-                variant="contained"
-                onClick={handleImportSubmit}
-                disabled={importing}
-              >
-                {importing ? <Spinner size="small" /> : 'Upload'}
+        <div className="flex gap-2">
+          {!readOnly && (
+            <>
+              <Button variant="contained" onClick={() => navigate('/employees/new')}>
+                New employee
               </Button>
-            )}
-          </div>
-        )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
+              />
+              <Button variant="outlined" onClick={handleImportClick} disabled={importing}>
+                {selectedFile ? `Import: ${selectedFile.name}` : 'Import from CSV'}
+              </Button>
+              {selectedFile && (
+                <Button
+                  variant="contained"
+                  onClick={handleImportSubmit}
+                  disabled={importing}
+                >
+                  {importing ? <Spinner size="small" /> : 'Upload'}
+                </Button>
+              )}
+            </>
+          )}
+          <Button
+            variant="outlined"
+            onClick={handleExportCsv}
+            disabled={exporting}
+          >
+            {exporting ? 'Exporting...' : 'Export CSV'}
+          </Button>
+        </div>
       </div>
 
       <div className="flex gap-4 mb-4 flex-wrap">
@@ -223,7 +226,7 @@ export const EmployeesPage = () => {
         <Table>
           <TableHead>
             <TableRow>
-              <TableHeaderCell>Employee #</TableHeaderCell>
+              {showInternalNumber && <TableHeaderCell>Employee #</TableHeaderCell>}
               <TableHeaderCell>Name</TableHeaderCell>
               <TableHeaderCell>Job title</TableHeaderCell>
               <TableHeaderCell>Phone</TableHeaderCell>
@@ -238,7 +241,7 @@ export const EmployeesPage = () => {
                 className="cursor-pointer hover:bg-slate-50 transition-colors"
                 onClick={() => navigate(`/employees/${row.id}`)}
               >
-                <TableCell>{row.employee_number}</TableCell>
+                {showInternalNumber && <TableCell>{row.employee_number}</TableCell>}
                 <TableCell>
                   {row.first_name} {row.second_name ? `${row.second_name} ` : ''}{row.surname}
                 </TableCell>
@@ -256,14 +259,14 @@ export const EmployeesPage = () => {
             ))}
             {loading && (
               <TableRow>
-                <td colSpan={6} className="px-4 py-8 text-center">
+                <td colSpan={showInternalNumber ? 6 : 5} className="px-4 py-8 text-center">
                   <Spinner size="medium" />
                 </td>
               </TableRow>
             )}
             {!rows.length && !loading && (
               <TableRow>
-                <td colSpan={6} className="px-4 py-8 text-center">
+                <td colSpan={showInternalNumber ? 6 : 5} className="px-4 py-8 text-center">
                   <Typography color="secondary">No employees found</Typography>
                 </td>
               </TableRow>

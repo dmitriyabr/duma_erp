@@ -107,11 +107,16 @@ async def get_employee(
 async def create_employee(
     payload: EmployeeCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+    ),
 ):
     """Create a new employee."""
     service = EmployeeService(db)
-    employee = await service.create_employee(payload, created_by_id=current_user.id)
+    employee = await service.create_employee(
+        payload,
+        created_by_id=current_user.id,
+    )
     return ApiResponse(
         success=True,
         message="Employee created",
@@ -133,9 +138,14 @@ async def export_employees_csv(
 ):
     """Export employees as CSV."""
     if format.lower() != "csv":
-        raise HTTPException(status_code=400, detail="Only csv format is supported")
+        raise HTTPException(
+            status_code=400,
+            detail="Only csv format is supported",
+        )
     service = EmployeeService(db)
-    csv_data = await service.export_csv()
+    csv_data = await service.export_csv(
+        include_internal_number=current_user.role != UserRole.ACCOUNTANT
+    )
     filename = f"employees_{datetime.utcnow().date().isoformat()}.csv"
     return StreamingResponse(
         io.StringIO(csv_data),
@@ -151,7 +161,9 @@ async def export_employees_csv(
 async def delete_employee(
     employee_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+    ),
 ):
     """Delete an employee by id."""
     service = EmployeeService(db)
@@ -180,7 +192,9 @@ async def update_employee(
     employee_id: int,
     payload: EmployeeUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+    ),
 ):
     """Update an existing employee."""
     service = EmployeeService(db)
@@ -202,17 +216,21 @@ async def update_employee(
 async def import_employees_from_csv(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+    ),
 ):
     """Import employees from CSV exported from Google Form."""
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="CSV file is empty")
     service = EmployeeService(db)
-    result = await service.import_from_csv(content, created_by_id=current_user.id)
+    result = await service.import_from_csv(
+        content,
+        created_by_id=current_user.id,
+    )
     return ApiResponse(
         success=True,
         message="Import completed",
         data=result,
     )
-
