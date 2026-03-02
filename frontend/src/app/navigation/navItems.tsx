@@ -31,6 +31,7 @@ const superAdminRoles: UserRole[] = ['SuperAdmin']
 export const accountantNavItems: NavItem[] = [
   { label: 'Dashboard', path: '/', icon: <LayoutDashboard className="w-5 h-5" />, roles: ['Accountant'] },
   { label: 'Students', path: '/students', icon: <Users className="w-5 h-5" />, roles: ['Accountant'] },
+  { label: 'Employees', path: '/employees', icon: <Users className="w-5 h-5" />, roles: ['Accountant'] },
   { label: 'Stock', path: '/inventory/stock', icon: <ShoppingCart className="w-5 h-5" />, roles: ['Accountant'] },
   { label: 'Restock', path: '/inventory/restock', icon: <ShoppingCart className="w-5 h-5" />, roles: ['Accountant'] },
   {
@@ -73,6 +74,12 @@ export const navItems: NavItem[] = [
   {
     label: 'Students',
     path: '/students',
+    icon: <Users className="w-5 h-5" />,
+    roles: viewRoles,
+  },
+  {
+    label: 'Employees',
+    path: '/employees',
     icon: <Users className="w-5 h-5" />,
     roles: viewRoles,
   },

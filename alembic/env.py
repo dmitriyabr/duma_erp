@@ -40,6 +40,7 @@ from src.modules.compensations.models import (
     PayoutAllocation,
     EmployeeBalance,
 )
+from src.modules.employees.models import Employee
 from src.integrations.mpesa.models import MpesaC2BEvent
 
 config = context.config

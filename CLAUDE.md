@@ -57,6 +57,8 @@ PROCUREMENT & EXPENSES      EMPLOYEE COMPENSATIONS
 - SupplierDebt
 
 CROSS-CUTTING: User, Role, AuditLog, Attachment, SystemSettings
+
+PLANNED: HR — Employee master data (optional link to User), CSV import from Google Form, accounting export. See docs/HR_EMPLOYEES_PLAN.md and TASKS.md "Фаза: HR".
 ```
 
 ## Key Business Rules

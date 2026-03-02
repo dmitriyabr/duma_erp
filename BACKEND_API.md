@@ -108,6 +108,25 @@
 - `POST /users/{user_id}/remove-password`
 - `POST /users/me/change-password`
 
+### 5.2.1. Employees (HR)
+- `GET /employees` — список сотрудников (filters: `status`, `search`, `page`, `limit`)
+  - roles: `SuperAdmin`, `Admin`, `Accountant`
+- `GET /employees/{employee_id}` — карточка сотрудника
+  - roles: `SuperAdmin`, `Admin`, `Accountant`
+- `POST /employees` — создание сотрудника (поддерживает attachment_id полей)
+  - roles: `SuperAdmin`, `Admin`
+- `PUT /employees/{employee_id}` — обновление сотрудника (поддерживает очистку nullable полей через `null`)
+  - roles: `SuperAdmin`, `Admin`
+- `DELETE /employees/{employee_id}` — удаление сотрудника
+  - roles: `SuperAdmin`, `Admin`
+  - при ссылках из других таблиц возвращает `409`
+- `POST /employees/import-csv` — импорт сотрудников из CSV Google Form
+  - body: `multipart/form-data`, поле `file`
+  - result: `{ rows_processed, employees_created, employees_updated, errors[] }`
+  - roles: `SuperAdmin`, `Admin`
+- `GET /employees/export?format=csv` — экспорт сотрудников в CSV (attachment download)
+  - roles: `SuperAdmin`, `Admin`, `Accountant`
+
 ### 5.3. Terms & Pricing
 - `GET /terms` — список (filter: `year`)
 - `GET /terms/active`

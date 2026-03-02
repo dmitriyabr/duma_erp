@@ -18,6 +18,10 @@ import { TermFormPage } from './pages/terms/TermFormPage'
 import { TermDetailPage } from './pages/terms/TermDetailPage'
 import { PaymentPurposesPage } from './pages/settings/PaymentPurposesPage'
 import { SchoolPage } from './pages/settings/SchoolPage'
+import { EmployeesPage } from './pages/employees/EmployeesPage'
+import { CreateEmployeePage } from './pages/employees/CreateEmployeePage'
+import { EmployeeDetailPage } from './pages/employees/EmployeeDetailPage'
+import { EmployeeViewPage } from './pages/employees/EmployeeViewPage'
 import { PurchaseOrdersListPage } from './pages/procurement/PurchaseOrdersListPage'
 import { PurchaseOrderFormPage } from './pages/procurement/PurchaseOrderFormPage'
 import { PurchaseOrderDetailPage } from './pages/procurement/PurchaseOrderDetailPage'
@@ -102,6 +106,17 @@ const AdminOnly: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return <>{children}</>
 }
 
+const EmployeeViewOnly: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, isLoading } = useAuth()
+  const location = useLocation()
+  if (isLoading) return null
+  if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />
+  if (user.role !== 'SuperAdmin' && user.role !== 'Admin' && user.role !== 'Accountant') {
+    return <Navigate to="/access-denied" replace />
+  }
+  return <>{children}</>
+}
+
 export const AppRoutes = () => {
   return (
     <BrowserRouter>
@@ -123,6 +138,38 @@ export const AppRoutes = () => {
           <Route index element={<DashboardPage />} />
           <Route path="attachment/:id/download" element={<AttachmentDownloadPage />} />
           <Route path="payment/:id/receipt" element={<PaymentReceiptDownloadPage />} />
+          <Route
+            path="employees"
+            element={
+              <EmployeeViewOnly>
+                <EmployeesPage />
+              </EmployeeViewOnly>
+            }
+          />
+          <Route
+            path="employees/:employeeId"
+            element={
+              <EmployeeViewOnly>
+                <EmployeeViewPage />
+              </EmployeeViewOnly>
+            }
+          />
+          <Route
+            path="employees/:employeeId/edit"
+            element={
+              <AdminOnly>
+                <EmployeeDetailPage />
+              </AdminOnly>
+            }
+          />
+          <Route
+            path="employees/new"
+            element={
+              <AdminOnly>
+                <CreateEmployeePage />
+              </AdminOnly>
+            }
+          />
           <Route path="students" element={<StudentsPage />} />
           <Route path="students/new" element={<CreateStudentPage />} />
           <Route path="students/:studentId" element={<StudentDetailPage />} />

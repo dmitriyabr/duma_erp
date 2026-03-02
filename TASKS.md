@@ -387,6 +387,42 @@
 
 ---
 
+## Фаза: HR — Справочник сотрудников
+
+> Полный план и варианты процесса (Google Form vs форма в ERP vs гибрид): **docs/HR_EMPLOYEES_PLAN.md**
+
+### Цели
+- Хранить данные сотрудников (ФИО, контакты, банк, KRA/NSSF/NHIF, ближайший родственник и т.д.) с возможностью привязки к User.
+- Заводить новых сотрудников (импорт из CSV выгрузки Google Form и/или форма в ERP).
+- Выгрузки для бухгалтерии (CSV/Excel с полями для зарплаты и отчётности).
+
+### HR.1 Модель и миграции
+- [ ] **[ОБСУДИТЬ]** Вариант A (Employee как профиль User) vs B (Employee — основная сущность, compensations по employee_id → employees.id). Рекомендация в плане: B.
+- [x] Модель Employee (employee_number EMP-YYYY-NNNNNN, user_id nullable, персональные/контакт/банк/налоги/next of kin, status, аудит).
+- [~] Миграция: таблица employees; при варианте B — миграция данных: для User с claims/payouts/balances создать Employee, перевести FK в expense_claims, compensation_payouts, employee_balances на employees.id.
+- [x] Генерация employee_number (DocumentNumberGenerator или отдельная последовательность).
+
+### HR.2 API и сервисы
+- [x] CRUD Employee (list с фильтрами, get, create, update, deactivate).
+- [x] Импорт из CSV (маппинг колонок Google Form → Employee), создание/обновление записей, валидация и отчёт по ошибкам строк.
+- [~] Экспорт для бухгалтерии: GET /employees/export?format=csv|xlsx&status=... (поля: ФИО, job_title, national_id, kra_pin, nssf, nhif, банк, reliefs).
+- [x] Права: создание/редактирование — Admin/SuperAdmin; экспорт — по политике (Admin/SuperAdmin/Accountant).
+
+### HR.3 UI
+- [x] Список сотрудников (поиск, фильтр по status/job_title).
+- [x] Карточка/форма сотрудника (просмотр и редактирование полей Employee).
+- [x] Экран импорта CSV (загрузка файла, маппинг как в плане, результат: создано/обновлено/ошибки).
+- [~] Кнопка/страница выгрузки для бухгалтерии (скачать CSV/Excel).
+
+### HR.4 Вложения (опционально на первом этапе)
+- [~] Хранение сканок (National ID, KRA PIN, NSSF, NHIF, банк) в Attachment (entity_type=Employee). При импорте CSV — сохранять URL из формы в поля или позже импортировать файлы.
+
+### HR.5 Документация и тесты
+- [x] Обновить BACKEND_API.md (endpoints employees, import, export).
+- [~] Тесты: CRUD Employee, импорт CSV (успех, дубли, ошибки строк), экспорт, при варианте B — компенсации по employee_id.
+
+---
+
 ## Фаза 7: Интеграции
 
 ### 7.1 Выдача формы (Uniform Fulfillment)
