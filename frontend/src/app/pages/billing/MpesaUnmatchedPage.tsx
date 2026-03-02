@@ -95,8 +95,8 @@ export const MpesaUnmatchedPage = () => {
       </div>
 
       <Typography variant="body2" color="secondary" className="mb-4">
-        Эти записи — события из M-Pesa callbacks, которые не удалось сопоставить со студентом по BillRefNumber (Admission#).
-        Привяжите событие к студенту, чтобы создать payment и зачислить баланс.
+        These entries are M-Pesa callback events that could not be matched to a student using BillRefNumber (Admission#).
+        Link an event to a student to create a payment and top up the student balance.
       </Typography>
 
       {error && (

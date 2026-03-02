@@ -101,7 +101,7 @@ export const MpesaSandboxTopUpWidget = () => {
         <DialogContent>
           <div className="space-y-4">
             <Typography variant="body2" color="secondary">
-              Использует endpoint <code>/api/v1/mpesa/c2b/sandbox/topup</code>. Работает только в dev и только для Admin/SuperAdmin.
+              Uses endpoint <code>/api/v1/mpesa/c2b/sandbox/topup</code>. Visible only in dev and only for Admin/SuperAdmin.
             </Typography>
 
             <div className="grid grid-cols-1 gap-3">
@@ -116,7 +116,7 @@ export const MpesaSandboxTopUpWidget = () => {
                 value={form.bill_ref_number}
                 onChange={(e) => setForm((s) => ({ ...s, bill_ref_number: e.target.value }))}
                 placeholder="26123 or STU-2026-000123"
-                helperText="Если указан Student ID — BillRefNumber будет сгенерен автоматически."
+                helperText="If Student ID is provided, BillRefNumber will be generated automatically."
               />
               <Input
                 label="Amount"
