@@ -7,6 +7,23 @@ _FULL_STUDENT_NUMBER_RE = re.compile(r"^STU-(\d{4})-(\d{6})$")
 _SHORT_ADMISSION_RE = re.compile(r"^(\d{2})(\d{1,6})$")
 
 
+def format_student_number_short(student_number: str) -> str | None:
+    """
+    Format `Student.student_number` (STU-YYYY-NNNNNN) into short Admission# (YYNNN...).
+
+    Mirrors frontend `formatStudentNumberShort()`.
+    Example: STU-2026-000123 -> 26123
+    """
+    raw = (student_number or "").strip().upper()
+    m = _FULL_STUDENT_NUMBER_RE.match(raw)
+    if not m:
+        return None
+    year = int(m.group(1))
+    num = int(m.group(2))
+    yy = f"{year % 100:02d}"
+    return f"{yy}{num}"
+
+
 def normalize_bill_ref_to_student_number(bill_ref_number: str) -> str | None:
     """
     Convert M-Pesa BillRefNumber (account number) into internal Student.student_number.

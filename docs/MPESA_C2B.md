@@ -44,6 +44,11 @@
   - `GET /api/v1/mpesa/c2b/events/unmatched`
   - `POST /api/v1/mpesa/c2b/events/{event_id}/link` body: `{ "student_id": <id> }`
 
+### 3) Dev: симуляция пополнения без M-Pesa
+
+- `POST /api/v1/mpesa/c2b/sandbox/topup` (JWT, Admin/SuperAdmin, отключён в production)
+- Можно передать `student_id` (BillRefNumber будет сгенерен как короткий Admission#) или `bill_ref_number`.
+
 ## Безопасность
 
 - Webhook-и доступны только по URL с токеном (`MPESA_WEBHOOK_TOKEN`).

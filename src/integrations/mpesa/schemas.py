@@ -5,6 +5,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
+from src.modules.payments.schemas import PaymentResponse
+
 
 class MpesaC2BConfirmationPayload(BaseModel):
     """
@@ -61,14 +63,36 @@ class MpesaLinkEventRequest(BaseModel):
     student_id: int
 
 
+class MpesaSandboxTopUpRequest(BaseModel):
+    """
+    Dev-only helper to simulate an incoming C2B confirmation.
+
+    Provide either student_id OR bill_ref_number.
+    """
+
+    student_id: int | None = None
+    bill_ref_number: str | None = None
+    amount: Decimal = Field(..., gt=0)
+    trans_id: str | None = None
+    trans_time: str | None = None  # YYYYMMDDHHMMSS
+    msisdn: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+
+
+class MpesaSandboxTopUpResponse(BaseModel):
+    event: MpesaC2BEventResponse
+    payment: PaymentResponse | None = None
+
+
 def parse_trans_time_to_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
     raw = value.strip()
     if len(raw) != 14 or not raw.isdigit():
         return None
-    # NOTE: treat as local wall clock provided by M-Pesa; store as naive datetime.
-    # We only need the date component for internal Payment.payment_date.
+    # NOTE: treat as local wall clock provided by M-Pesa.
+    # We store it as a naive datetime and only use the date component for payments.
     try:
         return datetime(
             int(raw[0:4]),

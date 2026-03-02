@@ -208,6 +208,7 @@
 - `POST /mpesa/c2b/confirmation/{token}` — публичный endpoint (без JWT) для confirmation callback; создаёт completed payment и запускает auto-allocation по Admission# (BillRefNumber)
 - `GET /mpesa/c2b/events/unmatched` — список unmatched событий (roles: SuperAdmin, Admin)
 - `POST /mpesa/c2b/events/{event_id}/link` — ручная привязка unmatched события к студенту (roles: SuperAdmin, Admin)
+- `POST /mpesa/c2b/sandbox/topup` — dev-only симуляция incoming confirmation (roles: SuperAdmin, Admin; disabled in production)
 
 ### 5.10. Inventory
 - `GET /inventory/stock` — filters: `include_zero`, `category_id`, `page`, `limit`

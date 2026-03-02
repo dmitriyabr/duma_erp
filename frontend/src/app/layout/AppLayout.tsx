@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom'
 import { SidebarNav } from './SidebarNav'
 import { TopBar } from './TopBar'
 import { useState } from 'react'
+import { MpesaSandboxTopUpWidget } from '../components/dev/MpesaSandboxTopUpWidget'
 
 export const AppLayout = () => {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -17,6 +18,7 @@ export const AppLayout = () => {
           <Outlet />
         </main>
       </div>
+      <MpesaSandboxTopUpWidget />
     </div>
   )
 }

@@ -13,7 +13,12 @@ from src.core.auth.service import AuthService
 from src.core.config import settings
 from src.integrations.mpesa.models import MpesaC2BEvent, MpesaC2BEventStatus
 from src.integrations.mpesa.utils import normalize_bill_ref_to_student_number
-from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
+from src.modules.invoices.models import (
+    Invoice,
+    InvoiceLine,
+    InvoiceStatus,
+    InvoiceType,
+)
 from src.modules.items.models import Category, ItemType, Kit, PriceType
 from src.modules.payments.models import CreditAllocation, Payment, PaymentStatus
 from src.modules.students.models import Gender, Grade, Student, StudentStatus
@@ -21,7 +26,10 @@ from src.modules.students.models import Gender, Grade, Student, StudentStatus
 
 @pytest.mark.asyncio
 async def test_normalize_bill_ref_to_student_number():
-    assert normalize_bill_ref_to_student_number("STU-2026-000123") == "STU-2026-000123"
+    assert (
+        normalize_bill_ref_to_student_number("STU-2026-000123")
+        == "STU-2026-000123"
+    )
     assert normalize_bill_ref_to_student_number("26123") == "STU-2026-000123"
     assert normalize_bill_ref_to_student_number("  26-123 ") == "STU-2026-000123"
     assert normalize_bill_ref_to_student_number("") is None
@@ -55,7 +63,12 @@ async def _seed_student_with_invoice(db: AsyncSession) -> dict:
     db.add(kit)
     await db.flush()
 
-    grade = Grade(code="MPESA", name="M-Pesa Grade", display_order=1, is_active=True)
+    grade = Grade(
+        code="MPESA",
+        name="M-Pesa Grade",
+        display_order=1,
+        is_active=True,
+    )
     db.add(grade)
     await db.flush()
 
@@ -131,7 +144,10 @@ async def test_mpesa_confirmation_creates_completed_payment_and_allocations(
         "LastName": "Doe",
     }
 
-    r = await client.post("/api/v1/mpesa/c2b/confirmation/testtoken", json=payload)
+    r = await client.post(
+        "/api/v1/mpesa/c2b/confirmation/testtoken",
+        json=payload,
+    )
     assert r.status_code == 200
     assert r.json()["ResultCode"] == 0
 
@@ -169,20 +185,36 @@ async def test_mpesa_confirmation_is_idempotent(client: AsyncClient, db_session:
         "BillRefNumber": "26123",
     }
 
-    r1 = await client.post("/api/v1/mpesa/c2b/confirmation/testtoken", json=payload)
-    r2 = await client.post("/api/v1/mpesa/c2b/confirmation/testtoken", json=payload)
+    r1 = await client.post(
+        "/api/v1/mpesa/c2b/confirmation/testtoken",
+        json=payload,
+    )
+    r2 = await client.post(
+        "/api/v1/mpesa/c2b/confirmation/testtoken",
+        json=payload,
+    )
     assert r1.status_code == 200
     assert r2.status_code == 200
 
     payments = list(
-        (await db_session.execute(select(Payment).where(Payment.reference == "MPESA-TRANS-002")))
+        (
+            await db_session.execute(
+                select(Payment).where(Payment.reference == "MPESA-TRANS-002")
+            )
+        )
         .scalars()
         .all()
     )
     assert len(payments) == 1
 
     events = list(
-        (await db_session.execute(select(MpesaC2BEvent).where(MpesaC2BEvent.trans_id == "MPESA-TRANS-002")))
+        (
+            await db_session.execute(
+                select(MpesaC2BEvent).where(
+                    MpesaC2BEvent.trans_id == "MPESA-TRANS-002"
+                )
+            )
+        )
         .scalars()
         .all()
     )
@@ -211,7 +243,10 @@ async def test_mpesa_unmatched_event_is_saved(client: AsyncClient, db_session: A
         "BillRefNumber": "26999",  # no such student
     }
 
-    r = await client.post("/api/v1/mpesa/c2b/confirmation/testtoken", json=payload)
+    r = await client.post(
+        "/api/v1/mpesa/c2b/confirmation/testtoken",
+        json=payload,
+    )
     assert r.status_code == 200
 
     event = await db_session.scalar(
@@ -224,4 +259,59 @@ async def test_mpesa_unmatched_event_is_saved(client: AsyncClient, db_session: A
         select(Payment).where(Payment.reference == "MPESA-TRANS-003")
     )
     assert payment is None
+
+
+@pytest.mark.asyncio
+async def test_mpesa_sandbox_topup_endpoint(client: AsyncClient, db_session: AsyncSession):
+    data = await _seed_student_with_invoice(db_session)
+
+    settings.mpesa_system_user_id = data["user"].id
+
+    # Login to get JWT.
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"email": data["user"].email, "password": "Test123!"},
+    )
+    assert login.status_code == 200
+    token = login.json()["data"]["access_token"]
+
+    r = await client.post(
+        "/api/v1/mpesa/c2b/sandbox/topup",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"student_id": data["student"].id, "amount": "5000.00"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["success"] is True
+    assert body["data"]["payment"] is not None
+    assert (
+        body["data"]["payment"]["status"]
+        == PaymentStatus.COMPLETED.value
+    )
+
+
+@pytest.mark.asyncio
+async def test_mpesa_sandbox_topup_disabled_in_production(
+    client: AsyncClient, db_session: AsyncSession
+):
+    data = await _seed_student_with_invoice(db_session)
+    settings.mpesa_system_user_id = data["user"].id
+
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"email": data["user"].email, "password": "Test123!"},
+    )
+    token = login.json()["data"]["access_token"]
+
+    prev = settings.app_env
+    settings.app_env = "production"
+    try:
+        r = await client.post(
+            "/api/v1/mpesa/c2b/sandbox/topup",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"student_id": data["student"].id, "amount": "10.00"},
+        )
+        assert r.status_code == 404
+    finally:
+        settings.app_env = prev
 
