@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.auth.models import UserRole
 from src.core.auth.service import AuthService
 from src.core.exceptions import DuplicateError, NotFoundError, ValidationError
+from src.modules.employees.models import Employee
 from src.modules.users.schemas import UserCreate, UserUpdate, UserListFilters
 from src.modules.users.service import UserService
 
@@ -50,6 +51,35 @@ class TestUserService:
         assert user.id is not None
         assert user.can_login is False
         assert user.password_hash is None
+
+    async def test_create_user_links_employee_when_employee_id_provided(
+        self, db_session: AsyncSession
+    ):
+        employee = Employee(
+            employee_number="EMP-2026-000001",
+            surname="Match",
+            first_name="Target",
+            created_by_id=1,
+            status="active",
+        )
+        db_session.add(employee)
+        await db_session.flush()
+
+        service = UserService(db_session)
+        user = await service.create(
+            UserCreate(
+                email="linked.user@school.com",
+                password="Password123",
+                full_name="Linked User",
+                role=UserRole.USER,
+                employee_id=employee.id,
+            ),
+            created_by_id=1,
+        )
+        await db_session.refresh(employee)
+
+        assert user.id is not None
+        assert employee.user_id == user.id
 
     async def test_create_user_duplicate_email(self, db_session: AsyncSession):
         """Test that duplicate email raises error."""
@@ -286,6 +316,35 @@ class TestUserEndpoints:
         assert response.status_code == 201
         data = response.json()
         assert data["data"]["can_login"] is False
+
+    async def test_create_user_with_employee_link(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token, _ = await self._create_super_admin(db_session)
+        employee = Employee(
+            employee_number="EMP-2026-009999",
+            surname="Employee",
+            first_name="Linked",
+            created_by_id=1,
+            status="active",
+        )
+        db_session.add(employee)
+        await db_session.commit()
+
+        response = await client.post(
+            "/api/v1/users",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "email": "user.with.link@school.com",
+                "full_name": "User With Link",
+                "role": "User",
+                "employee_id": employee.id,
+            },
+        )
+
+        assert response.status_code == 201
+        await db_session.refresh(employee)
+        assert employee.user_id == response.json()["data"]["id"]
 
     async def test_change_own_password(
         self, client: AsyncClient, db_session: AsyncSession

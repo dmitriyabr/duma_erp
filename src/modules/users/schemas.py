@@ -10,10 +10,12 @@ class UserCreate(BaseSchema):
     """Schema for creating a new user."""
 
     email: EmailStr
-    password: str | None = None  # None = user cannot login (employee without system access)
+    # None = user cannot login (employee without system access)
+    password: str | None = None
     full_name: str
     phone: str | None = None
     role: UserRole
+    employee_id: int | None = None
 
     @field_validator("full_name")
     @classmethod

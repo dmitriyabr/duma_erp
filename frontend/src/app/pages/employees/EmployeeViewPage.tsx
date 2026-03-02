@@ -1,19 +1,26 @@
+import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api } from '../../services/api'
-import type { ApiResponse } from '../../types/api'
+import type { ApiResponse, PaginatedResponse } from '../../types/api'
 import { useAuth } from '../../auth/AuthContext'
 import { isAccountant } from '../../utils/permissions'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { Spinner } from '../../components/ui/Spinner'
 import { Typography } from '../../components/ui/Typography'
+import { Dialog, DialogActions, DialogCloseButton, DialogContent, DialogTitle } from '../../components/ui/Dialog'
+import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
+import { Autocomplete } from '../../components/ui/Autocomplete'
+import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 
 type EmployeeStatus = 'active' | 'inactive' | 'terminated'
 
 interface EmployeeResponse {
   id: number
   employee_number: string
+  user_id: number | null
   surname: string
   first_name: string
   second_name: string | null
@@ -55,6 +62,16 @@ interface EmployeeResponse {
   bank_doc_attachment_id: number | null
 }
 
+type UserRole = 'SuperAdmin' | 'Admin' | 'User' | 'Accountant'
+
+interface UserOption {
+  id: number
+  email: string
+  full_name: string
+  role: UserRole
+  is_active: boolean
+}
+
 const Value = ({ label, value }: { label: string; value: string | number | null | undefined }) => (
   <div className="rounded border border-slate-200 p-3">
     <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
@@ -85,14 +102,56 @@ export const EmployeeViewPage = () => {
   const navigate = useNavigate()
   const { user } = useAuth()
   const readOnly = isAccountant(user)
+  const canCreateUser = user?.role === 'SuperAdmin'
   const resolvedId = employeeId ? Number(employeeId) : null
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false)
+  const [createUserDialogOpen, setCreateUserDialogOpen] = useState(false)
+  const [userSearch, setUserSearch] = useState('')
+  const [selectedUser, setSelectedUser] = useState<UserOption | null>(null)
+  const debouncedUserSearch = useDebouncedValue(userSearch, 300)
+  const [createUserForm, setCreateUserForm] = useState({
+    email: '',
+    full_name: '',
+    phone: '',
+    role: 'User' as UserRole,
+    password: '',
+  })
 
-  const { data: employee, error, loading } = useApi<EmployeeResponse>(
+  const { data: employee, error, loading, refetch } = useApi<EmployeeResponse>(
     resolvedId ? `/employees/${resolvedId}` : null
   )
   const { execute: deleteEmployee, loading: deleting, error: deleteError } = useApiMutation<{
     deleted: boolean
   }>()
+  const { execute: linkUser, loading: linking, error: linkError } =
+    useApiMutation<EmployeeResponse>()
+  const { execute: createUser, loading: creatingUser, error: createUserError } =
+    useApiMutation<UserOption>()
+  const userLookupUrl = useMemo(() => {
+    if (readOnly || !linkDialogOpen) return null
+    const params = new URLSearchParams()
+    params.append('page', '1')
+    params.append('limit', '20')
+    params.append('is_active', 'true')
+    if (debouncedUserSearch.trim()) {
+      params.append('search', debouncedUserSearch.trim())
+    }
+    return `/users?${params.toString()}`
+  }, [readOnly, linkDialogOpen, debouncedUserSearch])
+  const { data: usersData } = useApi<PaginatedResponse<UserOption>>(userLookupUrl)
+  const userOptions = usersData?.items || []
+
+  const openCreateUserDialog = () => {
+    if (!employee) return
+    setCreateUserForm({
+      email: employee.email ?? '',
+      full_name: `${employee.first_name} ${employee.second_name ?? ''} ${employee.surname}`.replace(/\s+/g, ' ').trim(),
+      phone: employee.mobile_phone ?? '',
+      role: 'User',
+      password: '',
+    })
+    setCreateUserDialogOpen(true)
+  }
 
   const handleDelete = async () => {
     if (!employee) return
@@ -103,6 +162,49 @@ export const EmployeeViewPage = () => {
     if (result?.deleted) {
       navigate('/employees')
     }
+  }
+
+  const handleLinkUser = async () => {
+    if (!employee || !selectedUser) return
+    const updated = await linkUser(() =>
+      api.put<ApiResponse<EmployeeResponse>>(`/employees/${employee.id}`, {
+        user_id: selectedUser.id,
+      })
+    )
+    if (!updated) return
+    setLinkDialogOpen(false)
+    setSelectedUser(null)
+    setUserSearch('')
+    await refetch()
+  }
+
+  const handleUnlinkUser = async () => {
+    if (!employee) return
+    if (!window.confirm('Unlink user from this employee?')) return
+    const updated = await linkUser(() =>
+      api.put<ApiResponse<EmployeeResponse>>(`/employees/${employee.id}`, {
+        user_id: null,
+      })
+    )
+    if (!updated) return
+    await refetch()
+  }
+
+  const handleCreateUser = async () => {
+    if (!employee) return
+    const created = await createUser(() =>
+      api.post<ApiResponse<UserOption>>('/users', {
+        email: createUserForm.email.trim(),
+        full_name: createUserForm.full_name.trim(),
+        phone: createUserForm.phone.trim() || null,
+        role: createUserForm.role,
+        password: createUserForm.password.trim() || null,
+        employee_id: employee.id,
+      })
+    )
+    if (!created) return
+    setCreateUserDialogOpen(false)
+    await refetch()
   }
 
   if (loading) {
@@ -126,6 +228,19 @@ export const EmployeeViewPage = () => {
             <Button variant="outlined" onClick={() => navigate(`/employees/${employee.id}/edit`)}>
               Edit employee
             </Button>
+            <Button variant="outlined" onClick={() => setLinkDialogOpen(true)} disabled={linking}>
+              {employee.user_id ? 'Change linked user' : 'Link user'}
+            </Button>
+            {employee.user_id && (
+              <Button variant="outlined" onClick={handleUnlinkUser} disabled={linking}>
+                Unlink user
+              </Button>
+            )}
+            {canCreateUser && !employee.user_id && (
+              <Button variant="outlined" onClick={openCreateUserDialog} disabled={creatingUser}>
+                Create user
+              </Button>
+            )}
             <Button variant="outlined" color="error" onClick={handleDelete} disabled={deleting}>
               {deleting ? 'Deleting...' : 'Delete'}
             </Button>
@@ -133,7 +248,11 @@ export const EmployeeViewPage = () => {
         )}
       </div>
 
-      {deleteError && <Alert severity="error" className="mb-4">{deleteError}</Alert>}
+      {(deleteError || linkError || createUserError) && (
+        <Alert severity="error" className="mb-4">
+          {deleteError || linkError || createUserError}
+        </Alert>
+      )}
 
       <Typography variant="h4" className="mb-2">
         {employee.first_name} {employee.second_name ? `${employee.second_name} ` : ''}
@@ -141,6 +260,9 @@ export const EmployeeViewPage = () => {
       </Typography>
       <Typography variant="body2" color="secondary" className="mb-5">
         Employee #{employee.employee_number}
+      </Typography>
+      <Typography variant="body2" color="secondary" className="mb-5">
+        Linked user: {employee.user_id ? `#${employee.user_id}` : 'Not linked'}
       </Typography>
 
       <div className="grid gap-6">
@@ -205,6 +327,99 @@ export const EmployeeViewPage = () => {
 
         <Value label="Notes" value={employee.notes} />
       </div>
+
+      <Dialog open={linkDialogOpen} onClose={() => setLinkDialogOpen(false)} maxWidth="md">
+        <DialogCloseButton onClose={() => setLinkDialogOpen(false)} />
+        <DialogTitle>Link user</DialogTitle>
+        <DialogContent>
+          <div className="grid gap-4">
+            <Autocomplete<UserOption>
+              label="User"
+              options={userOptions}
+              value={selectedUser}
+              onChange={(value) => setSelectedUser(value)}
+              onInputChange={(value) => setUserSearch(value)}
+              getOptionValue={(option) => option.id}
+              getOptionLabel={(option) => `${option.full_name} (${option.email}) - ${option.role}`}
+              isOptionEqualToValue={(option, value) => option.id === value.id}
+              placeholder="Type name or email"
+            />
+          </div>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="outlined" onClick={() => setLinkDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={handleLinkUser} disabled={!selectedUser || linking}>
+            {linking ? <Spinner size="small" /> : 'Link user'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={createUserDialogOpen}
+        onClose={() => setCreateUserDialogOpen(false)}
+        maxWidth="md"
+      >
+        <DialogCloseButton onClose={() => setCreateUserDialogOpen(false)} />
+        <DialogTitle>Create user for employee</DialogTitle>
+        <DialogContent>
+          <div className="grid gap-4">
+            <Input
+              label="Email"
+              value={createUserForm.email}
+              onChange={(e) => setCreateUserForm({ ...createUserForm, email: e.target.value })}
+              type="email"
+              required
+            />
+            <Input
+              label="Full name"
+              value={createUserForm.full_name}
+              onChange={(e) => setCreateUserForm({ ...createUserForm, full_name: e.target.value })}
+              required
+            />
+            <Input
+              label="Phone"
+              value={createUserForm.phone}
+              onChange={(e) => setCreateUserForm({ ...createUserForm, phone: e.target.value })}
+            />
+            <Select
+              label="Role"
+              value={createUserForm.role}
+              onChange={(e) =>
+                setCreateUserForm({
+                  ...createUserForm,
+                  role: e.target.value as UserRole,
+                })
+              }
+            >
+              <option value="User">User</option>
+              <option value="Admin">Admin</option>
+              <option value="Accountant">Accountant</option>
+            </Select>
+            <Input
+              label="Password"
+              value={createUserForm.password}
+              onChange={(e) => setCreateUserForm({ ...createUserForm, password: e.target.value })}
+              type="password"
+              placeholder="Optional"
+              helperText="Leave empty to create user without login access"
+            />
+          </div>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="outlined" onClick={() => setCreateUserDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleCreateUser}
+            disabled={!createUserForm.email.trim() || !createUserForm.full_name.trim() || creatingUser}
+          >
+            {creatingUser ? <Spinner size="small" /> : 'Create and link'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </div>
   )
 }

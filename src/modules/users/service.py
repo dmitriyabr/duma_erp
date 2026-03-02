@@ -2,9 +2,15 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.audit import AuditAction, create_audit_log
-from src.core.auth.models import User, UserRole
+from src.core.auth.models import User
 from src.core.auth.password import hash_password, verify_password
-from src.core.exceptions import AuthenticationError, DuplicateError, NotFoundError, ValidationError
+from src.core.exceptions import (
+    AuthenticationError,
+    DuplicateError,
+    NotFoundError,
+    ValidationError,
+)
+from src.modules.employees.models import Employee
 from src.modules.users.schemas import UserCreate, UserListFilters, UserUpdate
 
 
@@ -15,7 +21,8 @@ class UserService:
         self.session = session
 
     async def _refresh_user(self, user: User) -> None:
-        # Prevent Pydantic (or other callers) from triggering implicit lazy loads
+        # Prevent Pydantic (or other callers) from triggering
+        # implicit lazy loads.
         # on server-generated columns like `updated_at` in async context.
         await self.session.refresh(user)
 
@@ -68,7 +75,11 @@ class UserService:
 
         # Apply pagination and ordering
         offset = (filters.page - 1) * filters.limit
-        stmt = stmt.order_by(User.full_name).offset(offset).limit(filters.limit)
+        stmt = (
+            stmt.order_by(User.full_name)
+            .offset(offset)
+            .limit(filters.limit)
+        )
 
         # Execute
         result = await self.session.execute(stmt)
@@ -90,7 +101,9 @@ class UserService:
         # Create user
         user = User(
             email=data.email,
-            password_hash=hash_password(data.password) if data.password else None,
+            password_hash=(
+                hash_password(data.password) if data.password else None
+            ),
             full_name=data.full_name,
             phone=data.phone,
             role=data.role.value,
@@ -99,6 +112,17 @@ class UserService:
 
         self.session.add(user)
         await self.session.flush()
+
+        if data.employee_id is not None:
+            employee = await self.session.get(Employee, data.employee_id)
+            if not employee:
+                raise ValidationError("Selected employee does not exist")
+            if employee.user_id is not None:
+                raise ValidationError(
+                    "Selected employee is already linked to user"
+                )
+            employee.user_id = user.id
+
         await self._refresh_user(user)
 
         # Audit log

@@ -9,6 +9,7 @@ import { formatDateTime } from '../../utils/format'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
+import { Autocomplete } from '../../components/ui/Autocomplete'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell, TablePagination } from '../../components/ui/Table'
 import { Typography } from '../../components/ui/Typography'
 import { Chip } from '../../components/ui/Chip'
@@ -27,6 +28,15 @@ interface UserRow {
   is_active: boolean
   can_login: boolean
   last_login_at?: string | null
+}
+
+interface EmployeeOption {
+  id: number
+  employee_number: string
+  first_name: string
+  second_name: string | null
+  surname: string
+  email: string | null
 }
 
 const roleOptions: UserRole[] = ['SuperAdmin', 'Admin', 'User', 'Accountant']
@@ -50,6 +60,11 @@ export const UsersPage = () => {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<UserRow | null>(null)
   const [form, setForm] = useState({ ...emptyForm })
+  const [employeeSearch, setEmployeeSearch] = useState('')
+  const [selectedEmployee, setSelectedEmployee] = useState<EmployeeOption | null>(
+    null
+  )
+  const debouncedEmployeeSearch = useDebouncedValue(employeeSearch, 300)
   const [confirmState, setConfirmState] = useState<{
     open: boolean
     user?: UserRow
@@ -74,10 +89,24 @@ export const UsersPage = () => {
 
   const rows = data?.items || []
   const total = data?.total || 0
+  const employeeLookupUrl = useMemo(() => {
+    if (!dialogOpen || editingUser) return null
+    const sp = new URLSearchParams()
+    sp.append('page', '1')
+    sp.append('limit', '20')
+    if (debouncedEmployeeSearch.trim()) {
+      sp.append('search', debouncedEmployeeSearch.trim())
+    }
+    return `/employees?${sp.toString()}`
+  }, [dialogOpen, editingUser, debouncedEmployeeSearch])
+  const { data: employeeData } = useApi<PaginatedResponse<EmployeeOption>>(employeeLookupUrl)
+  const employeeOptions = employeeData?.items || []
 
   const openCreate = () => {
     setEditingUser(null)
     setForm({ ...emptyForm })
+    setEmployeeSearch('')
+    setSelectedEmployee(null)
     setDialogOpen(true)
   }
 
@@ -90,6 +119,7 @@ export const UsersPage = () => {
       role: user.role,
       password: '',
     })
+    setSelectedEmployee(null)
     setDialogOpen(true)
   }
 
@@ -108,6 +138,7 @@ export const UsersPage = () => {
             full_name: form.full_name,
             phone: form.phone || null,
             role: form.role,
+            employee_id: selectedEmployee?.id ?? null,
           })
     )
 
@@ -304,6 +335,27 @@ export const UsersPage = () => {
                 </option>
               ))}
             </Select>
+            {!editingUser && (
+              <>
+                <Autocomplete<EmployeeOption>
+                  label="Link to employee (optional)"
+                  options={employeeOptions}
+                  value={selectedEmployee}
+                  onChange={(value) => setSelectedEmployee(value)}
+                  onInputChange={(value) => setEmployeeSearch(value)}
+                  getOptionValue={(employee) => employee.id}
+                  getOptionLabel={(employee) =>
+                    `${employee.employee_number} - ${employee.first_name} ${
+                      employee.second_name ? `${employee.second_name} ` : ''
+                    }${employee.surname}${
+                      employee.email ? ` (${employee.email})` : ''
+                    }`
+                  }
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  placeholder="Type employee name/email/number"
+                />
+              </>
+            )}
           </div>
         </DialogContent>
         <DialogActions>

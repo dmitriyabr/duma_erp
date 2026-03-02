@@ -88,6 +88,39 @@ class TestEmployeeService:
         assert updated.email is None
         assert updated.mobile_phone is None
 
+    async def test_update_employee_can_link_and_unlink_user(
+        self, db_session: AsyncSession
+    ) -> None:
+        auth_service = AuthService(db_session)
+        linked_user = await auth_service.create_user(
+            email="linked.employee@school.com",
+            password="Password123",
+            full_name="Linked Employee",
+            role=UserRole.USER,
+        )
+        await db_session.commit()
+
+        service = EmployeeService(db_session)
+        employee = await service.create_employee(
+            EmployeeCreate(
+                surname="Link",
+                first_name="Case",
+            ),
+            created_by_id=1,
+        )
+
+        linked = await service.update_employee(
+            employee,
+            EmployeeUpdate(user_id=linked_user.id),
+        )
+        assert linked.user_id == linked_user.id
+
+        unlinked = await service.update_employee(
+            linked,
+            EmployeeUpdate(user_id=None),
+        )
+        assert unlinked.user_id is None
+
     async def test_import_from_csv_parses_google_style_dates(
         self, db_session: AsyncSession
     ) -> None:
@@ -339,4 +372,35 @@ class TestEmployeeEndpoints:
         assert "Full Name" in csv_text
         assert "Date of Birth" in csv_text
         assert "Salary" in csv_text
+
+    async def test_link_existing_user_to_employee(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        token, _ = await self._create_super_admin(db_session)
+        auth_service = AuthService(db_session)
+        link_user = await auth_service.create_user(
+            email="employee.link.user@school.com",
+            password="Password123",
+            full_name="Employee Link User",
+            role=UserRole.USER,
+        )
+        await db_session.commit()
+
+        create_resp = await client.post(
+            "/api/v1/employees",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"surname": "Linked", "first_name": "Employee"},
+        )
+        assert create_resp.status_code == 201
+        employee_id = create_resp.json()["data"]["id"]
+
+        link_resp = await client.put(
+            f"/api/v1/employees/{employee_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"user_id": link_user.id},
+        )
+        assert link_resp.status_code == 200
+        assert link_resp.json()["data"]["user_id"] == link_user.id
 

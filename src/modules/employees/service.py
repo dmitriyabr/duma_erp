@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.auth.models import User
 from src.core.documents import get_document_number
 from src.core.exceptions import ValidationError
 from src.modules.employees.models import Employee, EmployeeStatus
@@ -72,6 +73,9 @@ class EmployeeService:
     async def create_employee(
         self, data: EmployeeCreate, *, created_by_id: int
     ) -> Employee:
+        if data.user_id is not None:
+            await self._validate_user_link(user_id=data.user_id)
+
         employee_number = await get_document_number(self.db, prefix="EMP")
         employee = Employee(
             employee_number=employee_number,
@@ -143,6 +147,16 @@ class EmployeeService:
         # Respect explicit nulls: only update fields provided in payload.
         provided_fields = data.model_fields_set
 
+        if "user_id" in provided_fields:
+            if data.user_id is None:
+                employee.user_id = None
+            else:
+                await self._validate_user_link(
+                    user_id=data.user_id,
+                    current_employee_id=employee.id,
+                )
+                employee.user_id = data.user_id
+
         for field in (
             "surname",
             "first_name",
@@ -202,6 +216,24 @@ class EmployeeService:
         await self.db.commit()
         await self.db.refresh(employee)
         return employee
+
+    async def _validate_user_link(
+        self,
+        *,
+        user_id: int,
+        current_employee_id: int | None = None,
+    ) -> None:
+        user = await self.db.get(User, user_id)
+        if not user:
+            raise ValidationError("Selected user does not exist")
+
+        stmt = select(Employee).where(Employee.user_id == user_id)
+        if current_employee_id is not None:
+            stmt = stmt.where(Employee.id != current_employee_id)
+        existing_result = await self.db.execute(stmt)
+        existing_employee = existing_result.scalar_one_or_none()
+        if existing_employee:
+            raise ValidationError("Selected user is already linked to another employee")
 
     async def delete_employee(self, employee: Employee) -> None:
         await self.db.delete(employee)

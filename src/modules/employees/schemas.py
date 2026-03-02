@@ -31,7 +31,6 @@ class EmployeeBase(BaseSchema):
     job_title: str | None = None
     employee_start_date: date | None = None
     salary: Decimal | None = None
-    salary: Decimal | None = None
 
     national_id_number: str | None = None
     kra_pin_number: str | None = None
@@ -79,6 +78,8 @@ class EmployeeCreate(EmployeeBase):
 
 class EmployeeUpdate(BaseSchema):
     """Payload for updating employee."""
+
+    user_id: int | None = None
 
     surname: str | None = None
     first_name: str | None = None
