@@ -367,6 +367,20 @@
 - [x] Тесты: создание claim создаёт payment; reject claim отменяет payment
 - [x] Документация: обновить BACKEND_API.md (ExpenseClaims ↔ ProcurementPayments связь и поведение reject)
 
+### 6.1.2 Возврат claim на доработку (send-to-edit)
+> Решение: SuperAdmin может отправить claim на доработку с обязательным комментарием. Используем отдельный статус `needs_edit`; scope — только ручные out-of-pocket claims (`auto_created_from_payment=false`).
+
+- [x] Backend: добавить статус `needs_edit` и поле `edit_comment` в ExpenseClaim (+ миграция)
+- [x] Backend: endpoint `POST /compensations/claims/{id}/send-to-edit` (только SuperAdmin, обязательный comment)
+- [x] Backend: разрешить update/submit из `needs_edit`, очистка `edit_comment` при submit
+- [x] Backend: ограничить approve/reject только для `pending_approval`
+- [x] Backend: запретить send-to-edit для auto-created claims
+- [x] Frontend: кнопка `Send to edit` на detail + диалог комментария
+- [x] Frontend: отображение `edit_comment` и flow редактирования/повторной отправки (`/compensations/claims/:id/edit`)
+- [x] Frontend: добавить статус `needs_edit` в фильтры списка claims
+- [x] Тесты: send-to-edit success/fail, permissions, auto-created restriction, update/resubmit flow
+- [x] Документация: обновить README, BACKEND_API.md, BACKEND_OVERVIEW.md, TASKS.md
+
 ### 6.2 Выплаты (Payouts)
 > Решения: Можно выплатить больше баланса (аванс), FIFO аллокация, proof обязателен
 

@@ -170,12 +170,18 @@ class ExpenseClaimService:
         *,
         employee_id: int,
     ) -> ExpenseClaim:
-        """Update an out-of-pocket claim. Only allowed in draft and only for the owner (or admin via router)."""
+        """Update an out-of-pocket claim in non-final pre-approval states."""
         claim = await self.get_claim_by_id(claim_id)
         if claim.employee_id != employee_id:
             raise ValidationError("Cannot update claim for another employee")
-        if claim.status != ExpenseClaimStatus.DRAFT.value:
-            raise ValidationError("Only draft claims can be updated")
+        if claim.auto_created_from_payment:
+            raise ValidationError("Auto-created claims cannot be updated")
+        if claim.status not in (
+            ExpenseClaimStatus.DRAFT.value,
+            ExpenseClaimStatus.NEEDS_EDIT.value,
+            ExpenseClaimStatus.PENDING_APPROVAL.value,
+        ):
+            raise ValidationError("Only pending_approval, needs_edit or draft claims can be updated")
         if not claim.payment_id:
             raise ValidationError("Cannot update claim without linked payment")
 
@@ -310,6 +316,7 @@ class ExpenseClaimService:
                 if not fee_payment or (not fee_payment.proof_text and not fee_payment.proof_attachment_id):
                     raise ValidationError("Fee proof is required: provide fee_proof_text or fee_proof_attachment_id")
             claim.status = ExpenseClaimStatus.PENDING_APPROVAL.value
+            claim.edit_comment = None
 
         await self.db.commit()
         return await self.get_claim_by_id(claim_id)
@@ -319,8 +326,11 @@ class ExpenseClaimService:
         claim = await self.get_claim_by_id(claim_id)
         if claim.employee_id != employee_id:
             raise ValidationError("Cannot submit claim for another employee")
-        if claim.status != ExpenseClaimStatus.DRAFT.value:
-            raise ValidationError("Only draft claims can be submitted")
+        if claim.status not in (
+            ExpenseClaimStatus.DRAFT.value,
+            ExpenseClaimStatus.NEEDS_EDIT.value,
+        ):
+            raise ValidationError("Only draft or needs_edit claims can be submitted")
         payment = claim.payment
         if payment is None:
             payment = await self.db.scalar(select(ProcurementPayment).where(ProcurementPayment.id == claim.payment_id))
@@ -335,6 +345,30 @@ class ExpenseClaimService:
             if not fee_payment or (not fee_payment.proof_text and not fee_payment.proof_attachment_id):
                 raise ValidationError("Fee proof is required: provide fee_proof_text or fee_proof_attachment_id")
         claim.status = ExpenseClaimStatus.PENDING_APPROVAL.value
+        claim.edit_comment = None
+        await self.db.commit()
+        return await self.get_claim_by_id(claim_id)
+
+    async def send_claim_to_edit(
+        self,
+        claim_id: int,
+        *,
+        comment: str,
+        acted_by_id: int,
+    ) -> ExpenseClaim:
+        """Send claim back to employee for editing."""
+        claim = await self.get_claim_by_id(claim_id)
+        if claim.status != ExpenseClaimStatus.PENDING_APPROVAL.value:
+            raise ValidationError("Only pending approval claims can be sent to edit")
+        if claim.auto_created_from_payment:
+            raise ValidationError("Auto-created claims cannot be sent to edit")
+        if not comment.strip():
+            raise ValidationError("Edit comment is required")
+
+        # Keep parity with approve/reject signature and future audit needs.
+        _ = acted_by_id
+        claim.status = ExpenseClaimStatus.NEEDS_EDIT.value
+        claim.edit_comment = comment.strip()
         await self.db.commit()
         return await self.get_claim_by_id(claim_id)
 
@@ -348,21 +382,20 @@ class ExpenseClaimService:
     ) -> ExpenseClaim:
         """Approve or reject an expense claim."""
         claim = await self.get_claim_by_id(claim_id)
-        if claim.status not in (
-            ExpenseClaimStatus.PENDING_APPROVAL.value,
-            ExpenseClaimStatus.DRAFT.value,
-        ):
+        if claim.status != ExpenseClaimStatus.PENDING_APPROVAL.value:
             raise ValidationError("Claim is not pending approval")
 
         if approve:
             claim.status = ExpenseClaimStatus.APPROVED.value
             claim.rejection_reason = None
+            claim.edit_comment = None
             # Ensure remaining_amount reflects the claim amount (defensive).
             if claim.remaining_amount <= 0:
                 claim.remaining_amount = Decimal(str(claim.amount))
         else:
             claim.status = ExpenseClaimStatus.REJECTED.value
             claim.rejection_reason = reason.strip() if reason else None
+            claim.edit_comment = None
             # Rejected claim means no obligation remains.
             claim.paid_amount = Decimal("0.00")
             claim.remaining_amount = Decimal("0.00")
@@ -639,6 +672,7 @@ class PayoutService:
         """Return claimant-friendly totals (includes pending approval)."""
         submitted_statuses = [
             ExpenseClaimStatus.PENDING_APPROVAL.value,
+            ExpenseClaimStatus.NEEDS_EDIT.value,
             ExpenseClaimStatus.APPROVED.value,
             ExpenseClaimStatus.REJECTED.value,
             ExpenseClaimStatus.PARTIALLY_PAID.value,

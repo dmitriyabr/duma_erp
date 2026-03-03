@@ -443,3 +443,406 @@ class TestExpenseClaimsOutOfPocket:
         assert totals3["total_approved"] == "10.00"
         assert totals3["total_paid"] == "4.00"
         assert totals3["balance"] == "6.00"
+
+    async def test_superadmin_can_send_claim_to_edit_with_comment(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="superadmin-claims-edit@test.com",
+            password="Password123",
+            full_name="Super Admin",
+            role=UserRole.SUPER_ADMIN,
+        )
+        purpose_id = await self._create_purpose(client, super_token)
+
+        _, user_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="user-claims-edit@test.com",
+            password="Password123",
+            full_name="User",
+            role=UserRole.USER,
+        )
+        create_res = await client.post(
+            "/api/v1/compensations/claims",
+            headers={"Authorization": f"Bearer {user_token}"},
+            json={
+                "purpose_id": purpose_id,
+                "amount": "20.00",
+                "description": "Fuel",
+                "expense_date": "2026-02-09",
+                "proof_text": "Receipt #fuel",
+                "submit": True,
+            },
+        )
+        assert create_res.status_code == 201
+        claim_id = create_res.json()["data"]["id"]
+
+        send_to_edit_res = await client.post(
+            f"/api/v1/compensations/claims/{claim_id}/send-to-edit",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={"comment": "Please fix amount and attach correct receipt"},
+        )
+        assert send_to_edit_res.status_code == 200
+        data = send_to_edit_res.json()["data"]
+        assert data["status"] == "needs_edit"
+        assert data["edit_comment"] == "Please fix amount and attach correct receipt"
+
+    async def test_send_to_edit_requires_non_empty_comment(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="superadmin-claims-edit-empty@test.com",
+            password="Password123",
+            full_name="Super Admin",
+            role=UserRole.SUPER_ADMIN,
+        )
+        purpose_id = await self._create_purpose(client, super_token)
+
+        _, user_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="user-claims-edit-empty@test.com",
+            password="Password123",
+            full_name="User",
+            role=UserRole.USER,
+        )
+        create_res = await client.post(
+            "/api/v1/compensations/claims",
+            headers={"Authorization": f"Bearer {user_token}"},
+            json={
+                "purpose_id": purpose_id,
+                "amount": "10.00",
+                "description": "Fuel",
+                "expense_date": "2026-02-09",
+                "proof_text": "Receipt #fuel",
+                "submit": True,
+            },
+        )
+        assert create_res.status_code == 201
+        claim_id = create_res.json()["data"]["id"]
+
+        send_to_edit_res = await client.post(
+            f"/api/v1/compensations/claims/{claim_id}/send-to-edit",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={"comment": ""},
+        )
+        assert send_to_edit_res.status_code == 422
+
+    async def test_non_superadmin_cannot_send_claim_to_edit(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="superadmin-claims-edit-forbidden@test.com",
+            password="Password123",
+            full_name="Super Admin",
+            role=UserRole.SUPER_ADMIN,
+        )
+        purpose_id = await self._create_purpose(client, super_token)
+
+        _, admin_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="admin-claims-edit-forbidden@test.com",
+            password="Password123",
+            full_name="Admin",
+            role=UserRole.ADMIN,
+        )
+        _, user_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="user-claims-edit-forbidden@test.com",
+            password="Password123",
+            full_name="User",
+            role=UserRole.USER,
+        )
+        create_res = await client.post(
+            "/api/v1/compensations/claims",
+            headers={"Authorization": f"Bearer {user_token}"},
+            json={
+                "purpose_id": purpose_id,
+                "amount": "10.00",
+                "description": "Fuel",
+                "expense_date": "2026-02-09",
+                "proof_text": "Receipt #fuel",
+                "submit": True,
+            },
+        )
+        assert create_res.status_code == 201
+        claim_id = create_res.json()["data"]["id"]
+
+        send_to_edit_res = await client.post(
+            f"/api/v1/compensations/claims/{claim_id}/send-to-edit",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={"comment": "Fix receipt"},
+        )
+        assert send_to_edit_res.status_code == 403
+
+    async def test_send_to_edit_for_auto_created_claim_is_forbidden(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="superadmin-claims-auto-edit@test.com",
+            password="Password123",
+            full_name="Super Admin",
+            role=UserRole.SUPER_ADMIN,
+        )
+        purpose_id = await self._create_purpose(client, super_token)
+        employee_id, _ = await _create_user_and_token(
+            client,
+            db_session,
+            email="user-claims-auto-edit@test.com",
+            password="Password123",
+            full_name="Employee",
+            role=UserRole.USER,
+        )
+
+        payment_res = await client.post(
+            "/api/v1/procurement/payments",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "purpose_id": purpose_id,
+                "payment_date": "2026-02-09",
+                "amount": "15.00",
+                "payment_method": "bank",
+                "proof_text": "Proof",
+                "company_paid": False,
+                "employee_paid_id": employee_id,
+            },
+        )
+        assert payment_res.status_code == 201
+
+        claims_res = await client.get(
+            "/api/v1/compensations/claims",
+            headers={"Authorization": f"Bearer {super_token}"},
+            params={"employee_id": employee_id},
+        )
+        assert claims_res.status_code == 200
+        claims = claims_res.json()["data"]["items"]
+        auto_claim = next((c for c in claims if c["auto_created_from_payment"] is True), None)
+        assert auto_claim is not None
+
+        send_to_edit_res = await client.post(
+            f"/api/v1/compensations/claims/{auto_claim['id']}/send-to-edit",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={"comment": "Fix details"},
+        )
+        assert send_to_edit_res.status_code == 422
+
+    async def test_owner_can_update_and_resubmit_claim_from_needs_edit(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="superadmin-claims-resubmit@test.com",
+            password="Password123",
+            full_name="Super Admin",
+            role=UserRole.SUPER_ADMIN,
+        )
+        purpose_id = await self._create_purpose(client, super_token)
+        _, user_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="user-claims-resubmit@test.com",
+            password="Password123",
+            full_name="User",
+            role=UserRole.USER,
+        )
+
+        create_res = await client.post(
+            "/api/v1/compensations/claims",
+            headers={"Authorization": f"Bearer {user_token}"},
+            json={
+                "purpose_id": purpose_id,
+                "amount": "30.00",
+                "description": "Repair",
+                "expense_date": "2026-02-09",
+                "proof_text": "Receipt #repair",
+                "submit": True,
+            },
+        )
+        assert create_res.status_code == 201
+        claim_id = create_res.json()["data"]["id"]
+
+        send_to_edit_res = await client.post(
+            f"/api/v1/compensations/claims/{claim_id}/send-to-edit",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={"comment": "Please correct description"},
+        )
+        assert send_to_edit_res.status_code == 200
+        assert send_to_edit_res.json()["data"]["status"] == "needs_edit"
+
+        update_res = await client.patch(
+            f"/api/v1/compensations/claims/{claim_id}",
+            headers={"Authorization": f"Bearer {user_token}"},
+            json={"description": "Repair and spare parts"},
+        )
+        assert update_res.status_code == 200
+        assert update_res.json()["data"]["status"] == "needs_edit"
+        assert update_res.json()["data"]["description"] == "Repair and spare parts"
+        assert update_res.json()["data"]["edit_comment"] == "Please correct description"
+
+        submit_res = await client.post(
+            f"/api/v1/compensations/claims/{claim_id}/submit",
+            headers={"Authorization": f"Bearer {user_token}"},
+        )
+        assert submit_res.status_code == 200
+        assert submit_res.json()["data"]["status"] == "pending_approval"
+        assert submit_res.json()["data"]["edit_comment"] is None
+
+    async def test_owner_can_update_claim_in_pending_approval(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="superadmin-claims-pending-edit@test.com",
+            password="Password123",
+            full_name="Super Admin",
+            role=UserRole.SUPER_ADMIN,
+        )
+        purpose_id = await self._create_purpose(client, super_token)
+        _, user_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="user-claims-pending-edit@test.com",
+            password="Password123",
+            full_name="User",
+            role=UserRole.USER,
+        )
+
+        create_res = await client.post(
+            "/api/v1/compensations/claims",
+            headers={"Authorization": f"Bearer {user_token}"},
+            json={
+                "purpose_id": purpose_id,
+                "amount": "25.00",
+                "description": "Fuel",
+                "expense_date": "2026-02-09",
+                "proof_text": "Receipt #fuel",
+                "submit": True,
+            },
+        )
+        assert create_res.status_code == 201
+        claim_id = create_res.json()["data"]["id"]
+        assert create_res.json()["data"]["status"] == "pending_approval"
+
+        update_res = await client.patch(
+            f"/api/v1/compensations/claims/{claim_id}",
+            headers={"Authorization": f"Bearer {user_token}"},
+            json={"description": "Fuel for school trip", "amount": "30.00"},
+        )
+        assert update_res.status_code == 200
+        assert update_res.json()["data"]["status"] == "pending_approval"
+        assert update_res.json()["data"]["description"] == "Fuel for school trip"
+        assert update_res.json()["data"]["expense_amount"] == "30.00"
+
+    async def test_cannot_update_final_claim_statuses(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="superadmin-claims-final-update@test.com",
+            password="Password123",
+            full_name="Super Admin",
+            role=UserRole.SUPER_ADMIN,
+        )
+        purpose_id = await self._create_purpose(client, super_token)
+        _, user_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="user-claims-final-update@test.com",
+            password="Password123",
+            full_name="User",
+            role=UserRole.USER,
+        )
+
+        create_res = await client.post(
+            "/api/v1/compensations/claims",
+            headers={"Authorization": f"Bearer {user_token}"},
+            json={
+                "purpose_id": purpose_id,
+                "amount": "12.00",
+                "description": "Fuel",
+                "expense_date": "2026-02-09",
+                "proof_text": "Receipt #fuel",
+                "submit": True,
+            },
+        )
+        assert create_res.status_code == 201
+        claim_id = create_res.json()["data"]["id"]
+
+        approve_res = await client.post(
+            f"/api/v1/compensations/claims/{claim_id}/approve",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={"approve": True},
+        )
+        assert approve_res.status_code == 200
+        assert approve_res.json()["data"]["status"] == "approved"
+
+        update_res = await client.patch(
+            f"/api/v1/compensations/claims/{claim_id}",
+            headers={"Authorization": f"Bearer {user_token}"},
+            json={"description": "Updated"},
+        )
+        assert update_res.status_code == 422
+
+    async def test_cannot_approve_claim_when_not_pending_approval(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="superadmin-claims-not-pending@test.com",
+            password="Password123",
+            full_name="Super Admin",
+            role=UserRole.SUPER_ADMIN,
+        )
+        purpose_id = await self._create_purpose(client, super_token)
+        _, user_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="user-claims-not-pending@test.com",
+            password="Password123",
+            full_name="User",
+            role=UserRole.USER,
+        )
+
+        create_res = await client.post(
+            "/api/v1/compensations/claims",
+            headers={"Authorization": f"Bearer {user_token}"},
+            json={
+                "purpose_id": purpose_id,
+                "amount": "9.00",
+                "description": "Supplies",
+                "expense_date": "2026-02-09",
+                "proof_text": "Receipt #sup",
+                "submit": True,
+            },
+        )
+        assert create_res.status_code == 201
+        claim_id = create_res.json()["data"]["id"]
+
+        send_to_edit_res = await client.post(
+            f"/api/v1/compensations/claims/{claim_id}/send-to-edit",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={"comment": "Need corrections"},
+        )
+        assert send_to_edit_res.status_code == 200
+
+        approve_res = await client.post(
+            f"/api/v1/compensations/claims/{claim_id}/approve",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={"approve": True},
+        )
+        assert approve_res.status_code == 422
