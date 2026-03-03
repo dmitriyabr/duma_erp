@@ -1,8 +1,8 @@
-"""035 - M-Pesa C2B events (idempotency + audit)
+"""036 - M-Pesa C2B events (idempotency + audit)
 
-Revision ID: 035
-Revises: 034
-Create Date: 2026-02-27
+Revision ID: 036
+Revises: 035
+Create Date: 2026-03-03
 """
 
 from __future__ import annotations
@@ -14,8 +14,8 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 
-revision: str = "035"
-down_revision: Union[str, None] = "034"
+revision: str = "036"
+down_revision: Union[str, None] = "035"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -37,7 +37,12 @@ def upgrade() -> None:
             sa.JSON().with_variant(postgresql.JSONB, "postgresql"),
             nullable=False,
         ),
-        sa.Column("status", sa.String(length=20), nullable=False, server_default="received"),
+        sa.Column(
+            "status",
+            sa.String(length=20),
+            nullable=False,
+            server_default="received",
+        ),
         sa.Column("error_message", sa.String(length=500), nullable=True),
         sa.Column("payment_id", sa.BigInteger(), nullable=True),
         sa.Column(
@@ -50,7 +55,12 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("trans_id", name="uq_mpesa_c2b_events_trans_id"),
     )
-    op.create_index("ix_mpesa_c2b_events_trans_id", "mpesa_c2b_events", ["trans_id"], unique=True)
+    op.create_index(
+        "ix_mpesa_c2b_events_trans_id",
+        "mpesa_c2b_events",
+        ["trans_id"],
+        unique=True,
+    )
     op.create_index(
         "ix_mpesa_c2b_events_business_short_code",
         "mpesa_c2b_events",
@@ -69,10 +79,30 @@ def upgrade() -> None:
         ["derived_student_number"],
         unique=False,
     )
-    op.create_index("ix_mpesa_c2b_events_msisdn", "mpesa_c2b_events", ["msisdn"], unique=False)
-    op.create_index("ix_mpesa_c2b_events_status", "mpesa_c2b_events", ["status"], unique=False)
-    op.create_index("ix_mpesa_c2b_events_payment_id", "mpesa_c2b_events", ["payment_id"], unique=False)
-    op.create_index("ix_mpesa_c2b_events_received_at", "mpesa_c2b_events", ["received_at"], unique=False)
+    op.create_index(
+        "ix_mpesa_c2b_events_msisdn",
+        "mpesa_c2b_events",
+        ["msisdn"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_mpesa_c2b_events_status",
+        "mpesa_c2b_events",
+        ["status"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_mpesa_c2b_events_payment_id",
+        "mpesa_c2b_events",
+        ["payment_id"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_mpesa_c2b_events_received_at",
+        "mpesa_c2b_events",
+        ["received_at"],
+        unique=False,
+    )
 
     bind = op.get_bind()
     if bind.dialect.name == "postgresql":
