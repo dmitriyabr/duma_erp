@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
@@ -28,6 +28,7 @@ interface ClaimResponse {
   payee_name: string | null
   description: string
   rejection_reason: string | null
+  edit_comment: string | null
   expense_date: string
   proof_text: string | null
   proof_attachment_id: number | null
@@ -43,11 +44,12 @@ interface ClaimResponse {
 const statusColor = (status: string) => {
   if (status === 'approved' || status === 'paid') return 'success'
   if (status === 'rejected') return 'error'
-  if (status === 'pending_approval' || status === 'partially_paid') return 'warning'
+  if (status === 'pending_approval' || status === 'partially_paid' || status === 'needs_edit') return 'warning'
   return 'info'
 }
 
 export const ExpenseClaimDetailPage = () => {
+  const navigate = useNavigate()
   const { claimId } = useParams()
   const { user } = useAuth()
   const userIsSuperAdmin = isSuperAdmin(user)
@@ -58,6 +60,8 @@ export const ExpenseClaimDetailPage = () => {
   )
   const { execute: approveClaim, loading: approving, error: approveError } = useApiMutation()
   const { execute: rejectClaim, loading: _rejecting, error: rejectError } = useApiMutation()
+  const { execute: sendToEdit, loading: sendingToEdit, error: sendToEditError } = useApiMutation()
+  const { execute: resubmitClaim, loading: resubmitting, error: resubmitError } = useApiMutation()
 
   const [proofPreview, setState] = useState<{
     url: string | null
@@ -77,7 +81,10 @@ export const ExpenseClaimDetailPage = () => {
 
   const [approveDialogOpen, setApproveDialogOpen] = useState(false)
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false)
-  const [reason, setReason] = useState('')
+  const [sendToEditDialogOpen, setSendToEditDialogOpen] = useState(false)
+  const [approveReason, setApproveReason] = useState('')
+  const [rejectReason, setRejectReason] = useState('')
+  const [editComment, setEditComment] = useState('')
   const [validationError, setValidationError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -195,19 +202,19 @@ export const ExpenseClaimDetailPage = () => {
     const result = await approveClaim(() =>
       api.post(`/compensations/claims/${resolvedId}/approve`, {
         approve: true,
-        reason: reason.trim() || null,
+        reason: approveReason.trim() || null,
       })
     )
 
     if (result) {
       setApproveDialogOpen(false)
-      setReason('')
+      setApproveReason('')
       refetch()
     }
   }
 
   const handleReject = async () => {
-    if (!resolvedId || !reason.trim()) {
+    if (!resolvedId || !rejectReason.trim()) {
       setValidationError('Enter rejection reason.')
       return
     }
@@ -216,13 +223,40 @@ export const ExpenseClaimDetailPage = () => {
     const result = await rejectClaim(() =>
       api.post(`/compensations/claims/${resolvedId}/approve`, {
         approve: false,
-        reason: reason.trim(),
+        reason: rejectReason.trim(),
       })
     )
 
     if (result) {
       setRejectDialogOpen(false)
-      setReason('')
+      setRejectReason('')
+      refetch()
+    }
+  }
+
+  const handleSendToEdit = async () => {
+    if (!resolvedId || !editComment.trim()) {
+      setValidationError('Enter edit comment.')
+      return
+    }
+    setValidationError(null)
+
+    const result = await sendToEdit(() =>
+      api.post(`/compensations/claims/${resolvedId}/send-to-edit`, {
+        comment: editComment.trim(),
+      })
+    )
+    if (result) {
+      setSendToEditDialogOpen(false)
+      setEditComment('')
+      refetch()
+    }
+  }
+
+  const handleResubmit = async () => {
+    if (!resolvedId) return
+    const result = await resubmitClaim(() => api.post(`/compensations/claims/${resolvedId}/submit`))
+    if (result) {
       refetch()
     }
   }
@@ -238,9 +272,9 @@ export const ExpenseClaimDetailPage = () => {
   if (!claim) {
     return (
       <div>
-        {(error || approveError || rejectError || validationError) && (
+        {(error || approveError || rejectError || sendToEditError || resubmitError || validationError) && (
           <Alert severity="error">
-            {error || approveError || rejectError || validationError}
+            {error || approveError || rejectError || sendToEditError || resubmitError || validationError}
           </Alert>
         )}
       </div>
@@ -262,6 +296,13 @@ export const ExpenseClaimDetailPage = () => {
 
   const canApprove = userIsSuperAdmin && claim.status === 'pending_approval'
   const canReject = userIsSuperAdmin && claim.status === 'pending_approval'
+  const canSendToEdit =
+    userIsSuperAdmin && claim.status === 'pending_approval' && !claim.auto_created_from_payment
+  const canEditClaim =
+    user?.id === claim.employee_id &&
+    !claim.auto_created_from_payment &&
+    (claim.status === 'pending_approval' || claim.status === 'needs_edit' || claim.status === 'draft')
+  const canResubmit = user?.id === claim.employee_id && claim.status === 'needs_edit'
 
   return (
     <div>
@@ -276,6 +317,21 @@ export const ExpenseClaimDetailPage = () => {
         </div>
         <div className="flex gap-2 items-center">
           <Chip label={claim.status} color={statusColor(claim.status)} />
+          {canEditClaim && (
+            <Button variant="outlined" onClick={() => navigate(`/compensations/claims/${claim.id}/edit`)}>
+              Edit claim
+            </Button>
+          )}
+          {canResubmit && (
+            <Button variant="contained" onClick={handleResubmit} disabled={resubmitting}>
+              {resubmitting ? <Spinner size="small" /> : 'Resubmit'}
+            </Button>
+          )}
+          {canSendToEdit && (
+            <Button variant="outlined" color="warning" onClick={() => setSendToEditDialogOpen(true)}>
+              Send to edit
+            </Button>
+          )}
           {canApprove && (
             <Button variant="contained" color="success" onClick={() => setApproveDialogOpen(true)}>
               Approve
@@ -289,9 +345,9 @@ export const ExpenseClaimDetailPage = () => {
         </div>
       </div>
 
-      {(error || approveError || rejectError || validationError) && (
+      {(error || approveError || rejectError || sendToEditError || resubmitError || validationError) && (
         <Alert severity="error" className="mb-4">
-          {error || approveError || rejectError || validationError}
+          {error || approveError || rejectError || sendToEditError || resubmitError || validationError}
         </Alert>
       )}
 
@@ -355,6 +411,15 @@ export const ExpenseClaimDetailPage = () => {
             Rejection reason
           </Typography>
           <Typography>{displayRejectionReason}</Typography>
+        </div>
+      )}
+
+      {claim.edit_comment && claim.status === 'needs_edit' && (
+        <div className="mb-6">
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Needs edit comment
+          </Typography>
+          <Typography>{claim.edit_comment}</Typography>
         </div>
       )}
 
@@ -484,8 +549,8 @@ export const ExpenseClaimDetailPage = () => {
         <DialogContent>
           <Textarea
             label="Reason (optional)"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
+            value={approveReason}
+            onChange={(e) => setApproveReason(e.target.value)}
             rows={3}
             placeholder="Optional approval reason"
           />
@@ -506,8 +571,8 @@ export const ExpenseClaimDetailPage = () => {
         <DialogContent>
           <Textarea
             label="Rejection reason"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
             rows={3}
             required
             error={validationError || undefined}
@@ -520,6 +585,30 @@ export const ExpenseClaimDetailPage = () => {
           </Button>
           <Button variant="outlined" color="error" onClick={handleReject} disabled={_rejecting}>
             {_rejecting ? <Spinner size="small" /> : 'Reject'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={sendToEditDialogOpen} onClose={() => setSendToEditDialogOpen(false)} maxWidth="md">
+        <DialogCloseButton onClose={() => setSendToEditDialogOpen(false)} />
+        <DialogTitle>Send claim to edit</DialogTitle>
+        <DialogContent>
+          <Textarea
+            label="Comment"
+            value={editComment}
+            onChange={(e) => setEditComment(e.target.value)}
+            rows={3}
+            required
+            error={validationError || undefined}
+            placeholder="What should be corrected"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button variant="outlined" onClick={() => setSendToEditDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button variant="outlined" color="warning" onClick={handleSendToEdit} disabled={sendingToEdit}>
+            {sendingToEdit ? <Spinner size="small" /> : 'Send to edit'}
           </Button>
         </DialogActions>
       </Dialog>

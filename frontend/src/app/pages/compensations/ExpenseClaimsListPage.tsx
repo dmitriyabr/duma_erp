@@ -55,6 +55,7 @@ const statusOptions = [
   { value: 'all', label: 'All' },
   { value: 'draft', label: 'Draft' },
   { value: 'pending_approval', label: 'Pending Approval' },
+  { value: 'needs_edit', label: 'Needs Edit' },
   { value: 'approved', label: 'Approved' },
   { value: 'rejected', label: 'Rejected' },
   { value: 'partially_paid', label: 'Partially Paid' },
@@ -64,7 +65,7 @@ const statusOptions = [
 const statusColor = (status: string) => {
   if (status === 'approved' || status === 'paid') return 'success'
   if (status === 'rejected') return 'error'
-  if (status === 'pending_approval' || status === 'partially_paid') return 'warning'
+  if (status === 'pending_approval' || status === 'partially_paid' || status === 'needs_edit') return 'warning'
   return 'info'
 }
 

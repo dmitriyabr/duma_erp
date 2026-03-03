@@ -24,6 +24,7 @@ class ExpenseClaimStatus(StrEnum):
 
     DRAFT = "draft"
     PENDING_APPROVAL = "pending_approval"
+    NEEDS_EDIT = "needs_edit"
     APPROVED = "approved"
     REJECTED = "rejected"
     PARTIALLY_PAID = "partially_paid"
@@ -55,6 +56,7 @@ class ExpenseClaim(Base):
     fee_amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False, default=Decimal("0.00"))
     description: Mapped[str] = mapped_column(Text, nullable=False)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    edit_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     expense_date: Mapped[date] = mapped_column(Date, nullable=False)
 
     status: Mapped[str] = mapped_column(
