@@ -306,6 +306,12 @@ export const ExpenseClaimDetailPage = () => {
 
   return (
     <div>
+      <div className="mb-4">
+        <Button variant="outlined" onClick={() => navigate(-1)}>
+          Back
+        </Button>
+      </div>
+
       <div className="flex justify-between items-start mb-4 flex-wrap gap-4">
         <div>
           <Typography variant="h4">

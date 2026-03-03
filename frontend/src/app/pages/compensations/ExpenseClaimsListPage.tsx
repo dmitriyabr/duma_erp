@@ -1,6 +1,6 @@
 import { Download } from 'lucide-react'
-import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { USERS_LIST_LIMIT } from '../../constants/pagination'
 import type { PaginatedResponse } from '../../types/api'
@@ -71,17 +71,38 @@ const statusColor = (status: string) => {
 
 export const ExpenseClaimsListPage = () => {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useAuth()
   const userIsSuperAdmin = isSuperAdmin(user)
   const canCreateClaim = user?.role !== 'Accountant'
   const showMyTotals = user?.role !== 'Accountant'
 
-  const [page, setPage] = useState(0)
-  const [limit, setLimit] = useState(50)
-  const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [employeeFilter, setEmployeeFilter] = useState<number | ''>('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
+  const initialPage = Math.max((Number(searchParams.get('page')) || 1) - 1, 0)
+  const initialLimit = Number(searchParams.get('limit')) || 50
+  const initialStatus = searchParams.get('status') || 'all'
+  const initialEmployee = searchParams.get('employee_id')
+  const initialDateFrom = searchParams.get('date_from') || ''
+  const initialDateTo = searchParams.get('date_to') || ''
+
+  const [page, setPage] = useState(initialPage)
+  const [limit, setLimit] = useState(initialLimit)
+  const [statusFilter, setStatusFilter] = useState<string>(initialStatus)
+  const [employeeFilter, setEmployeeFilter] = useState<number | ''>(
+    initialEmployee ? Number(initialEmployee) : ''
+  )
+  const [dateFrom, setDateFrom] = useState(initialDateFrom)
+  const [dateTo, setDateTo] = useState(initialDateTo)
+
+  useEffect(() => {
+    const params = new URLSearchParams()
+    params.set('page', String(page + 1))
+    params.set('limit', String(limit))
+    if (statusFilter !== 'all') params.set('status', statusFilter)
+    if (userIsSuperAdmin && employeeFilter) params.set('employee_id', String(employeeFilter))
+    if (dateFrom) params.set('date_from', dateFrom)
+    if (dateTo) params.set('date_to', dateTo)
+    setSearchParams(params, { replace: true })
+  }, [page, limit, statusFilter, employeeFilter, dateFrom, dateTo, userIsSuperAdmin, setSearchParams])
 
   const claimsUrl = useMemo(() => {
     const params: Record<string, string | number> = { page: page + 1, limit }
