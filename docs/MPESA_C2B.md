@@ -3,8 +3,8 @@
 ## Что реализовано
 
 - Публичные webhook-и M-Pesa C2B (Paybill):
-  - `POST /api/v1/mpesa/c2b/validation/<MPESA_WEBHOOK_TOKEN>`
-  - `POST /api/v1/mpesa/c2b/confirmation/<MPESA_WEBHOOK_TOKEN>`
+  - `POST /api/v1/c2b/validation/<MPESA_WEBHOOK_TOKEN>`
+  - `POST /api/v1/c2b/confirmation/<MPESA_WEBHOOK_TOKEN>`
 - `BillRefNumber` (account number), который вводит родитель, сопоставляется со студентом по Admission#:
   - полный формат: `STU-YYYY-NNNNNN`
   - короткий формат (как в UI): `YYNNN...` (например `26123` → `STU-2026-000123`)
@@ -25,8 +25,8 @@
 
 При регистрации C2B URL (ValidationURL/ConfirmationURL) укажите:
 
-- ValidationURL: `https://<your-domain>/api/v1/mpesa/c2b/validation/<MPESA_WEBHOOK_TOKEN>`
-- ConfirmationURL: `https://<your-domain>/api/v1/mpesa/c2b/confirmation/<MPESA_WEBHOOK_TOKEN>`
+- ValidationURL: `https://<your-domain>/api/v1/c2b/validation/<MPESA_WEBHOOK_TOKEN>`
+- ConfirmationURL: `https://<your-domain>/api/v1/c2b/confirmation/<MPESA_WEBHOOK_TOKEN>`
 
 Где `<your-domain>` — домен вашего backend.
 

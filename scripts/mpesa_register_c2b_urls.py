@@ -107,6 +107,7 @@ def _register_c2b_urls(
     response_type: str = "Completed",
     timeout_s: float = 30.0,
 ) -> dict:
+    # Daraja 3.0 docs: https://sandbox.safaricom.co.ke/mpesa/c2b/v2/registerurl
     url = f"{base_url}/mpesa/c2b/v2/registerurl"
     payload = {
         "ShortCode": short_code,
@@ -153,6 +154,12 @@ def main() -> int:
         default="Completed",
         help="Daraja ResponseType for Register URL (usually Completed).",
     )
+    p.add_argument(
+        "--timeout-s",
+        type=float,
+        default=60.0,
+        help="HTTP timeout in seconds for Daraja calls (default: 60).",
+    )
     args = p.parse_args()
 
     public_base_url = args.public_base_url.rstrip("/")
@@ -181,8 +188,8 @@ def main() -> int:
 
     webhook_token = _ensure_webhook_token(env_path)
 
-    validation_url = f"{public_base_url}/api/v1/mpesa/c2b/validation/{webhook_token}"
-    confirmation_url = f"{public_base_url}/api/v1/mpesa/c2b/confirmation/{webhook_token}"
+    validation_url = f"{public_base_url}/api/v1/c2b/validation/{webhook_token}"
+    confirmation_url = f"{public_base_url}/api/v1/c2b/confirmation/{webhook_token}"
 
     print(f"Daraja env: {mpesa_env} ({base_url})")
     print(f"ShortCode: {short_code}")
@@ -193,6 +200,7 @@ def main() -> int:
         base_url=base_url,
         consumer_key=consumer_key,
         consumer_secret=consumer_secret,
+        timeout_s=args.timeout_s,
     )
     print("OAuth token: OK")
 
@@ -203,6 +211,7 @@ def main() -> int:
         validation_url=validation_url,
         confirmation_url=confirmation_url,
         response_type=args.response_type,
+        timeout_s=args.timeout_s,
     )
     print("Register URL response:")
     print(result)
