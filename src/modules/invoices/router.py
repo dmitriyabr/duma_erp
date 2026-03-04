@@ -78,6 +78,8 @@ def _invoice_to_response(invoice) -> InvoiceResponse:
 
 def _invoice_to_summary(invoice) -> InvoiceSummary:
     """Convert Invoice model to summary schema."""
+    # Derive net total from lines to avoid showing stale/gross header totals in tables.
+    net_total = sum((line.net_amount for line in invoice.lines), Decimal("0.00"))
     return InvoiceSummary(
         id=invoice.id,
         invoice_number=invoice.invoice_number,
@@ -85,7 +87,7 @@ def _invoice_to_summary(invoice) -> InvoiceSummary:
         student_name=invoice.student.full_name if invoice.student else None,
         invoice_type=invoice.invoice_type,
         status=invoice.status,
-        total=float(invoice.total),
+        total=float(net_total),
         paid_total=float(invoice.paid_total),
         amount_due=float(invoice.amount_due),
         issue_date=invoice.issue_date,

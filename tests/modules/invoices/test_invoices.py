@@ -940,6 +940,87 @@ class TestInvoiceService:
         assert result.transport_invoices_created == 0
         assert result.students_skipped == 2
 
+    async def test_outstanding_totals_use_line_remaining_and_exclude_draft(
+        self, db_session: AsyncSession
+    ):
+        """Outstanding debt must follow net line remaining and ignore draft invoices."""
+        data = await self._setup_test_data(db_session)
+        service = InvoiceService(db_session)
+        student_id = data["student"].id
+        user_id = data["user"].id
+        kit_id = data["standard_kit"].id
+
+        term_fee = await service.create_adhoc_invoice(
+            InvoiceCreate(
+                student_id=student_id,
+                lines=[
+                    InvoiceLineCreate(
+                        kit_id=kit_id,
+                        quantity=1,
+                        unit_price_override=Decimal("28000.00"),
+                        discount_amount=Decimal("23000.00"),
+                    )
+                ],
+            ),
+            created_by_id=user_id,
+        )
+        await service.issue_invoice(term_fee.id, issued_by_id=user_id)
+
+        admission_fee = await service.create_adhoc_invoice(
+            InvoiceCreate(
+                student_id=student_id,
+                lines=[
+                    InvoiceLineCreate(
+                        kit_id=kit_id,
+                        quantity=1,
+                        unit_price_override=Decimal("3000.00"),
+                    )
+                ],
+            ),
+            created_by_id=user_id,
+        )
+        await service.issue_invoice(admission_fee.id, issued_by_id=user_id)
+
+        uniform_fee = await service.create_adhoc_invoice(
+            InvoiceCreate(
+                student_id=student_id,
+                lines=[
+                    InvoiceLineCreate(
+                        kit_id=kit_id,
+                        quantity=1,
+                        unit_price_override=Decimal("13400.00"),
+                    )
+                ],
+            ),
+            created_by_id=user_id,
+        )
+        await service.issue_invoice(uniform_fee.id, issued_by_id=user_id)
+
+        # Draft invoice should not be part of outstanding debt.
+        await service.create_adhoc_invoice(
+            InvoiceCreate(
+                student_id=student_id,
+                lines=[
+                    InvoiceLineCreate(
+                        kit_id=kit_id,
+                        quantity=1,
+                        unit_price_override=Decimal("999.00"),
+                    )
+                ],
+            ),
+            created_by_id=user_id,
+        )
+
+        # Simulate stale invoice header values (historical bad data):
+        # term fee header says 28000 due, while line remaining is correct 5000.
+        stale_term_fee = await service.get_invoice_by_id(term_fee.id)
+        stale_term_fee.total = Decimal("28000.00")
+        stale_term_fee.amount_due = Decimal("28000.00")
+        await db_session.commit()
+
+        totals = await service.get_outstanding_totals([student_id])
+        assert totals[0].total_due == Decimal("21400.00")
+
 
 class TestInvoiceEndpoints:
     """Tests for invoice API endpoints."""
@@ -1044,6 +1125,47 @@ class TestInvoiceEndpoints:
         result = response.json()
         assert result["success"] is True
         assert result["data"]["total"] >= 1
+
+    async def test_list_invoices_returns_net_total_not_gross(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Invoices list should expose net total in summary table."""
+        token, _, data = await self._setup_auth_and_data(db_session)
+
+        create_response = await client.post(
+            "/api/v1/invoices",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "student_id": data["student"].id,
+                "lines": [{"kit_id": data["kit"].id, "quantity": 1}],
+            },
+        )
+        assert create_response.status_code == 201
+        invoice_id = create_response.json()["data"]["id"]
+        line_id = create_response.json()["data"]["lines"][0]["id"]
+
+        discount_response = await client.patch(
+            f"/api/v1/invoices/{invoice_id}/lines/{line_id}/discount",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"discount_amount": "200.00"},
+        )
+        assert discount_response.status_code == 200
+
+        # Simulate stale header total to verify list summary derives net from lines.
+        invoice_result = await db_session.execute(select(Invoice).where(Invoice.id == invoice_id))
+        invoice = invoice_result.scalar_one()
+        invoice.total = Decimal("1000.00")
+        await db_session.commit()
+
+        list_response = await client.get(
+            "/api/v1/invoices",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"student_id": data["student"].id},
+        )
+        assert list_response.status_code == 200
+        items = list_response.json()["data"]["items"]
+        row = next(item for item in items if item["id"] == invoice_id)
+        assert row["total"] == 800.0
 
     async def test_issue_invoice_api(self, client: AsyncClient, db_session: AsyncSession):
         """Test issuing an invoice via API."""

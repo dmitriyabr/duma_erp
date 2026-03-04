@@ -699,20 +699,30 @@ class InvoiceService:
     async def get_outstanding_totals(
         self, student_ids: list[int]
     ) -> list[OutstandingTotalItem]:
-        """Get sum of amount_due per student for non-paid/cancelled/void invoices."""
+        """Get outstanding debt per student from line remaining amounts.
+
+        We intentionally sum `InvoiceLine.remaining_amount` (net - paid) instead of
+        header-level `Invoice.amount_due`, so balances stay correct even if invoice
+        aggregate fields become stale.
+        """
         if not student_ids:
             return []
 
-        excluded = (
-            InvoiceStatus.PAID.value,
-            InvoiceStatus.CANCELLED.value,
-            InvoiceStatus.VOID.value,
+        included = (
+            InvoiceStatus.ISSUED.value,
+            InvoiceStatus.PARTIALLY_PAID.value,
         )
         result = await self.db.execute(
-            select(Invoice.student_id, func.coalesce(func.sum(Invoice.amount_due), 0)).where(
+            select(
+                Invoice.student_id,
+                func.coalesce(func.sum(InvoiceLine.remaining_amount), 0),
+            )
+            .join(InvoiceLine, InvoiceLine.invoice_id == Invoice.id)
+            .where(
                 Invoice.student_id.in_(student_ids),
-                Invoice.status.notin_(excluded),
-            ).group_by(Invoice.student_id)
+                Invoice.status.in_(included),
+            )
+            .group_by(Invoice.student_id)
         )
         by_student = {row[0]: round_money(Decimal(str(row[1]))) for row in result.all()}
         return [

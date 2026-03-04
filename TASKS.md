@@ -225,6 +225,8 @@
 - [x] API endpoints (CRUD, issue, cancel, generate-term-invoices)
 - [x] Endpoint: generate-term-invoices for single student
 - [x] Тесты
+- [x] Фикс расчёта задолженности студентов: `outstanding_debt` считается по `InvoiceLine.remaining_amount` (net) и только для `issued/partially_paid` (без `draft`)
+- [x] Фикс списка инвойсов: поле `total` в summary/таблице отдаётся как net (сумма `line.net_amount`), а не потенциально устаревший gross из header
 
 ### 2.3 Скидки (Discounts)
 > Решения: Причины (sibling, staff, etc), процент и фикс, скидка на строку + StudentDiscount
