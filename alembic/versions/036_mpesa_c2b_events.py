@@ -104,21 +104,9 @@ def upgrade() -> None:
         unique=False,
     )
 
-    bind = op.get_bind()
-    if bind.dialect.name == "postgresql":
-        op.execute(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_mpesa_reference
-            ON payments (reference)
-            WHERE payment_method = 'mpesa' AND reference IS NOT NULL
-            """
-        )
+    # No unique index on payments.reference - idempotency via mpesa_c2b_events.trans_id
 
 
 def downgrade() -> None:
-    bind = op.get_bind()
-    if bind.dialect.name == "postgresql":
-        op.execute("DROP INDEX IF EXISTS uq_payments_mpesa_reference")
-
     op.drop_table("mpesa_c2b_events")
 

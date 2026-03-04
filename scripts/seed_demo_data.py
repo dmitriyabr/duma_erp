@@ -39,7 +39,16 @@ from src.modules.terms.models import (
     TransportZone,
     TransportPricing,
 )
-from src.modules.items.models import Category, Item, Kit, KitItem, ItemType, PriceType
+from src.modules.items.models import (
+    Category,
+    Item,
+    ItemVariant,
+    ItemVariantMembership,
+    Kit,
+    KitItem,
+    ItemType,
+    PriceType,
+)
 from src.modules.discounts.models import Discount, DiscountReason, StudentDiscount, DiscountValueType, StudentDiscountAppliesTo
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
 from src.modules.payments.models import Payment, CreditAllocation, PaymentStatus, PaymentMethod
@@ -456,67 +465,100 @@ async def seed_terms(session: AsyncSession, user_id: int, grade_codes: list[str]
 
 
 async def seed_categories_and_kits(session: AsyncSession, user_id: int) -> dict[str, int]:
-    """Категории и киты: Fixed Fees (ADMISSION-FEE, INTERVIEW-FEE), School Fees (by_grade), Transport (by_zone). Возвращает sku_code -> kit_id."""
-    result = await session.execute(select(Category).limit(1))
-    if result.scalar_one_or_none():
-        print("  Categories/Kits already exist, skip.")
-        return {r.sku_code: r.id for r in (await session.execute(select(Kit))).scalars().all()}
+    """Ensure required base categories and kits exist. Returns sku_code -> kit_id."""
 
-    cat_fixed = Category(name="Fixed Fees", is_active=True)
-    cat_school = Category(name="School Fees", is_active=True)
-    cat_transport = Category(name="Transport", is_active=True)
-    session.add(cat_fixed)
-    session.add(cat_school)
-    session.add(cat_transport)
-    await session.flush()
+    async def _get_or_create_category(name: str) -> Category:
+        result = await session.execute(select(Category).where(Category.name == name))
+        cat = result.scalar_one_or_none()
+        if cat:
+            return cat
+        cat = Category(name=name, is_active=True)
+        session.add(cat)
+        await session.flush()
+        return cat
 
-    kits = [
-        Kit(
-            category_id=cat_fixed.id,
+    async def _ensure_kit(
+        *,
+        sku_code: str,
+        category_id: int,
+        name: str,
+        item_type: str,
+        price_type: str,
+        price: Decimal | None,
+        requires_full_payment: bool,
+    ) -> Kit:
+        result = await session.execute(select(Kit).where(Kit.sku_code == sku_code))
+        kit = result.scalar_one_or_none()
+        if not kit:
+            kit = Kit(
+                category_id=category_id,
+                sku_code=sku_code,
+                name=name,
+                item_type=item_type,
+                price_type=price_type,
+                price=price,
+                requires_full_payment=requires_full_payment,
+                is_active=True,
+            )
+            session.add(kit)
+            await session.flush()
+            return kit
+        # Keep existing record consistent with seed expectations.
+        kit.category_id = category_id
+        kit.name = name
+        kit.item_type = item_type
+        kit.price_type = price_type
+        kit.price = price
+        kit.requires_full_payment = requires_full_payment
+        kit.is_active = True
+        return kit
+
+    cat_fixed = await _get_or_create_category("Fixed Fees")
+    cat_school = await _get_or_create_category("School Fees")
+    cat_transport = await _get_or_create_category("Transport")
+
+    ensured_kits = [
+        await _ensure_kit(
             sku_code="ADMISSION-FEE",
+            category_id=cat_fixed.id,
             name="Admission Fee",
-            item_type="service",
-            price_type="standard",
+            item_type=ItemType.SERVICE.value,
+            price_type=PriceType.STANDARD.value,
             price=Decimal("5000.00"),
             requires_full_payment=True,
-            is_active=True,
         ),
-        Kit(
-            category_id=cat_fixed.id,
+        await _ensure_kit(
             sku_code="INTERVIEW-FEE",
+            category_id=cat_fixed.id,
             name="Interview Fee",
-            item_type="service",
-            price_type="standard",
+            item_type=ItemType.SERVICE.value,
+            price_type=PriceType.STANDARD.value,
             price=Decimal("2000.00"),
             requires_full_payment=True,
-            is_active=True,
         ),
-        Kit(
-            category_id=cat_school.id,
+        await _ensure_kit(
             sku_code="SCHOOL-FEE",
+            category_id=cat_school.id,
             name="School Fee",
-            item_type="service",
-            price_type="by_grade",
+            item_type=ItemType.SERVICE.value,
+            price_type=PriceType.BY_GRADE.value,
             price=None,
             requires_full_payment=False,
-            is_active=True,
         ),
-        Kit(
-            category_id=cat_transport.id,
+        await _ensure_kit(
             sku_code="TRANSPORT",
+            category_id=cat_transport.id,
             name="Transport",
-            item_type="service",
-            price_type="by_zone",
+            item_type=ItemType.SERVICE.value,
+            price_type=PriceType.BY_ZONE.value,
             price=None,
             requires_full_payment=False,
-            is_active=True,
         ),
     ]
-    for k in kits:
-        session.add(k)
+
     await session.flush()
-    sku_to_id = {k.sku_code: k.id for k in kits}
-    print(f"  Created categories and {len(kits)} kits.")
+    sku_to_id = {r.sku_code: r.id for r in (await session.execute(select(Kit))).scalars().all()}
+    print(f"  Ensured base categories and {len(ensured_kits)} core kits.")
     return sku_to_id
 
 
@@ -751,7 +793,8 @@ async def seed_payments_and_allocations(
             amount=total_paid_by_student,
             payment_method=PaymentMethod.MPESA.value,
             payment_date=date(CURRENT_YEAR, 2, 1) + timedelta(days=hash(student_id) % 30),
-            reference="M-Pesa",
+            # DB has unique constraint for M-Pesa references; keep it unique per payment.
+            reference=f"M-Pesa-{student_id}-{pay_number}",
             status=PaymentStatus.COMPLETED.value,
             received_by_id=user_id,
         )
@@ -799,8 +842,10 @@ async def seed_procurement(
         print("  No items for PO lines, skip procurement.")
         return
 
-    purpose_other = purpose_ids["Other"]
-    purpose_supplies = purpose_ids["Supplies"]
+    # Older DBs may have different payment purpose names; use safe fallbacks.
+    fallback_purpose_id = next(iter(purpose_ids.values()))
+    purpose_other = purpose_ids.get("Other", fallback_purpose_id)
+    purpose_supplies = purpose_ids.get("Supplies", purpose_other)
     purpose_uniforms = purpose_ids.get("Uniforms", purpose_other)
     purpose_maint = purpose_ids.get("Maintenance", purpose_other)
 
@@ -1046,40 +1091,188 @@ async def seed_procurement(
 
 
 async def seed_inventory_categories_and_items(session: AsyncSession) -> dict[str, int]:
-    """Создаёт категории склада и сотни товаров (форма, канцтовары, уборка, спорт, питание). Возвращает sku -> item_id."""
-    result = await session.execute(select(Item).limit(1))
-    if result.scalar_one_or_none():
-        print("  Inventory items already exist, loading sku -> id.")
-        r = await session.execute(select(Item.sku_code, Item.id))
-        return {row[0]: row[1] for row in r.all()}
+    """Ensure inventory categories/items exist. Returns sku -> item_id."""
+
+    async def _get_or_create_category(name: str) -> Category:
+        result = await session.execute(select(Category).where(Category.name == name))
+        cat = result.scalar_one_or_none()
+        if cat:
+            return cat
+        cat = Category(name=name, is_active=True)
+        session.add(cat)
+        await session.flush()
+        return cat
 
     category_ids: dict[str, int] = {}
     for cat_name in ITEMS_BY_CATEGORY:
-        c = Category(name=cat_name, is_active=True)
-        session.add(c)
-        await session.flush()
-        category_ids[cat_name] = c.id
+        cat = await _get_or_create_category(cat_name)
+        category_ids[cat_name] = cat.id
 
     item_id_by_sku: dict[str, int] = {}
+    created_count = 0
+    updated_count = 0
     for cat_name, items_list in ITEMS_BY_CATEGORY.items():
         cat_id = category_ids[cat_name]
         for sku, name, price_kes in items_list:
-            it = Item(
-                category_id=cat_id,
-                sku_code=sku,
-                name=name,
-                item_type=ItemType.PRODUCT.value,
-                price_type="standard",
-                price=Decimal(str(price_kes)),
-                requires_full_payment=True,
-                is_active=True,
-            )
-            session.add(it)
-            await session.flush()
-            item_id_by_sku[sku] = it.id
-    total = sum(len(v) for v in ITEMS_BY_CATEGORY.values())
-    print(f"  Created {len(ITEMS_BY_CATEGORY)} categories and {total} items.")
+            result = await session.execute(select(Item).where(Item.sku_code == sku))
+            item = result.scalar_one_or_none()
+            if not item:
+                item = Item(
+                    category_id=cat_id,
+                    sku_code=sku,
+                    name=name,
+                    item_type=ItemType.PRODUCT.value,
+                    price_type=PriceType.STANDARD.value,
+                    price=Decimal(str(price_kes)),
+                    requires_full_payment=True,
+                    is_active=True,
+                )
+                session.add(item)
+                await session.flush()
+                created_count += 1
+            else:
+                item.category_id = cat_id
+                item.name = name
+                item.item_type = ItemType.PRODUCT.value
+                item.price_type = PriceType.STANDARD.value
+                item.price = Decimal(str(price_kes))
+                item.requires_full_payment = True
+                item.is_active = True
+                updated_count += 1
+            item_id_by_sku[sku] = item.id
+
+    print(
+        f"  Ensured {len(ITEMS_BY_CATEGORY)} inventory categories; "
+        f"items created={created_count}, updated={updated_count}."
+    )
     return item_id_by_sku
+
+
+async def seed_uniform_variants_and_kits(
+    session: AsyncSession,
+    item_id_by_sku: dict[str, int],
+) -> None:
+    """Создаёт demo variants и editable uniform kit на существующих uniform SKU."""
+    kit_sku = "UNIFORM-VARIANTS-KIT"
+    variant_definitions: list[tuple[str, list[str], str]] = [
+        ("Sweater Sizes", ["SWEATER-S", "SWEATER-M", "SWEATER-L"], "SWEATER-M"),
+        ("Shoes Sizes", ["SHOES-30", "SHOES-32", "SHOES-34"], "SHOES-32"),
+    ]
+    # Default kit price = default sweater + default shoes.
+    kit_price = Decimal("3350.00")
+
+    # Ensure Uniforms category exists
+    cat_result = await session.execute(
+        select(Category).where(Category.name == "Uniforms")
+    )
+    uniforms_category = cat_result.scalar_one_or_none()
+    if not uniforms_category:
+        uniforms_category = Category(name="Uniforms", is_active=True)
+        session.add(uniforms_category)
+        await session.flush()
+
+    async def _resolve_item_id(sku: str) -> int:
+        item_id = item_id_by_sku.get(sku)
+        if item_id:
+            return item_id
+        item_result = await session.execute(select(Item).where(Item.sku_code == sku))
+        item = item_result.scalar_one_or_none()
+        if not item:
+            raise RuntimeError(f"Required uniform item missing in seed data: {sku}")
+        item_id_by_sku[sku] = item.id
+        return item.id
+
+    variant_by_name: dict[str, ItemVariant] = {}
+    default_item_by_variant_name: dict[str, int] = {}
+    for variant_name, skus, default_sku in variant_definitions:
+        variant_result = await session.execute(
+            select(ItemVariant).where(ItemVariant.name == variant_name)
+        )
+        variant = variant_result.scalar_one_or_none()
+        if not variant:
+            variant = ItemVariant(name=variant_name, is_active=True)
+            session.add(variant)
+            await session.flush()
+        variant_by_name[variant_name] = variant
+
+        default_item_id = await _resolve_item_id(default_sku)
+        default_item_by_variant_name[variant_name] = default_item_id
+
+        for sku in skus:
+            item_id = await _resolve_item_id(sku)
+            membership_result = await session.execute(
+                select(ItemVariantMembership).where(
+                    ItemVariantMembership.variant_id == variant.id,
+                    ItemVariantMembership.item_id == item_id,
+                )
+            )
+            membership = membership_result.scalar_one_or_none()
+            is_default = item_id == default_item_id
+            if not membership:
+                membership = ItemVariantMembership(
+                    variant_id=variant.id,
+                    item_id=item_id,
+                    is_default=is_default,
+                )
+                session.add(membership)
+            else:
+                membership.is_default = is_default
+
+    # Editable uniform kit in catalog
+    kit_result = await session.execute(select(Kit).where(Kit.sku_code == kit_sku))
+    kit = kit_result.scalar_one_or_none()
+    if not kit:
+        kit = Kit(
+            category_id=uniforms_category.id,
+            sku_code=kit_sku,
+            name="Uniform Starter Kit",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=kit_price,
+            requires_full_payment=True,
+            is_editable_components=True,
+            is_active=True,
+        )
+        session.add(kit)
+        await session.flush()
+    else:
+        kit.category_id = uniforms_category.id
+        kit.item_type = ItemType.PRODUCT.value
+        kit.price_type = PriceType.STANDARD.value
+        kit.price = kit_price
+        kit.requires_full_payment = True
+        kit.is_editable_components = True
+        kit.is_active = True
+
+    # Rebuild kit components to match configured variants exactly.
+    await session.execute(delete(KitItem).where(KitItem.kit_id == kit.id))
+
+    desired_components = [
+        ("Sweater Sizes", 1),
+        ("Shoes Sizes", 1),
+    ]
+    for variant_name, qty in desired_components:
+        variant = variant_by_name[variant_name]
+        default_item_id = default_item_by_variant_name[variant_name]
+        kit_item = KitItem(
+            kit_id=kit.id,
+            source_type="variant",
+            variant_id=variant.id,
+            default_item_id=default_item_id,
+            quantity=qty,
+        )
+        session.add(kit_item)
+
+    # Keep old dress kit from previous runs out of catalog.
+    old_kit_result = await session.execute(
+        select(Kit).where(Kit.sku_code == "UNIFORM-DRESS-KIT")
+    )
+    old_kit = old_kit_result.scalar_one_or_none()
+    if old_kit:
+        old_kit.is_active = False
+
+    await session.flush()
+    print("  Ensured uniform variants and editable uniform starter kit in catalog.")
 
 
 async def clear_all_seed_data(session: AsyncSession) -> None:
@@ -1109,6 +1302,8 @@ async def clear_all_seed_data(session: AsyncSession) -> None:
         (Issuance, "issuances"),
         (KitItem, "kit_items"),
         (Kit, "kits"),
+        (ItemVariantMembership, "item_variant_memberships"),
+        (ItemVariant, "item_variants"),
         (Item, "items"),
         (PriceSetting, "price_settings"),
         (TransportPricing, "transport_pricings"),
@@ -1151,6 +1346,7 @@ async def run_seed(session: AsyncSession, dry_run: bool) -> None:
     )
     await seed_payments_and_allocations(session, num_gen, students, invoice_totals, user_id)
     item_id_by_sku = await seed_inventory_categories_and_items(session)
+    await seed_uniform_variants_and_kits(session, item_id_by_sku)
     await seed_procurement(session, num_gen, purpose_ids, user_id, employee_user_id or user_id, item_id_by_sku)
 
     if dry_run:
