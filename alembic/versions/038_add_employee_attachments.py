@@ -22,6 +22,25 @@ depends_on: Sequence[str] | None = None
 def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
+    existing_columns = {
+        column["name"] for column in inspector.get_columns("employees")
+    }
+
+    attachment_columns = (
+        "national_id_attachment_id",
+        "kra_pin_attachment_id",
+        "nssf_attachment_id",
+        "nhif_attachment_id",
+        "bank_doc_attachment_id",
+    )
+    for column_name in attachment_columns:
+        if column_name not in existing_columns:
+            op.add_column(
+                "employees",
+                sa.Column(column_name, sa.BigInteger(), nullable=True),
+            )
+
+    inspector = sa.inspect(bind)
     existing_fks = {
         fk["name"] for fk in inspector.get_foreign_keys("employees")
     }
@@ -63,3 +82,17 @@ def downgrade() -> None:
     ):
         if fk_name in existing_fks:
             op.drop_constraint(fk_name, "employees", type_="foreignkey")
+
+    inspector = sa.inspect(bind)
+    existing_columns = {
+        column["name"] for column in inspector.get_columns("employees")
+    }
+    for column_name in (
+        "bank_doc_attachment_id",
+        "nhif_attachment_id",
+        "nssf_attachment_id",
+        "kra_pin_attachment_id",
+        "national_id_attachment_id",
+    ):
+        if column_name in existing_columns:
+            op.drop_column("employees", column_name)
