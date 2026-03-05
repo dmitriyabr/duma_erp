@@ -1,7 +1,7 @@
-"""037 - Add attachment fields to employees
+"""038 - Add attachment fields to employees
 
-Revision ID: 037
-Revises: 036
+Revision ID: 038
+Revises: 037
 Create Date: 2026-03-02
 """
 
@@ -13,106 +13,50 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "037"
-down_revision: str | None = "036"
+revision: str = "038"
+down_revision: str | None = "037"
 branch_labels: Sequence[str] | None = None
 depends_on: Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "employees",
-        sa.Column("national_id_attachment_id", sa.BigInteger(), nullable=True),
-    )
-    op.add_column(
-        "employees",
-        sa.Column("kra_pin_attachment_id", sa.BigInteger(), nullable=True),
-    )
-    op.add_column(
-        "employees",
-        sa.Column("nssf_attachment_id", sa.BigInteger(), nullable=True),
-    )
-    op.add_column(
-        "employees",
-        sa.Column("nhif_attachment_id", sa.BigInteger(), nullable=True),
-    )
-    op.add_column(
-        "employees",
-        sa.Column("bank_doc_attachment_id", sa.BigInteger(), nullable=True),
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_fks = {fk["name"] for fk in inspector.get_foreign_keys("employees")}
 
-    op.create_foreign_key(
-        "fk_employees_national_id_attachment",
-        "employees",
-        "attachments",
-        ["national_id_attachment_id"],
-        ["id"],
-        ondelete="SET NULL",
-    )
-    op.create_foreign_key(
-        "fk_employees_kra_pin_attachment",
-        "employees",
-        "attachments",
-        ["kra_pin_attachment_id"],
-        ["id"],
-        ondelete="SET NULL",
-    )
-    op.create_foreign_key(
-        "fk_employees_nssf_attachment",
-        "employees",
-        "attachments",
-        ["nssf_attachment_id"],
-        ["id"],
-        ondelete="SET NULL",
-    )
-    op.create_foreign_key(
-        "fk_employees_nhif_attachment",
-        "employees",
-        "attachments",
-        ["nhif_attachment_id"],
-        ["id"],
-        ondelete="SET NULL",
-    )
-    op.create_foreign_key(
-        "fk_employees_bank_doc_attachment",
-        "employees",
-        "attachments",
-        ["bank_doc_attachment_id"],
-        ["id"],
-        ondelete="SET NULL",
-    )
+    fk_specs = [
+        ("fk_employees_national_id_attachment", "national_id_attachment_id"),
+        ("fk_employees_kra_pin_attachment", "kra_pin_attachment_id"),
+        ("fk_employees_nssf_attachment", "nssf_attachment_id"),
+        ("fk_employees_nhif_attachment", "nhif_attachment_id"),
+        ("fk_employees_bank_doc_attachment", "bank_doc_attachment_id"),
+    ]
+
+    for fk_name, column_name in fk_specs:
+        if fk_name in existing_fks:
+            continue
+        op.create_foreign_key(
+            fk_name,
+            "employees",
+            "attachments",
+            [column_name],
+            ["id"],
+            ondelete="SET NULL",
+        )
 
 
 def downgrade() -> None:
-    op.drop_constraint(
-        "fk_employees_bank_doc_attachment",
-        "employees",
-        type_="foreignkey",
-    )
-    op.drop_constraint(
-        "fk_employees_nhif_attachment",
-        "employees",
-        type_="foreignkey",
-    )
-    op.drop_constraint(
-        "fk_employees_nssf_attachment",
-        "employees",
-        type_="foreignkey",
-    )
-    op.drop_constraint(
-        "fk_employees_kra_pin_attachment",
-        "employees",
-        type_="foreignkey",
-    )
-    op.drop_constraint(
-        "fk_employees_national_id_attachment",
-        "employees",
-        type_="foreignkey",
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_fks = {fk["name"] for fk in inspector.get_foreign_keys("employees")}
 
-    op.drop_column("employees", "bank_doc_attachment_id")
-    op.drop_column("employees", "nhif_attachment_id")
-    op.drop_column("employees", "nssf_attachment_id")
-    op.drop_column("employees", "kra_pin_attachment_id")
-    op.drop_column("employees", "national_id_attachment_id")
+    for fk_name in (
+        "fk_employees_bank_doc_attachment",
+        "fk_employees_nhif_attachment",
+        "fk_employees_nssf_attachment",
+        "fk_employees_kra_pin_attachment",
+        "fk_employees_national_id_attachment",
+    ):
+        if fk_name in existing_fks:
+            op.drop_constraint(fk_name, "employees", type_="foreignkey")
 

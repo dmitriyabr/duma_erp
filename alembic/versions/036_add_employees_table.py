@@ -1,7 +1,7 @@
-"""036 - Add employees table
+"""037 - Add employees table
 
-Revision ID: 036
-Revises: 035
+Revision ID: 037
+Revises: 036
 Create Date: 2026-03-02
 """
 
@@ -14,8 +14,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = "036"
-down_revision: str | None = "035"
+revision: str = "037"
+down_revision: str | None = "036"
 branch_labels: Sequence[str] | None = None
 depends_on: Sequence[str] | None = None
 
@@ -64,7 +64,11 @@ def upgrade() -> None:
         sa.Column("bank_code", sa.String(length=20), nullable=True),
         sa.Column("branch_code", sa.String(length=20), nullable=True),
         sa.Column("bank_account_number", sa.String(length=50), nullable=True),
-        sa.Column("bank_account_holder_name", sa.String(length=200), nullable=True),
+        sa.Column(
+            "bank_account_holder_name",
+            sa.String(length=200),
+            nullable=True,
+        ),
         sa.Column("next_of_kin_name", sa.String(length=200), nullable=True),
         sa.Column(
             "next_of_kin_relationship",
@@ -117,8 +121,18 @@ def upgrade() -> None:
         ["employee_number"],
         unique=True,
     )
-    op.create_index("ix_employees_user_id", "employees", ["user_id"], unique=True)
-    op.create_index("ix_employees_status", "employees", ["status"], unique=False)
+    op.create_index(
+        "ix_employees_user_id",
+        "employees",
+        ["user_id"],
+        unique=True,
+    )
+    op.create_index(
+        "ix_employees_status",
+        "employees",
+        ["status"],
+        unique=False,
+    )
 
 
 def downgrade() -> None:
@@ -126,4 +140,3 @@ def downgrade() -> None:
     op.drop_index("ix_employees_user_id", table_name="employees")
     op.drop_index("ix_employees_employee_number", table_name="employees")
     op.drop_table("employees")
-
