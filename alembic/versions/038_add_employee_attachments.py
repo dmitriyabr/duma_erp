@@ -22,7 +22,9 @@ depends_on: Sequence[str] | None = None
 def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
-    existing_fks = {fk["name"] for fk in inspector.get_foreign_keys("employees")}
+    existing_fks = {
+        fk["name"] for fk in inspector.get_foreign_keys("employees")
+    }
 
     fk_specs = [
         ("fk_employees_national_id_attachment", "national_id_attachment_id"),
@@ -48,7 +50,9 @@ def upgrade() -> None:
 def downgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
-    existing_fks = {fk["name"] for fk in inspector.get_foreign_keys("employees")}
+    existing_fks = {
+        fk["name"] for fk in inspector.get_foreign_keys("employees")
+    }
 
     for fk_name in (
         "fk_employees_bank_doc_attachment",
@@ -59,4 +63,3 @@ def downgrade() -> None:
     ):
         if fk_name in existing_fks:
             op.drop_constraint(fk_name, "employees", type_="foreignkey")
-
