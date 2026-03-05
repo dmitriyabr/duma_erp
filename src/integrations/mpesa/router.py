@@ -27,7 +27,10 @@ from src.modules.students.models import Student
 from src.shared.schemas.base import ApiResponse, PaginatedResponse
 
 
-router = APIRouter(prefix="/mpesa", tags=["M-Pesa"])
+# Public C2B webhooks must not include "mpesa" in the path
+# (per Daraja docs/UI examples).
+# Keep internal/admin endpoints under /mpesa/*.
+router = APIRouter(tags=["M-Pesa"])
 
 
 @router.post("/c2b/validation/{token}", response_model=MpesaC2BResponse)
@@ -39,10 +42,14 @@ async def mpesa_c2b_validation(
     service = MpesaC2BService(db)
     if not service.verify_webhook_token(token):
         # Avoid exposing endpoint existence when token isn't configured/mismatched.
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Not found",
+        )
 
     ok = await service.validate_bill_ref(payload)
-    # MVP default: accept even if unmatched; confirmation will persist unmatched for manual handling.
+    # MVP default: accept even if unmatched; confirmation will persist unmatched
+    # for manual handling.
     if ok:
         return MpesaC2BResponse(ResultCode=0, ResultDesc="Accepted")
     return MpesaC2BResponse(ResultCode=0, ResultDesc="Accepted (unmatched)")
@@ -56,14 +63,17 @@ async def mpesa_c2b_confirmation(
 ):
     service = MpesaC2BService(db)
     if not service.verify_webhook_token(token):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Not found",
+        )
 
     await service.process_confirmation(payload)
     return MpesaC2BResponse(ResultCode=0, ResultDesc="Accepted")
 
 
 @router.get(
-    "/c2b/events/unmatched",
+    "/mpesa/c2b/events/unmatched",
     response_model=ApiResponse[PaginatedResponse[MpesaC2BEventResponse]],
 )
 async def list_unmatched_mpesa_events(
@@ -87,7 +97,7 @@ async def list_unmatched_mpesa_events(
 
 
 @router.post(
-    "/c2b/events/{event_id}/link",
+    "/mpesa/c2b/events/{event_id}/link",
     response_model=ApiResponse[PaymentResponse],
 )
 async def link_unmatched_mpesa_event(
@@ -112,11 +122,14 @@ async def link_unmatched_mpesa_event(
 
     payment_service = PaymentService(db)
     payment = await payment_service.get_payment_by_id(event.payment_id)
-    return ApiResponse(data=PaymentResponse.model_validate(payment), message="Event linked to payment")
+    return ApiResponse(
+        data=PaymentResponse.model_validate(payment),
+        message="Event linked to payment",
+    )
 
 
 @router.post(
-    "/c2b/sandbox/topup",
+    "/mpesa/c2b/sandbox/topup",
     response_model=ApiResponse[MpesaSandboxTopUpResponse],
 )
 async def sandbox_mpesa_topup(
@@ -132,12 +145,16 @@ async def sandbox_mpesa_topup(
     Disabled in production.
     """
     if settings.is_production:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Not found",
+        )
 
     bill_ref = (payload.bill_ref_number or "").strip() or None
 
     if payload.student_id is not None:
-        # Derive BillRefNumber in the same format as UI (short Admission#) when possible.
+        # Derive BillRefNumber in the same format as UI (short Admission#)
+        # when possible.
         student = await db.scalar(
             select(Student).where(Student.id == payload.student_id)
         )
@@ -180,4 +197,3 @@ async def sandbox_mpesa_topup(
         ),
         message="Simulated M-Pesa top-up processed",
     )
-

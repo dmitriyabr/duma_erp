@@ -19,6 +19,7 @@ from src.modules.compensations.schemas import (
     ExpenseClaimCreate,
     ExpenseClaimResponse,
     ExpenseClaimUpdate,
+    SendToEditExpenseClaimRequest,
 )
 from src.modules.compensations.service import ExpenseClaimService, PayoutService
 from src.shared.schemas.base import ApiResponse, PaginatedResponse
@@ -46,6 +47,7 @@ def _claim_to_response(claim) -> ExpenseClaimResponse:
         payee_name=payment.payee_name if payment else None,
         description=claim.description,
         rejection_reason=claim.rejection_reason,
+        edit_comment=getattr(claim, "edit_comment", None),
         expense_date=payment.payment_date if payment else claim.expense_date,
         proof_text=payment.proof_text if payment else None,
         proof_attachment_id=payment.proof_attachment_id if payment else None,
@@ -221,6 +223,26 @@ async def approve_claim(
         claim_id,
         approve=data.approve,
         reason=data.reason,
+        acted_by_id=current_user.id,
+    )
+    return ApiResponse(success=True, data=_claim_to_response(claim))
+
+
+@router.post(
+    "/{claim_id}/send-to-edit",
+    response_model=ApiResponse[ExpenseClaimResponse],
+)
+async def send_claim_to_edit(
+    claim_id: int,
+    data: SendToEditExpenseClaimRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+):
+    """Send an expense claim back to user for edit with required comment."""
+    service = ExpenseClaimService(db)
+    claim = await service.send_claim_to_edit(
+        claim_id,
+        comment=data.comment,
         acted_by_id=current_user.id,
     )
     return ApiResponse(success=True, data=_claim_to_response(claim))

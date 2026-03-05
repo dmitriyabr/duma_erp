@@ -20,7 +20,11 @@ from src.modules.invoices.models import (
     InvoiceType,
 )
 from src.modules.items.models import Category, ItemType, Kit, PriceType
-from src.modules.payments.models import CreditAllocation, Payment, PaymentStatus
+from src.modules.payments.models import (
+    CreditAllocation,
+    Payment,
+    PaymentStatus,
+)
 from src.modules.students.models import Gender, Grade, Student, StudentStatus
 
 
@@ -31,7 +35,10 @@ async def test_normalize_bill_ref_to_student_number():
         == "STU-2026-000123"
     )
     assert normalize_bill_ref_to_student_number("26123") == "STU-2026-000123"
-    assert normalize_bill_ref_to_student_number("  26-123 ") == "STU-2026-000123"
+    assert (
+        normalize_bill_ref_to_student_number("  26-123 ")
+        == "STU-2026-000123"
+    )
     assert normalize_bill_ref_to_student_number("") is None
     assert normalize_bill_ref_to_student_number("abc") is None
 
@@ -145,7 +152,7 @@ async def test_mpesa_confirmation_creates_completed_payment_and_allocations(
     }
 
     r = await client.post(
-        "/api/v1/mpesa/c2b/confirmation/testtoken",
+        "/api/v1/c2b/confirmation/testtoken",
         json=payload,
     )
     assert r.status_code == 200
@@ -168,11 +175,16 @@ async def test_mpesa_confirmation_creates_completed_payment_and_allocations(
         select(Student).where(Student.id == data["student"].id)
     )
     assert updated_student is not None
-    assert Decimal(str(updated_student.cached_credit_balance)) == Decimal("0.00")
+    assert Decimal(str(updated_student.cached_credit_balance)) == Decimal(
+        "0.00"
+    )
 
 
 @pytest.mark.asyncio
-async def test_mpesa_confirmation_is_idempotent(client: AsyncClient, db_session: AsyncSession):
+async def test_mpesa_confirmation_is_idempotent(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
     data = await _seed_student_with_invoice(db_session)
 
     settings.mpesa_webhook_token = "testtoken"
@@ -186,11 +198,11 @@ async def test_mpesa_confirmation_is_idempotent(client: AsyncClient, db_session:
     }
 
     r1 = await client.post(
-        "/api/v1/mpesa/c2b/confirmation/testtoken",
+        "/api/v1/c2b/confirmation/testtoken",
         json=payload,
     )
     r2 = await client.post(
-        "/api/v1/mpesa/c2b/confirmation/testtoken",
+        "/api/v1/c2b/confirmation/testtoken",
         json=payload,
     )
     assert r1.status_code == 200
@@ -222,7 +234,10 @@ async def test_mpesa_confirmation_is_idempotent(client: AsyncClient, db_session:
 
 
 @pytest.mark.asyncio
-async def test_mpesa_unmatched_event_is_saved(client: AsyncClient, db_session: AsyncSession):
+async def test_mpesa_unmatched_event_is_saved(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
     # Create system user so FK received_by_id is valid if later linked.
     auth = AuthService(db_session)
     user = await auth.create_user(
@@ -244,13 +259,15 @@ async def test_mpesa_unmatched_event_is_saved(client: AsyncClient, db_session: A
     }
 
     r = await client.post(
-        "/api/v1/mpesa/c2b/confirmation/testtoken",
+        "/api/v1/c2b/confirmation/testtoken",
         json=payload,
     )
     assert r.status_code == 200
 
     event = await db_session.scalar(
-        select(MpesaC2BEvent).where(MpesaC2BEvent.trans_id == "MPESA-TRANS-003")
+        select(MpesaC2BEvent).where(
+            MpesaC2BEvent.trans_id == "MPESA-TRANS-003"
+        )
     )
     assert event is not None
     assert event.status == MpesaC2BEventStatus.UNMATCHED.value
@@ -262,7 +279,10 @@ async def test_mpesa_unmatched_event_is_saved(client: AsyncClient, db_session: A
 
 
 @pytest.mark.asyncio
-async def test_mpesa_sandbox_topup_endpoint(client: AsyncClient, db_session: AsyncSession):
+async def test_mpesa_sandbox_topup_endpoint(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
     data = await _seed_student_with_invoice(db_session)
 
     settings.mpesa_system_user_id = data["user"].id
@@ -314,4 +334,3 @@ async def test_mpesa_sandbox_topup_disabled_in_production(
         assert r.status_code == 404
     finally:
         settings.app_env = prev
-

@@ -69,8 +69,9 @@
   - Ограничения безопасности: по затронутым items не должно быть более поздних `receipt` movements. Если по PO уже есть оплаты (`paid_total > 0`), откат всё равно возможен — после rollback `debt_amount` может стать отрицательным (аванс поставщику: “paid, not received”).
 
 ### Compensation
-`ExpenseClaim: pending_approval → approved/rejected → partially_paid → paid`
+`ExpenseClaim: pending_approval → needs_edit → pending_approval → approved/rejected → partially_paid → paid`
 `CompensationPayout` создаётся и распределяет сумму FIFO по claim.
+- `send-to-edit` доступен только `SuperAdmin`, требует комментарий и применяется только к ручным out-of-pocket claims (`auto_created_from_payment=false`).
 
 ### Bank reconciliation
 `BankStatementImport` создаётся загрузкой CSV (Admin/SuperAdmin) и парсит транзакции в `BankTransaction` (debits/credits).

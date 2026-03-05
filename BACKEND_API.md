@@ -87,7 +87,7 @@
 - **GoodsReceivedStatus:** `draft`, `approved`, `cancelled`
 - **ProcurementPaymentStatus:** `posted`, `cancelled`
 - **ProcurementPaymentMethod:** `mpesa`, `bank`, `cash`, `other`
-- **ExpenseClaimStatus:** `draft`, `pending_approval`, `approved`, `rejected`, `partially_paid`, `paid`
+- **ExpenseClaimStatus:** `draft`, `pending_approval`, `needs_edit`, `approved`, `rejected`, `partially_paid`, `paid`
 - **PayoutMethod:** `mpesa`, `bank`, `cash`, `other`
 
 ## 5. Эндпоинты по модулям
@@ -223,8 +223,8 @@
 - `DELETE /payments/allocations/{allocation_id}`
 
 ### 5.9.1. M-Pesa C2B (Paybill) Webhooks
-- `POST /mpesa/c2b/validation/{token}` — публичный endpoint (без JWT) для validation callback (token берётся из `MPESA_WEBHOOK_TOKEN`)
-- `POST /mpesa/c2b/confirmation/{token}` — публичный endpoint (без JWT) для confirmation callback; создаёт completed payment и запускает auto-allocation по Admission# (BillRefNumber)
+- `POST /c2b/validation/{token}` — публичный endpoint (без JWT) для validation callback (token берётся из `MPESA_WEBHOOK_TOKEN`)
+- `POST /c2b/confirmation/{token}` — публичный endpoint (без JWT) для confirmation callback; создаёт completed payment и запускает auto-allocation по Admission# (BillRefNumber)
 - `GET /mpesa/c2b/events/unmatched` — список unmatched событий (roles: SuperAdmin, Admin)
 - `POST /mpesa/c2b/events/{event_id}/link` — ручная привязка unmatched события к студенту (roles: SuperAdmin, Admin)
 - `POST /mpesa/c2b/sandbox/topup` — dev-only симуляция incoming confirmation (roles: SuperAdmin, Admin; disabled in production)
@@ -282,8 +282,9 @@
 - `GET /compensations/claims` — filters: `employee_id`, `status`, `date_from`, `date_to`, `page`, `limit`
 - `GET /compensations/claims/{claim_id}`
 - `GET /compensations/claims/employees/{employee_id}/totals` — totals для сотрудника (включая pending approval): total claimed, pending approval, approved totals, paid totals, owed.
-- `PATCH /compensations/claims/{claim_id}` — обновить draft claim (до отправки на approve)
-- `POST /compensations/claims/{claim_id}/submit` — отправить draft на approve
+- `PATCH /compensations/claims/{claim_id}` — обновить claim в статусе `needs_edit` (или legacy `draft`), синхронизируя linked procurement payment
+- `POST /compensations/claims/{claim_id}/submit` — отправить claim (`needs_edit`/legacy `draft`) обратно на approve
+- `POST /compensations/claims/{claim_id}/send-to-edit` — только `SuperAdmin`; перевести `pending_approval -> needs_edit` с обязательным комментарием (`auto_created_from_payment=true` не поддерживается)
 - `POST /compensations/claims/{claim_id}/approve` — при `approve=false` linked `ProcurementPayment` (и fee payment, если есть) переводится в `cancelled` (расход не признан компанией).
 - `POST /compensations/payouts`
 - `GET /compensations/payouts` — filters: `employee_id`, `date_from`, `date_to`, `page`, `limit`
@@ -454,10 +455,11 @@
 - `CancelProcurementPaymentRequest`: `reason`
 
 ### 6.12. Compensations
-- `ExpenseClaimResponse`: `id`, `claim_number`, `payment_id?`, `employee_id`, `employee_name`, `purpose_id`, `amount`, `payee_name?`, `description`, `rejection_reason?`, `expense_date`, `proof_text?`, `proof_attachment_id?`, `status`, `paid_amount`, `remaining_amount`, `auto_created_from_payment`, `related_procurement_payment_id?`, `created_at`, `updated_at`
+- `ExpenseClaimResponse`: `id`, `claim_number`, `payment_id?`, `employee_id`, `employee_name`, `purpose_id`, `amount`, `payee_name?`, `description`, `rejection_reason?`, `edit_comment?`, `expense_date`, `proof_text?`, `proof_attachment_id?`, `status`, `paid_amount`, `remaining_amount`, `auto_created_from_payment`, `related_procurement_payment_id?`, `created_at`, `updated_at`
 - `ExpenseClaimCreate`: `employee_id?`, `purpose_id`, `amount`, `payee_name?`, `description`, `expense_date`, `proof_text?`, `proof_attachment_id?`, `submit` (default true; если false — создаёт draft без proof)
 - `ExpenseClaimUpdate`: `employee_id?`, `purpose_id?`, `amount?`, `payee_name?`, `description?`, `expense_date?`, `proof_text?`, `proof_attachment_id?`, `submit?` (если true — переводит draft в pending_approval и требует proof)
 - `ApproveExpenseClaimRequest`: `approve`, `reason?` (для reject сохраняется в `rejection_reason`, описание не меняется)
+- `SendToEditExpenseClaimRequest`: `comment` (обязательное поле)
 - `CompensationPayoutCreate`: `employee_id`, `payout_date`, `amount`, `payment_method`, `reference_number?`, `proof_text?`, `proof_attachment_id?`
 - `CompensationPayoutResponse`: `id`, `payout_number`, `employee_id`, `payout_date`, `amount`, `payment_method`, `reference_number?`, `proof_text?`, `proof_attachment_id?`, `created_at`, `updated_at`, `allocations[]`
 - `PayoutAllocationResponse`: `id`, `claim_id`, `allocated_amount`

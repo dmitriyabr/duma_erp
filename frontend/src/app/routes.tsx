@@ -46,6 +46,7 @@ import { ItemsPage } from './pages/inventory/ItemsPage'
 import { ExpenseClaimsListPage } from './pages/compensations/ExpenseClaimsListPage'
 import { ExpenseClaimDetailPage } from './pages/compensations/ExpenseClaimDetailPage'
 import { NewExpenseClaimPage } from './pages/compensations/NewExpenseClaimPage'
+import { EditExpenseClaimPage } from './pages/compensations/EditExpenseClaimPage'
 import { PayoutsPage } from './pages/compensations/PayoutsPage'
 import { PayoutDetailPage } from './pages/compensations/PayoutDetailPage'
 import { AuditTrailPage } from './pages/accountant/AuditTrailPage'
@@ -225,6 +226,7 @@ export const AppRoutes = () => {
           <Route path="compensations/claims" element={<ExpenseClaimsListPage />} />
           <Route path="compensations/claims/new" element={<NewExpenseClaimPage />} />
           <Route path="compensations/claims/:claimId" element={<ExpenseClaimDetailPage />} />
+          <Route path="compensations/claims/:claimId/edit" element={<EditExpenseClaimPage />} />
           <Route path="compensations/payouts" element={<PayoutsPage />} />
           <Route path="compensations/payouts/:payoutId" element={<PayoutDetailPage />} />
           <Route path="reports">

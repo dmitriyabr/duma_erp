@@ -22,6 +22,7 @@ class ExpenseClaimResponse(BaseModel):
     payee_name: str | None
     description: str
     rejection_reason: str | None
+    edit_comment: str | None
     expense_date: date
     proof_text: str | None
     proof_attachment_id: int | None
@@ -95,6 +96,14 @@ class ApproveExpenseClaimRequest(BaseModel):
 
     approve: bool
     reason: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class SendToEditExpenseClaimRequest(BaseModel):
+    """Schema for sending expense claim to edit."""
+
+    comment: str = Field(..., min_length=1)
 
     model_config = {"from_attributes": True}
 
