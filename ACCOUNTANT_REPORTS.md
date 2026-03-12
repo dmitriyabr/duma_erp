@@ -259,12 +259,12 @@ Date,Type,Document#,Party,Description,Debit,Credit,Category,Payment Method,Refer
 
 **Колонки:**
 ```
-Receipt Date | Receipt# | Student Name | Admission# | Grade | Parent Name | Payment Method | Amount | Invoice# | Allocation Details | Received By
+Receipt Date | Receipt# | Student Name | Admission# | Grade | Parent Name | Payment Method | Reference | Amount | Received By | Receipt PDF link | Attachment link
 ```
 
 **Пример:**
 ```csv
-2026-01-28,RCP-2026-000456,John Doe,2024-0123,Grade 7,Mary Doe,M-Pesa,50000,INV-2026-000123,"School Fee: 30000, Transport: 20000",Admin User
+2026-01-28,RCP-2026-000456,John Doe,2024-0123,Grade 7,Mary Doe,M-Pesa,ABC123456,50000,Admin User,https://app.school.co.ke/payment/456/receipt,https://app.school.co.ke/attachment/789/download
 ```
 
 ### 2.3 Procurement Payments Export

@@ -113,6 +113,7 @@ class TestAccountantExportStudentPayments:
         assert "Receipt Date" in text
         assert "Receipt#" in text
         assert "Student Name" in text
+        assert "Reference" in text
         assert "Amount" in text
 
     async def test_export_student_payments_user_forbidden(
