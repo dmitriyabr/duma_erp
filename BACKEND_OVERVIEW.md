@@ -86,6 +86,7 @@
 - **Auto‑allocation** (только бэкенд):
   1) счета с `requires_full_payment` — в приоритете, допускается частичная оплата (выдача/резерв — только при полной);
   2) счета с `partial_ok` — остаток распределяется пропорционально по `amount_due`.
+- Аллокация может быть привязана ко всему invoice или к конкретной строке; если она invoice-level, `line.paid_amount` синхронизируется пропорционально по оставшимся `net_amount` строк.
 - Триггеры: при `payment complete` и при любом переводе счёта в Issued (одиночный issue, массовая генерация, генерация по студенту).
 - Излишки остаются в кредите.
 
@@ -100,6 +101,7 @@
 ### Скидки
 - Скидка может быть фиксированной или процентной.
 - Скидки на строку влияют на `net_amount`.
+- Header-поля invoice (`discount_total`, `total`, `amount_due`) являются агрегатами, производными от строк и allocations.
 - `StudentDiscount` авто‑применяется при генерации терм‑счетов.
 
 ### Нумерация документов
@@ -109,9 +111,12 @@
 ## 4. Формулы и расчёты (кратко)
 
 - `line_total = quantity × unit_price`
+- `net_amount = line_total - discount_amount`
+- `remaining_amount = net_amount - paid_amount`
 - `invoice.total = subtotal - discount_total`
 - `amount_due = total - paid_total`
 - `credit = sum(completed payments) - sum(allocations)`
+- Для summary/open debt безопасный source of truth: суммы по `invoice_lines.net_amount` и `invoice_lines.remaining_amount`; header aggregates могут быть исторически stale.
 
 ## 5. Безопасность и аудит
 

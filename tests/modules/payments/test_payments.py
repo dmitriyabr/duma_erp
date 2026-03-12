@@ -323,6 +323,49 @@ class TestPaymentService:
         balance = await service.get_student_balance(data["student"].id)
         assert balance.available_balance == Decimal("5000.00")
 
+    async def test_update_invoice_paid_amounts_rebuilds_from_line_net_when_header_total_is_stale(
+        self, db_session: AsyncSession
+    ):
+        """Allocation sync must use line net totals, not stale invoice header total."""
+        data = await self._setup_test_data(db_session)
+        service = PaymentService(db_session)
+
+        invoice_result = await db_session.execute(
+            select(Invoice)
+            .where(Invoice.id == data["invoice1"].id)
+            .options(selectinload(Invoice.lines))
+        )
+        invoice = invoice_result.scalar_one()
+        line = invoice.lines[0]
+
+        # Simulate historical bad data: discount exists on line, but invoice header still says gross total.
+        line.discount_amount = Decimal("1000.00")
+        line.net_amount = Decimal("4000.00")
+        line.remaining_amount = Decimal("4000.00")
+        invoice.discount_total = Decimal("0.00")
+        invoice.total = Decimal("5000.00")
+        invoice.amount_due = Decimal("5000.00")
+
+        db_session.add(
+            CreditAllocation(
+                student_id=data["student"].id,
+                invoice_id=invoice.id,
+                invoice_line_id=None,
+                amount=Decimal("3000.00"),
+                allocated_by_id=data["user"].id,
+            )
+        )
+        await db_session.flush()
+
+        await service._update_invoice_paid_amounts(invoice)
+
+        assert invoice.discount_total == Decimal("1000.00")
+        assert invoice.total == Decimal("4000.00")
+        assert invoice.paid_total == Decimal("3000.00")
+        assert invoice.amount_due == Decimal("1000.00")
+        assert line.paid_amount == Decimal("3000.00")
+        assert line.remaining_amount == Decimal("1000.00")
+
     async def test_auto_allocation_proportional(self, db_session: AsyncSession):
         """Test auto allocation distributes proportionally across partial_ok invoices."""
         data = await self._setup_test_data(db_session)

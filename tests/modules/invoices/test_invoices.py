@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.auth.models import UserRole
 from src.core.auth.service import AuthService
 from src.core.exceptions import NotFoundError, ValidationError
-from src.modules.invoices.models import Invoice, InvoiceStatus, InvoiceType
+from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
 from src.modules.invoices.schemas import (
     InvoiceCreate,
     InvoiceFilters,
@@ -1166,6 +1166,55 @@ class TestInvoiceEndpoints:
         items = list_response.json()["data"]["items"]
         row = next(item for item in items if item["id"] == invoice_id)
         assert row["total"] == 800.0
+
+    async def test_list_invoices_returns_due_and_paid_from_lines_not_stale_headers(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Invoices list should derive paid and due from line values on historical data."""
+        token, _, data = await self._setup_auth_and_data(db_session)
+
+        create_response = await client.post(
+            "/api/v1/invoices",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "student_id": data["student"].id,
+                "lines": [{"kit_id": data["kit"].id, "quantity": 1}],
+            },
+        )
+        assert create_response.status_code == 201
+        invoice_id = create_response.json()["data"]["id"]
+        line_id = create_response.json()["data"]["lines"][0]["id"]
+
+        discount_response = await client.patch(
+            f"/api/v1/invoices/{invoice_id}/lines/{line_id}/discount",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"discount_amount": "200.00"},
+        )
+        assert discount_response.status_code == 200
+
+        invoice_result = await db_session.execute(select(Invoice).where(Invoice.id == invoice_id))
+        invoice = invoice_result.scalar_one()
+        line_result = await db_session.execute(select(InvoiceLine).where(InvoiceLine.id == line_id))
+        line = line_result.scalar_one()
+
+        # Simulate historical drift: header still points at gross, but line values are correct.
+        invoice.paid_total = Decimal("0.00")
+        invoice.amount_due = Decimal("500.00")
+        line.paid_amount = Decimal("100.00")
+        line.remaining_amount = Decimal("200.00")
+        await db_session.commit()
+
+        list_response = await client.get(
+            "/api/v1/invoices",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"student_id": data["student"].id},
+        )
+        assert list_response.status_code == 200
+        items = list_response.json()["data"]["items"]
+        row = next(item for item in items if item["id"] == invoice_id)
+        assert row["total"] == 800.0
+        assert row["paid_total"] == 100.0
+        assert row["amount_due"] == 200.0
 
     async def test_issue_invoice_api(self, client: AsyncClient, db_session: AsyncSession):
         """Test issuing an invoice via API."""

@@ -41,6 +41,72 @@ class PaymentService:
         self.db = db
         self.audit = AuditService(db)
 
+    @staticmethod
+    def _money_to_cents(value: Decimal) -> int:
+        return int((round_money(value) * 100).to_integral_value())
+
+    @staticmethod
+    def _cents_to_money(value: int) -> Decimal:
+        return round_money(Decimal(value) / Decimal("100"))
+
+    def _allocate_proportionally(
+        self,
+        total: Decimal,
+        capacities: dict[int, Decimal],
+    ) -> tuple[dict[int, Decimal], Decimal]:
+        """Distribute invoice-level paid amount across line capacities by net remaining."""
+        allocations = {key: Decimal("0.00") for key in capacities}
+        total = round_money(total)
+        if total <= 0:
+            return allocations, Decimal("0.00")
+
+        capacity_cents = {
+            key: max(0, self._money_to_cents(value))
+            for key, value in capacities.items()
+        }
+        total_capacity_cents = sum(capacity_cents.values())
+        if total_capacity_cents <= 0:
+            return allocations, total
+
+        total_cents = max(0, self._money_to_cents(total))
+        if total_cents >= total_capacity_cents:
+            for key, cents in capacity_cents.items():
+                allocations[key] = self._cents_to_money(cents)
+            return allocations, self._cents_to_money(total_cents - total_capacity_cents)
+
+        allocated_cents = {key: 0 for key in capacities}
+        remainders: list[tuple[Decimal, int]] = []
+        used_cents = 0
+
+        for key, cap_cents in capacity_cents.items():
+            if cap_cents <= 0:
+                continue
+            raw_share = Decimal(total_cents) * Decimal(cap_cents) / Decimal(total_capacity_cents)
+            base_cents = min(cap_cents, int(raw_share))
+            allocated_cents[key] = base_cents
+            used_cents += base_cents
+            remainders.append((raw_share - Decimal(base_cents), key))
+
+        leftover_cents = total_cents - used_cents
+        remainders.sort(key=lambda row: (row[0], row[1]), reverse=True)
+        while leftover_cents > 0:
+            updated = False
+            for _, key in remainders:
+                if leftover_cents <= 0:
+                    break
+                if allocated_cents[key] >= capacity_cents[key]:
+                    continue
+                allocated_cents[key] += 1
+                leftover_cents -= 1
+                updated = True
+            if not updated:
+                break
+
+        for key, cents in allocated_cents.items():
+            allocations[key] = self._cents_to_money(cents)
+
+        return allocations, self._cents_to_money(leftover_cents)
+
     # --- Payment Methods ---
 
     async def create_payment(
@@ -764,6 +830,13 @@ class PaymentService:
 
     async def _update_invoice_paid_amounts(self, invoice: Invoice) -> None:
         """Update invoice paid_total and amount_due based on allocations."""
+        if invoice.lines:
+            invoice.subtotal = round_money(sum(line.line_total for line in invoice.lines))
+            invoice.discount_total = round_money(
+                sum(line.discount_amount for line in invoice.lines)
+            )
+            invoice.total = round_money(invoice.subtotal - invoice.discount_total)
+
         # Get total allocations for this invoice
         result = await self.db.execute(
             select(func.coalesce(func.sum(CreditAllocation.amount), 0)).where(
@@ -776,12 +849,17 @@ class PaymentService:
         invoice.amount_due = round_money(invoice.total - total_paid)
 
         # Update status
-        if invoice.amount_due <= 0:
-            invoice.status = InvoiceStatus.PAID.value
-        elif total_paid > 0:
-            invoice.status = InvoiceStatus.PARTIALLY_PAID.value
-        else:
-            invoice.status = InvoiceStatus.ISSUED.value  # reverted to unpaid
+        if invoice.status not in (
+            InvoiceStatus.CANCELLED.value,
+            InvoiceStatus.VOID.value,
+            InvoiceStatus.DRAFT.value,
+        ):
+            if invoice.amount_due <= 0:
+                invoice.status = InvoiceStatus.PAID.value
+            elif total_paid > 0:
+                invoice.status = InvoiceStatus.PARTIALLY_PAID.value
+            else:
+                invoice.status = InvoiceStatus.ISSUED.value
 
         # Also update line paid amounts if we have line-level allocations
         # OPTIMIZATION: Batch query instead of N+1 queries in loop
@@ -801,16 +879,36 @@ class PaymentService:
                 row[0]: Decimal(str(row[1])) for row in line_allocations_result.all()
             }
 
+            explicit_line_total = round_money(
+                sum(
+                    (
+                        line_paid_map.get(line.id, Decimal("0.00"))
+                        for line in invoice.lines
+                    ),
+                    Decimal("0.00"),
+                )
+            )
+            invoice_level_remainder = round_money(total_paid - explicit_line_total)
+            remaining_capacities = {
+                line.id: round_money(
+                    max(
+                        Decimal("0.00"),
+                        line.net_amount - line_paid_map.get(line.id, Decimal("0.00")),
+                    )
+                )
+                for line in invoice.lines
+            }
+            proportional_paid_map, _ = self._allocate_proportionally(
+                max(Decimal("0.00"), invoice_level_remainder),
+                remaining_capacities,
+            )
+
             # Update each line with batch data
             for line in invoice.lines:
-                line_paid = line_paid_map.get(line.id, Decimal("0"))
-
-                # If no line-level allocations, distribute proportionally
-                if line_paid == 0 and total_paid > 0:
-                    # Proportional distribution based on net_amount
-                    if invoice.total > 0:
-                        proportion = line.net_amount / invoice.total
-                        line_paid = round_money(total_paid * proportion)
+                line_paid = round_money(
+                    line_paid_map.get(line.id, Decimal("0.00"))
+                    + proportional_paid_map.get(line.id, Decimal("0.00"))
+                )
 
                 line.paid_amount = round_money(line_paid)
                 line.remaining_amount = round_money(line.net_amount - line_paid)

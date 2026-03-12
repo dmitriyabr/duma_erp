@@ -399,13 +399,16 @@ CREATE TABLE invoices (
 
 1. `invoice_number` генерируется автоматически: `INV-{YYYY}-{NNNNNN}`
 2. `subtotal` = сумма всех invoice_lines (line_total)
-3. `total` = subtotal - discount_total
-4. `amount_due` = total - paid_total
-5. Статус пересчитывается при изменении платежей:
+3. `discount_total` = сумма всех `invoice_lines.discount_amount`
+4. `total` = `subtotal - discount_total` = сумма всех `invoice_lines.net_amount`
+5. `paid_total` = сумма аллокаций по invoice и должен совпадать с суммой `invoice_lines.paid_amount`
+6. `amount_due` = `total - paid_total` = сумма всех `invoice_lines.remaining_amount`
+7. Статус пересчитывается при изменении платежей:
    - `paid_total = 0` → `Issued`
    - `0 < paid_total < total` → `PartiallyPaid`
    - `paid_total >= total` → `Paid`
-6. При отмене обязателен `cancelled_reason`
+8. Источником истины для долга являются line-level поля (`net_amount`, `remaining_amount`); header поля invoice - агрегаты, производные от строк
+9. При отмене обязателен `cancelled_reason`
 
 ---
 
@@ -426,10 +429,14 @@ CREATE TABLE invoice_lines (
     quantity DECIMAL(10, 2) DEFAULT 1.00,
     unit_price DECIMAL(15, 2) NOT NULL,
     line_total DECIMAL(15, 2) NOT NULL,  -- quantity * unit_price
+
+    -- Discount / net
+    discount_amount DECIMAL(15, 2) DEFAULT 0.00,
+    net_amount DECIMAL(15, 2) NOT NULL,  -- line_total - discount_amount
     
     -- Payment tracking
     paid_amount DECIMAL(15, 2) DEFAULT 0.00,
-    remaining_amount DECIMAL(15, 2),  -- line_total - paid_amount
+    remaining_amount DECIMAL(15, 2),  -- net_amount - paid_amount
     
     -- Flags
     must_be_paid_in_full BOOLEAN DEFAULT FALSE,
@@ -463,7 +470,8 @@ CREATE TABLE invoice_lines (
 **Расчеты:**
 
 - `line_total = quantity * unit_price`
-- `remaining_amount = line_total - paid_amount`
+- `net_amount = line_total - discount_amount`
+- `remaining_amount = net_amount - paid_amount`
 
 ---
 
@@ -486,7 +494,7 @@ CREATE TABLE payments (
     
     status ENUM('Posted', 'Cancelled') DEFAULT 'Posted',
     
-    -- Allocation (stored as JSON or separate table)
+    -- Allocation (historical JSON design; current implementation uses credit_allocations)
     allocation_details JSON,  -- [{invoice_line_id, allocated_amount}, ...]
     
     receipt_number VARCHAR(50),  -- RCT-YYYY-NNNNNN (FK to receipts)
@@ -527,6 +535,12 @@ CREATE TABLE payments (
   }
 ]
 ```
+
+**Примечание по текущей реализации:**
+
+- Аллокации хранятся в отдельной таблице `credit_allocations`
+- `invoice_line_id` может быть `NULL` для invoice-level allocation
+- Когда аллокация не привязана к строке, `invoice_lines.paid_amount` и `remaining_amount` синхронизируются пропорционально по оставшимся `net_amount` строк
 
 **Бизнес-правила:**
 
@@ -1728,7 +1742,7 @@ def allocate_payment(student_id, payment_amount):
         if remaining <= 0:
             break
         
-        line_remaining = line.line_total - line.paid_amount
+        line_remaining = line.net_amount - line.paid_amount
         
         if line.must_be_paid_in_full:
             # Must allocate full amount or nothing
@@ -1749,7 +1763,7 @@ def allocate_payment(student_id, payment_amount):
             })
             
             line.paid_amount += allocate
-            line.remaining_amount = line.line_total - line.paid_amount
+            line.remaining_amount = line.net_amount - line.paid_amount
             line.save()
             
             remaining -= allocate
@@ -2576,7 +2590,7 @@ CHECK (amount_due = total - paid_total)
    for allocation in allocations:
        line = InvoiceLine.get(id=allocation['invoice_line_id'])
        line.paid_amount += allocation['allocated_amount']
-       line.remaining_amount = line.line_total - line.paid_amount
+       line.remaining_amount = line.net_amount - line.paid_amount
        line.save()
    
    # Update invoice totals and statuses
@@ -3746,7 +3760,7 @@ CHECK (amount_due = total - paid_total)
            
            # Reverse payment
            line.paid_amount -= allocation['allocated_amount']
-           line.remaining_amount = line.line_total - line.paid_amount
+           line.remaining_amount = line.net_amount - line.paid_amount
            line.save()
        
        # Update invoice statuses

@@ -31,6 +31,87 @@ uv run python scripts/seed_demo_data.py --clear --confirm
 
 ---
 
+## audit_financial_integrity.py
+
+Read-only аудит финансовой целостности по студентам.
+
+Проверяет:
+
+- `Student.cached_credit_balance` против `SUM(completed payments) - SUM(allocations)`
+- долг по `invoice.amount_due` против суммы `invoice_lines.remaining_amount`
+- header поля invoice (`subtotal`, `discount_total`, `total`, `paid_total`, `amount_due`) против строк и allocations
+- формулы строк (`net_amount`, `remaining_amount`)
+- битые allocations: не тот student, не тот invoice, не та invoice line
+
+### Локальный запуск
+
+```bash
+python3 scripts/audit_financial_integrity.py
+
+# Только один ученик
+python3 scripts/audit_financial_integrity.py --student-number STU-2026-000001
+
+# JSON-отчет + ненулевой exit code, если найдены проблемы
+python3 scripts/audit_financial_integrity.py --json --fail-on-errors
+```
+
+### Запуск на Railway
+
+```bash
+# Сводка по всем студентам
+railway run python3 scripts/audit_financial_integrity.py
+
+# Только один ученик
+railway run python3 scripts/audit_financial_integrity.py --student-number STU-2026-000001
+
+# Для сохранения JSON-лога в CI / shell
+railway run python3 scripts/audit_financial_integrity.py --json --fail-on-errors
+```
+
+Скрипт **ничего не меняет в базе**. Он только читает данные и печатает найденные расхождения.
+
+---
+
+## repair_financial_integrity.py
+
+Безопасный пересчет битых финансовых агрегатов у выбранных студентов.
+
+По умолчанию работает в `dry-run` режиме и только показывает, что будет исправлено:
+
+- `InvoiceLine.net_amount`, `paid_amount`, `remaining_amount`
+- `Invoice.subtotal`, `discount_total`, `total`, `paid_total`, `amount_due`, `status`
+- `Student.cached_credit_balance`
+
+Скрипт **не трогает allocations и payments**. Он пересчитывает invoice/line/student aggregates из уже существующих discounts и allocations.
+
+### Локальный запуск
+
+```bash
+# Dry-run по конкретному ученику
+python3 scripts/repair_financial_integrity.py --student-number STU-2026-000014
+
+# Реальное применение
+python3 scripts/repair_financial_integrity.py --student-id 14 --student-id 15 --apply
+```
+
+### Запуск на Railway
+
+```bash
+# Сначала preview
+railway run python3 scripts/repair_financial_integrity.py --student-number STU-2026-000014
+railway run python3 scripts/repair_financial_integrity.py --student-number STU-2026-000015
+
+# Потом реальное применение
+railway run python3 scripts/repair_financial_integrity.py --student-number STU-2026-000014 --student-number STU-2026-000015 --apply
+
+# Повторный аудит после фикса
+railway run python3 scripts/audit_financial_integrity.py --student-number STU-2026-000014 --student-number STU-2026-000015
+```
+
+Если у инвойса есть небезопасные расхождения, скрипт пометит его как `SKIPPED` и не будет применять автоматический фикс.
+
+---
+
 ## reset_invoices.py
 
 Скрипт для одноразового удаления всех счетов (invoices) из базы данных с сохранением платежей (payments).
