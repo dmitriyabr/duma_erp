@@ -1126,6 +1126,33 @@ class TestInvoiceEndpoints:
         assert result["success"] is True
         assert result["data"]["total"] >= 1
 
+    async def test_list_invoices_returns_description_from_lines(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Invoice summary should expose a readable description from its lines."""
+        token, _, data = await self._setup_auth_and_data(db_session)
+
+        create_response = await client.post(
+            "/api/v1/invoices",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "student_id": data["student"].id,
+                "lines": [{"kit_id": data["kit"].id, "quantity": 1}],
+            },
+        )
+        assert create_response.status_code == 201
+        invoice_id = create_response.json()["data"]["id"]
+
+        list_response = await client.get(
+            "/api/v1/invoices",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"student_id": data["student"].id},
+        )
+        assert list_response.status_code == 200
+        items = list_response.json()["data"]["items"]
+        row = next(item for item in items if item["id"] == invoice_id)
+        assert row["description"] == data["kit"].name
+
     async def test_list_invoices_returns_net_total_not_gross(
         self, client: AsyncClient, db_session: AsyncSession
     ):

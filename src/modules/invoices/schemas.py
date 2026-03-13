@@ -122,6 +122,7 @@ class InvoiceSummary(BaseModel):
     student_id: int
     student_name: str | None = None
     invoice_type: str
+    description: str | None = None
     status: str
     total: float
     paid_total: float

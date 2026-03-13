@@ -143,9 +143,13 @@ export const InvoicesTab = ({
       })
   const visibleInvoices =
     initialInvoices !== undefined && invoiceSearch.trim()
-      ? byStatus.filter((inv) =>
-          inv.invoice_number?.toLowerCase().includes(invoiceSearch.trim().toLowerCase())
-        )
+      ? byStatus.filter((inv) => {
+          const needle = invoiceSearch.trim().toLowerCase()
+          return (
+            inv.invoice_number?.toLowerCase().includes(needle) ||
+            inv.description?.toLowerCase().includes(needle)
+          )
+        })
       : byStatus
 
   const generateTermInvoices = async () => {
@@ -326,7 +330,7 @@ export const InvoicesTab = ({
         <div className="flex items-center gap-4 flex-wrap">
           <Typography variant="h6">Invoices</Typography>
           <Input
-            label="Search invoice #"
+            label="Search invoice # / description"
             value={invoiceSearch}
             onChange={(e) => setInvoiceSearch(e.target.value)}
             className="w-48"
@@ -361,6 +365,7 @@ export const InvoicesTab = ({
               <TableHeaderCell>Invoice #</TableHeaderCell>
               <TableHeaderCell>Status</TableHeaderCell>
               <TableHeaderCell>Type</TableHeaderCell>
+              <TableHeaderCell>Description</TableHeaderCell>
               <TableHeaderCell>Total</TableHeaderCell>
               <TableHeaderCell>Due</TableHeaderCell>
               <TableHeaderCell>Issue date</TableHeaderCell>
@@ -373,6 +378,11 @@ export const InvoicesTab = ({
                 <TableCell>{invoice.invoice_number}</TableCell>
                 <TableCell>{invoice.status}</TableCell>
                 <TableCell>{invoice.invoice_type}</TableCell>
+                <TableCell>
+                  <div className="max-w-[280px] truncate" title={invoice.description ?? undefined}>
+                    {invoice.description ?? '—'}
+                  </div>
+                </TableCell>
                 <TableCell>{formatMoney(parseNumber(invoice.total))}</TableCell>
                 <TableCell>{formatMoney(parseNumber(invoice.amount_due))}</TableCell>
                 <TableCell>{invoice.issue_date ? formatDate(invoice.issue_date) : '—'}</TableCell>
@@ -385,14 +395,14 @@ export const InvoicesTab = ({
             ))}
             {invoicesLoading && (
               <TableRow>
-                <td colSpan={7} className="px-4 py-8 text-center">
+                <td colSpan={8} className="px-4 py-8 text-center">
                   <Spinner size="small" />
                 </td>
               </TableRow>
             )}
             {!invoicesLoading && !visibleInvoices.length && (
               <TableRow>
-                <td colSpan={7} className="px-4 py-8 text-center">
+                <td colSpan={8} className="px-4 py-8 text-center">
                   <Typography color="secondary">No invoices yet</Typography>
                 </td>
               </TableRow>

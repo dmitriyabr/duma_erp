@@ -39,6 +39,7 @@ export interface InvoiceSummary {
   id: number
   invoice_number: string
   invoice_type: string
+  description?: string | null
   status: string
   total: number
   paid_total: number

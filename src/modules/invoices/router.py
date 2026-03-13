@@ -77,6 +77,26 @@ def _invoice_to_response(invoice) -> InvoiceResponse:
     )
 
 
+def _invoice_summary_description(invoice) -> str | None:
+    """Build a short human-readable label for invoice list rows."""
+    descriptions: list[str] = []
+    seen: set[str] = set()
+    for line in invoice.lines:
+        description = (line.description or "").strip()
+        if not description or description in seen:
+            continue
+        descriptions.append(description)
+        seen.add(description)
+
+    if descriptions:
+        if len(descriptions) == 1:
+            return descriptions[0]
+        return f"{descriptions[0]} + {len(descriptions) - 1} more"
+
+    notes = (invoice.notes or "").strip()
+    return notes or None
+
+
 def _invoice_to_summary(invoice) -> InvoiceSummary:
     """Convert Invoice model to summary schema."""
     # Derive net total from lines to avoid showing stale/gross header totals in tables.
@@ -91,6 +111,7 @@ def _invoice_to_summary(invoice) -> InvoiceSummary:
         student_id=invoice.student_id,
         student_name=invoice.student.full_name if invoice.student else None,
         invoice_type=invoice.invoice_type,
+        description=_invoice_summary_description(invoice),
         status=invoice.status,
         total=float(net_total),
         paid_total=float(paid_total),

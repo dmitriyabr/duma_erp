@@ -188,7 +188,7 @@ class PaymentService:
         total = (await self.db.execute(count_query)).scalar() or 0
 
         # Paginate
-        query = query.order_by(Payment.created_at.desc())
+        query = query.order_by(Payment.payment_date.desc(), Payment.created_at.desc())
         query = query.offset((filters.page - 1) * filters.limit).limit(filters.limit)
 
         result = await self.db.execute(query)

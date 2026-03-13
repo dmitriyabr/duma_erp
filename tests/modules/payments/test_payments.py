@@ -252,6 +252,41 @@ class TestPaymentService:
 
         assert cancelled.status == PaymentStatus.CANCELLED.value
 
+    async def test_list_payments_orders_by_payment_date_desc(
+        self, db_session: AsyncSession
+    ):
+        """Payments list should show the most recent payment_date first."""
+        data = await self._setup_test_data(db_session)
+        service = PaymentService(db_session)
+
+        newer = await service.create_payment(
+            PaymentCreate(
+                student_id=data["student"].id,
+                amount=Decimal("1000.00"),
+                payment_method=PaymentMethod.MPESA,
+                payment_date=date(2026, 1, 15),
+                reference="newer-date",
+            ),
+            received_by_id=data["user"].id,
+        )
+        older = await service.create_payment(
+            PaymentCreate(
+                student_id=data["student"].id,
+                amount=Decimal("1000.00"),
+                payment_method=PaymentMethod.MPESA,
+                payment_date=date(2026, 1, 10),
+                reference="older-date",
+            ),
+            received_by_id=data["user"].id,
+        )
+
+        payments, total = await service.list_payments(
+            PaymentFilters(student_id=data["student"].id, page=1, limit=10)
+        )
+
+        assert total == 2
+        assert [payment.id for payment in payments] == [newer.id, older.id]
+
     async def test_get_student_balance(self, db_session: AsyncSession):
         """Test getting student credit balance."""
         data = await self._setup_test_data(db_session)
