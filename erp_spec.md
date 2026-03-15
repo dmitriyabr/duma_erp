@@ -541,6 +541,7 @@ CREATE TABLE payments (
 - Аллокации хранятся в отдельной таблице `credit_allocations`
 - `invoice_line_id` может быть `NULL` для invoice-level allocation
 - Когда аллокация не привязана к строке, `invoice_lines.paid_amount` и `remaining_amount` синхронизируются пропорционально по оставшимся `net_amount` строк
+- Если скидка уменьшает `net_amount` или `invoice.total` ниже уже allocated суммы, лишние allocations автоматически снимаются с этого invoice, после чего сразу повторно запускается стандартный auto-allocation по другим открытым invoices ученика
 
 **Бизнес-правила:**
 
@@ -662,7 +663,9 @@ INSERT INTO discount_reasons (reason_code, reason_name) VALUES
    - Percentage: `base_amount * (discount_value / 100)`
    - Fixed: `discount_value`
 3. Скидки требуют approve от Admin/SuperAdmin (в зависимости от причины)
-4. При отмене скидки invoice_totals пересчитываются
+4. На `paid` invoice скидку может применить только `SuperAdmin`
+5. При применении скидки на partially paid или paid invoice excess allocations автоматически deallocate-ятся и тут же проходят через стандартный auto-allocation на другие открытые invoices ученика
+6. При отмене скидки invoice_totals пересчитываются
 
 ---
 

@@ -24,6 +24,8 @@ from src.modules.discounts.schemas import (
     StudentDiscountUpdate,
 )
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
+from src.modules.payments.schemas import AutoAllocateRequest
+from src.modules.payments.service import PaymentService
 from src.modules.students.models import Student
 
 
@@ -145,7 +147,7 @@ class DiscountService:
             raise ValidationError(f"Unknown discount value type: {value_type}")
 
     async def apply_discount(
-        self, data: DiscountApply, applied_by_id: int
+        self, data: DiscountApply, applied_by_id: int, actor_is_super_admin: bool = False
     ) -> Discount:
         """Apply a discount to an invoice line."""
         # Get invoice line
@@ -160,13 +162,14 @@ class DiscountService:
 
         invoice = line.invoice
 
-        # Check invoice status - can apply discount to draft or issued
+        # Check invoice status - paid invoices require SuperAdmin override
         if invoice.status in (
             InvoiceStatus.CANCELLED.value,
             InvoiceStatus.VOID.value,
-            InvoiceStatus.PAID.value,
         ):
             raise ValidationError(f"Cannot apply discount to invoice with status '{invoice.status}'")
+        if invoice.status == InvoiceStatus.PAID.value and not actor_is_super_admin:
+            raise ValidationError("Only SuperAdmin can apply discount to a paid invoice")
 
         # Validate reason if provided
         if data.reason_id:
@@ -204,6 +207,14 @@ class DiscountService:
         line.discount_amount = round_money(line.discount_amount + calculated_amount)
         line.net_amount = round_money(line.line_total - line.discount_amount)
         line.remaining_amount = round_money(line.net_amount - line.paid_amount)
+        await self.db.flush()
+
+        payment_service = PaymentService(self.db)
+        released_amount = await payment_service.release_excess_allocations(
+            invoice_id=invoice.id,
+            user_id=applied_by_id,
+            reason=f"Auto-deallocate after discount.apply on invoice {invoice.invoice_number}",
+        )
 
         # Recalculate invoice totals
         await self._recalculate_invoice(invoice)
@@ -218,10 +229,16 @@ class DiscountService:
                 "value_type": data.value_type.value,
                 "value": str(data.value),
                 "calculated_amount": str(calculated_amount),
+                "released_allocation_amount": str(released_amount),
             },
         )
 
         await self.db.commit()
+        if released_amount > 0:
+            await payment_service.allocate_auto(
+                AutoAllocateRequest(student_id=invoice.student_id),
+                applied_by_id,
+            )
         await self.db.refresh(discount)
         return discount
 

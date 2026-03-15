@@ -141,7 +141,11 @@ async def apply_discount(
 ):
     """Apply a discount to an invoice line."""
     service = DiscountService(db)
-    discount = await service.apply_discount(data, current_user.id)
+    discount = await service.apply_discount(
+        data,
+        current_user.id,
+        actor_is_super_admin=current_user.is_super_admin,
+    )
     # Reload to get reason relationship
     result = await db.execute(
         select(Discount)

@@ -1,5 +1,6 @@
 """Service for Payments module."""
 
+from collections import defaultdict
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
@@ -827,6 +828,154 @@ class PaymentService:
         if not line:
             raise NotFoundError(f"Invoice line with id {line_id} not found")
         return line
+
+    async def _sum_invoice_allocations(self, invoice_id: int) -> Decimal:
+        result = await self.db.execute(
+            select(func.coalesce(func.sum(CreditAllocation.amount), 0)).where(
+                CreditAllocation.invoice_id == invoice_id
+            )
+        )
+        return round_money(Decimal(str(result.scalar() or 0)))
+
+    async def _reduce_allocations(
+        self,
+        allocations: list[CreditAllocation],
+        amount_to_release: Decimal,
+        user_id: int,
+        reason: str,
+    ) -> Decimal:
+        released = Decimal("0.00")
+        remaining = round_money(amount_to_release)
+
+        for allocation in allocations:
+            if remaining <= 0:
+                break
+
+            release_amount = min(remaining, allocation.amount)
+            if release_amount <= 0:
+                continue
+
+            old_amount = round_money(allocation.amount)
+            new_amount = round_money(old_amount - release_amount)
+            await self.audit.log(
+                action="allocation.auto_deallocate",
+                entity_type="CreditAllocation",
+                entity_id=allocation.id,
+                user_id=user_id,
+                old_values={"amount": str(old_amount)},
+                new_values={"amount": str(new_amount)},
+                comment=reason,
+            )
+
+            if new_amount <= 0:
+                await self.db.delete(allocation)
+            else:
+                allocation.amount = new_amount
+
+            released = round_money(released + release_amount)
+            remaining = round_money(remaining - release_amount)
+
+        await self.db.flush()
+        return released
+
+    async def release_excess_allocations(
+        self,
+        invoice_id: int,
+        user_id: int,
+        reason: str,
+    ) -> Decimal:
+        """Return excess invoice allocations back to student credit after totals shrink."""
+        invoice = await self._get_invoice(invoice_id)
+        if not invoice.lines:
+            return Decimal("0.00")
+
+        invoice.subtotal = round_money(sum(line.line_total for line in invoice.lines))
+        invoice.discount_total = round_money(
+            sum(line.discount_amount for line in invoice.lines)
+        )
+        invoice.total = round_money(invoice.subtotal - invoice.discount_total)
+
+        allocations_result = await self.db.execute(
+            select(CreditAllocation)
+            .where(CreditAllocation.invoice_id == invoice.id)
+            .order_by(CreditAllocation.created_at.desc(), CreditAllocation.id.desc())
+        )
+        allocations = list(allocations_result.scalars().all())
+        if not allocations:
+            return Decimal("0.00")
+
+        allocations_by_line: dict[int, list[CreditAllocation]] = defaultdict(list)
+        invoice_level_allocations: list[CreditAllocation] = []
+        for allocation in allocations:
+            if allocation.invoice_line_id is None:
+                invoice_level_allocations.append(allocation)
+            else:
+                allocations_by_line[int(allocation.invoice_line_id)].append(allocation)
+
+        released_total = Decimal("0.00")
+
+        # First, cap explicit line-level allocations to each line's current net amount.
+        for line in invoice.lines:
+            line_allocations = allocations_by_line.get(line.id, [])
+            if not line_allocations:
+                continue
+
+            explicit_total = round_money(
+                sum((allocation.amount for allocation in line_allocations), Decimal("0.00"))
+            )
+            line_excess = round_money(max(Decimal("0.00"), explicit_total - line.net_amount))
+            if line_excess <= 0:
+                continue
+
+            released_total = round_money(
+                released_total
+                + await self._reduce_allocations(
+                    line_allocations,
+                    line_excess,
+                    user_id,
+                    f"{reason} (line_id={line.id})",
+                )
+            )
+
+        # Then, if invoice total is still over-allocated, release invoice-level allocations.
+        total_allocated = await self._sum_invoice_allocations(invoice.id)
+        invoice_excess = round_money(max(Decimal("0.00"), total_allocated - invoice.total))
+        if invoice_excess > 0 and invoice_level_allocations:
+            released_total = round_money(
+                released_total
+                + await self._reduce_allocations(
+                    invoice_level_allocations,
+                    invoice_excess,
+                    user_id,
+                    reason,
+                )
+            )
+
+        # Final fallback for any historical oddities: trim newest remaining allocations.
+        total_allocated = await self._sum_invoice_allocations(invoice.id)
+        invoice_excess = round_money(max(Decimal("0.00"), total_allocated - invoice.total))
+        if invoice_excess > 0:
+            remaining_allocations_result = await self.db.execute(
+                select(CreditAllocation)
+                .where(CreditAllocation.invoice_id == invoice.id)
+                .order_by(CreditAllocation.created_at.desc(), CreditAllocation.id.desc())
+            )
+            remaining_allocations = list(remaining_allocations_result.scalars().all())
+            released_total = round_money(
+                released_total
+                + await self._reduce_allocations(
+                    remaining_allocations,
+                    invoice_excess,
+                    user_id,
+                    f"{reason} (fallback)",
+                )
+            )
+
+        if released_total > 0:
+            await self._update_student_balance_cache(invoice.student_id)
+            await self._update_invoice_paid_amounts(invoice)
+
+        return round_money(released_total)
 
     async def _update_invoice_paid_amounts(self, invoice: Invoice) -> None:
         """Update invoice paid_total and amount_due based on allocations."""

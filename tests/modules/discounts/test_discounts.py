@@ -2,6 +2,7 @@ import pytest
 from decimal import Decimal
 from datetime import date, timedelta
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth.models import UserRole
@@ -22,6 +23,7 @@ from src.modules.discounts.schemas import (
 from src.modules.discounts.service import DiscountService
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
 from src.modules.items.models import Category, ItemType, Kit, PriceType
+from src.modules.payments.models import CreditAllocation, Payment, PaymentStatus
 from src.modules.students.models import Gender, Grade, Student, StudentStatus
 from src.modules.terms.models import PriceSetting, Term, TermStatus
 
@@ -230,6 +232,186 @@ class TestDiscountService:
         await db_session.refresh(data["line"])
         assert data["line"].discount_amount == Decimal("0.00")
         assert data["line"].net_amount == Decimal("1000.00")
+
+    async def test_apply_discount_auto_deallocates_line_level_excess(
+        self, db_session: AsyncSession
+    ):
+        """Applying a discount should reallocate released excess to other open invoices."""
+        data = await self._setup_test_data(db_session)
+        service = DiscountService(db_session)
+
+        data["invoice"].status = InvoiceStatus.PARTIALLY_PAID.value
+        data["invoice"].paid_total = Decimal("450.00")
+        data["invoice"].amount_due = Decimal("550.00")
+        data["line"].paid_amount = Decimal("450.00")
+        data["line"].remaining_amount = Decimal("550.00")
+        db_session.add(
+            Payment(
+                payment_number="PAY-DSC-000001",
+                receipt_number="RCP-DSC-000001",
+                student_id=data["student"].id,
+                amount=Decimal("450.00"),
+                payment_method="mpesa",
+                payment_date=date.today(),
+                status=PaymentStatus.COMPLETED.value,
+                received_by_id=1,
+            )
+        )
+        db_session.add(
+            CreditAllocation(
+                student_id=data["student"].id,
+                invoice_id=data["invoice"].id,
+                invoice_line_id=data["line"].id,
+                amount=Decimal("450.00"),
+                allocated_by_id=1,
+            )
+        )
+        second_invoice = Invoice(
+            invoice_number="INV-DSC-000002",
+            student_id=data["student"].id,
+            invoice_type=InvoiceType.ADHOC.value,
+            status=InvoiceStatus.ISSUED.value,
+            subtotal=Decimal("1000.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("1000.00"),
+            paid_total=Decimal("0.00"),
+            amount_due=Decimal("1000.00"),
+            created_by_id=1,
+        )
+        db_session.add(second_invoice)
+        await db_session.flush()
+        second_line = InvoiceLine(
+            invoice_id=second_invoice.id,
+            kit_id=data["kit"].id,
+            description="Second Test Item",
+            quantity=1,
+            unit_price=Decimal("1000.00"),
+            line_total=Decimal("1000.00"),
+            discount_amount=Decimal("0.00"),
+            net_amount=Decimal("1000.00"),
+            paid_amount=Decimal("0.00"),
+            remaining_amount=Decimal("1000.00"),
+        )
+        db_session.add(second_line)
+        await db_session.commit()
+
+        await service.apply_discount(
+            DiscountApply(
+                invoice_line_id=data["line"].id,
+                value_type=DiscountValueType.FIXED,
+                value=Decimal("600.00"),
+            ),
+            applied_by_id=1,
+        )
+
+        await db_session.refresh(data["student"])
+        await db_session.refresh(data["invoice"])
+        await db_session.refresh(data["line"])
+        await db_session.refresh(second_invoice)
+        await db_session.refresh(second_line)
+
+        allocation_result = await db_session.execute(
+            select(CreditAllocation)
+            .where(CreditAllocation.student_id == data["student"].id)
+            .order_by(CreditAllocation.invoice_id.asc(), CreditAllocation.id.asc())
+        )
+        allocations = list(allocation_result.scalars().all())
+
+        assert len(allocations) == 2
+        assert allocations[0].invoice_id == data["invoice"].id
+        assert allocations[0].invoice_line_id == data["line"].id
+        assert allocations[0].amount == Decimal("400.00")
+        assert allocations[1].invoice_id == second_invoice.id
+        assert allocations[1].invoice_line_id is None
+        assert allocations[1].amount == Decimal("50.00")
+        assert data["student"].cached_credit_balance == Decimal("0.00")
+        assert data["line"].discount_amount == Decimal("600.00")
+        assert data["line"].net_amount == Decimal("400.00")
+        assert data["line"].paid_amount == Decimal("400.00")
+        assert data["line"].remaining_amount == Decimal("0.00")
+        assert data["invoice"].paid_total == Decimal("400.00")
+        assert data["invoice"].amount_due == Decimal("0.00")
+        assert data["invoice"].status == InvoiceStatus.PAID.value
+        assert second_invoice.paid_total == Decimal("50.00")
+        assert second_invoice.amount_due == Decimal("950.00")
+        assert second_invoice.status == InvoiceStatus.PARTIALLY_PAID.value
+        assert second_line.paid_amount == Decimal("50.00")
+        assert second_line.remaining_amount == Decimal("950.00")
+
+    async def test_apply_discount_to_paid_invoice_requires_super_admin(
+        self, db_session: AsyncSession
+    ):
+        """Paid invoice discounts should require SuperAdmin override."""
+        data = await self._setup_test_data(db_session)
+        service = DiscountService(db_session)
+
+        data["invoice"].status = InvoiceStatus.PAID.value
+        data["invoice"].paid_total = Decimal("1000.00")
+        data["invoice"].amount_due = Decimal("0.00")
+        data["line"].paid_amount = Decimal("1000.00")
+        data["line"].remaining_amount = Decimal("0.00")
+        db_session.add(
+            Payment(
+                payment_number="PAY-DSC-000002",
+                receipt_number="RCP-DSC-000002",
+                student_id=data["student"].id,
+                amount=Decimal("1000.00"),
+                payment_method="mpesa",
+                payment_date=date.today(),
+                status=PaymentStatus.COMPLETED.value,
+                received_by_id=1,
+            )
+        )
+        db_session.add(
+            CreditAllocation(
+                student_id=data["student"].id,
+                invoice_id=data["invoice"].id,
+                invoice_line_id=data["line"].id,
+                amount=Decimal("1000.00"),
+                allocated_by_id=1,
+            )
+        )
+        await db_session.commit()
+
+        with pytest.raises(ValidationError, match="Only SuperAdmin"):
+            await service.apply_discount(
+                DiscountApply(
+                    invoice_line_id=data["line"].id,
+                    value_type=DiscountValueType.FIXED,
+                    value=Decimal("100.00"),
+                ),
+                applied_by_id=1,
+                actor_is_super_admin=False,
+            )
+
+        await service.apply_discount(
+            DiscountApply(
+                invoice_line_id=data["line"].id,
+                value_type=DiscountValueType.FIXED,
+                value=Decimal("100.00"),
+            ),
+            applied_by_id=1,
+            actor_is_super_admin=True,
+        )
+
+        await db_session.refresh(data["invoice"])
+        await db_session.refresh(data["line"])
+        await db_session.refresh(data["student"])
+
+        allocation_result = await db_session.execute(
+            select(CreditAllocation).where(CreditAllocation.invoice_id == data["invoice"].id)
+        )
+        allocation = allocation_result.scalar_one()
+
+        assert allocation.amount == Decimal("900.00")
+        assert data["line"].discount_amount == Decimal("100.00")
+        assert data["line"].net_amount == Decimal("900.00")
+        assert data["line"].paid_amount == Decimal("900.00")
+        assert data["line"].remaining_amount == Decimal("0.00")
+        assert data["invoice"].paid_total == Decimal("900.00")
+        assert data["invoice"].amount_due == Decimal("0.00")
+        assert data["invoice"].status == InvoiceStatus.PAID.value
+        assert data["student"].cached_credit_balance == Decimal("100.00")
 
     async def test_discount_cannot_exceed_line_total(self, db_session: AsyncSession):
         """Test that discount cannot exceed line total."""

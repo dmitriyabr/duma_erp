@@ -43,6 +43,8 @@ from src.modules.discounts.models import (
     StudentDiscount,
     StudentDiscountAppliesTo,
 )
+from src.modules.payments.schemas import AutoAllocateRequest
+from src.modules.payments.service import PaymentService
 
 
 class InvoiceService:
@@ -516,14 +518,21 @@ class InvoiceService:
         return await self.get_invoice_by_id(invoice_id)
 
     async def update_line_discount(
-        self, invoice_id: int, line_id: int, discount_amount: Decimal, updated_by_id: int
+        self,
+        invoice_id: int,
+        line_id: int,
+        discount_amount: Decimal,
+        updated_by_id: int,
+        actor_is_super_admin: bool = False,
     ) -> Invoice:
         """Update discount on a specific line."""
         invoice = await self.get_invoice_by_id(invoice_id)
 
-        # Can update discount on draft or issued invoices
-        if invoice.status in (InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value, InvoiceStatus.PAID.value):
+        # Paid invoices require SuperAdmin override.
+        if invoice.status in (InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value):
             raise ValidationError("Cannot update discount on this invoice")
+        if invoice.status == InvoiceStatus.PAID.value and not actor_is_super_admin:
+            raise ValidationError("Only SuperAdmin can update discount on a paid invoice")
 
         line = None
         for l in invoice.lines:
@@ -540,6 +549,14 @@ class InvoiceService:
         old_discount = line.discount_amount
         line.discount_amount = round_money(discount_amount)
         self._recalculate_line(line)
+        await self.db.flush()
+
+        payment_service = PaymentService(self.db)
+        released_amount = await payment_service.release_excess_allocations(
+            invoice_id=invoice.id,
+            user_id=updated_by_id,
+            reason=f"Auto-deallocate after invoice.update_line_discount on invoice {invoice.invoice_number}",
+        )
         self._recalculate_invoice(invoice)
 
         await self.audit.log(
@@ -548,10 +565,19 @@ class InvoiceService:
             entity_id=invoice_id,
             user_id=updated_by_id,
             old_values={"line_id": line_id, "discount_amount": str(old_discount)},
-            new_values={"line_id": line_id, "discount_amount": str(discount_amount)},
+            new_values={
+                "line_id": line_id,
+                "discount_amount": str(discount_amount),
+                "released_allocation_amount": str(released_amount),
+            },
         )
 
         await self.db.commit()
+        if released_amount > 0:
+            await payment_service.allocate_auto(
+                AutoAllocateRequest(student_id=invoice.student_id),
+                updated_by_id,
+            )
         # Re-fetch with relationships loaded
         return await self.get_invoice_by_id(invoice_id)
 

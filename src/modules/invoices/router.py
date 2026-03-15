@@ -326,7 +326,11 @@ async def update_line_discount(
     """Update discount on a specific line."""
     service = InvoiceService(db)
     invoice = await service.update_line_discount(
-        invoice_id, line_id, data.discount_amount, current_user.id
+        invoice_id,
+        line_id,
+        data.discount_amount,
+        current_user.id,
+        actor_is_super_admin=current_user.is_super_admin,
     )
     invoice = await service.get_invoice_by_id(invoice.id)
     return ApiResponse(
