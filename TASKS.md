@@ -698,11 +698,15 @@
   - [x] "+ New item" (создаёт складскую позицию на лету)
   - [x] "Add custom line" (только description, для мебели и т.д.)
 - [x] track_to_warehouse вычисляется автоматически
+- [x] `Admin` может редактировать только `draft/ordered`, а `partially_received/received` — только `SuperAdmin`
+- [x] Нельзя уменьшить `quantity_expected` ниже уже принятого `quantity_received`
+- [x] Нельзя уменьшить `expected_total` ниже уже внесённого `paid_total`
+- [x] Нельзя удалить строку или сменить `item_id`, если по ней уже есть GRN history / received quantity
 
 **Детальная страница PO `/procurement/orders/:id`:**
 - [x] Информация о заказе, статус
 - [x] Таблица строк (expected/received/remaining)
-- [x] Actions: Submit, Close, Cancel
+- [x] Actions: Edit, Submit, Close, Cancel
 - [x] Кнопка "Receive" → создание GRN
 - [x] История GRN и платежей
 

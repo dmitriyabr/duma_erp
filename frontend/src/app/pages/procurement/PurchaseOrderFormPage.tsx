@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatMoney } from '../../utils/format'
+import { isSuperAdmin } from '../../utils/permissions'
 import {
   Typography,
   Alert,
@@ -50,6 +52,7 @@ interface POLineDraft {
   item_id: number | null
   description: string
   quantity_expected: number
+  quantity_received: number
   unit_price: number
   line_type: 'inventory' | 'new_item' | 'custom'
   newItemCategoryId?: number | null
@@ -88,6 +91,7 @@ const emptyLine = (): POLineDraft => ({
   item_id: null,
   description: '',
   quantity_expected: 1,
+  quantity_received: 0,
   unit_price: 0,
   line_type: 'inventory',
 })
@@ -97,6 +101,7 @@ export const PurchaseOrderFormPage = () => {
   const navigate = useNavigate()
   const isEdit = Boolean(orderId)
   const resolvedId = orderId ? Number(orderId) : null
+  const { user } = useAuth()
 
   const [supplierName, setSupplierName] = useState('')
   const [supplierContact, setSupplierContact] = useState('')
@@ -137,7 +142,12 @@ export const PurchaseOrderFormPage = () => {
   const { data: poData, loading: poLoading } = useApi<POResponse>(
     resolvedId ? `/procurement/purchase-orders/${resolvedId}` : null
   )
-  const { execute: savePO, loading: saving } = useApiMutation<POResponse>()
+  const {
+    execute: savePO,
+    loading: saving,
+    error: saveError,
+    reset: resetSaveError,
+  } = useApiMutation<POResponse>()
 
   const [localPurposes, setLocalPurposes] = useState<PurposeRow[]>([])
   const purposes = useMemo(() => {
@@ -168,6 +178,7 @@ export const PurchaseOrderFormPage = () => {
           item_id: line.item_id,
           description: line.description,
           quantity_expected: line.quantity_expected,
+          quantity_received: line.quantity_received,
           unit_price: Number(line.unit_price),
           line_type: line.item_id ? 'inventory' : 'custom',
         }))
@@ -296,6 +307,15 @@ export const PurchaseOrderFormPage = () => {
   }
 
   const handleSubmit = async () => {
+    if (
+      isEdit &&
+      poData &&
+      !isSuperAdmin(user) &&
+      (poData.status === 'partially_received' || poData.status === 'received')
+    ) {
+      setError('Only SuperAdmin can edit partially received or received purchase orders.')
+      return
+    }
     if (!supplierName.trim() || !purposeId) {
       setError('Fill supplier name and purpose.')
       return
@@ -325,6 +345,7 @@ export const PurchaseOrderFormPage = () => {
       track_to_warehouse: trackToWarehouse,
       notes: notes.trim() || null,
       lines: lines.map((line) => ({
+        id: /^\d+$/.test(line.id) ? Number(line.id) : undefined,
         item_id: line.item_id,
         description: line.description.trim(),
         quantity_expected: line.quantity_expected,
@@ -389,6 +410,7 @@ export const PurchaseOrderFormPage = () => {
           item_id: line.item_id,
           description: line.description,
           quantity_expected: line.quantity_expected,
+          quantity_received: 0,
           unit_price: line.unit_price,
           line_type: line.item_id ? 'inventory' : 'custom',
         }))
@@ -415,9 +437,16 @@ export const PurchaseOrderFormPage = () => {
         {isEdit ? 'Edit purchase order' : 'New purchase order'}
       </Typography>
 
-      {error && (
-        <Alert severity="error" className="mb-4" onClose={() => setError(null)}>
-          {error}
+      {(error || saveError) && (
+        <Alert
+          severity="error"
+          className="mb-4"
+          onClose={() => {
+            setError(null)
+            resetSaveError()
+          }}
+        >
+          {error || saveError}
         </Alert>
       )}
 
@@ -535,6 +564,7 @@ export const PurchaseOrderFormPage = () => {
                       getOptionLabel={(item) => `${item.name} (${item.sku_code})`}
                       getOptionValue={(item) => item.id}
                       value={inventoryItems.find((item) => item.id === line.item_id) || null}
+                      disabled={line.quantity_received > 0}
                       onChange={(item) => {
                         updateLine(line.id, {
                           item_id: item ? item.id : null,
@@ -580,7 +610,7 @@ export const PurchaseOrderFormPage = () => {
                     }
                     onFocus={(event) => event.currentTarget.select()}
                     onWheel={(event) => (event.currentTarget as HTMLInputElement).blur()}
-                    min={1}
+                    min={Math.max(1, line.quantity_received)}
                     className="w-[90px]"
                   />
                 </TableCell>
@@ -608,6 +638,7 @@ export const PurchaseOrderFormPage = () => {
                     color="error"
                     onClick={() => removeLine(line.id)}
                     className="min-w-0"
+                    disabled={line.quantity_received > 0}
                   >
                     <Trash2 className="w-4 h-4" />
                   </Button>

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
-import { isAccountant } from '../../utils/permissions'
+import { isAccountant, isSuperAdmin } from '../../utils/permissions'
 import { api } from '../../services/api'
 import type { PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
@@ -207,7 +207,16 @@ export const PurchaseOrderDetailPage = () => {
     )
   }
 
-  const canEdit = !readOnly && (po.status === 'draft' || po.status === 'ordered')
+  const canEdit =
+    !readOnly &&
+    (
+      po.status === 'draft' ||
+      po.status === 'ordered' ||
+      (
+        isSuperAdmin(user) &&
+        (po.status === 'partially_received' || po.status === 'received')
+      )
+    )
   const canReceive = !readOnly && (po.status === 'ordered' || po.status === 'partially_received')
 
   return (

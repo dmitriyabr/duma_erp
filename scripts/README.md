@@ -72,6 +72,103 @@ railway run python3 scripts/audit_financial_integrity.py --json --fail-on-errors
 
 ---
 
+## audit_discounted_invoice_allocations.py
+
+Read-only аудит исторически рискованных скидок по уже оплачиваемым invoice.
+
+Ищет invoices, у которых в `audit_logs` есть:
+
+- `discount.apply`
+- `invoice.update_line_discount`
+
+Дальше проверяет:
+
+- была ли скидка применена уже после появления allocations на этом invoice
+- превышают ли текущие allocations discounted `invoice.total`
+- превышают ли line-level allocations текущий `line.net_amount`
+- есть ли stale `paid_total`, `amount_due`, `remaining_amount`
+
+Это полезно для поиска кейсов, которые могли сломаться **до** фикса auto-deallocate/auto-allocate после скидки.
+
+### Локальный запуск
+
+```bash
+# Все найденные рискованные/битые discounted invoices
+python3 scripts/audit_discounted_invoice_allocations.py
+
+# Только историческое окно до фикса
+python3 scripts/audit_discounted_invoice_allocations.py --event-date-to 2026-03-14
+
+# Только один ученик
+python3 scripts/audit_discounted_invoice_allocations.py --student-number STU-2026-000014
+
+# Только текущие реальные поломки
+python3 scripts/audit_discounted_invoice_allocations.py --only-errors
+```
+
+### Запуск на Railway
+
+```bash
+# Исторические discounted invoices до даты фикса
+railway run python3 scripts/audit_discounted_invoice_allocations.py --event-date-to 2026-03-14
+
+# Конкретный ученик
+railway run python3 scripts/audit_discounted_invoice_allocations.py --student-number STU-2026-000014
+
+# JSON для логов / CI
+railway run python3 scripts/audit_discounted_invoice_allocations.py --json --fail-on-findings
+```
+
+Скрипт **ничего не меняет в базе**. Он только читает данные и отделяет:
+
+- `warning`: скидка применялась уже после allocations, но текущая математика сейчас выглядит целой
+- `error`: есть текущее расхождение, обычно указывающее на missed deallocation / stale aggregates
+
+---
+
+## repair_discounted_invoice_allocations.py
+
+Targeted repair для исторического бага, когда скидка была применена **после** allocations, но excess allocations не снялись.
+
+Скрипт:
+
+- находит invoices из `audit_logs` (`discount.apply`, `invoice.update_line_discount`)
+- вычисляет, сколько allocations надо снять
+- в `--apply` режиме вызывает тот же `PaymentService.release_excess_allocations()`, что и код приложения
+- после этого один раз запускает обычный `auto-allocation` по ученику
+
+По умолчанию это `dry-run`.
+
+### Локальный запуск
+
+```bash
+# Preview по историческому окну
+python3 scripts/repair_discounted_invoice_allocations.py --event-date-to 2026-03-14
+
+# Только конкретный invoice
+python3 scripts/repair_discounted_invoice_allocations.py --invoice-number INV-2026-000218
+```
+
+### Запуск на Railway
+
+```bash
+# Preview по найденным историческим кейсам
+railway run python3 scripts/repair_discounted_invoice_allocations.py --event-date-to 2026-03-14
+
+# Применить repair по конкретным invoices
+railway run python3 scripts/repair_discounted_invoice_allocations.py \
+  --invoice-number INV-2026-000218 \
+  --invoice-number INV-2026-000209 \
+  --user-id 1 \
+  --apply
+```
+
+Для `--apply` нужен `--user-id`, который попадет в audit log как исполнитель repair.
+
+Скрипт меняет только этот класс ошибок: excess allocations на discounted invoices. Для stale header/line aggregates без over-allocation по-прежнему используйте `repair_financial_integrity.py`.
+
+---
+
 ## repair_financial_integrity.py
 
 Безопасный пересчет битых финансовых агрегатов у выбранных студентов.

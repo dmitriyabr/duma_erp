@@ -1121,6 +1121,14 @@ CREATE TABLE purchase_order_lines (
    - хотя бы одна > 0% → PartiallyReceived
 3. `debt_amount = received_value - paid_total`
 4. Если `track_to_warehouse = FALSE`, то это расход без складского учета
+5. Purchase Order можно редактировать, пока он **open**.
+   - `Admin` может редактировать только `draft` и `ordered`.
+   - `partially_received` и `received` может редактировать только `SuperAdmin`.
+   - `closed` и `cancelled` редактировать нельзя.
+   - Существующие строки обновляются по `purchase_order_line.id`, а не через delete/recreate всех линий.
+   - `quantity_expected` нельзя уменьшать ниже уже принятого `quantity_received`.
+   - `expected_total` нельзя уменьшать ниже уже внесённого `paid_total`.
+   - Строку нельзя удалить или поменять у неё `item_id`, если по ней уже есть GRN history / received quantity.
 
 ---
 
@@ -2320,7 +2328,12 @@ PURCHASE_ORDER_VALIDATIONS = {
     'line.unit_price': {'required': True, 'min': 0.01},
     
     # Business rules
-    'cannot_edit_received_po': True,
+    'cannot_edit_closed_or_cancelled_po': True,
+    'only_superadmin_can_edit_partially_or_fully_received_po': True,
+    'quantity_expected_cannot_be_less_than_received': True,
+    'expected_total_cannot_be_less_than_paid_total': True,
+    'cannot_delete_grn_referenced_line': True,
+    'cannot_change_item_on_grn_referenced_line': True,
     'attachment_recommended': True  # Warning only
 }
 ```

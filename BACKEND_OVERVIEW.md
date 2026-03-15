@@ -64,6 +64,14 @@
 `GRN: draft → approved | cancelled`
 `ProcurementPayment: posted → cancelled`
 
+- **Update PO (Admin/SuperAdmin):**
+  - `Admin` может редактировать только `draft` и `ordered`.
+  - `partially_received` и `received` может редактировать только `SuperAdmin`.
+  - `closed` и `cancelled` редактировать нельзя.
+  - Линии обновляются **по существующему `line.id`**, а не через delete/recreate всего заказа.
+  - Нельзя уменьшить `quantity_expected` ниже уже принятого `quantity_received`.
+  - Нельзя уменьшить итоговый `expected_total` ниже уже внесённого `paid_total`.
+  - Нельзя удалить строку или сменить её `item_id`, если по ней уже есть GRN history / received quantity.
 - **Rollback receiving (SUPER_ADMIN):** если GRN уже был approved, но позже обнаружили ошибку, можно сделать откат через `POST /procurement/grns/{grn_id}/rollback`.
   - Операция отменяет этот GRN, откатывает `quantity_received` по линиям PO и (если `track_to_warehouse=true`) создаёт компенсационные `StockMovement(receipt)` с отрицательным количеством, чтобы вернуть склад и average cost.
   - Ограничения безопасности: по затронутым items не должно быть более поздних `receipt` movements. Если по PO уже есть оплаты (`paid_total > 0`), откат всё равно возможен — после rollback `debt_amount` может стать отрицательным (аванс поставщику: “paid, not received”).

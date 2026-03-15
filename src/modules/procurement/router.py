@@ -290,7 +290,11 @@ async def update_purchase_order(
 ):
     """Update a purchase order."""
     service = PurchaseOrderService(db)
-    po = await service.update_purchase_order(po_id, data)
+    po = await service.update_purchase_order(
+        po_id,
+        data,
+        actor_role=current_user.role,
+    )
     return ApiResponse(
         success=True,
         message="Purchase order updated successfully",

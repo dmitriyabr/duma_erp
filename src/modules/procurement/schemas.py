@@ -34,14 +34,35 @@ class PurchaseOrderCreate(BaseSchema):
 class PurchaseOrderLineUpdate(BaseSchema):
     """Schema for updating a purchase order line."""
 
+    id: int | None = None
     item_id: int | None = None
     description: str | None = Field(None, min_length=1, max_length=500)
     quantity_expected: int | None = Field(None, gt=0)
     unit_price: Decimal | None = Field(None, ge=0)
 
+    @model_validator(mode="after")
+    def validate_new_line_fields(self):
+        if self.id is not None:
+            return self
+
+        missing_fields = []
+        if self.description is None:
+            missing_fields.append("description")
+        if self.quantity_expected is None:
+            missing_fields.append("quantity_expected")
+        if self.unit_price is None:
+            missing_fields.append("unit_price")
+
+        if missing_fields:
+            raise ValueError(
+                "New purchase order lines require "
+                + ", ".join(missing_fields)
+            )
+        return self
+
 
 class PurchaseOrderUpdate(BaseSchema):
-    """Schema for updating a purchase order (draft/ordered only)."""
+    """Schema for updating an open purchase order."""
 
     supplier_name: str | None = Field(None, min_length=1, max_length=300)
     supplier_contact: str | None = Field(None, max_length=200)
@@ -50,7 +71,7 @@ class PurchaseOrderUpdate(BaseSchema):
     expected_delivery_date: date | None = None
     track_to_warehouse: bool | None = None
     notes: str | None = None
-    lines: list[PurchaseOrderLineUpdate] | None = None
+    lines: list[PurchaseOrderLineUpdate] | None = Field(None, min_length=1)
 
 
 class PurchaseOrderLineResponse(BaseSchema):

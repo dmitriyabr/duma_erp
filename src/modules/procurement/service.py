@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.core.documents.number_generator import get_document_number
-from src.core.exceptions import NotFoundError, ValidationError
+from src.core.auth.models import UserRole
+from src.core.exceptions import AuthorizationError, NotFoundError, ValidationError
 from src.modules.inventory.models import MovementType, StockMovement
 from src.modules.inventory.schemas import ReceiveStockRequest
 from src.modules.inventory.service import InventoryService
@@ -34,6 +35,7 @@ from src.modules.procurement.schemas import (
     PurchaseOrderCreate,
     PurchaseOrderFilters,
     PurchaseOrderLineCreate,
+    PurchaseOrderLineUpdate,
     PurchaseOrderUpdate,
     ProcurementPaymentCreate,
     ProcurementPaymentFilters,
@@ -91,70 +93,155 @@ class PurchaseOrderService:
         return await self.get_purchase_order_by_id(purchase_order.id)
 
     async def update_purchase_order(
-        self, po_id: int, data: PurchaseOrderUpdate
+        self,
+        po_id: int,
+        data: PurchaseOrderUpdate,
+        actor_role: str | None = None,
     ) -> PurchaseOrder:
-        """Update a purchase order (draft/ordered only)."""
+        """Update an open purchase order."""
         purchase_order = await self.get_purchase_order_by_id(po_id)
-        if purchase_order.status not in (
-            PurchaseOrderStatus.DRAFT.value,
-            PurchaseOrderStatus.ORDERED.value,
+        if purchase_order.status in (
+            PurchaseOrderStatus.CANCELLED.value,
+            PurchaseOrderStatus.CLOSED.value,
         ):
-            raise ValidationError("Only draft/ordered purchase orders can be updated")
+            raise ValidationError("Closed or cancelled purchase orders cannot be updated")
+        if (
+            actor_role == UserRole.ADMIN.value
+            and purchase_order.status
+            in (
+                PurchaseOrderStatus.PARTIALLY_RECEIVED.value,
+                PurchaseOrderStatus.RECEIVED.value,
+            )
+        ):
+            raise AuthorizationError(
+                "Only SuperAdmin can edit partially received or received purchase orders"
+            )
 
         update_data = data.model_dump(exclude_unset=True)
-        lines = update_data.pop("lines", None)
+        update_data.pop("lines", None)
+        purpose_id = update_data.pop("purpose_id", None)
 
         for field, value in update_data.items():
             setattr(purchase_order, field, value)
 
-        if lines is not None:
-            # Safety: PO lines may already be referenced by GRNs (draft/approved/cancelled).
-            # The current update implementation replaces all lines by deleting and
-            # re-creating them. If any GRN exists, deleting lines would either:
-            # - violate FK constraints (goods_received_lines.po_line_id), or
-            # - corrupt receiving history.
-            grn_line_count = await self.db.scalar(
-                select(func.count())
-                .select_from(GoodsReceivedLine)
-                .join(
-                    PurchaseOrderLine,
-                    PurchaseOrderLine.id == GoodsReceivedLine.po_line_id,
-                )
-                .where(PurchaseOrderLine.po_id == purchase_order.id)
-            )
-            if int(grn_line_count or 0) > 0:
-                raise ValidationError(
-                    "Cannot edit purchase order lines after a GRN exists. "
-                    "Cancel draft GRNs or rollback receiving first."
-                )
+        if purpose_id is not None:
+            await PaymentPurposeService(self.db).get_purpose_by_id(purpose_id)
+            purchase_order.purpose_id = purpose_id
 
-            await self.db.execute(
-                PurchaseOrderLine.__table__.delete().where(
-                    PurchaseOrderLine.po_id == purchase_order.id
-                )
-            )
-            for index, line in enumerate(lines, start=1):
-                line_total = Decimal(line.quantity_expected) * line.unit_price
-                po_line = PurchaseOrderLine(
-                    po_id=purchase_order.id,
-                    item_id=line.item_id,
-                    description=line.description,
-                    quantity_expected=line.quantity_expected,
-                    quantity_cancelled=0,
-                    unit_price=line.unit_price,
-                    line_total=line_total,
-                    quantity_received=0,
-                    line_order=index,
-                )
-                self.db.add(po_line)
-
-        if data.purpose_id is not None:
-            await PaymentPurposeService(self.db).get_purpose_by_id(data.purpose_id)
-            purchase_order.purpose_id = data.purpose_id
+        if data.lines is not None:
+            await self._sync_purchase_order_lines(purchase_order, data.lines)
 
         await self._recalculate_totals(purchase_order.id)
+        if purchase_order.expected_total < purchase_order.paid_total:
+            raise ValidationError(
+                "Purchase order total cannot be less than amount already paid"
+            )
         await self.db.commit()
         return await self.get_purchase_order_by_id(purchase_order.id)
+
+    async def _sync_purchase_order_lines(
+        self, purchase_order: PurchaseOrder, lines: list[PurchaseOrderLineUpdate]
+    ) -> None:
+        existing_lines = {line.id: line for line in purchase_order.lines}
+        referenced_line_ids = await self._get_grn_referenced_line_ids(
+            list(existing_lines.keys())
+        )
+        kept_line_ids: set[int] = set()
+
+        for index, line_data in enumerate(lines, start=1):
+            if line_data.id is None:
+                line_total = Decimal(line_data.quantity_expected) * line_data.unit_price
+                self.db.add(
+                    PurchaseOrderLine(
+                        po_id=purchase_order.id,
+                        item_id=line_data.item_id,
+                        description=line_data.description,
+                        quantity_expected=line_data.quantity_expected,
+                        quantity_cancelled=0,
+                        unit_price=line_data.unit_price,
+                        line_total=line_total,
+                        quantity_received=0,
+                        line_order=index,
+                    )
+                )
+                continue
+
+            po_line = existing_lines.get(line_data.id)
+            if not po_line:
+                raise ValidationError("Purchase order line does not belong to purchase order")
+            if po_line.id in kept_line_ids:
+                raise ValidationError("Duplicate purchase order line id in update payload")
+
+            kept_line_ids.add(po_line.id)
+            await self._apply_purchase_order_line_update(
+                po_line=po_line,
+                line_data=line_data,
+                line_order=index,
+                has_grn_reference=po_line.id in referenced_line_ids,
+            )
+
+        for po_line in list(purchase_order.lines):
+            if po_line.id in kept_line_ids:
+                continue
+            if po_line.quantity_received > 0:
+                raise ValidationError(
+                    "Cannot remove a purchase order line that already has received quantity"
+                )
+            if po_line.id in referenced_line_ids:
+                raise ValidationError(
+                    "Cannot remove a purchase order line that is referenced by a GRN"
+                )
+            await self.db.delete(po_line)
+
+    async def _apply_purchase_order_line_update(
+        self,
+        po_line: PurchaseOrderLine,
+        line_data: PurchaseOrderLineUpdate,
+        line_order: int,
+        has_grn_reference: bool,
+    ) -> None:
+        fields_set = line_data.model_fields_set
+
+        if "item_id" in fields_set and line_data.item_id != po_line.item_id:
+            if has_grn_reference or po_line.quantity_received > 0:
+                raise ValidationError(
+                    "Cannot change the item on a purchase order line that already has GRN history"
+                )
+            po_line.item_id = line_data.item_id
+
+        if "description" in fields_set:
+            po_line.description = line_data.description
+
+        new_quantity_expected = (
+            line_data.quantity_expected
+            if "quantity_expected" in fields_set
+            else po_line.quantity_expected
+        )
+        if new_quantity_expected < po_line.quantity_received:
+            raise ValidationError(
+                "Purchase order quantity cannot be reduced below already received quantity"
+            )
+
+        if "quantity_expected" in fields_set:
+            po_line.quantity_expected = new_quantity_expected
+
+        if "unit_price" in fields_set:
+            po_line.unit_price = line_data.unit_price
+
+        po_line.line_order = line_order
+        effective_qty = max(0, po_line.quantity_expected - po_line.quantity_cancelled)
+        po_line.line_total = Decimal(effective_qty) * po_line.unit_price
+
+    async def _get_grn_referenced_line_ids(self, line_ids: list[int]) -> set[int]:
+        if not line_ids:
+            return set()
+
+        result = await self.db.scalars(
+            select(GoodsReceivedLine.po_line_id)
+            .where(GoodsReceivedLine.po_line_id.in_(line_ids))
+            .distinct()
+        )
+        return set(result.all())
 
     async def submit_purchase_order(self, po_id: int) -> PurchaseOrder:
         """Mark purchase order as ordered."""

@@ -8,23 +8,35 @@ from src.core.auth.service import AuthService
 class TestPurchaseOrderEndpoints:
     """Tests for purchase order endpoints."""
 
-    async def _get_admin_token(
-        self, client: AsyncClient, db_session: AsyncSession
+    async def _get_token_for_role(
+        self, client: AsyncClient, db_session: AsyncSession, role: UserRole
     ) -> str:
         auth_service = AuthService(db_session)
         await auth_service.create_user(
-            email="admin-proc@test.com",
+            email=f"{role.value.lower()}-proc@test.com",
             password="Password123",
-            full_name="Admin Proc",
-            role=UserRole.SUPER_ADMIN,
+            full_name=f"{role.value} Proc",
+            role=role,
         )
         await db_session.commit()
 
         response = await client.post(
             "/api/v1/auth/login",
-            json={"email": "admin-proc@test.com", "password": "Password123"},
+            json={
+                "email": f"{role.value.lower()}-proc@test.com",
+                "password": "Password123",
+            },
         )
         return response.json()["data"]["access_token"]
+
+    async def _get_admin_token(
+        self, client: AsyncClient, db_session: AsyncSession
+    ) -> str:
+        return await self._get_token_for_role(
+            client,
+            db_session,
+            role=UserRole.SUPER_ADMIN,
+        )
 
     async def _create_product_item(
         self, client: AsyncClient, token: str
@@ -240,7 +252,357 @@ class TestPurchaseOrderEndpoints:
         messages = [e["message"] for e in data["data"]["errors"]]
         assert any("quantity" in m.lower() for m in messages)
 
-    async def test_update_po_rejected_if_grn_exists(
+    async def test_update_po_allows_edit_after_partial_receiving(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await self._get_admin_token(client, db_session)
+        item_id = await self._create_product_item(client, token)
+        purpose_id = await self._create_payment_purpose(client, token)
+
+        create_response = await client.post(
+            "/api/v1/procurement/purchase-orders",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "supplier_name": "ABC Supplies",
+                "purpose_id": purpose_id,
+                "lines": [
+                    {
+                        "item_id": item_id,
+                        "description": "Test Item",
+                        "quantity_expected": 3,
+                        "unit_price": "50.00",
+                    }
+                ],
+            },
+        )
+        assert create_response.status_code == 201
+        po = create_response.json()["data"]
+        po_id = po["id"]
+        po_line_id = po["lines"][0]["id"]
+
+        submit_response = await client.post(
+            f"/api/v1/procurement/purchase-orders/{po_id}/submit",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert submit_response.status_code == 200
+
+        grn_response = await client.post(
+            "/api/v1/procurement/grns",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "po_id": po_id,
+                "lines": [{"po_line_id": po_line_id, "quantity_received": 1}],
+            },
+        )
+        assert grn_response.status_code == 201
+        grn_id = grn_response.json()["data"]["id"]
+
+        approve_response = await client.post(
+            f"/api/v1/procurement/grns/{grn_id}/approve",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert approve_response.status_code == 200
+
+        update_response = await client.put(
+            f"/api/v1/procurement/purchase-orders/{po_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "supplier_name": "ABC Supplies Updated",
+                "purpose_id": purpose_id,
+                "lines": [
+                    {
+                        "id": po_line_id,
+                        "item_id": item_id,
+                        "description": "Test Item Updated",
+                        "quantity_expected": 2,
+                        "unit_price": "60.00",
+                    }
+                ],
+            },
+        )
+
+        assert update_response.status_code == 200
+        data = update_response.json()["data"]
+        assert data["supplier_name"] == "ABC Supplies Updated"
+        assert data["status"] == "partially_received"
+        assert data["expected_total"] == "120.00"
+        assert data["received_value"] == "60.00"
+        assert data["lines"][0]["quantity_expected"] == 2
+        assert data["lines"][0]["quantity_received"] == 1
+        assert data["lines"][0]["unit_price"] == "60.00"
+
+    async def test_admin_can_edit_ordered_po(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        superadmin_token = await self._get_admin_token(client, db_session)
+        admin_token = await self._get_token_for_role(
+            client,
+            db_session,
+            role=UserRole.ADMIN,
+        )
+        item_id = await self._create_product_item(client, superadmin_token)
+        purpose_id = await self._create_payment_purpose(client, superadmin_token)
+
+        create_response = await client.post(
+            "/api/v1/procurement/purchase-orders",
+            headers={"Authorization": f"Bearer {superadmin_token}"},
+            json={
+                "supplier_name": "ABC Supplies",
+                "purpose_id": purpose_id,
+                "lines": [
+                    {
+                        "item_id": item_id,
+                        "description": "Test Item",
+                        "quantity_expected": 2,
+                        "unit_price": "50.00",
+                    }
+                ],
+            },
+        )
+        assert create_response.status_code == 201
+        po = create_response.json()["data"]
+        po_id = po["id"]
+        po_line_id = po["lines"][0]["id"]
+
+        submit_response = await client.post(
+            f"/api/v1/procurement/purchase-orders/{po_id}/submit",
+            headers={"Authorization": f"Bearer {superadmin_token}"},
+        )
+        assert submit_response.status_code == 200
+
+        update_response = await client.put(
+            f"/api/v1/procurement/purchase-orders/{po_id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={
+                "supplier_name": "ABC Supplies Updated",
+                "purpose_id": purpose_id,
+                "lines": [
+                    {
+                        "id": po_line_id,
+                        "item_id": item_id,
+                        "description": "Test Item Updated",
+                        "quantity_expected": 3,
+                        "unit_price": "55.00",
+                    }
+                ],
+            },
+        )
+
+        assert update_response.status_code == 200
+        assert update_response.json()["data"]["status"] == "ordered"
+        assert update_response.json()["data"]["expected_total"] == "165.00"
+
+    async def test_admin_cannot_edit_partially_received_po(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        superadmin_token = await self._get_admin_token(client, db_session)
+        admin_token = await self._get_token_for_role(
+            client,
+            db_session,
+            role=UserRole.ADMIN,
+        )
+        item_id = await self._create_product_item(client, superadmin_token)
+        purpose_id = await self._create_payment_purpose(client, superadmin_token)
+
+        create_response = await client.post(
+            "/api/v1/procurement/purchase-orders",
+            headers={"Authorization": f"Bearer {superadmin_token}"},
+            json={
+                "supplier_name": "ABC Supplies",
+                "purpose_id": purpose_id,
+                "lines": [
+                    {
+                        "item_id": item_id,
+                        "description": "Test Item",
+                        "quantity_expected": 3,
+                        "unit_price": "50.00",
+                    }
+                ],
+            },
+        )
+        assert create_response.status_code == 201
+        po = create_response.json()["data"]
+        po_id = po["id"]
+        po_line_id = po["lines"][0]["id"]
+
+        submit_response = await client.post(
+            f"/api/v1/procurement/purchase-orders/{po_id}/submit",
+            headers={"Authorization": f"Bearer {superadmin_token}"},
+        )
+        assert submit_response.status_code == 200
+
+        grn_response = await client.post(
+            "/api/v1/procurement/grns",
+            headers={"Authorization": f"Bearer {superadmin_token}"},
+            json={
+                "po_id": po_id,
+                "lines": [{"po_line_id": po_line_id, "quantity_received": 1}],
+            },
+        )
+        assert grn_response.status_code == 201
+        grn_id = grn_response.json()["data"]["id"]
+
+        approve_response = await client.post(
+            f"/api/v1/procurement/grns/{grn_id}/approve",
+            headers={"Authorization": f"Bearer {superadmin_token}"},
+        )
+        assert approve_response.status_code == 200
+
+        update_response = await client.put(
+            f"/api/v1/procurement/purchase-orders/{po_id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={
+                "purpose_id": purpose_id,
+                "lines": [
+                    {
+                        "id": po_line_id,
+                        "item_id": item_id,
+                        "description": "Test Item Updated",
+                        "quantity_expected": 3,
+                        "unit_price": "60.00",
+                    }
+                ],
+            },
+        )
+
+        assert update_response.status_code == 403
+        assert "superadmin" in (update_response.json().get("message") or "").lower()
+
+    async def test_update_po_rejects_quantity_below_received(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await self._get_admin_token(client, db_session)
+        item_id = await self._create_product_item(client, token)
+        purpose_id = await self._create_payment_purpose(client, token)
+
+        create_response = await client.post(
+            "/api/v1/procurement/purchase-orders",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "supplier_name": "ABC Supplies",
+                "purpose_id": purpose_id,
+                "lines": [
+                    {
+                        "item_id": item_id,
+                        "description": "Test Item",
+                        "quantity_expected": 3,
+                        "unit_price": "50.00",
+                    }
+                ],
+            },
+        )
+        assert create_response.status_code == 201
+        po = create_response.json()["data"]
+        po_id = po["id"]
+        po_line_id = po["lines"][0]["id"]
+
+        submit_response = await client.post(
+            f"/api/v1/procurement/purchase-orders/{po_id}/submit",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert submit_response.status_code == 200
+
+        grn_response = await client.post(
+            "/api/v1/procurement/grns",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "po_id": po_id,
+                "lines": [{"po_line_id": po_line_id, "quantity_received": 2}],
+            },
+        )
+        assert grn_response.status_code == 201
+        grn_id = grn_response.json()["data"]["id"]
+
+        approve_response = await client.post(
+            f"/api/v1/procurement/grns/{grn_id}/approve",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert approve_response.status_code == 200
+
+        update_response = await client.put(
+            f"/api/v1/procurement/purchase-orders/{po_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "purpose_id": purpose_id,
+                "lines": [
+                    {
+                        "id": po_line_id,
+                        "item_id": item_id,
+                        "description": "Test Item",
+                        "quantity_expected": 1,
+                        "unit_price": "50.00",
+                    }
+                ],
+            },
+        )
+
+        assert update_response.status_code == 422
+        assert "received" in (update_response.json().get("message") or "").lower()
+
+    async def test_update_po_rejects_total_below_paid_total(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await self._get_admin_token(client, db_session)
+        item_id = await self._create_product_item(client, token)
+        purpose_id = await self._create_payment_purpose(client, token)
+
+        create_response = await client.post(
+            "/api/v1/procurement/purchase-orders",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "supplier_name": "ABC Supplies",
+                "purpose_id": purpose_id,
+                "lines": [
+                    {
+                        "item_id": item_id,
+                        "description": "Test Item",
+                        "quantity_expected": 2,
+                        "unit_price": "50.00",
+                    }
+                ],
+            },
+        )
+        assert create_response.status_code == 201
+        po = create_response.json()["data"]
+        po_id = po["id"]
+        po_line_id = po["lines"][0]["id"]
+
+        payment_response = await client.post(
+            "/api/v1/procurement/payments",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "po_id": po_id,
+                "purpose_id": purpose_id,
+                "payment_date": "2026-01-25",
+                "amount": "90.00",
+                "payment_method": "bank",
+                "proof_text": "Advance payment",
+                "company_paid": True,
+            },
+        )
+        assert payment_response.status_code == 201
+
+        update_response = await client.put(
+            f"/api/v1/procurement/purchase-orders/{po_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "purpose_id": purpose_id,
+                "lines": [
+                    {
+                        "id": po_line_id,
+                        "item_id": item_id,
+                        "description": "Test Item",
+                        "quantity_expected": 1,
+                        "unit_price": "50.00",
+                    }
+                ],
+            },
+        )
+
+        assert update_response.status_code == 422
+        assert "already paid" in (update_response.json().get("message") or "").lower()
+
+    async def test_update_po_rejected_if_removing_line_with_grn_reference(
         self, client: AsyncClient, db_session: AsyncSession
     ):
         token = await self._get_admin_token(client, db_session)
@@ -283,8 +645,8 @@ class TestPurchaseOrderEndpoints:
         )
         assert grn_response.status_code == 201
 
-        # Update PO lines should be rejected with a validation error (422),
-        # instead of failing with a DB IntegrityError.
+        # Removing the original line would break the GRN reference and must
+        # fail with a validation error rather than an integrity error.
         update_response = await client.put(
             f"/api/v1/procurement/purchase-orders/{po_id}",
             headers={"Authorization": f"Bearer {token}"},
@@ -293,8 +655,8 @@ class TestPurchaseOrderEndpoints:
                 "purpose_id": purpose_id,
                 "lines": [
                     {
+                        "description": "Replacement Line",
                         "item_id": item_id,
-                        "description": "Test Item Updated",
                         "quantity_expected": 2,
                         "unit_price": "60.00",
                     }
