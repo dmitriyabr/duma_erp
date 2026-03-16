@@ -1,6 +1,10 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useAuth } from '../../../auth/AuthContext'
+import { ReservationIssueDialog } from '../../../components/inventory/ReservationIssueDialog'
+import { Button } from '../../../components/ui/Button'
 import { SECONDARY_LIST_LIMIT } from '../../../constants/pagination'
 import { useApi } from '../../../hooks/useApi'
+import { canManageReservations } from '../../../utils/permissions'
 import { formatDateTime } from '../../../utils/format'
 import type { PaginatedResponse, ReservationResponse } from '../types'
 import { Typography } from '../../../components/ui/Typography'
@@ -12,16 +16,27 @@ interface ItemsToIssueTabProps {
 }
 
 export const ItemsToIssueTab = ({ studentId, onError }: ItemsToIssueTabProps) => {
+  const { user } = useAuth()
+  const canManage = canManageReservations(user)
+  const [selectedForIssue, setSelectedForIssue] = useState<ReservationResponse | null>(null)
+  const [issueDialogOpen, setIssueDialogOpen] = useState(false)
   const url = useMemo(
     () => `/reservations?student_id=${studentId}&limit=${SECONDARY_LIST_LIMIT}&page=1`,
     [studentId]
   )
-  const { data, error } = useApi<PaginatedResponse<ReservationResponse>>(url)
+  const { data, error, refetch } = useApi<PaginatedResponse<ReservationResponse>>(url)
 
   const reservations = data?.items || []
 
-  if (error) {
-    onError('Failed to load items to issue.')
+  useEffect(() => {
+    if (error) {
+      onError('Failed to load items to issue.')
+    }
+  }, [error, onError])
+
+  const openIssueDialog = (reservation: ReservationResponse) => {
+    setSelectedForIssue(reservation)
+    setIssueDialogOpen(true)
   }
 
   return (
@@ -33,6 +48,7 @@ export const ItemsToIssueTab = ({ studentId, onError }: ItemsToIssueTabProps) =>
             <TableHeaderCell>Status</TableHeaderCell>
             <TableHeaderCell>Created</TableHeaderCell>
             <TableHeaderCell>Items</TableHeaderCell>
+            <TableHeaderCell align="right">Actions</TableHeaderCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -48,17 +64,38 @@ export const ItemsToIssueTab = ({ studentId, onError }: ItemsToIssueTabProps) =>
                   </Typography>
                 ))}
               </TableCell>
+              <TableCell align="right">
+                {canManage &&
+                (reservation.status === 'pending' || reservation.status === 'partial') ? (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => openIssueDialog(reservation)}
+                  >
+                    Issue
+                  </Button>
+                ) : (
+                  '—'
+                )}
+              </TableCell>
             </TableRow>
           ))}
           {!reservations.length && (
             <TableRow>
-              <td colSpan={4} className="px-4 py-8 text-center">
+              <td colSpan={5} className="px-4 py-8 text-center">
                 <Typography color="secondary">No items to issue</Typography>
               </td>
             </TableRow>
           )}
         </TableBody>
       </Table>
+
+      <ReservationIssueDialog
+        open={issueDialogOpen}
+        reservation={selectedForIssue}
+        onClose={() => setIssueDialogOpen(false)}
+        onReservationChanged={refetch}
+      />
     </div>
   )
 }
