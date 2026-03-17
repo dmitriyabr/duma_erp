@@ -154,7 +154,7 @@ async def configure_reservation_components(
 ):
     """Configure concrete components for an editable-kit reservation.
 
-    Allowed only before any items are issued.
+    Already issued quantities remain fixed; only the unissued remainder can change.
     """
     service = ReservationService(db)
     reservation = await service.configure_components(

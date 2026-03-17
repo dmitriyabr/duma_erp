@@ -327,7 +327,8 @@ class ReservationService:
         """Configure concrete components for an editable-kit reservation.
 
         This allows selecting actual inventory items for kit variant components *at issuance time*.
-        Only allowed before any issuance (quantity_issued must be 0 for all reservation items).
+        Already issued quantities stay locked to their existing items. Only the unissued
+        remainder can be reconfigured.
         """
         reservation = await self.get_by_id(reservation_id)
 
@@ -335,8 +336,6 @@ class ReservationService:
             raise ValidationError("Reservation is cancelled")
         if reservation.status == ReservationStatus.FULFILLED.value:
             raise ValidationError("Reservation already fulfilled")
-        if any((ri.quantity_issued or 0) > 0 for ri in reservation.items):
-            raise ValidationError("Cannot configure components after items have been issued")
 
         line = await self._get_invoice_line(reservation.invoice_line_id)
         kit = line.kit
@@ -431,20 +430,52 @@ class ReservationService:
                 )
             )
 
-        await self.db.execute(
-            delete(ReservationItem).where(ReservationItem.reservation_id == reservation.id)
-        )
-        for item_id, qty in new_reservation_items_by_item.items():
-            self.db.add(
-                ReservationItem(
-                    reservation_id=reservation.id,
-                    item_id=item_id,
-                    quantity_required=qty,
-                    quantity_issued=0,
+        existing_items_by_item: dict[int, ReservationItem] = {}
+        for reservation_item in list(reservation.items):
+            item_id = int(reservation_item.item_id)
+            if item_id in existing_items_by_item:
+                raise ValidationError(
+                    "Reservation contains duplicate item rows. Manual cleanup is required."
                 )
-            )
+            existing_items_by_item[item_id] = reservation_item
 
-        reservation.status = ReservationStatus.PENDING.value
+        for item_id, reservation_item in existing_items_by_item.items():
+            issued_qty = int(reservation_item.quantity_issued or 0)
+            target_qty = int(new_reservation_items_by_item.get(item_id, 0))
+            if target_qty < issued_qty:
+                item_name = reservation_item.item.name if reservation_item.item else f"Item {item_id}"
+                raise ValidationError(
+                    f"Cannot reduce '{item_name}' below already issued quantity ({issued_qty})"
+                )
+
+        for item_id, qty in new_reservation_items_by_item.items():
+            reservation_item = existing_items_by_item.get(item_id)
+            if reservation_item:
+                reservation_item.quantity_required = qty
+                continue
+
+            new_item = ReservationItem(
+                reservation_id=reservation.id,
+                item_id=item_id,
+                quantity_required=qty,
+                quantity_issued=0,
+            )
+            self.db.add(new_item)
+            reservation.items.append(new_item)
+
+        for item_id, reservation_item in list(existing_items_by_item.items()):
+            if item_id in new_reservation_items_by_item:
+                continue
+            if int(reservation_item.quantity_issued or 0) > 0:
+                item_name = reservation_item.item.name if reservation_item.item else f"Item {item_id}"
+                raise ValidationError(
+                    f"Cannot remove already issued item '{item_name}' from the reservation"
+                )
+            if reservation_item in reservation.items:
+                reservation.items.remove(reservation_item)
+            await self.db.delete(reservation_item)
+
+        reservation.status = self._calculate_status(reservation)
 
         await self.audit.log(
             action="reservation.configure_components",
