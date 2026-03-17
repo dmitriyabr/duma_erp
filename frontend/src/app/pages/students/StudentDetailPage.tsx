@@ -142,6 +142,7 @@ export const StudentDetailPage = () => {
         <TabPanel value="invoices">
           <InvoicesTab
             studentId={resolvedId}
+            transportZoneId={student.transport_zone_id}
             onError={handleError}
             onDebtChange={handleDebtChange}
             initialInvoices={invoicesApi.data?.items ?? null}

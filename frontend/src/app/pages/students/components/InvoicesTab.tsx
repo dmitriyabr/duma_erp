@@ -29,6 +29,7 @@ import { Spinner } from '../../../components/ui/Spinner'
 
 interface InvoicesTabProps {
   studentId: number
+  transportZoneId?: number | null
   onError: (message: string) => void
   onDebtChange: () => void
   /** When provided, use instead of own fetch — avoids duplicate GET /invoices from parent (StudentDetailPage). */
@@ -36,8 +37,16 @@ interface InvoicesTabProps {
   invoicesLoading?: boolean
 }
 
+interface GenerationResult {
+  school_fee_invoices_created: number
+  transport_invoices_created: number
+  students_skipped: number
+  total_students_processed: number
+}
+
 export const InvoicesTab = ({
   studentId,
+  transportZoneId,
   onError,
   onDebtChange,
   initialInvoices,
@@ -102,7 +111,7 @@ export const InvoicesTab = ({
     [selectedInvoiceId]
   )
 
-  const generateTermMutation = useApiMutation<unknown>()
+  const generateTermMutation = useApiMutation<GenerationResult>()
   const addLineMutation = useApiMutation<InvoiceDetail>()
   const removeLineMutation = useApiMutation<unknown>()
   const issueMutation = useApiMutation<unknown>()
@@ -113,14 +122,29 @@ export const InvoicesTab = ({
   const invoices = initialInvoices !== undefined ? (initialInvoices ?? []) : invoicesFromApi
   const invoicesLoading = parentInvoicesLoading ?? invoicesApi.loading
   const activeTermId = activeTermApi.data?.id ?? null
-  const termInvoiceExists = useMemo(() => {
+  const existingTermInvoiceTypes = useMemo(() => {
     const items = termInvoicesApi.data?.items ?? []
-    return items.some((inv) => {
-      const status = inv.status?.toLowerCase()
-      if (status === 'cancelled' || status === 'void') return false
-      return ['school_fee', 'transport'].includes(inv.invoice_type)
-    })
+    return new Set(
+      items.flatMap((inv) => {
+        const status = inv.status?.toLowerCase()
+        if (status === 'cancelled' || status === 'void') return []
+        if (!['school_fee', 'transport'].includes(inv.invoice_type)) return []
+        return [inv.invoice_type]
+      })
+    )
   }, [termInvoicesApi.data])
+  const canGenerateMissingTermInvoices = useMemo(() => {
+    if (!activeTermId || termInvoicesApi.loading) return false
+    const needsSchoolFeeInvoice = !existingTermInvoiceTypes.has('school_fee')
+    const needsTransportInvoice =
+      Boolean(transportZoneId) && !existingTermInvoiceTypes.has('transport')
+    return needsSchoolFeeInvoice || needsTransportInvoice
+  }, [
+    activeTermId,
+    existingTermInvoiceTypes,
+    termInvoicesApi.loading,
+    transportZoneId,
+  ])
   const termInvoiceLoading = generateTermMutation.loading
   const kits = kitsApi.data ?? []
   const selectedInvoice = invoiceDetailApi.data ?? null
@@ -161,10 +185,24 @@ export const InvoicesTab = ({
           term_id: activeTermId,
           student_id: studentId,
         })
-        .then((r) => ({ data: { data: unwrapResponse(r) } }))
+        .then((r) => ({ data: { data: unwrapResponse<GenerationResult>(r) } }))
     )
     if (ok != null) {
-      setTermInvoiceMessage('Term invoices generated.')
+      if (
+        ok.school_fee_invoices_created === 0 &&
+        ok.transport_invoices_created === 0
+      ) {
+        setTermInvoiceMessage('No missing term invoices to generate.')
+      } else {
+        const parts = []
+        if (ok.school_fee_invoices_created > 0) {
+          parts.push(`${ok.school_fee_invoices_created} school fee`)
+        }
+        if (ok.transport_invoices_created > 0) {
+          parts.push(`${ok.transport_invoices_created} transport`)
+        }
+        setTermInvoiceMessage(`Generated ${parts.join(' and ')} invoice${parts.length > 1 ? 's' : ''}.`)
+      }
       invoicesApi.refetch()
       termInvoicesApi.refetch()
       onDebtChange()
@@ -346,7 +384,7 @@ export const InvoicesTab = ({
             <Button
               variant="outlined"
               onClick={generateTermInvoices}
-              disabled={!activeTermId || termInvoiceExists || termInvoiceLoading}
+              disabled={!canGenerateMissingTermInvoices || termInvoiceLoading}
             >
               {termInvoiceLoading ? <Spinner size="small" /> : 'Invoice term'}
             </Button>

@@ -1239,11 +1239,22 @@ class InvoiceService:
         )
 
     async def _get_kit_by_price_type(self, price_type: str) -> Kit | None:
-        """Get an active kit by price_type."""
+        """Get the active service kit used for fee generation by price_type.
+
+        Historical data may contain multiple active kits with the same fee
+        price_type. In that case prefer the most recently created one instead
+        of crashing term invoice generation.
+        """
         result = await self.db.execute(
-            select(Kit).where(Kit.price_type == price_type, Kit.is_active == True)
+            select(Kit)
+            .where(
+                Kit.price_type == price_type,
+                Kit.item_type == ItemType.SERVICE.value,
+                Kit.is_active == True,
+            )
+            .order_by(Kit.id.desc())
         )
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     async def _get_kit_by_sku(self, sku_code: str) -> Kit | None:
         """Get an active kit by sku_code."""

@@ -1094,6 +1094,94 @@ class TestInvoiceService:
         assert result.transport_invoices_created == 0
         assert result.students_skipped == 2
 
+    async def test_generate_term_invoices_for_student_creates_missing_transport_after_zone_added(
+        self, db_session: AsyncSession
+    ):
+        """Student can receive missing transport invoice after transport zone is added later."""
+        data = await self._setup_test_data(db_session)
+        service = InvoiceService(db_session)
+        student = data["student_no_transport"]
+
+        first_result = await service.generate_term_invoices_for_student(
+            data["term"].id,
+            student.id,
+            generated_by_id=data["user"].id,
+        )
+
+        assert first_result.school_fee_invoices_created == 1
+        assert first_result.transport_invoices_created == 0
+
+        student.transport_zone_id = data["zone"].id
+        await db_session.commit()
+
+        second_result = await service.generate_term_invoices_for_student(
+            data["term"].id,
+            student.id,
+            generated_by_id=data["user"].id,
+        )
+
+        assert second_result.school_fee_invoices_created == 0
+        assert second_result.transport_invoices_created == 1
+
+        invoices_result = await db_session.execute(
+            select(Invoice.invoice_type)
+            .where(
+                Invoice.term_id == data["term"].id,
+                Invoice.student_id == student.id,
+                Invoice.status != InvoiceStatus.CANCELLED.value,
+                Invoice.status != InvoiceStatus.VOID.value,
+            )
+        )
+        invoice_types = list(invoices_result.scalars().all())
+
+        assert invoice_types.count(InvoiceType.SCHOOL_FEE.value) == 1
+        assert invoice_types.count(InvoiceType.TRANSPORT.value) == 1
+
+    async def test_generate_term_invoices_for_student_uses_latest_active_transport_kit_when_duplicates_exist(
+        self, db_session: AsyncSession
+    ):
+        """Historical duplicate transport fee kits should not crash generation."""
+        data = await self._setup_test_data(db_session)
+        service = InvoiceService(db_session)
+        student = data["student_no_transport"]
+
+        duplicate_transport_kit = Kit(
+            category_id=data["category"].id,
+            sku_code="TRN-FEE-LATEST",
+            name="Transport Fee Latest",
+            item_type=ItemType.SERVICE.value,
+            price_type=PriceType.BY_ZONE.value,
+            price=None,
+            requires_full_payment=False,
+            is_active=True,
+        )
+        db_session.add(duplicate_transport_kit)
+        await db_session.flush()
+
+        student.transport_zone_id = data["zone"].id
+        await db_session.commit()
+
+        result = await service.generate_term_invoices_for_student(
+            data["term"].id,
+            student.id,
+            generated_by_id=data["user"].id,
+        )
+
+        assert result.transport_invoices_created == 1
+
+        transport_invoice_result = await db_session.execute(
+            select(Invoice)
+            .where(
+                Invoice.term_id == data["term"].id,
+                Invoice.student_id == student.id,
+                Invoice.invoice_type == InvoiceType.TRANSPORT.value,
+            )
+            .options(selectinload(Invoice.lines))
+        )
+        transport_invoice = transport_invoice_result.scalar_one()
+
+        assert transport_invoice.lines[0].kit_id == duplicate_transport_kit.id
+
     async def test_outstanding_totals_use_line_remaining_and_exclude_draft(
         self, db_session: AsyncSession
     ):
