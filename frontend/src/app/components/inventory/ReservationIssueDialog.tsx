@@ -61,6 +61,8 @@ interface ComponentDraft {
   unit_item_ids: Array<number | ''>
 }
 
+type QuantityByItemId = Map<number, number>
+
 interface ReservationIssueDialogProps {
   open: boolean
   reservation: ReservationIssueDialogReservation | null
@@ -147,23 +149,76 @@ export const ReservationIssueDialog = ({
 
   const canConfigureComponents = Boolean(selectedKit?.is_editable_components)
 
+  const buildDraftFromCurrentReservation = (
+    lineQuantity: number,
+    reservationItems: ReservationIssueItem[]
+  ): ComponentDraft[] => {
+    const kit = selectedKit
+    if (!kit?.items?.length) return []
+
+    const remainingByItemId: QuantityByItemId = new Map()
+    for (const item of reservationItems) {
+      remainingByItemId.set(item.item_id, item.quantity_required)
+    }
+
+    const takeQuantity = (itemId: number | null | undefined, quantity: number) => {
+      if (!itemId) return
+      const current = remainingByItemId.get(itemId) ?? 0
+      remainingByItemId.set(itemId, Math.max(0, current - quantity))
+    }
+
+    // Fixed components always consume their own known item first.
+    for (const kitItem of kit.items) {
+      if (kitItem.source_type !== 'item') continue
+      const totalUnits = Math.max(1, kitItem.quantity) * Math.max(1, lineQuantity)
+      takeQuantity(kitItem.item_id, totalUnits)
+    }
+
+    return kit.items.map((kitItem) => {
+      const totalUnits = Math.max(1, kitItem.quantity) * Math.max(1, lineQuantity)
+      const defaultId =
+        kitItem.source_type === 'item' ? kitItem.item_id : kitItem.default_item_id
+
+      if (kitItem.source_type === 'item') {
+        return {
+          unit_item_ids: Array.from(
+            { length: totalUnits },
+            () => (kitItem.item_id ?? '') as number | ''
+          ),
+        }
+      }
+
+      const variantItems =
+        variants.find((variant) => variant.id === kitItem.variant_id)?.items ?? []
+      const unitItemIds: Array<number | ''> = []
+
+      for (const variantItem of variantItems) {
+        const availableQty = remainingByItemId.get(variantItem.id) ?? 0
+        const qtyToUse = Math.min(availableQty, totalUnits - unitItemIds.length)
+        for (let index = 0; index < qtyToUse; index += 1) {
+          unitItemIds.push(variantItem.id)
+        }
+        if (qtyToUse > 0) {
+          remainingByItemId.set(variantItem.id, availableQty - qtyToUse)
+        }
+        if (unitItemIds.length >= totalUnits) break
+      }
+
+      while (unitItemIds.length < totalUnits) {
+        unitItemIds.push((defaultId ?? '') as number | '')
+      }
+
+      return { unit_item_ids: unitItemIds }
+    })
+  }
+
   const openConfigureDialog = () => {
     resetConfigureMutation()
     const kit = selectedKit
     if (!currentReservation || !kit || !kit.items?.length) return
 
     const lineQty = selectedInvoiceLine?.quantity ?? 1
-    const draft = kit.items.map((kitItem) => {
-      const totalUnits = Math.max(1, kitItem.quantity) * Math.max(1, lineQty)
-      const defaultId =
-        kitItem.source_type === 'item' ? kitItem.item_id : kitItem.default_item_id
-      return {
-        unit_item_ids: Array.from(
-          { length: totalUnits },
-          () => (defaultId ?? '') as number | ''
-        ),
-      }
-    })
+    const draft = buildDraftFromCurrentReservation(lineQty, currentReservation.items)
     setComponentsDraft(draft)
     setComponentsDialogOpen(true)
   }

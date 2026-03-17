@@ -124,9 +124,12 @@ class StudentService:
 
     async def _validate_grade(self, grade_id: int) -> Grade:
         """Validate grade exists and is active."""
-        grade = await self.get_grade_by_id(grade_id)
+        try:
+            grade = await self.get_grade_by_id(grade_id)
+        except NotFoundError as exc:
+            raise ValidationError("Selected grade was not found", field="grade_id") from exc
         if not grade.is_active:
-            raise ValidationError(f"Grade '{grade.name}' is not active")
+            raise ValidationError(f"Grade '{grade.name}' is not active", field="grade_id")
         return grade
 
     async def _validate_transport_zone(self, zone_id: int) -> TransportZone:
@@ -136,9 +139,12 @@ class StudentService:
         )
         zone = result.scalar_one_or_none()
         if not zone:
-            raise NotFoundError(f"Transport zone with id {zone_id} not found")
+            raise ValidationError("Selected transport zone was not found", field="transport_zone_id")
         if not zone.is_active:
-            raise ValidationError(f"Transport zone '{zone.zone_name}' is not active")
+            raise ValidationError(
+                f"Transport zone '{zone.zone_name}' is not active",
+                field="transport_zone_id",
+            )
         return zone
 
     async def create_student(

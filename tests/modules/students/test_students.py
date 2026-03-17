@@ -144,7 +144,7 @@ class TestStudentService:
         """Test creating student with invalid grade."""
         service = StudentService(db_session)
 
-        with pytest.raises(NotFoundError):
+        with pytest.raises(ValidationError) as exc_info:
             await service.create_student(
                 StudentCreate(
                     first_name="Test",
@@ -156,6 +156,7 @@ class TestStudentService:
                 ),
                 created_by_id=1,
             )
+        assert exc_info.value.details["field"] == "grade_id"
 
     async def test_list_students(self, db_session: AsyncSession):
         """Test listing students with filters."""
@@ -508,3 +509,50 @@ class TestStudentEndpoints:
         )
 
         assert response.status_code == 422  # Validation error
+        data = response.json()
+        assert data["message"] == "Validation error"
+        assert any(error["field"] == "guardian_phone" for error in data["errors"])
+
+    async def test_create_student_missing_required_fields_returns_field_errors(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Missing required student fields should be returned with field names."""
+        token, _, _ = await self._create_auth_and_grade(db_session)
+
+        response = await client.post(
+            "/api/v1/students",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "last_name": "Student",
+                "gender": "male",
+            },
+        )
+
+        assert response.status_code == 422
+        data = response.json()
+        fields = {error["field"] for error in data["errors"]}
+        assert {"first_name", "grade_id", "guardian_name", "guardian_phone"} <= fields
+
+    async def test_create_student_invalid_grade_returns_field_error(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Invalid grade should be tied to grade_id in the API response."""
+        token, _, _ = await self._create_auth_and_grade(db_session)
+
+        response = await client.post(
+            "/api/v1/students",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "first_name": "Invalid",
+                "last_name": "Grade",
+                "gender": "male",
+                "grade_id": 999999,
+                "guardian_name": "Guardian",
+                "guardian_phone": "+254712345678",
+            },
+        )
+
+        assert response.status_code == 422
+        data = response.json()
+        assert data["message"] == "Selected grade was not found"
+        assert data["errors"][0]["field"] == "grade_id"
