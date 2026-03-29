@@ -255,6 +255,19 @@
 - [x] Тесты
 - [x] Интеграция M-Pesa C2B (Paybill webhooks) → автозачисление на баланс по Admission#
 - [x] Общий реестр student payments в Billing: отдельная страница `/billing/payments` со списком всех оплат, фильтрами и переходом в карточку ученика
+- [x] Targeted payment allocation: у payment можно указать preferred invoice, чтобы сумма сначала закрывала нужный invoice, а только остаток уходил в общий auto-allocation
+
+### 3.1.1 Платные активности (Paid Activities)
+> Решения: отдельный модуль `Activity` + roster `ActivityParticipant`, инвойсы остаются обычными `Invoice` с `invoice_type=activity`
+
+- [x] Модели `Activity`, `ActivityGradeScope`, `ActivityParticipant`
+- [x] Авто-создание service `Kit` в категории `Activities` для каждой активности
+- [x] Массовая генерация activity invoices по roster без дублей
+- [x] Snapshot audience: `all_active`, `grades`, `manual`
+- [x] Исключение участника с отменой неоплаченного activity invoice
+- [x] UI: список `/billing/activities`, форма create/edit, detail page с roster и статусом оплат
+- [x] API endpoints `/activities` (CRUD list/detail/update, add/exclude participant, generate invoices)
+- [x] Документация и тесты
 
 ### 3.2 Аллокация средств
 > Решения: Товары requires_full_payment, услуги можно частично, smallest first

@@ -116,6 +116,7 @@ class PaymentService:
         """Create a new payment (credit top-up)."""
         # Validate student exists
         await self._get_student(data.student_id)
+        await self._validate_preferred_invoice(data.student_id, data.preferred_invoice_id)
 
         # Generate payment number
         number_gen = DocumentNumberGenerator(self.db)
@@ -124,6 +125,7 @@ class PaymentService:
         payment = Payment(
             payment_number=payment_number,
             student_id=data.student_id,
+            preferred_invoice_id=data.preferred_invoice_id,
             amount=round_money(data.amount),
             payment_method=data.payment_method.value,
             payment_date=data.payment_date,
@@ -144,6 +146,7 @@ class PaymentService:
             user_id=received_by_id,
             new_values={
                 "student_id": data.student_id,
+                "preferred_invoice_id": data.preferred_invoice_id,
                 "amount": str(data.amount),
                 "payment_method": data.payment_method.value,
             },
@@ -159,6 +162,7 @@ class PaymentService:
             .where(Payment.id == payment_id)
             .options(
                 selectinload(Payment.student).selectinload(Student.grade),
+                selectinload(Payment.preferred_invoice),
                 selectinload(Payment.received_by),
             )
         )
@@ -175,6 +179,7 @@ class PaymentService:
             select(Payment)
             .options(
                 selectinload(Payment.student),
+                selectinload(Payment.preferred_invoice),
                 selectinload(Payment.received_by),
             )
         )
@@ -232,6 +237,15 @@ class PaymentService:
             payment.amount = round_money(data.amount)
             new_values["amount"] = str(data.amount)
 
+        if "preferred_invoice_id" in data.model_fields_set:
+            old_values["preferred_invoice_id"] = payment.preferred_invoice_id
+            await self._validate_preferred_invoice(
+                payment.student_id,
+                data.preferred_invoice_id,
+            )
+            payment.preferred_invoice_id = data.preferred_invoice_id
+            new_values["preferred_invoice_id"] = data.preferred_invoice_id
+
         if data.payment_method is not None:
             old_values["payment_method"] = payment.payment_method
             payment.payment_method = data.payment_method.value
@@ -272,6 +286,11 @@ class PaymentService:
         if not payment.is_pending:
             raise ValidationError("Can only complete pending payments")
 
+        await self._validate_preferred_invoice(
+            payment.student_id,
+            payment.preferred_invoice_id,
+        )
+
         # Generate receipt number
         number_gen = DocumentNumberGenerator(self.db)
         receipt_number = await number_gen.generate("RCP")
@@ -295,11 +314,29 @@ class PaymentService:
         await self._update_student_balance_cache(payment.student_id)
 
         await self.db.commit()
-        # Auto-allocate new balance to invoices (backend trigger)
-        await self.allocate_auto(
-            AutoAllocateRequest(student_id=payment.student_id),
-            completed_by_id,
-        )
+        targeted_amount = Decimal("0.00")
+        if payment.preferred_invoice_id is not None:
+            preferred_invoice = await self._get_invoice(payment.preferred_invoice_id)
+            targeted_amount = min(payment.amount, preferred_invoice.amount_due)
+            if targeted_amount > 0:
+                await self.allocate_manual(
+                    AllocationCreate(
+                        student_id=payment.student_id,
+                        invoice_id=preferred_invoice.id,
+                        amount=targeted_amount,
+                    ),
+                    completed_by_id,
+                )
+
+        remaining_to_auto_allocate = round_money(payment.amount - targeted_amount)
+        if remaining_to_auto_allocate > 0:
+            await self.allocate_auto(
+                AutoAllocateRequest(
+                    student_id=payment.student_id,
+                    max_amount=remaining_to_auto_allocate,
+                ),
+                completed_by_id,
+            )
         return await self.get_payment_by_id(payment_id)
 
     async def cancel_payment(
@@ -836,6 +873,22 @@ class PaymentService:
         if not invoice:
             raise NotFoundError(f"Invoice with id {invoice_id} not found")
         return invoice
+
+    async def _validate_preferred_invoice(
+        self,
+        student_id: int,
+        preferred_invoice_id: int | None,
+    ) -> None:
+        if preferred_invoice_id is None:
+            return
+
+        invoice = await self._get_invoice(preferred_invoice_id)
+        if invoice.student_id != student_id:
+            raise ValidationError("Preferred invoice does not belong to this student")
+        if invoice.status in (InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value):
+            raise ValidationError("Preferred invoice cannot be cancelled or void")
+        if invoice.amount_due <= Decimal("0.00"):
+            raise ValidationError("Preferred invoice is already fully paid")
 
     async def _get_invoice_line(self, line_id: int) -> InvoiceLine:
         """Get invoice line by ID."""

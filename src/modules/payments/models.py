@@ -56,6 +56,9 @@ class Payment(Base):
     student_id: Mapped[int] = mapped_column(
         BigIntPK, ForeignKey("students.id"), nullable=False, index=True
     )
+    preferred_invoice_id: Mapped[int | None] = mapped_column(
+        BigIntPK, ForeignKey("invoices.id"), nullable=True, index=True
+    )
 
     amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
     payment_method: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -91,6 +94,9 @@ class Payment(Base):
 
     # Relationships
     student: Mapped["Student"] = relationship("Student", back_populates="payments")
+    preferred_invoice: Mapped["Invoice | None"] = relationship(
+        "Invoice", foreign_keys=[preferred_invoice_id]
+    )
     received_by: Mapped["User"] = relationship("User")
 
     @property

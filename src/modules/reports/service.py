@@ -332,6 +332,7 @@ class ReportsService:
             "school_fee": "School Fee",
             "transport": "Transport",
             "adhoc": "Other Fees",
+            "activity": "Activities",
         }
         revenue_lines: list[dict] = []
         gross_revenue = Decimal("0")
@@ -486,6 +487,7 @@ class ReportsService:
             "school_fee": "School Fee",
             "transport": "Transport",
             "adhoc": "Other Fees",
+            "activity": "Activities",
         }
 
         # Payments received per student per day
@@ -586,12 +588,12 @@ class ReportsService:
                 unallocated_total += round_money(paid_total - applied_total)
 
         inflow_rows: list[tuple[str, Decimal]] = []
-        for inv_type in ("school_fee", "transport", "adhoc"):
+        for inv_type in ("school_fee", "transport", "adhoc", "activity"):
             amt = round_money(totals_by_type.get(inv_type, Decimal("0")))
             if amt > 0:
                 inflow_rows.append((type_labels.get(inv_type, inv_type), amt))
         for inv_type, amt in sorted(totals_by_type.items()):
-            if inv_type in ("school_fee", "transport", "adhoc"):
+            if inv_type in ("school_fee", "transport", "adhoc", "activity"):
                 continue
             amt = round_money(amt)
             if amt > 0:

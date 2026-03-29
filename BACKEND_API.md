@@ -70,7 +70,7 @@
 - **StudentStatus:** `active`, `inactive`
 - **Gender:** `male`, `female`
 - **TermStatus:** `Draft`, `Active`, `Closed`
-- **InvoiceType:** `school_fee`, `transport`, `adhoc`
+- **InvoiceType:** `school_fee`, `transport`, `adhoc`, `activity`
 - **InvoiceStatus:** `draft`, `issued`, `partially_paid`, `paid`, `cancelled`, `void`
 - **PaymentMethod:** `mpesa`, `bank_transfer`
 - **PaymentStatus:** `pending`, `completed`, `cancelled`
@@ -176,6 +176,16 @@
 - `POST /students/{student_id}/activate`
 - `POST /students/{student_id}/deactivate`
 
+### 5.5.1. Paid Activities
+- `POST /activities` — создать платную активность и snapshot audience (`audience_type = all_active | grades | manual`, для `grades` передаются `grade_ids`, для `manual` — `student_ids`)
+- `GET /activities` — filters: `status`, `search`, `page`, `limit`
+- `GET /activities/{activity_id}` — activity header + participants roster + linked invoice/payment status
+- `PATCH /activities/{activity_id}` — обновление метаданных; audience можно менять только пока по activity ещё не создавались invoices
+- `POST /activities/{activity_id}/participants` — ручное добавление ученика в roster (`student_id`, optional `selected_amount`)
+- `POST /activities/{activity_id}/participants/{participant_id}/exclude` — исключить ученика; если activity invoice неоплачен, он автоматически переводится в `cancelled`
+- `POST /activities/{activity_id}/generate-invoices` — массово создать missing invoices типа `activity` для всех `planned` participants и затем запустить auto-allocation по затронутым ученикам
+- При создании activity система автоматически создаёт service `Kit` в категории `Activities`; invoice line использует snapshot `selected_amount`, поэтому изменение activity amount влияет только на будущие invoices без переписывания старых строк
+
 ### 5.6. Invoices
 - `POST /invoices`
 - `GET /invoices` — filters: `student_id`, `term_id`, `invoice_type`, `status`, `search`, `page`, `limit`
@@ -209,7 +219,7 @@
 - `GET /attachments/{attachment_id}/download` — скачать файл (для просмотра подтверждения). Роль: любой авторизованный.
 
 ### 5.9. Payments & Allocations
-- `POST /payments` — обязателен **либо** `reference`, **либо** `confirmation_attachment_id` (подтверждение файлом).
+- `POST /payments` — обязателен **либо** `reference`, **либо** `confirmation_attachment_id` (подтверждение файлом); optional `preferred_invoice_id` позволяет сначала аллоцировать этот платёж в конкретный invoice, а только остаток отправить в общий auto-allocation
 - `GET /payments` — filters: `student_id`, `status`, `payment_method`, `search`, `date_from`, `date_to`, `page`, `limit`. `search` ищет по `payment_number`, `receipt_number`, `reference`, `student first/last name`, `student_number`. В выдаче списка есть `student_name` и `student_number` для общего реестра оплат.
 - `GET /payments/{payment_id}`
 - `PATCH /payments/{payment_id}`
@@ -403,9 +413,12 @@
 - `StudentDiscountResponse`: `id`, `student_id`, `student_name?`, `applies_to`, `value_type`, `value`, `reason_id?`, `reason_name?`, `reason_text?`, `is_active`, `created_by_id`
 
 ### 6.8. Payments & Allocations
-- `PaymentCreate`: `student_id`, `amount`, `payment_method`, `payment_date`, `reference?`, `confirmation_attachment_id?`, `notes?` — обязательно **либо** reference, **либо** confirmation_attachment_id.
-- `PaymentUpdate`: `amount?`, `payment_method?`, `payment_date?`, `reference?`, `notes?`
-- `PaymentResponse`: `id`, `payment_number`, `receipt_number?`, `student_id`, `amount`, `payment_method`, `payment_date`, `reference?`, `confirmation_attachment_id?`, `status`, `notes?`, `received_by_id`, `created_at`, `updated_at`
+- `PaymentCreate`: `student_id`, `preferred_invoice_id?`, `amount`, `payment_method`, `payment_date`, `reference?`, `confirmation_attachment_id?`, `notes?` — обязательно **либо** reference, **либо** confirmation_attachment_id.
+- `PaymentUpdate`: поддерживает `preferred_invoice_id?`; pending payment можно перепривязать к другому invoice или очистить привязку
+- `PaymentResponse`: дополнительно отдаёт `preferred_invoice_id?` и `preferred_invoice_number?`
+- При `POST /payments/{payment_id}/complete`, если у payment есть `preferred_invoice_id`, backend сначала создаёт manual allocation на этот invoice в пределах суммы платежа и только потом запускает обычный auto-allocation на остаток
+- `PaymentUpdate`: `amount?`, `preferred_invoice_id?`, `payment_method?`, `payment_date?`, `reference?`, `notes?`
+- `PaymentResponse`: `id`, `payment_number`, `receipt_number?`, `student_id`, `student_name?`, `student_number?`, `preferred_invoice_id?`, `preferred_invoice_number?`, `amount`, `payment_method`, `payment_date`, `reference?`, `confirmation_attachment_id?`, `status`, `notes?`, `received_by_id`, `created_at`, `updated_at`
 - `AttachmentResponse`: `id`, `file_name`, `content_type`, `file_size`, `created_at` (ответ POST /attachments и GET /attachments/{id})
 - `AllocationCreate`: `student_id`, `invoice_id`, `invoice_line_id?`, `amount`
 - `AllocationResponse`: `id`, `student_id`, `invoice_id`, `invoice_line_id?`, `amount`, `allocated_by_id`, `created_at`

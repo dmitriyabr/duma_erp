@@ -76,6 +76,9 @@ import { TermComparisonPage } from './pages/reports/TermComparisonPage'
 import { StudentFeesPage } from './pages/reports/StudentFeesPage'
 import { ReportsSectionLayout } from './pages/reports/ReportsSectionLayout'
 import { MpesaUnmatchedPage } from './pages/billing/MpesaUnmatchedPage'
+import { ActivitiesListPage } from './pages/billing/ActivitiesListPage'
+import { ActivityFormPage } from './pages/billing/ActivityFormPage'
+import { ActivityDetailPage } from './pages/billing/ActivityDetailPage'
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useAuth()
@@ -181,6 +184,38 @@ export const AppRoutes = () => {
           <Route path="billing/terms/:termId" element={<TermDetailPage />} />
           <Route path="billing/terms/:termId/edit" element={<TermFormPage />} />
           <Route path="billing/fixed-fees" element={<FixedFeesPage />} />
+          <Route
+            path="billing/activities"
+            element={
+              <StaffViewOnly>
+                <ActivitiesListPage />
+              </StaffViewOnly>
+            }
+          />
+          <Route
+            path="billing/activities/new"
+            element={
+              <AdminOnly>
+                <ActivityFormPage />
+              </AdminOnly>
+            }
+          />
+          <Route
+            path="billing/activities/:activityId"
+            element={
+              <StaffViewOnly>
+                <ActivityDetailPage />
+              </StaffViewOnly>
+            }
+          />
+          <Route
+            path="billing/activities/:activityId/edit"
+            element={
+              <AdminOnly>
+                <ActivityFormPage />
+              </AdminOnly>
+            }
+          />
           <Route path="billing/catalog" element={<CatalogPage />} />
           <Route path="billing/catalog/items" element={<CatalogPage />} />
           <Route path="billing/catalog/categories" element={<CatalogPage />} />

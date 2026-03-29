@@ -25,6 +25,7 @@ class InvoiceType(StrEnum):
     SCHOOL_FEE = "school_fee"
     TRANSPORT = "transport"
     ADHOC = "adhoc"
+    ACTIVITY = "activity"
 
 
 class InvoiceStatus(StrEnum):
@@ -59,7 +60,7 @@ class Invoice(Base):
     # Type and status
     invoice_type: Mapped[str] = mapped_column(
         String(20), nullable=False, index=True
-    )  # school_fee | transport | adhoc
+    )  # school_fee | transport | adhoc | activity
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default=InvoiceStatus.DRAFT.value, index=True
     )

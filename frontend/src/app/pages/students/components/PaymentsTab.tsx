@@ -39,9 +39,7 @@ export const PaymentsTab = ({
   studentId,
   onError,
   onBalanceChange,
-  onAllocationResult: _onAllocationResult,
   initialInvoices,
-  invoicesLoading: _invoicesLoading,
 }: PaymentsTabProps) => {
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -265,6 +263,9 @@ export const PaymentsTab = ({
               Date: {selectedPayment?.payment_date ? formatDate(selectedPayment.payment_date) : '—'}
             </Typography>
             <Typography variant="body2">Reference: {selectedPayment?.reference ?? '—'}</Typography>
+            <Typography variant="body2">
+              Preferred invoice: {selectedPayment?.preferred_invoice_number ?? '—'}
+            </Typography>
             {selectedPayment?.confirmation_attachment_id && (
               <Button
                 variant="outlined"

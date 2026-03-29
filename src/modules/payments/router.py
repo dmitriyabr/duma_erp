@@ -44,6 +44,10 @@ def _payment_to_response(payment) -> PaymentResponse:
         student_id=payment.student_id,
         student_name=payment.student.full_name if payment.student else None,
         student_number=payment.student.student_number if payment.student else None,
+        preferred_invoice_id=payment.preferred_invoice_id,
+        preferred_invoice_number=payment.preferred_invoice.invoice_number
+        if payment.preferred_invoice
+        else None,
         amount=payment.amount,
         payment_method=payment.payment_method,
         payment_date=payment.payment_date,

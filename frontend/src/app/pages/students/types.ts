@@ -72,6 +72,8 @@ export interface PaymentResponse {
   student_id: number
   student_name?: string | null
   student_number?: string | null
+  preferred_invoice_id?: number | null
+  preferred_invoice_number?: string | null
   amount: number
   payment_method: string
   payment_date: string

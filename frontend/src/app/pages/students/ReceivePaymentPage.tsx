@@ -2,8 +2,9 @@ import React, { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api, unwrapResponse } from '../../services/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
-import { DEFAULT_PAGE_SIZE } from '../../constants/pagination'
+import { DEFAULT_PAGE_SIZE, INVOICE_LIST_LIMIT } from '../../constants/pagination'
 import type { PaginatedResponse } from '../../types/api'
+import { formatMoney } from '../../utils/format'
 import { formatStudentNumberShort } from '../../utils/studentNumber'
 import { Typography } from '../../components/ui/Typography'
 import { Alert } from '../../components/ui/Alert'
@@ -25,6 +26,13 @@ interface PaymentResponse {
   status: string
 }
 
+interface InvoiceOption {
+  id: number
+  invoice_number: string
+  amount_due: number
+  status: string
+}
+
 const emptyForm = {
   amount: '',
   payment_method: 'mpesa',
@@ -36,8 +44,17 @@ const emptyForm = {
 export const ReceivePaymentPage = () => {
   const location = useLocation()
   const navigate = useNavigate()
-  const state = (location.state as { studentId?: number } | null) ?? null
+  const state = (
+    location.state as {
+      studentId?: number
+      preferredInvoiceId?: number
+      preferredInvoiceNumber?: string
+    } | null
+  ) ?? null
   const [selectedStudentId, setSelectedStudentId] = useState<number | ''>(state?.studentId ?? '')
+  const [preferredInvoiceId, setPreferredInvoiceId] = useState<number | ''>(
+    state?.preferredInvoiceId ?? ''
+  )
   const resolvedId = state?.studentId ?? (selectedStudentId === '' ? 0 : selectedStudentId)
   const studentIdLocked = !!state?.studentId
 
@@ -50,10 +67,21 @@ export const ReceivePaymentPage = () => {
   const studentsApi = useApi<PaginatedResponse<StudentOption>>('/students', {
     params: { page: 1, limit: DEFAULT_PAGE_SIZE, status: 'active' },
   }, [])
+  const invoicesApi = useApi<PaginatedResponse<InvoiceOption>>(
+    resolvedId ? '/invoices' : null,
+    {
+      params: { student_id: resolvedId, limit: INVOICE_LIST_LIMIT, page: 1 },
+    },
+    [resolvedId]
+  )
   const submitMutation = useApiMutation<PaymentResponse>()
   const uploadMutation = useApiMutation<{ id: number; file_name: string }>()
 
   const students = studentsApi.data?.items ?? []
+  const openInvoices = (invoicesApi.data?.items ?? []).filter((invoice) => {
+    const status = invoice.status.toLowerCase()
+    return status !== 'paid' && status !== 'cancelled' && status !== 'void'
+  })
   const loading = submitMutation.loading
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -93,6 +121,7 @@ export const ReceivePaymentPage = () => {
     const created = await submitMutation.execute(async () => {
       const createRes = await api.post('/payments', {
         student_id: resolvedId,
+        preferred_invoice_id: preferredInvoiceId === '' ? undefined : preferredInvoiceId,
         amount: Number(form.amount),
         payment_method: form.payment_method,
         payment_date: form.payment_date,
@@ -127,7 +156,10 @@ export const ReceivePaymentPage = () => {
         )}
         <Select
           value={selectedStudentId === '' ? '' : String(selectedStudentId)}
-          onChange={(e) => setSelectedStudentId(e.target.value ? Number(e.target.value) : '')}
+          onChange={(e) => {
+            setSelectedStudentId(e.target.value ? Number(e.target.value) : '')
+            setPreferredInvoiceId('')
+          }}
           label="Student"
           className="min-w-[280px] mb-4"
         >
@@ -143,7 +175,7 @@ export const ReceivePaymentPage = () => {
   }
 
   const student = students.find((s) => s.id === resolvedId)
-  const displayError = error ?? submitMutation.error ?? uploadMutation.error
+  const displayError = error ?? submitMutation.error ?? uploadMutation.error ?? invoicesApi.error
 
   return (
     <div>
@@ -183,6 +215,19 @@ export const ReceivePaymentPage = () => {
         >
           <option value="mpesa">M-Pesa</option>
           <option value="bank_transfer">Bank transfer</option>
+        </Select>
+        <Select
+          value={preferredInvoiceId === '' ? '' : String(preferredInvoiceId)}
+          onChange={(e) => setPreferredInvoiceId(e.target.value ? Number(e.target.value) : '')}
+          label="Apply first to invoice"
+          helperText="Optional. This invoice will be paid first, then any remainder will go to other debts."
+        >
+          <option value="">Auto-allocate normally</option>
+          {openInvoices.map((invoice) => (
+            <option key={invoice.id} value={String(invoice.id)}>
+              {invoice.invoice_number} · Due {formatMoney(invoice.amount_due)}
+            </option>
+          ))}
         </Select>
         <Input
           label="Payment date"

@@ -16,6 +16,7 @@ class PaymentCreate(BaseSchema):
     """Schema for creating a payment. Reference or confirmation_attachment_id required."""
 
     student_id: int
+    preferred_invoice_id: int | None = None
     amount: Decimal = Field(gt=0, description="Payment amount (must be positive)")
     payment_method: PaymentMethod
     payment_date: date
@@ -34,6 +35,7 @@ class PaymentUpdate(BaseSchema):
     """Schema for updating a payment (only pending payments)."""
 
     amount: Decimal | None = Field(None, gt=0)
+    preferred_invoice_id: int | None = None
     payment_method: PaymentMethod | None = None
     payment_date: date | None = None
     reference: str | None = None
@@ -49,6 +51,8 @@ class PaymentResponse(BaseSchema):
     student_id: int
     student_name: str | None = None
     student_number: str | None = None
+    preferred_invoice_id: int | None = None
+    preferred_invoice_number: str | None = None
     amount: Decimal
     payment_method: str
     payment_date: date

@@ -24,6 +24,7 @@ from src.modules.items.router import router as items_router
 from src.modules.inventory.router import router as inventory_router
 from src.modules.students.router import router as students_router
 from src.modules.invoices.router import router as invoices_router
+from src.modules.activities.router import router as activities_router
 from src.modules.discounts.router import router as discounts_router
 from src.modules.payments.router import router as payments_router
 from src.modules.reservations.router import router as reservations_router
@@ -100,6 +101,7 @@ def create_app() -> FastAPI:
     app.include_router(inventory_router, prefix="/api/v1")
     app.include_router(students_router, prefix="/api/v1")
     app.include_router(invoices_router, prefix="/api/v1")
+    app.include_router(activities_router, prefix="/api/v1")
     app.include_router(discounts_router, prefix="/api/v1")
     app.include_router(payments_router, prefix="/api/v1")
     app.include_router(reservations_router, prefix="/api/v1")

@@ -232,6 +232,44 @@ class TestPaymentService:
         assert completed.receipt_number is not None
         assert completed.receipt_number.startswith("RCP-")
 
+    async def test_complete_payment_prefers_selected_invoice_before_auto_allocate(
+        self, db_session: AsyncSession
+    ):
+        """Preferred invoice should receive this payment before older/smaller debts."""
+        data = await self._setup_test_data(db_session)
+        service = PaymentService(db_session)
+
+        payment = await service.create_payment(
+            PaymentCreate(
+                student_id=data["student"].id,
+                preferred_invoice_id=data["invoice1"].id,
+                amount=Decimal("2000.00"),
+                payment_method=PaymentMethod.BANK_TRANSFER,
+                payment_date=date.today(),
+                reference="BANK-PREFERRED-2000",
+            ),
+            received_by_id=data["user"].id,
+        )
+
+        await service.complete_payment(payment.id, data["user"].id)
+
+        allocations_result = await db_session.execute(
+            select(CreditAllocation)
+            .where(CreditAllocation.student_id == data["student"].id)
+            .order_by(CreditAllocation.id.asc())
+        )
+        allocations = list(allocations_result.scalars().all())
+        assert len(allocations) == 1
+        assert allocations[0].invoice_id == data["invoice1"].id
+        assert allocations[0].amount == Decimal("2000.00")
+
+        invoice1 = await db_session.get(Invoice, data["invoice1"].id)
+        invoice3 = await db_session.get(Invoice, data["invoice3"].id)
+        assert invoice1 is not None
+        assert invoice3 is not None
+        assert invoice1.amount_due == Decimal("3000.00")
+        assert invoice3.amount_due == Decimal("2000.00")
+
     async def test_cancel_payment(self, db_session: AsyncSession):
         """Test cancelling a pending payment."""
         data = await self._setup_test_data(db_session)
@@ -916,6 +954,61 @@ class TestPaymentEndpoints:
         result = response.json()
         assert result["data"]["status"] == "completed"
         assert result["data"]["receipt_number"] is not None
+
+    async def test_complete_payment_api_prefers_selected_invoice(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """API payment with preferred invoice should target it before smaller debts."""
+        token, user_id, data = await self._setup_auth_and_data(db_session)
+
+        smaller_invoice = Invoice(
+            invoice_number="INV-PAYAPI-002",
+            student_id=data["student"].id,
+            invoice_type=InvoiceType.ADHOC.value,
+            status=InvoiceStatus.ISSUED.value,
+            issue_date=date.today(),
+            due_date=date.today() + timedelta(days=30),
+            subtotal=Decimal("1000.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("1000.00"),
+            paid_total=Decimal("0.00"),
+            amount_due=Decimal("1000.00"),
+            created_by_id=user_id,
+        )
+        smaller_invoice.lines = []
+        db_session.add(smaller_invoice)
+        await db_session.commit()
+
+        create_response = await client.post(
+            "/api/v1/payments",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "student_id": data["student"].id,
+                "preferred_invoice_id": data["invoice"].id,
+                "amount": "1000.00",
+                "payment_method": "bank_transfer",
+                "payment_date": str(date.today()),
+                "reference": "targeted-payment",
+            },
+        )
+        assert create_response.status_code == 201
+        created = create_response.json()["data"]
+        assert created["preferred_invoice_id"] == data["invoice"].id
+        assert created["preferred_invoice_number"] == data["invoice"].invoice_number
+
+        payment_id = created["id"]
+        complete_response = await client.post(
+            f"/api/v1/payments/{payment_id}/complete",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert complete_response.status_code == 200
+
+        preferred_invoice = await db_session.get(Invoice, data["invoice"].id)
+        other_invoice = await db_session.get(Invoice, smaller_invoice.id)
+        assert preferred_invoice is not None
+        assert other_invoice is not None
+        assert preferred_invoice.amount_due == Decimal("4000.00")
+        assert other_invoice.amount_due == Decimal("1000.00")
 
     async def test_list_payments_api_includes_student_context(
         self, client: AsyncClient, db_session: AsyncSession
