@@ -210,7 +210,7 @@
 
 ### 5.9. Payments & Allocations
 - `POST /payments` — обязателен **либо** `reference`, **либо** `confirmation_attachment_id` (подтверждение файлом).
-- `GET /payments` — filters: `student_id`, `status`, `payment_method`, `date_from`, `date_to`, `page`, `limit`
+- `GET /payments` — filters: `student_id`, `status`, `payment_method`, `search`, `date_from`, `date_to`, `page`, `limit`. `search` ищет по `payment_number`, `receipt_number`, `reference`, `student first/last name`, `student_number`. В выдаче списка есть `student_name` и `student_number` для общего реестра оплат.
 - `GET /payments/{payment_id}`
 - `PATCH /payments/{payment_id}`
 - `POST /payments/{payment_id}/complete`

@@ -254,6 +254,7 @@
 - [x] Миграция 008_payments.py
 - [x] Тесты
 - [x] Интеграция M-Pesa C2B (Paybill webhooks) → автозачисление на баланс по Admission#
+- [x] Общий реестр student payments в Billing: отдельная страница `/billing/payments` со списком всех оплат, фильтрами и переходом в карточку ученика
 
 ### 3.2 Аллокация средств
 > Решения: Товары requires_full_payment, услуги можно частично, smallest first

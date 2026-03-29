@@ -51,7 +51,7 @@ export const accountantNavItems: NavItem[] = [
     icon: <FileText className="w-5 h-5" />,
     roles: ['Accountant'],
     children: [
-      { label: 'Incoming Payments', path: '/payments', roles: ['Accountant'] },
+      { label: 'Incoming Payments', path: '/billing/payments', roles: ['Accountant'] },
       { label: 'Students Invoices', path: '/billing/invoices', roles: ['Accountant'] },
       { label: 'Purchase Orders', path: '/procurement/orders', roles: ['Accountant'] },
       { label: 'Goods Received', path: '/procurement/grn', roles: ['Accountant'] },
@@ -92,6 +92,7 @@ export const navItems: NavItem[] = [
       { label: 'Terms', path: '/billing/terms', roles: ['SuperAdmin'] },
       { label: 'Fixed Fees', path: '/billing/fixed-fees', roles: ['SuperAdmin'] },
       { label: 'Catalog', path: '/billing/catalog', roles: adminRoles },
+      { label: 'Payments', path: '/billing/payments', roles: viewRoles },
       {
         label: 'M-Pesa Unmatched',
         path: '/billing/mpesa-unmatched',

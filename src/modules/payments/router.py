@@ -35,6 +35,28 @@ from src.shared.utils.money import round_money
 router = APIRouter(prefix="/payments", tags=["Payments"])
 
 
+def _payment_to_response(payment) -> PaymentResponse:
+    """Convert Payment model to API response."""
+    return PaymentResponse(
+        id=payment.id,
+        payment_number=payment.payment_number,
+        receipt_number=payment.receipt_number,
+        student_id=payment.student_id,
+        student_name=payment.student.full_name if payment.student else None,
+        student_number=payment.student.student_number if payment.student else None,
+        amount=payment.amount,
+        payment_method=payment.payment_method,
+        payment_date=payment.payment_date,
+        reference=payment.reference,
+        confirmation_attachment_id=payment.confirmation_attachment_id,
+        status=payment.status,
+        notes=payment.notes,
+        received_by_id=payment.received_by_id,
+        created_at=payment.created_at,
+        updated_at=payment.updated_at,
+    )
+
+
 # --- Payment Endpoints ---
 
 
@@ -54,7 +76,7 @@ async def create_payment(
     service = PaymentService(db)
     payment = await service.create_payment(data, current_user.id)
     return ApiResponse(
-        data=PaymentResponse.model_validate(payment),
+        data=_payment_to_response(payment),
         message="Payment created successfully",
     )
 
@@ -67,6 +89,7 @@ async def list_payments(
     student_id: int | None = Query(None),
     status: PaymentStatus | None = Query(None),
     payment_method: PaymentMethod | None = Query(None),
+    search: str | None = Query(None, description="Search by payment #, receipt #, reference, or student"),
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
     page: int = Query(1, ge=1),
@@ -82,6 +105,7 @@ async def list_payments(
         student_id=student_id,
         status=status,
         payment_method=payment_method,
+        search=search,
         date_from=date_from,
         date_to=date_to,
         page=page,
@@ -90,7 +114,7 @@ async def list_payments(
     payments, total = await service.list_payments(filters)
     return ApiResponse(
         data=PaginatedResponse.create(
-            items=[PaymentResponse.model_validate(p) for p in payments],
+            items=[_payment_to_response(p) for p in payments],
             total=total,
             page=page,
             limit=limit,
@@ -112,7 +136,7 @@ async def get_payment(
     """Get payment by ID."""
     service = PaymentService(db)
     payment = await service.get_payment_by_id(payment_id)
-    return ApiResponse(data=PaymentResponse.model_validate(payment))
+    return ApiResponse(data=_payment_to_response(payment))
 
 
 @router.get("/{payment_id}/receipt/pdf")
@@ -180,7 +204,7 @@ async def update_payment(
     service = PaymentService(db)
     payment = await service.update_payment(payment_id, data, current_user.id)
     return ApiResponse(
-        data=PaymentResponse.model_validate(payment),
+        data=_payment_to_response(payment),
         message="Payment updated successfully",
     )
 
@@ -200,7 +224,7 @@ async def complete_payment(
     service = PaymentService(db)
     payment = await service.complete_payment(payment_id, current_user.id)
     return ApiResponse(
-        data=PaymentResponse.model_validate(payment),
+        data=_payment_to_response(payment),
         message=f"Payment completed. Receipt: {payment.receipt_number}",
     )
 
@@ -221,7 +245,7 @@ async def cancel_payment(
     service = PaymentService(db)
     payment = await service.cancel_payment(payment_id, current_user.id, reason)
     return ApiResponse(
-        data=PaymentResponse.model_validate(payment),
+        data=_payment_to_response(payment),
         message="Payment cancelled",
     )
 

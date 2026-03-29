@@ -69,6 +69,9 @@ export interface PaymentResponse {
   id: number
   payment_number: string
   receipt_number?: string | null
+  student_id: number
+  student_name?: string | null
+  student_number?: string | null
   amount: number
   payment_method: string
   payment_date: string
@@ -76,7 +79,9 @@ export interface PaymentResponse {
   confirmation_attachment_id?: number | null
   status: string
   notes?: string | null
+  received_by_id?: number
   created_at: string
+  updated_at?: string
 }
 
 export interface ReservationItem {

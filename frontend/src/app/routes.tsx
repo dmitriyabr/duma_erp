@@ -107,7 +107,7 @@ const AdminOnly: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return <>{children}</>
 }
 
-const EmployeeViewOnly: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const StaffViewOnly: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useAuth()
   const location = useLocation()
   if (isLoading) return null
@@ -142,17 +142,17 @@ export const AppRoutes = () => {
           <Route
             path="employees"
             element={
-              <EmployeeViewOnly>
+              <StaffViewOnly>
                 <EmployeesPage />
-              </EmployeeViewOnly>
+              </StaffViewOnly>
             }
           />
           <Route
             path="employees/:employeeId"
             element={
-              <EmployeeViewOnly>
+              <StaffViewOnly>
                 <EmployeeViewPage />
-              </EmployeeViewOnly>
+              </StaffViewOnly>
             }
           />
           <Route
@@ -195,7 +195,14 @@ export const AppRoutes = () => {
           />
           <Route path="billing/invoices" element={<InvoicesListPage />} />
           <Route path="billing/invoices/new" element={<CreateInvoicePage />} />
-          <Route path="billing/payments" element={<PlaceholderPage title="Payments" />} />
+          <Route
+            path="billing/payments"
+            element={
+              <StaffViewOnly>
+                <PaymentReceiptsPage />
+              </StaffViewOnly>
+            }
+          />
           <Route path="billing/allocations" element={<PlaceholderPage title="Allocations" />} />
           <Route path="billing/statement" element={<PlaceholderPage title="Statement" />} />
           <Route path="billing/discounts" element={<PlaceholderPage title="Discounts" />} />
@@ -273,7 +280,14 @@ export const AppRoutes = () => {
             }
           />
           <Route path="payments/new" element={<ReceivePaymentPage />} />
-          <Route path="payments" element={<PaymentReceiptsPage />} />
+          <Route
+            path="payments"
+            element={
+              <StaffViewOnly>
+                <Navigate to="/billing/payments" replace />
+              </StaffViewOnly>
+            }
+          />
           <Route path="accountant/export" element={<AccountantExportPage />} />
           <Route path="accountant/bank-statements" element={<BankStatementsPage />} />
           <Route path="bank-reconciliation" element={<BankReconciliationPage />} />

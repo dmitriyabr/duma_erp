@@ -47,6 +47,8 @@ class PaymentResponse(BaseSchema):
     payment_number: str
     receipt_number: str | None
     student_id: int
+    student_name: str | None = None
+    student_number: str | None = None
     amount: Decimal
     payment_method: str
     payment_date: date
@@ -65,6 +67,7 @@ class PaymentFilters(BaseSchema):
     student_id: int | None = None
     status: PaymentStatus | None = None
     payment_method: PaymentMethod | None = None
+    search: str | None = None
     date_from: date | None = None
     date_to: date | None = None
     page: int = Field(1, ge=1)

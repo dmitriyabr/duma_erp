@@ -287,6 +287,32 @@ class TestPaymentService:
         assert total == 2
         assert [payment.id for payment in payments] == [newer.id, older.id]
 
+    async def test_list_payments_can_search_by_student_number(
+        self, db_session: AsyncSession
+    ):
+        """Payments list should support searching by student number."""
+        data = await self._setup_test_data(db_session)
+        service = PaymentService(db_session)
+
+        payment = await service.create_payment(
+            PaymentCreate(
+                student_id=data["student"].id,
+                amount=Decimal("1500.00"),
+                payment_method=PaymentMethod.MPESA,
+                payment_date=date(2026, 1, 12),
+                reference="search-student-number",
+            ),
+            received_by_id=data["user"].id,
+        )
+
+        payments, total = await service.list_payments(
+            PaymentFilters(search="STU-PAY-000001", page=1, limit=10)
+        )
+
+        assert total == 1
+        assert [row.id for row in payments] == [payment.id]
+        assert payments[0].student.student_number == "STU-PAY-000001"
+
     async def test_get_student_balance(self, db_session: AsyncSession):
         """Test getting student credit balance."""
         data = await self._setup_test_data(db_session)
@@ -890,6 +916,38 @@ class TestPaymentEndpoints:
         result = response.json()
         assert result["data"]["status"] == "completed"
         assert result["data"]["receipt_number"] is not None
+
+    async def test_list_payments_api_includes_student_context(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Payments list API should expose student info and support search."""
+        token, _, data = await self._setup_auth_and_data(db_session)
+
+        await client.post(
+            "/api/v1/payments",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "student_id": data["student"].id,
+                "amount": "5000.00",
+                "payment_method": "mpesa",
+                "payment_date": str(date.today()),
+                "reference": "MPESA-LIST-123",
+            },
+        )
+
+        response = await client.get(
+            "/api/v1/payments",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"search": "STU-PAYAPI-001"},
+        )
+
+        assert response.status_code == 200
+        result = response.json()
+        assert result["data"]["total"] == 1
+        row = result["data"]["items"][0]
+        assert row["student_id"] == data["student"].id
+        assert row["student_name"] == "API Student"
+        assert row["student_number"] == "STU-PAYAPI-001"
 
     async def test_get_balance_api(self, client: AsyncClient, db_session: AsyncSession):
         """Test getting student balance via API."""

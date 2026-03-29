@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -171,14 +171,32 @@ class PaymentService:
         self, filters: PaymentFilters
     ) -> tuple[list[Payment], int]:
         """List payments with filters."""
-        query = select(Payment)
+        query = (
+            select(Payment)
+            .options(
+                selectinload(Payment.student),
+                selectinload(Payment.received_by),
+            )
+        )
 
-        if filters.student_id:
+        if filters.student_id is not None:
             query = query.where(Payment.student_id == filters.student_id)
         if filters.status:
             query = query.where(Payment.status == filters.status.value)
         if filters.payment_method:
             query = query.where(Payment.payment_method == filters.payment_method.value)
+        if filters.search and filters.search.strip():
+            search_term = f"%{filters.search.strip()}%"
+            query = query.join(Student).where(
+                or_(
+                    Payment.payment_number.ilike(search_term),
+                    Payment.receipt_number.ilike(search_term),
+                    Payment.reference.ilike(search_term),
+                    Student.first_name.ilike(search_term),
+                    Student.last_name.ilike(search_term),
+                    Student.student_number.ilike(search_term),
+                )
+            )
         if filters.date_from:
             query = query.where(Payment.payment_date >= filters.date_from)
         if filters.date_to:
