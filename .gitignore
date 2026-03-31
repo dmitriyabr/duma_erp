@@ -39,6 +39,7 @@ logs/
 
 # Uploads (attachments)
 uploads/
+exports/
 
 # OS
 .DS_Store

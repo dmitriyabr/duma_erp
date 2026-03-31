@@ -209,6 +209,46 @@ railway run python3 scripts/audit_financial_integrity.py --student-number STU-20
 
 ---
 
+## export_active_term_students_invoices.py
+
+Read-only компактная выгрузка по текущему активному term.
+
+По умолчанию скрипт пишет локально один CSV `student_fees.csv` в `exports/...` с колонками:
+
+- `student`
+- `school fee`
+- `transport fee`
+
+Суммы агрегируются по ученику из term invoices типов `school_fee` и `transport`, при этом `cancelled` и `void` invoices исключаются.
+
+Опционально можно также получить `export.json`.
+
+### Запуск на Railway
+
+```bash
+# Прямо через Railway CLI
+railway run python3 scripts/export_active_term_students_invoices.py
+
+# Только активные студенты
+railway run python3 scripts/export_active_term_students_invoices.py --student-status active
+
+# В конкретную папку
+railway run python3 scripts/export_active_term_students_invoices.py --output-dir exports/term-export
+
+# CSV + JSON
+railway run python3 scripts/export_active_term_students_invoices.py --format both
+```
+
+### Wrapper
+
+```bash
+bash scripts/export_active_term_students_invoices_railway.sh
+```
+
+Скрипт ничего не меняет в базе. Он только читает active term, студентов и invoices.
+
+---
+
 ## reset_invoices.py
 
 Скрипт для одноразового удаления всех счетов (invoices) из базы данных с сохранением платежей (payments).
