@@ -5,7 +5,8 @@ import { useAuth } from '../../../auth/AuthContext'
 import { useApi, useApiMutation } from '../../../hooks/useApi'
 import { api, unwrapResponse } from '../../../services/api'
 import { INVOICE_LIST_LIMIT } from '../../../constants/pagination'
-import { canInvoiceTerm, canManageStudents } from '../../../utils/permissions'
+import { parseApiError } from '../../../utils/apiErrors'
+import { canInvoiceTerm, canManageStudents, isSuperAdmin } from '../../../utils/permissions'
 import { formatDate, formatMoney } from '../../../utils/format'
 import type {
   DiscountValueType,
@@ -44,6 +45,19 @@ interface GenerationResult {
   total_students_processed: number
 }
 
+interface AppliedDiscount {
+  id: number
+  invoice_line_id: number
+  value_type: DiscountValueType
+  value: number
+  calculated_amount: number
+  reason_name?: string | null
+  reason_text?: string | null
+  student_discount_id?: number | null
+}
+
+const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
+
 export const InvoicesTab = ({
   studentId,
   transportZoneId,
@@ -74,6 +88,10 @@ export const InvoicesTab = ({
     reason_text: '',
   })
   const [discountLineId, setDiscountLineId] = useState<number | null>(null)
+  const [lineDiscounts, setLineDiscounts] = useState<AppliedDiscount[]>([])
+  const [lineDiscountsLoading, setLineDiscountsLoading] = useState(false)
+  const [removingDiscountId, setRemovingDiscountId] = useState<number | null>(null)
+  const [resettingManualDiscount, setResettingManualDiscount] = useState(false)
   const [downloadingPdf, setDownloadingPdf] = useState(false)
 
   const invoicesApi = useApi<PaginatedResponse<InvoiceSummary>>(
@@ -117,6 +135,7 @@ export const InvoicesTab = ({
   const issueMutation = useApiMutation<unknown>()
   const cancelMutation = useApiMutation<unknown>()
   const discountMutation = useApiMutation<unknown>()
+  const removeDiscountMutation = useApiMutation<unknown>()
 
   const invoicesFromApi = invoicesApi.data?.items ?? []
   const invoices = initialInvoices !== undefined ? (initialInvoices ?? []) : invoicesFromApi
@@ -148,16 +167,93 @@ export const InvoicesTab = ({
   const termInvoiceLoading = generateTermMutation.loading
   const kits = kitsApi.data ?? []
   const selectedInvoice = invoiceDetailApi.data ?? null
+  const selectedDiscountLine = useMemo(
+    () => selectedInvoice?.lines.find((line) => line.id === discountLineId) ?? null,
+    [discountLineId, selectedInvoice]
+  )
+  const recordedDiscountTotal = useMemo(
+    () =>
+      roundCurrency(
+        lineDiscounts.reduce(
+          (total, discount) => total + parseNumber(discount.calculated_amount),
+          0
+        )
+      ),
+    [lineDiscounts]
+  )
+  const manualDiscountAmount = useMemo(() => {
+    if (!selectedDiscountLine) return 0
+    return Math.max(
+      0,
+      roundCurrency(
+        parseNumber(selectedDiscountLine.discount_amount) - recordedDiscountTotal
+      )
+    )
+  }, [recordedDiscountTotal, selectedDiscountLine])
+  const canApplyDiscount =
+    canManage &&
+    selectedInvoice != null &&
+    selectedInvoice.status !== 'cancelled' &&
+    selectedInvoice.status !== 'void' &&
+    (selectedInvoice.status !== 'paid' || isSuperAdmin(user))
+  const canRemoveRecordedDiscount =
+    canManage &&
+    selectedInvoice != null &&
+    selectedInvoice.status !== 'cancelled' &&
+    selectedInvoice.status !== 'void' &&
+    selectedInvoice.status !== 'paid'
+  const canResetManualDiscount =
+    canManage &&
+    selectedInvoice != null &&
+    selectedInvoice.status !== 'cancelled' &&
+    selectedInvoice.status !== 'void' &&
+    (selectedInvoice.status !== 'paid' || isSuperAdmin(user))
   const loading =
     addLineMutation.loading ||
     removeLineMutation.loading ||
     issueMutation.loading ||
     cancelMutation.loading ||
-    discountMutation.loading
+    discountMutation.loading ||
+    removeDiscountMutation.loading
 
   useEffect(() => {
     if (invoicesApi.error) onError(invoicesApi.error)
   }, [invoicesApi.error, onError])
+
+  useEffect(() => {
+    if (!discountDialogOpen || !discountLineId) {
+      setLineDiscounts([])
+      setLineDiscountsLoading(false)
+      return
+    }
+
+    let cancelled = false
+
+    const loadLineDiscounts = async () => {
+      setLineDiscountsLoading(true)
+      try {
+        const response = await api.get(`/discounts/line/${discountLineId}`)
+        if (!cancelled) {
+          setLineDiscounts(unwrapResponse<AppliedDiscount[]>(response))
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setLineDiscounts([])
+          onError(parseApiError(err).message || 'Failed to load discounts.')
+        }
+      } finally {
+        if (!cancelled) {
+          setLineDiscountsLoading(false)
+        }
+      }
+    }
+
+    void loadLineDiscounts()
+
+    return () => {
+      cancelled = true
+    }
+  }, [discountDialogOpen, discountLineId, onError])
 
   const byStatus = showCancelledInvoices
     ? invoices
@@ -215,9 +311,37 @@ export const InvoicesTab = ({
     setSelectedInvoiceId(invoice.id)
   }
 
+  const closeDiscountDialog = () => {
+    setDiscountDialogOpen(false)
+    setDiscountLineId(null)
+    setLineDiscounts([])
+    setLineDiscountsLoading(false)
+    setRemovingDiscountId(null)
+    setResettingManualDiscount(false)
+  }
+
   const closeInvoiceDetail = () => {
     setSelectedInvoiceId(null)
     setLineDialogOpen(false)
+    closeDiscountDialog()
+  }
+
+  const refreshInvoicesData = async () => {
+    await Promise.all([invoiceDetailApi.refetch(), invoicesApi.refetch()])
+    onDebtChange()
+  }
+
+  const refreshDiscountsForLine = async (lineId: number) => {
+    setLineDiscountsLoading(true)
+    try {
+      const response = await api.get(`/discounts/line/${lineId}`)
+      setLineDiscounts(unwrapResponse<AppliedDiscount[]>(response))
+    } catch (err) {
+      setLineDiscounts([])
+      onError(parseApiError(err).message || 'Failed to load discounts.')
+    } finally {
+      setLineDiscountsLoading(false)
+    }
   }
 
   const openAddLine = () => {
@@ -247,9 +371,7 @@ export const InvoicesTab = ({
     )
     if (refreshed != null) {
       setLineDialogOpen(false)
-      invoiceDetailApi.refetch()
-      invoicesApi.refetch()
-      onDebtChange()
+      await refreshInvoicesData()
     } else if (addLineMutation.error) onError(addLineMutation.error)
   }
 
@@ -262,9 +384,7 @@ export const InvoicesTab = ({
         .then((r) => ({ data: { data: unwrapResponse(r) } }))
     )
     if (ok != null) {
-      invoiceDetailApi.refetch()
-      invoicesApi.refetch()
-      onDebtChange()
+      await refreshInvoicesData()
     } else if (removeLineMutation.error) onError(removeLineMutation.error)
   }
 
@@ -283,9 +403,7 @@ export const InvoicesTab = ({
     )
     if (ok != null) {
       setIssueDialogOpen(false)
-      invoiceDetailApi.refetch()
-      invoicesApi.refetch()
-      onDebtChange()
+      await refreshInvoicesData()
     } else if (issueMutation.error) onError(issueMutation.error)
   }
 
@@ -298,9 +416,7 @@ export const InvoicesTab = ({
         .then((r) => ({ data: { data: unwrapResponse(r) } }))
     )
     if (ok != null) {
-      invoiceDetailApi.refetch()
-      invoicesApi.refetch()
-      onDebtChange()
+      await refreshInvoicesData()
     } else if (cancelMutation.error) onError(cancelMutation.error)
   }
 
@@ -324,11 +440,46 @@ export const InvoicesTab = ({
         .then((r) => ({ data: { data: unwrapResponse(r) } }))
     )
     if (ok != null) {
-      setDiscountDialogOpen(false)
-      if (selectedInvoice) invoiceDetailApi.refetch()
-      invoicesApi.refetch()
-      onDebtChange()
+      setDiscountForm({ value_type: 'percentage', value: '', reason_text: '' })
+      await refreshInvoicesData()
+      await refreshDiscountsForLine(discountLineId)
     } else if (discountMutation.error) onError(discountMutation.error)
+  }
+
+  const removeAppliedDiscount = async (discountId: number) => {
+    if (!discountLineId) return
+    removeDiscountMutation.reset()
+    setRemovingDiscountId(discountId)
+    const ok = await removeDiscountMutation.execute(() =>
+      api.delete(`/discounts/${discountId}`).then((r) => ({ data: { data: unwrapResponse(r) } }))
+    )
+    setRemovingDiscountId(null)
+    if (ok != null) {
+      await refreshInvoicesData()
+      await refreshDiscountsForLine(discountLineId)
+    } else if (removeDiscountMutation.error) {
+      onError(removeDiscountMutation.error)
+    }
+  }
+
+  const resetManualDiscount = async () => {
+    if (!selectedInvoice || !selectedDiscountLine) return
+    removeDiscountMutation.reset()
+    setResettingManualDiscount(true)
+    const ok = await removeDiscountMutation.execute(() =>
+      api
+        .patch(`/invoices/${selectedInvoice.id}/lines/${selectedDiscountLine.id}/discount`, {
+          discount_amount: recordedDiscountTotal,
+        })
+        .then((r) => ({ data: { data: unwrapResponse(r) } }))
+    )
+    setResettingManualDiscount(false)
+    if (ok != null) {
+      await refreshInvoicesData()
+      await refreshDiscountsForLine(selectedDiscountLine.id)
+    } else if (removeDiscountMutation.error) {
+      onError(removeDiscountMutation.error)
+    }
   }
 
   const downloadInvoicePdf = async () => {
@@ -624,41 +775,138 @@ export const InvoicesTab = ({
       {/* Discount Dialog */}
       <Dialog
         open={discountDialogOpen}
-        onClose={() => setDiscountDialogOpen(false)}
+        onClose={closeDiscountDialog}
         maxWidth="sm"
       >
-        <DialogCloseButton onClose={() => setDiscountDialogOpen(false)} />
-        <DialogTitle>Apply discount</DialogTitle>
+        <DialogCloseButton onClose={closeDiscountDialog} />
+        <DialogTitle>Manage discounts</DialogTitle>
         <DialogContent>
           <div className="space-y-4 mt-4">
-            <Select
-              value={discountForm.value_type}
-              onChange={(e) =>
-                setDiscountForm({ ...discountForm, value_type: e.target.value as DiscountValueType })
-              }
-              label="Value type"
-            >
-              <option value="percentage">Percentage</option>
-              <option value="fixed">Fixed</option>
-            </Select>
-            <Input
-              label="Value"
-              type="number"
-              value={discountForm.value}
-              onChange={(e) => setDiscountForm({ ...discountForm, value: e.target.value })}
-            />
-            <Input
-              label="Reason"
-              value={discountForm.reason_text}
-              onChange={(e) => setDiscountForm({ ...discountForm, reason_text: e.target.value })}
-            />
+            {selectedDiscountLine && (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                <div>
+                  <Typography variant="subtitle2">{selectedDiscountLine.description}</Typography>
+                  <Typography variant="body2" color="secondary">
+                    Current discount {formatMoney(parseNumber(selectedDiscountLine.discount_amount))}
+                  </Typography>
+                </div>
+                <Chip label={`Net ${formatMoney(parseNumber(selectedDiscountLine.net_amount))}`} />
+              </div>
+            )}
+            {selectedInvoice?.status === 'paid' && (
+              <Alert severity="warning">
+                Paid invoices can receive new discounts only by SuperAdmin, but applied discount
+                records cannot be removed.
+              </Alert>
+            )}
+            {(selectedInvoice?.status === 'cancelled' || selectedInvoice?.status === 'void') && (
+              <Alert severity="warning">
+                Discounts cannot be changed on cancelled or void invoices.
+              </Alert>
+            )}
+            <div className="space-y-3 rounded-lg border border-slate-200 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <Typography variant="subtitle2">Applied discounts</Typography>
+                {lineDiscountsLoading && <Spinner size="small" />}
+              </div>
+              {!lineDiscountsLoading && !lineDiscounts.length && manualDiscountAmount <= 0 && (
+                <Typography variant="body2" color="secondary">
+                  No discounts applied to this line yet.
+                </Typography>
+              )}
+              <div className="space-y-2">
+                {lineDiscounts.map((discount) => (
+                  <div
+                    key={discount.id}
+                    className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 px-3 py-3"
+                  >
+                    <div className="space-y-1">
+                      <Typography variant="body2">
+                        {discount.value_type === 'percentage'
+                          ? `${parseNumber(discount.value)}%`
+                          : formatMoney(parseNumber(discount.value))}
+                        {' · '}
+                        {formatMoney(parseNumber(discount.calculated_amount))}
+                      </Typography>
+                      <Typography variant="body2" color="secondary">
+                        {discount.reason_name ?? discount.reason_text ?? 'No reason provided'}
+                      </Typography>
+                      {discount.student_discount_id ? (
+                        <Typography variant="body2" color="secondary">
+                          Auto-applied from student discount
+                        </Typography>
+                      ) : null}
+                    </div>
+                    {canRemoveRecordedDiscount && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="error"
+                        disabled={removeDiscountMutation.loading}
+                        onClick={() => removeAppliedDiscount(discount.id)}
+                      >
+                        {removingDiscountId === discount.id ? 'Removing…' : 'Remove'}
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                {manualDiscountAmount > 0 && (
+                  <div className="flex items-start justify-between gap-3 rounded-lg border border-dashed border-slate-300 px-3 py-3">
+                    <div className="space-y-1">
+                      <Typography variant="body2">
+                        Manual line discount · {formatMoney(manualDiscountAmount)}
+                      </Typography>
+                      <Typography variant="body2" color="secondary">
+                        This portion is stored directly on the invoice line, not as a discount
+                        record.
+                      </Typography>
+                    </div>
+                    {canResetManualDiscount && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="error"
+                        disabled={removeDiscountMutation.loading}
+                        onClick={resetManualDiscount}
+                      >
+                        {resettingManualDiscount ? 'Resetting…' : 'Reset'}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="space-y-4 rounded-lg border border-slate-200 p-4">
+              <Typography variant="subtitle2">Add discount</Typography>
+              <Select
+                value={discountForm.value_type}
+                onChange={(e) =>
+                  setDiscountForm({ ...discountForm, value_type: e.target.value as DiscountValueType })
+                }
+                label="Value type"
+              >
+                <option value="percentage">Percentage</option>
+                <option value="fixed">Fixed</option>
+              </Select>
+              <Input
+                label="Value"
+                type="number"
+                value={discountForm.value}
+                onChange={(e) => setDiscountForm({ ...discountForm, value: e.target.value })}
+              />
+              <Input
+                label="Reason"
+                value={discountForm.reason_text}
+                onChange={(e) => setDiscountForm({ ...discountForm, reason_text: e.target.value })}
+              />
+            </div>
           </div>
         </DialogContent>
         <DialogActions>
-          <Button variant="outlined" onClick={() => setDiscountDialogOpen(false)}>
+          <Button variant="outlined" onClick={closeDiscountDialog}>
             Cancel
           </Button>
-          <Button variant="contained" onClick={submitLineDiscount} disabled={loading}>
+          <Button variant="contained" onClick={submitLineDiscount} disabled={loading || !canApplyDiscount}>
             {loading ? <Spinner size="small" /> : 'Apply'}
           </Button>
         </DialogActions>

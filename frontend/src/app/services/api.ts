@@ -22,7 +22,7 @@ export const api = axios.create({ baseURL })
  */
 export function unwrapResponse<T>(response: AxiosResponse<ApiResponse<T>>): T {
   const body = response.data
-  return body?.data !== undefined ? body.data : (true as unknown as T)
+  return body?.data != null ? body.data : (true as unknown as T)
 }
 
 function getTokenExpiration(token: string): number | null {
