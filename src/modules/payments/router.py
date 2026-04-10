@@ -1,6 +1,7 @@
 """API endpoints for Payments module."""
 
 from datetime import date
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
@@ -35,6 +36,17 @@ from src.shared.utils.money import round_money
 router = APIRouter(prefix="/payments", tags=["Payments"])
 
 
+def _build_student_net_balance(available_balance: Decimal, outstanding_debt: Decimal, billing_account_type: str | None) -> Decimal:
+    """Student balance shown in student screens.
+
+    For family accounts, shared credit belongs to the billing account, not to any one child,
+    so student balance only reflects that student's own debt.
+    """
+    if billing_account_type == "family":
+        return round_money(Decimal("0.00") - outstanding_debt)
+    return round_money(available_balance - outstanding_debt)
+
+
 def _payment_to_response(payment) -> PaymentResponse:
     """Convert Payment model to API response."""
     return PaymentResponse(
@@ -44,6 +56,9 @@ def _payment_to_response(payment) -> PaymentResponse:
         student_id=payment.student_id,
         student_name=payment.student.full_name if payment.student else None,
         student_number=payment.student.student_number if payment.student else None,
+        billing_account_id=payment.billing_account_id,
+        billing_account_number=payment.billing_account.account_number if payment.billing_account else None,
+        billing_account_name=payment.billing_account.display_name if payment.billing_account else None,
         preferred_invoice_id=payment.preferred_invoice_id,
         preferred_invoice_number=payment.preferred_invoice.invoice_number
         if payment.preferred_invoice
@@ -91,6 +106,7 @@ async def create_payment(
 )
 async def list_payments(
     student_id: int | None = Query(None),
+    billing_account_id: int | None = Query(None),
     status: PaymentStatus | None = Query(None),
     payment_method: PaymentMethod | None = Query(None),
     search: str | None = Query(None, description="Search by payment #, receipt #, reference, or student"),
@@ -107,6 +123,7 @@ async def list_payments(
     service = PaymentService(db)
     filters = PaymentFilters(
         student_id=student_id,
+        billing_account_id=billing_account_id,
         status=status,
         payment_method=payment_method,
         search=search,
@@ -272,16 +289,27 @@ async def get_student_balances_batch(
     payment_service = PaymentService(db)
     invoice_service = InvoiceService(db)
     balances = await payment_service.get_student_balances_batch(payload.student_ids)
-    totals = await invoice_service.get_outstanding_totals(payload.student_ids)
-    debt_by_student = {t.student_id: t.total_due for t in totals}
+    debt_items = await invoice_service.get_outstanding_totals(payload.student_ids)
+    debt_by_student = {item.student_id: item.total_due for item in debt_items}
     merged = [
         StudentBalance(
             student_id=b.student_id,
+            billing_account_id=b.billing_account_id,
+            billing_account_number=b.billing_account_number,
+            billing_account_name=b.billing_account_name,
+            billing_account_type=b.billing_account_type,
             total_payments=b.total_payments,
             total_allocated=b.total_allocated,
             available_balance=b.available_balance,
-            outstanding_debt=debt_by_student.get(b.student_id, b.outstanding_debt),
-            balance=round_money(b.available_balance - debt_by_student.get(b.student_id, b.outstanding_debt)),
+            outstanding_debt=debt_by_student.get(
+                b.student_id,
+                b.outstanding_debt,
+            ),
+            balance=_build_student_net_balance(
+                b.available_balance,
+                debt_by_student.get(b.student_id, b.outstanding_debt),
+                b.billing_account_type,
+            ),
         )
         for b in balances
     ]
@@ -303,15 +331,23 @@ async def get_student_balance(
     payment_service = PaymentService(db)
     invoice_service = InvoiceService(db)
     balance = await payment_service.get_student_balance(student_id)
-    totals = await invoice_service.get_outstanding_totals([student_id])
-    total_due = totals[0].total_due if totals else balance.outstanding_debt
+    debt_items = await invoice_service.get_outstanding_totals([student_id])
+    total_due = debt_items[0].total_due if debt_items else balance.outstanding_debt
     merged = StudentBalance(
         student_id=balance.student_id,
+        billing_account_id=balance.billing_account_id,
+        billing_account_number=balance.billing_account_number,
+        billing_account_name=balance.billing_account_name,
+        billing_account_type=balance.billing_account_type,
         total_payments=balance.total_payments,
         total_allocated=balance.total_allocated,
         available_balance=balance.available_balance,
         outstanding_debt=total_due,
-        balance=round_money(balance.available_balance - total_due),
+        balance=_build_student_net_balance(
+            balance.available_balance,
+            total_due,
+            balance.billing_account_type,
+        ),
     )
     return ApiResponse(data=merged)
 

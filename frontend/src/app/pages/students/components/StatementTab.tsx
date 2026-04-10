@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { api } from '../../../services/api'
 import { useApiMutation } from '../../../hooks/useApi'
 import { formatDateTime, formatMoney } from '../../../utils/format'
@@ -17,16 +17,8 @@ interface StatementTabProps {
 
 export const StatementTab = ({ studentId, onError }: StatementTabProps) => {
   const { execute: loadStatement, loading, error } = useApiMutation<StatementResponse>()
-  const [statementForm, setStatementForm] = useState({ date_from: '', date_to: '' })
+  const [statementForm, setStatementForm] = useState(getMonthToDateRange())
   const [statement, setStatement] = useState<StatementResponse | null>(null)
-  const [initialized, setInitialized] = useState(false)
-
-  useEffect(() => {
-    if (!initialized) {
-      setStatementForm(getMonthToDateRange())
-      setInitialized(true)
-    }
-  }, [initialized])
 
   const fetchStatement = async () => {
     if (!statementForm.date_from || !statementForm.date_to) return
@@ -67,6 +59,12 @@ export const StatementTab = ({ studentId, onError }: StatementTabProps) => {
       </div>
       {statement && (
         <div className="mb-4">
+          {statement.billing_account_name && (
+            <Typography variant="body2" color="secondary" className="mb-2">
+              Statement for {statement.billing_account_name}
+              {statement.billing_account_number ? ` · ${statement.billing_account_number}` : ''}
+            </Typography>
+          )}
           <Typography variant="body2">
             Opening balance: {formatMoney(parseNumber(statement.opening_balance))}
           </Typography>

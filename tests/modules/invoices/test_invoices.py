@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from sqlalchemy import func, select
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.core.auth.models import UserRole
 from src.core.auth.service import AuthService

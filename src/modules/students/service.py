@@ -7,6 +7,8 @@ from sqlalchemy.orm import selectinload
 from src.core.audit.service import AuditService
 from src.core.documents.number_generator import DocumentNumberGenerator
 from src.core.exceptions import DuplicateError, NotFoundError, ValidationError
+from src.modules.billing_accounts.models import BillingAccount
+from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.students.models import Grade, Student, StudentStatus
 from src.modules.students.schemas import (
     GradeCreate,
@@ -180,6 +182,9 @@ class StudentService:
         )
         self.db.add(student)
         await self.db.flush()
+        billing_account_service = BillingAccountService(self.db)
+        await billing_account_service.ensure_student_billing_account(student.id)
+        await self.db.flush()
 
         await self.audit.log(
             action="student.create",
@@ -206,6 +211,7 @@ class StudentService:
             query = query.options(
                 selectinload(Student.grade),
                 selectinload(Student.transport_zone),
+                selectinload(Student.billing_account).selectinload(BillingAccount.students),
             )
         result = await self.db.execute(query)
         student = result.scalar_one_or_none()
@@ -222,6 +228,7 @@ class StudentService:
             query = query.options(
                 selectinload(Student.grade),
                 selectinload(Student.transport_zone),
+                selectinload(Student.billing_account).selectinload(BillingAccount.students),
             )
         result = await self.db.execute(query)
         student = result.scalar_one_or_none()
@@ -244,6 +251,7 @@ class StudentService:
             .options(
                 selectinload(Student.grade),
                 selectinload(Student.transport_zone),
+                selectinload(Student.billing_account).selectinload(BillingAccount.students),
             )
             .order_by(Student.last_name, Student.first_name)
         )
@@ -290,6 +298,7 @@ class StudentService:
             .options(
                 selectinload(Student.grade),
                 selectinload(Student.transport_zone),
+                selectinload(Student.billing_account).selectinload(BillingAccount.students),
             )
             .where(Student.status == StudentStatus.ACTIVE.value)
             .order_by(Student.grade_id, Student.last_name, Student.first_name)
@@ -376,6 +385,16 @@ class StudentService:
                 old_values=old_values,
                 new_values=new_values,
             )
+
+        if student.billing_account_id:
+            await self.db.refresh(student, attribute_names=["billing_account"])
+            if student.billing_account is not None:
+                billing_account_service = BillingAccountService(self.db)
+                await billing_account_service._sync_individual_account_from_student(
+                    student.billing_account,
+                    student,
+                )
+                await billing_account_service.sync_cached_balance(student.billing_account_id)
 
         await self.db.commit()
         await self.db.refresh(student)

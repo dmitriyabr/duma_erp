@@ -145,11 +145,15 @@ class StudentResponse(BaseModel):
     enrollment_date: date | None
     notes: str | None
     created_by_id: int
+    billing_account_id: int | None = None
+    billing_account_number: str | None = None
+    billing_account_name: str | None = None
+    billing_account_type: str | None = None
+    billing_account_member_count: int | None = None
     # Balance fields (optional, included when include_balance=true)
     available_balance: float | None = None
     outstanding_debt: float | None = None
     balance: float | None = None  # net: available_balance - outstanding_debt
 
     model_config = {"from_attributes": True}
-
 

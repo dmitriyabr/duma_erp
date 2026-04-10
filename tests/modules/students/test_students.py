@@ -395,6 +395,38 @@ class TestStudentEndpoints:
         assert "items" in data["data"]
         assert "total" in data["data"]
 
+    async def test_list_students_with_balance(self, client: AsyncClient, db_session: AsyncSession):
+        """Test listing students with balance payload via API."""
+        token, _, grade = await self._create_auth_and_grade(db_session)
+
+        await client.post(
+            "/api/v1/students",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "first_name": "Balance",
+                "last_name": "Test",
+                "gender": "female",
+                "grade_id": grade.id,
+                "guardian_name": "Guardian",
+                "guardian_phone": "+254712345678",
+            },
+        )
+
+        response = await client.get(
+            "/api/v1/students?include_balance=true",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["data"]["total"] >= 1
+        student = next(item for item in data["data"]["items"] if item["first_name"] == "Balance")
+        assert student["billing_account_id"] is not None
+        assert student["available_balance"] == 0.0
+        assert student["outstanding_debt"] == 0.0
+        assert student["balance"] == 0.0
+
     async def test_search_students(self, client: AsyncClient, db_session: AsyncSession):
         """Test searching students via API."""
         token, _, grade = await self._create_auth_and_grade(db_session)

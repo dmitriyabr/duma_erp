@@ -96,6 +96,9 @@ class InvoiceResponse(BaseModel):
     student_id: int
     student_name: str | None = None
     student_number: str | None = None
+    billing_account_id: int | None = None
+    billing_account_number: str | None = None
+    billing_account_name: str | None = None
     term_id: int | None
     term_name: str | None = None
     invoice_type: str
@@ -121,6 +124,9 @@ class InvoiceSummary(BaseModel):
     invoice_number: str
     student_id: int
     student_name: str | None = None
+    billing_account_id: int | None = None
+    billing_account_number: str | None = None
+    billing_account_name: str | None = None
     invoice_type: str
     description: str | None = None
     status: str
@@ -175,6 +181,7 @@ class InvoiceFilters(BaseModel):
     """Filters for listing invoices."""
 
     student_id: int | None = None
+    billing_account_id: int | None = None
     term_id: int | None = None
     invoice_type: InvoiceType | None = None
     status: InvoiceStatus | None = None

@@ -15,7 +15,8 @@ from src.modules.payments.models import PaymentMethod, PaymentStatus
 class PaymentCreate(BaseSchema):
     """Schema for creating a payment. Reference or confirmation_attachment_id required."""
 
-    student_id: int
+    student_id: int | None = None
+    billing_account_id: int | None = None
     preferred_invoice_id: int | None = None
     amount: Decimal = Field(gt=0, description="Payment amount (must be positive)")
     payment_method: PaymentMethod
@@ -26,6 +27,8 @@ class PaymentCreate(BaseSchema):
 
     @model_validator(mode="after")
     def require_reference_or_attachment(self):
+        if self.student_id is None and self.billing_account_id is None:
+            raise ValueError("Either student_id or billing_account_id is required")
         if not self.reference and not self.confirmation_attachment_id:
             raise ValueError("Either reference or confirmation file (attachment) is required")
         return self
@@ -51,6 +54,9 @@ class PaymentResponse(BaseSchema):
     student_id: int
     student_name: str | None = None
     student_number: str | None = None
+    billing_account_id: int | None = None
+    billing_account_number: str | None = None
+    billing_account_name: str | None = None
     preferred_invoice_id: int | None = None
     preferred_invoice_number: str | None = None
     amount: Decimal
@@ -69,6 +75,7 @@ class PaymentFilters(BaseSchema):
     """Filters for listing payments."""
 
     student_id: int | None = None
+    billing_account_id: int | None = None
     status: PaymentStatus | None = None
     payment_method: PaymentMethod | None = None
     search: str | None = None
@@ -84,10 +91,17 @@ class PaymentFilters(BaseSchema):
 class AllocationCreate(BaseSchema):
     """Schema for manual credit allocation."""
 
-    student_id: int
+    student_id: int | None = None
+    billing_account_id: int | None = None
     invoice_id: int
     invoice_line_id: int | None = None
     amount: Decimal = Field(gt=0)
+
+    @model_validator(mode="after")
+    def require_owner(self):
+        if self.student_id is None and self.billing_account_id is None:
+            raise ValueError("Either student_id or billing_account_id is required")
+        return self
 
 
 class AllocationResponse(BaseSchema):
@@ -95,6 +109,7 @@ class AllocationResponse(BaseSchema):
 
     id: int
     student_id: int
+    billing_account_id: int | None = None
     invoice_id: int
     invoice_line_id: int | None
     amount: Decimal
@@ -105,10 +120,17 @@ class AllocationResponse(BaseSchema):
 class AutoAllocateRequest(BaseSchema):
     """Schema for auto-allocation request."""
 
-    student_id: int
+    student_id: int | None = None
+    billing_account_id: int | None = None
     max_amount: Decimal | None = Field(
         None, gt=0, description="Max amount to allocate (defaults to full balance)"
     )
+
+    @model_validator(mode="after")
+    def require_owner(self):
+        if self.student_id is None and self.billing_account_id is None:
+            raise ValueError("Either student_id or billing_account_id is required")
+        return self
 
 
 class AutoAllocateResult(BaseSchema):
@@ -125,14 +147,24 @@ class AutoAllocateResult(BaseSchema):
 
 
 class StudentBalance(BaseSchema):
-    """Student's credit balance and net balance (credit − debt)."""
+    """Student billing summary.
+
+    `available_balance` is the shared credit currently available on the linked billing account.
+    `outstanding_debt` is always this student's own unpaid invoices.
+    `balance` is student-facing net position; for family accounts shared credit is not attributed
+    to one child, so balance only reflects that student's own debt.
+    """
 
     student_id: int
+    billing_account_id: int | None = None
+    billing_account_number: str | None = None
+    billing_account_name: str | None = None
+    billing_account_type: str | None = None
     total_payments: Decimal
     total_allocated: Decimal
     available_balance: Decimal
-    outstanding_debt: Decimal = Decimal("0")  # sum of amount_due on unpaid invoices
-    balance: Decimal = Decimal("0")  # net: available_balance − outstanding_debt
+    outstanding_debt: Decimal = Decimal("0")
+    balance: Decimal = Decimal("0")
 
 
 class StudentBalancesBatchRequest(BaseSchema):
@@ -163,6 +195,9 @@ class StatementResponse(BaseSchema):
 
     student_id: int
     student_name: str
+    billing_account_id: int | None = None
+    billing_account_number: str | None = None
+    billing_account_name: str | None = None
     period_from: date
     period_to: date
     opening_balance: Decimal

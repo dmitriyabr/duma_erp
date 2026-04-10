@@ -269,6 +269,20 @@
 - [x] API endpoints `/activities` (CRUD list/detail/update, add/exclude participant, generate invoices)
 - [x] Документация и тесты
 
+### 3.1.2 Family Billing / Shared Accounts
+> Решения: владелец денег = `BillingAccount`; student остаётся владельцем invoice, но payments/allocations/statement работают на уровне общего billing account
+
+- [x] Модель `BillingAccount` (`account_number`, `display_name`, `account_type`, primary guardian, cached credit balance)
+- [x] Миграция `043_family_billing_accounts.py` с backfill: 1 existing student = 1 individual billing account
+- [x] Поле `billing_account_id` в `students`, `invoices`, `payments`, `credit_allocations`
+- [x] Auto-create individual billing account при создании нового student и direct ORM inserts
+- [x] Семейный flow: создание family account из нескольких студентов и добавление новых членов в existing family
+- [x] Общий кошелёк: payments и allocations могут идти по `billing_account_id`, а auto-allocation закрывает invoices всех студентов семьи
+- [x] Family statement endpoint и family-aware student balance / payments / invoices responses
+- [x] UI: список `/billing/families`, create/edit form, detail page с members, invoices, payments и statement
+- [x] Доступы: accountant может смотреть, но `Record payment` и create/edit доступны только `SuperAdmin` / `Admin`
+- [x] Документация и тесты
+
 ### 3.2 Аллокация средств
 > Решения: Товары requires_full_payment, услуги можно частично, smallest first
 

@@ -20,24 +20,38 @@ export interface StudentResponse {
   status: StudentStatus
   enrollment_date?: string | null
   notes?: string | null
+  billing_account_id?: number | null
+  billing_account_number?: string | null
+  billing_account_name?: string | null
+  billing_account_type?: string | null
+  billing_account_member_count?: number | null
   // Balance fields (optional, included when include_balance=true)
   available_balance?: number | null
   outstanding_debt?: number | null
-  balance?: number | null // net: available_balance - outstanding_debt
+  balance?: number | null
 }
 
 export interface StudentBalance {
   student_id: number
+  billing_account_id?: number | null
+  billing_account_number?: string | null
+  billing_account_name?: string | null
+  billing_account_type?: string | null
   total_payments: number
   total_allocated: number
   available_balance: number
   outstanding_debt: number
-  balance: number // net: available_balance − outstanding_debt (computed on backend)
+  balance: number
 }
 
 export interface InvoiceSummary {
   id: number
   invoice_number: string
+  student_id?: number
+  student_name?: string | null
+  billing_account_id?: number | null
+  billing_account_number?: string | null
+  billing_account_name?: string | null
   invoice_type: string
   description?: string | null
   status: string
@@ -72,6 +86,9 @@ export interface PaymentResponse {
   student_id: number
   student_name?: string | null
   student_number?: string | null
+  billing_account_id?: number | null
+  billing_account_number?: string | null
+  billing_account_name?: string | null
   preferred_invoice_id?: number | null
   preferred_invoice_number?: string | null
   amount: number
@@ -124,6 +141,11 @@ export interface StatementEntry {
 }
 
 export interface StatementResponse {
+  student_id?: number
+  student_name?: string
+  billing_account_id?: number | null
+  billing_account_number?: string | null
+  billing_account_name?: string | null
   opening_balance: number
   closing_balance: number
   total_credits: number

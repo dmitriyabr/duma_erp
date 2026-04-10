@@ -45,6 +45,9 @@ def _invoice_to_response(invoice) -> InvoiceResponse:
         student_id=invoice.student_id,
         student_name=invoice.student.full_name if invoice.student else None,
         student_number=invoice.student.student_number if invoice.student else None,
+        billing_account_id=invoice.billing_account_id,
+        billing_account_number=invoice.billing_account.account_number if invoice.billing_account else None,
+        billing_account_name=invoice.billing_account.display_name if invoice.billing_account else None,
         term_id=invoice.term_id,
         term_name=invoice.term.display_name if invoice.term else None,
         invoice_type=invoice.invoice_type,
@@ -110,6 +113,9 @@ def _invoice_to_summary(invoice) -> InvoiceSummary:
         invoice_number=invoice.invoice_number,
         student_id=invoice.student_id,
         student_name=invoice.student.full_name if invoice.student else None,
+        billing_account_id=invoice.billing_account_id,
+        billing_account_number=invoice.billing_account.account_number if invoice.billing_account else None,
+        billing_account_name=invoice.billing_account.display_name if invoice.billing_account else None,
         invoice_type=invoice.invoice_type,
         description=_invoice_summary_description(invoice),
         status=invoice.status,
@@ -153,6 +159,7 @@ async def create_adhoc_invoice(
 )
 async def list_invoices(
     student_id: int | None = Query(None),
+    billing_account_id: int | None = Query(None),
     term_id: int | None = Query(None),
     invoice_type: InvoiceType | None = Query(None),
     status: InvoiceStatus | None = Query(None),
@@ -168,6 +175,7 @@ async def list_invoices(
     service = InvoiceService(db)
     filters = InvoiceFilters(
         student_id=student_id,
+        billing_account_id=billing_account_id,
         term_id=term_id,
         invoice_type=invoice_type,
         status=status,

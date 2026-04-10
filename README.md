@@ -78,7 +78,7 @@ Email: admin@school.com
 Password: Admin123!
 ```
 
-**Интерфейс бухгалтера (Accountant):** создайте пользователя с ролью Accountant (Settings → Users, только SuperAdmin). Войдите под этим пользователем — откроется дашборд с минимальным меню: Dashboard, Documents (Incoming Payments, Students Invoices, PO, GRN, Procurement Payments, Employee Expenses Claims, Employee Payouts), Data Export, Audit Trail. Бухгалтер видит общий реестр student payments на странице `Billing → Payments` / `/billing/payments` и список платных активностей на `Billing → Activities` / `/billing/activities`, включая roster и статус оплаты, но создание/редактирование документов недоступно. При ручном приёме student payment админ может выбрать конкретный invoice, чтобы сумма сначала аллоцировалась туда, а не в старые долги.
+**Интерфейс бухгалтера (Accountant):** создайте пользователя с ролью Accountant (Settings → Users, только SuperAdmin). Войдите под этим пользователем — откроется дашборд с минимальным меню: Dashboard, Documents (Incoming Payments, Students Invoices, PO, GRN, Procurement Payments, Employee Expenses Claims, Employee Payouts), Data Export, Audit Trail. Бухгалтер видит общий реестр student payments на странице `Billing → Payments` / `/billing/payments`, список платных активностей на `Billing → Activities` / `/billing/activities` и семейные billing accounts на `Billing → Families` / `/billing/families`, включая roster, shared balance и statement. Создание/редактирование family accounts и ручной приём платежей остаются доступны только `SuperAdmin` / `Admin`. При ручном приёме student или family payment админ может выбрать конкретный invoice, чтобы сумма сначала аллоцировалась туда, а не в старые долги.
 
 ## Структура проекта
 
@@ -94,6 +94,7 @@ claude_duma_erp/
 │       ├── terms/          # Триместры и цены
 │       ├── items/          # Складские позиции (Items) и каталог продаж (Kits)
 │       ├── students/       # Студенты и классы
+│       ├── billing_accounts/ # Семейные и индивидуальные billing accounts
 │       ├── invoices/       # Счета
 │       ├── discounts/      # Скидки
 │       ├── payments/       # Платежи и аллокации

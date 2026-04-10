@@ -1,12 +1,16 @@
 """API endpoints for Students module."""
 
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth.dependencies import require_roles
 from src.core.auth.models import User, UserRole
 from src.core.database.session import get_db
-from src.modules.students.models import StudentStatus
+from src.modules.billing_accounts.models import BillingAccount
+from src.modules.students.models import Student, StudentStatus
 from src.modules.students.schemas import (
     GradeCreate,
     GradeResponse,
@@ -19,7 +23,6 @@ from src.modules.students.service import StudentService
 from src.modules.invoices.service import InvoiceService
 from src.shared.schemas.base import ApiResponse, PaginatedResponse
 from src.shared.utils.money import round_money
-from decimal import Decimal
 
 router = APIRouter(prefix="/students", tags=["Students"])
 
@@ -118,7 +121,10 @@ def _student_to_response(
     """Helper to convert Student to response."""
     balance = None
     if available_balance is not None and outstanding_debt is not None:
-        balance = round_money(Decimal(str(available_balance)) - Decimal(str(outstanding_debt)))
+        if student.billing_account and student.billing_account.account_type == "family":
+            balance = round_money(Decimal("0.00") - Decimal(str(outstanding_debt)))
+        else:
+            balance = round_money(Decimal(str(available_balance)) - Decimal(str(outstanding_debt)))
     
     return StudentResponse(
         id=student.id,
@@ -139,6 +145,11 @@ def _student_to_response(
         enrollment_date=student.enrollment_date,
         notes=student.notes,
         created_by_id=student.created_by_id,
+        billing_account_id=student.billing_account_id,
+        billing_account_number=student.billing_account.account_number if student.billing_account else None,
+        billing_account_name=student.billing_account.display_name if student.billing_account else None,
+        billing_account_type=student.billing_account.account_type if student.billing_account else None,
+        billing_account_member_count=len(student.billing_account.students) if student.billing_account else None,
         available_balance=float(available_balance) if available_balance is not None else None,
         outstanding_debt=float(outstanding_debt) if outstanding_debt is not None else None,
         balance=float(balance) if balance is not None else None,
@@ -204,20 +215,21 @@ async def list_students(
     debt_map = {}
     if include_balance and students:
         student_ids = [s.id for s in students]
-        
         # Get cached credit balances (from students table)
-        from src.modules.students.models import Student
-        from sqlalchemy import select
         result = await db.execute(
-            select(Student.id, Student.cached_credit_balance)
+            select(Student.id, BillingAccount.cached_credit_balance)
+            .join(BillingAccount, BillingAccount.id == Student.billing_account_id)
             .where(Student.id.in_(student_ids))
         )
         balances_map = {row[0]: float(row[1]) for row in result.all()}
-        
-        # Get outstanding debt (from invoices)
+
+        # Get outstanding debt by student to avoid duplicating sibling debt on each child.
         invoice_service = InvoiceService(db)
         totals = await invoice_service.get_outstanding_totals(student_ids)
-        debt_map = {t.student_id: float(t.total_due) for t in totals}
+        debt_map = {
+            item.student_id: float(item.total_due)
+            for item in totals
+        }
 
     return ApiResponse(
         success=True,
