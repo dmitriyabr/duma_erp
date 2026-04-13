@@ -61,6 +61,7 @@ class StudentCreate(BaseModel):
     guardian_email: str | None = Field(None, max_length=255)
     enrollment_date: date | None = None
     notes: str | None = None
+    billing_account_id: int | None = None
 
     @field_validator("guardian_phone")
     @classmethod
@@ -156,4 +157,3 @@ class StudentResponse(BaseModel):
     balance: float | None = None  # net: available_balance - outstanding_debt
 
     model_config = {"from_attributes": True}
-

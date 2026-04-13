@@ -269,17 +269,18 @@
 - [x] API endpoints `/activities` (CRUD list/detail/update, add/exclude participant, generate invoices)
 - [x] Документация и тесты
 
-### 3.1.2 Family Billing / Shared Accounts
+### 3.1.2 Billing Accounts / Shared Family Payments
 > Решения: владелец денег = `BillingAccount`; student остаётся владельцем invoice, но payments/allocations/statement работают на уровне общего billing account
 
-- [x] Модель `BillingAccount` (`account_number`, `display_name`, `account_type`, primary guardian, cached credit balance)
+- [x] Модель `BillingAccount` (`account_number`, `display_name`, `account_type`, billing contact fields, cached credit balance)
 - [x] Миграция `043_family_billing_accounts.py` с backfill: 1 existing student = 1 individual billing account
 - [x] Поле `billing_account_id` в `students`, `invoices`, `payments`, `credit_allocations`
 - [x] Auto-create individual billing account при создании нового student и direct ORM inserts
-- [x] Семейный flow: создание family account из нескольких студентов и добавление новых членов в existing family
+- [x] Unified admission flow: создание billing account с `new_children`, mixed existing+new roster и add-child flow внутри existing billing account
 - [x] Общий кошелёк: payments и allocations могут идти по `billing_account_id`, а auto-allocation закрывает invoices всех студентов семьи
-- [x] Family statement endpoint и family-aware student balance / payments / invoices responses
-- [x] UI: список `/billing/families`, create/edit form, detail page с members, invoices, payments и statement
+- [x] Billing account statement endpoint и account-aware student balance / payments / invoices responses
+- [x] UI: `Billing -> Billing Accounts` (`/billing/families` legacy path), unified `/students/new` admission form, detail page с members, invoices, payments и statement
+- [x] Billing Accounts list shows all accounts by default (`individual` + `family`), not only accounts with multiple children
 - [x] Доступы: accountant может смотреть, но `Record payment` и create/edit доступны только `SuperAdmin` / `Admin`
 - [x] Документация и тесты
 
@@ -536,8 +537,8 @@
 - [x] Фикс наложения label и placeholder: реализовано в кастомных Input/Select (floating label), без MUI темы
 - [x] Современный Sidebar (тёмный gradient, логотип)
 - [x] TopBar с аватаром и dropdown меню
-- [x] Dashboard Quick Actions (скрыты для Accountant): Admit New Student → /students/new (страница формы), Sell Items To Student (/billing/invoices/new), Receive Student Payment (/payments/new), Track Order Items, Receive Order Items, Track Payment, Issue Item From Stock, Issue Reserved Item. Унификация: из карточки студента «Record payment» → /payments/new с state.studentId; CreateInvoicePage блокирует студента при state.studentId или :studentId.
-- [x] New Student — отдельная страница /students/new (CreateStudentPage); после создания редирект на карточку студента /students/:id.
+- [x] Dashboard Quick Actions (скрыты для Accountant): New Admission → /students/new (unified billing contact + children flow), Sell Items To Student (/billing/invoices/new), Receive Student Payment (/payments/new), Track Order Items, Receive Order Items, Track Payment, Issue Item From Stock, Issue Reserved Item. Унификация: из карточки студента «Record payment» → /payments/new с state.studentId; CreateInvoicePage блокирует студента при state.studentId или :studentId.
+- [x] New Admission — единая страница /students/new создаёт billing account и одного или нескольких students; старый /billing/families/new редиректит сюда.
 - [x] Кнопка «Back»: на **карточках (detail)** — в список (семантический родитель), на **формах** — по истории (navigate(-1)). Пример: StudentDetailPage → Back → /students; формы (CreateStudent, CreateInvoice, ReceivePayment, TermForm, PO, ProcurementPayment, IssueForm) → Back/Cancel = navigate(-1).
 
 ### 9.1.1 Mobile MVP (Dashboard + Expense Claims)

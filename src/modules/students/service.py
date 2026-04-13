@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 from src.core.audit.service import AuditService
 from src.core.documents.number_generator import DocumentNumberGenerator
 from src.core.exceptions import DuplicateError, NotFoundError, ValidationError
-from src.modules.billing_accounts.models import BillingAccount
+from src.modules.billing_accounts.models import BillingAccount, BillingAccountType
 from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.students.models import Grade, Student, StudentStatus
 from src.modules.students.schemas import (
@@ -149,8 +149,27 @@ class StudentService:
             )
         return zone
 
+    async def _validate_billing_account(self, billing_account_id: int) -> BillingAccount:
+        """Validate billing account exists and can accept directly-created children."""
+        result = await self.db.execute(
+            select(BillingAccount).where(BillingAccount.id == billing_account_id)
+        )
+        account = result.scalar_one_or_none()
+        if not account:
+            raise ValidationError("Selected billing account was not found", field="billing_account_id")
+        if account.account_type != BillingAccountType.FAMILY.value:
+            raise ValidationError(
+                "Students can only be attached directly to family billing accounts",
+                field="billing_account_id",
+            )
+        return account
+
     async def create_student(
-        self, data: StudentCreate, created_by_id: int
+        self,
+        data: StudentCreate,
+        created_by_id: int,
+        *,
+        commit: bool = True,
     ) -> Student:
         """Create a new student."""
         # Validate grade
@@ -159,6 +178,10 @@ class StudentService:
         # Validate transport zone if provided
         if data.transport_zone_id:
             await self._validate_transport_zone(data.transport_zone_id)
+
+        target_billing_account = None
+        if data.billing_account_id is not None:
+            target_billing_account = await self._validate_billing_account(data.billing_account_id)
 
         # Generate student number
         number_gen = DocumentNumberGenerator(self.db)
@@ -179,11 +202,15 @@ class StudentService:
             enrollment_date=data.enrollment_date,
             notes=data.notes,
             created_by_id=created_by_id,
+            billing_account_id=target_billing_account.id if target_billing_account else None,
         )
         self.db.add(student)
         await self.db.flush()
         billing_account_service = BillingAccountService(self.db)
-        await billing_account_service.ensure_student_billing_account(student.id)
+        if target_billing_account is None:
+            await billing_account_service.ensure_student_billing_account(student.id)
+        else:
+            await billing_account_service.sync_cached_balance(target_billing_account.id)
         await self.db.flush()
 
         await self.audit.log(
@@ -198,7 +225,10 @@ class StudentService:
             },
         )
 
-        await self.db.commit()
+        if commit:
+            await self.db.commit()
+        else:
+            await self.db.flush()
         await self.db.refresh(student)
         return student
 

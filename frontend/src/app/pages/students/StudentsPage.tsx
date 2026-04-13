@@ -97,7 +97,7 @@ export const StudentsPage = () => {
         </Typography>
         {!readOnly && (
           <Button variant="contained" onClick={() => navigate('/students/new')}>
-            New student
+            New admission
           </Button>
         )}
       </div>

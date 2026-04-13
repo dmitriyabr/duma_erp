@@ -31,7 +31,6 @@ import { ProcurementPaymentsListPage } from './pages/procurement/ProcurementPaym
 import { ProcurementPaymentFormPage } from './pages/procurement/ProcurementPaymentFormPage'
 import { ProcurementPaymentDetailPage } from './pages/procurement/ProcurementPaymentDetailPage'
 import { StudentsPage } from './pages/students/StudentsPage'
-import { CreateStudentPage } from './pages/students/CreateStudentPage'
 import { StudentDetailPage } from './pages/students/StudentDetailPage'
 import { CreateInvoicePage } from './pages/students/CreateInvoicePage'
 import { ReceivePaymentPage } from './pages/students/ReceivePaymentPage'
@@ -178,7 +177,14 @@ export const AppRoutes = () => {
             }
           />
           <Route path="students" element={<StudentsPage />} />
-          <Route path="students/new" element={<CreateStudentPage />} />
+          <Route
+            path="students/new"
+            element={
+              <AdminOnly>
+                <BillingAccountFormPage />
+              </AdminOnly>
+            }
+          />
           <Route path="students/:studentId" element={<StudentDetailPage />} />
           <Route path="students/:studentId/invoices/new" element={<CreateInvoicePage />} />
           <Route path="billing" element={<PlaceholderPage title="Billing" />} />
@@ -197,11 +203,7 @@ export const AppRoutes = () => {
           />
           <Route
             path="billing/families/new"
-            element={
-              <AdminOnly>
-                <BillingAccountFormPage />
-              </AdminOnly>
-            }
+            element={<Navigate to="/students/new" replace />}
           />
           <Route
             path="billing/families/:accountId"

@@ -169,21 +169,22 @@
 - `GET /students/grades`
 - `GET /students/grades/{grade_id}`
 - `PATCH /students/grades/{grade_id}`
-- `POST /students` — при создании автоматически создаётся individual billing account (`account_type=individual`)
+- `POST /students` — при создании автоматически создаётся individual billing account (`account_type=individual`); optional `billing_account_id` разрешён только для family/shared billing accounts, чтобы создать нового ребёнка сразу внутри существующего account без лишнего individual account
 - `GET /students` — filters: `status`, `grade_id`, `transport_zone_id`, `search`, `page`, `limit`; в response есть `billing_account_id`, `billing_account_number`, `billing_account_name`, `billing_account_type`, `billing_account_member_count`. Если `include_balance=true`, то `available_balance` = shared credit linked billing account, а `outstanding_debt` / `balance` считаются по конкретному ученику, без долгов siblings.
 - `GET /students/{student_id}` — response также содержит linked billing account summary
 - `PATCH /students/{student_id}`
 - `POST /students/{student_id}/activate`
 - `POST /students/{student_id}/deactivate`
 
-### 5.5.1. Family Billing Accounts
-- `GET /billing-accounts` — filters: `search`, `account_type` (`family` по умолчанию), `page`, `limit`
-- `POST /billing-accounts` — создать family billing account и перенести в него выбранных студентов (минимум 2)
+### 5.5.1. Billing Accounts
+- `GET /billing-accounts` — filters: `search`, optional `account_type` (`family` / `individual`), `page`, `limit`; без `account_type` возвращает все billing accounts
+- `POST /billing-accounts` — создать billing account / admission. Payload поддерживает `student_ids` для already admitted students и `new_children` для unified admission flow; можно создать billing account даже с одним ребёнком, если account был создан как `family`
 - `GET /billing-accounts/{account_id}` — header account + members + balances
-- `PATCH /billing-accounts/{account_id}` — обновить название семьи, primary guardian, notes
-- `POST /billing-accounts/{account_id}/members` — добавить учеников в существующий family account
-- `GET /billing-accounts/{account_id}/statement` — family statement по общему кошельку (`date_from`, `date_to`)
-- `BillingAccount` — канонический owner of money: payments и credit allocations привязываются к account, invoices хранят snapshot `billing_account_id`, а student response показывает к какому family/individual account он относится
+- `PATCH /billing-accounts/{account_id}` — обновить account name, billing contact, notes
+- `POST /billing-accounts/{account_id}/members` — добавить existing students в существующий billing account
+- `POST /billing-accounts/{account_id}/children` — создать нового ребёнка сразу внутри существующего billing account; child может унаследовать guardian contact из account header
+- `GET /billing-accounts/{account_id}/statement` — account statement по общему кошельку (`date_from`, `date_to`)
+- `BillingAccount` — канонический owner of money: payments и credit allocations привязываются к account, invoices хранят snapshot `billing_account_id`, а student response показывает к какому family/individual account он относится. `account_type=family` больше не вычисляется только из количества детей: family account с одним ребёнком остаётся family account
 
 ### 5.5.2. Paid Activities
 - `POST /activities` — создать платную активность и snapshot audience (`audience_type = all_active | grades | manual`, для `grades` передаются `grade_ids`, для `manual` — `student_ids`)

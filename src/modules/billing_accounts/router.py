@@ -11,6 +11,7 @@ from src.core.database.session import get_db
 from src.modules.billing_accounts.models import BillingAccountType
 from src.modules.billing_accounts.schemas import (
     BillingAccountAddMembersRequest,
+    BillingAccountChildCreate,
     BillingAccountCreate,
     BillingAccountDetail,
     BillingAccountListFilters,
@@ -31,7 +32,7 @@ router = APIRouter(prefix="/billing-accounts", tags=["Billing Accounts"])
 )
 async def list_billing_accounts(
     search: str | None = Query(None),
-    account_type: BillingAccountType | None = Query(BillingAccountType.FAMILY),
+    account_type: BillingAccountType | None = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -119,6 +120,22 @@ async def add_billing_account_members(
     account = await service.add_members(account_id, data, current_user.id)
     detail = await service.get_billing_account_detail(account.id)
     return ApiResponse(data=detail, message="Students added to billing account")
+
+
+@router.post(
+    "/{account_id}/children",
+    response_model=ApiResponse[BillingAccountDetail],
+)
+async def add_billing_account_child(
+    account_id: int,
+    data: BillingAccountChildCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
+):
+    service = BillingAccountService(db)
+    account = await service.add_child(account_id, data, current_user.id)
+    detail = await service.get_billing_account_detail(account.id)
+    return ApiResponse(data=detail, message="Child added to billing account")
 
 
 @router.get(

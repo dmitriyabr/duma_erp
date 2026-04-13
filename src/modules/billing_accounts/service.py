@@ -12,6 +12,7 @@ from src.core.exceptions import NotFoundError, ValidationError
 from src.modules.billing_accounts.models import BillingAccount, BillingAccountType
 from src.modules.billing_accounts.schemas import (
     BillingAccountAddMembersRequest,
+    BillingAccountChildCreate,
     BillingAccountCreate,
     BillingAccountDetail,
     BillingAccountListFilters,
@@ -22,6 +23,7 @@ from src.modules.billing_accounts.schemas import (
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus
 from src.modules.payments.models import CreditAllocation, Payment
 from src.modules.students.models import Student
+from src.modules.students.schemas import StudentCreate
 from src.shared.utils.money import round_money
 
 
@@ -144,7 +146,7 @@ class BillingAccountService:
         self, data: BillingAccountCreate, created_by_id: int
     ) -> BillingAccount:
         """Create a new family billing account and move selected students into it."""
-        students = await self._get_students(data.student_ids)
+        students = await self._get_students(data.student_ids) if data.student_ids else []
 
         number_gen = DocumentNumberGenerator(self.db)
         account = BillingAccount(
@@ -162,8 +164,9 @@ class BillingAccountService:
 
         for student in students:
             await self._move_student_to_account(student, account)
+        created_children = await self._create_children(account, data.new_children, created_by_id)
 
-        await self._refresh_account_shape(account)
+        await self._refresh_account_state(account)
         await self._allocate_account_credit(account.id, created_by_id)
         await self.audit.log(
             action="billing_account.create_family",
@@ -174,6 +177,7 @@ class BillingAccountService:
             new_values={
                 "display_name": account.display_name,
                 "student_ids": [student.id for student in students],
+                "new_child_ids": created_children,
             },
         )
         await self.db.commit()
@@ -233,6 +237,7 @@ class BillingAccountService:
     ) -> BillingAccount:
         """Attach more students to an existing billing account."""
         account = await self.get_billing_account_by_id(account_id)
+        self._require_family_account(account)
         students = await self._get_students(data.student_ids)
 
         moved_ids: list[int] = []
@@ -245,7 +250,7 @@ class BillingAccountService:
         if not moved_ids:
             raise ValidationError("No new students were added to this billing account")
 
-        await self._refresh_account_shape(account)
+        await self._refresh_account_state(account)
         await self._allocate_account_credit(account.id, added_by_id)
         await self.audit.log(
             action="billing_account.add_members",
@@ -254,6 +259,30 @@ class BillingAccountService:
             entity_identifier=account.account_number,
             user_id=added_by_id,
             new_values={"student_ids": moved_ids},
+        )
+        await self.db.commit()
+        return await self.get_billing_account_by_id(account.id)
+
+    async def add_child(
+        self,
+        account_id: int,
+        data: BillingAccountChildCreate,
+        added_by_id: int,
+    ) -> BillingAccount:
+        """Create a brand-new student directly inside an existing family account."""
+        account = await self.get_billing_account_by_id(account_id)
+        self._require_family_account(account)
+
+        created_children = await self._create_children(account, [data], added_by_id)
+        await self._refresh_account_state(account)
+        await self._allocate_account_credit(account.id, added_by_id)
+        await self.audit.log(
+            action="billing_account.add_child",
+            entity_type="BillingAccount",
+            entity_id=account.id,
+            entity_identifier=account.account_number,
+            user_id=added_by_id,
+            new_values={"student_ids": created_children},
         )
         await self.db.commit()
         return await self.get_billing_account_by_id(account.id)
@@ -409,13 +438,8 @@ class BillingAccountService:
                 await self._recalculate_account_cached_balance(source_account.id)
                 await self.sync_cached_balance(source_account.id)
 
-    async def _refresh_account_shape(self, account: BillingAccount) -> None:
+    async def _refresh_account_state(self, account: BillingAccount) -> None:
         await self.db.refresh(account, attribute_names=["students"])
-        account.account_type = (
-            BillingAccountType.FAMILY.value
-            if len(account.students) > 1
-            else BillingAccountType.INDIVIDUAL.value
-        )
         await self._recalculate_account_cached_balance(account.id)
         await self.sync_cached_balance(account.id)
 
@@ -463,3 +487,62 @@ class BillingAccountService:
             user_id,
             commit=False,
         )
+
+    def _require_family_account(self, account: BillingAccount) -> None:
+        if account.account_type != BillingAccountType.FAMILY.value:
+            raise ValidationError("This action is only available for family billing accounts")
+
+    async def _create_children(
+        self,
+        account: BillingAccount,
+        children: list[BillingAccountChildCreate],
+        created_by_id: int,
+    ) -> list[int]:
+        if not children:
+            return []
+
+        from src.modules.students.service import StudentService
+
+        student_service = StudentService(self.db)
+        created_ids: list[int] = []
+        for child in children:
+            guardian_name = (child.guardian_name or account.primary_guardian_name or "").strip()
+            guardian_phone = (child.guardian_phone or account.primary_guardian_phone or "").strip()
+            guardian_email = (
+                child.guardian_email
+                if child.guardian_email is not None
+                else account.primary_guardian_email
+            )
+
+            if not guardian_name:
+                raise ValidationError(
+                    "Guardian name is required either on the family account or the child",
+                    field="guardian_name",
+                )
+            if not guardian_phone:
+                raise ValidationError(
+                    "Guardian phone is required either on the family account or the child",
+                    field="guardian_phone",
+                )
+
+            student = await student_service.create_student(
+                StudentCreate(
+                    first_name=child.first_name,
+                    last_name=child.last_name,
+                    date_of_birth=child.date_of_birth,
+                    gender=child.gender,
+                    grade_id=child.grade_id,
+                    transport_zone_id=child.transport_zone_id,
+                    guardian_name=guardian_name,
+                    guardian_phone=guardian_phone,
+                    guardian_email=guardian_email,
+                    enrollment_date=child.enrollment_date,
+                    notes=child.notes,
+                    billing_account_id=account.id,
+                ),
+                created_by_id=created_by_id,
+                commit=False,
+            )
+            created_ids.append(student.id)
+
+        return created_ids

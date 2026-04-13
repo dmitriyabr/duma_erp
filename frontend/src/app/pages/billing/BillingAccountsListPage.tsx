@@ -37,7 +37,6 @@ export const BillingAccountsListPage = () => {
     const params = new URLSearchParams({
       page: String(page + 1),
       limit: String(limit),
-      account_type: 'family',
     })
     if (search.trim()) params.set('search', search.trim())
     return `/billing-accounts?${params.toString()}`
@@ -51,14 +50,14 @@ export const BillingAccountsListPage = () => {
     <div>
       <div className="flex justify-between items-center gap-4 mb-4 flex-wrap">
         <div>
-          <Typography variant="h4">Family billing accounts</Typography>
+          <Typography variant="h4">Billing accounts</Typography>
           <Typography variant="body2" color="secondary" className="mt-1">
-            Shared family wallets that can pay and auto-allocate across multiple students.
+            Parent / guardian payment accounts that can pay and auto-allocate across one or more students.
           </Typography>
         </div>
         {canManage && (
-          <Button variant="contained" onClick={() => navigate('/billing/families/new')}>
-            New family
+          <Button variant="contained" onClick={() => navigate('/students/new')}>
+            New admission
           </Button>
         )}
       </div>
@@ -71,7 +70,7 @@ export const BillingAccountsListPage = () => {
             setSearch(event.target.value)
             setPage(0)
           }}
-          placeholder="Account, family, guardian, student"
+          placeholder="Account, contact, student"
         />
       </div>
 
@@ -86,9 +85,10 @@ export const BillingAccountsListPage = () => {
           <TableHead>
             <TableRow>
               <TableHeaderCell>Account</TableHeaderCell>
-              <TableHeaderCell>Family</TableHeaderCell>
+              <TableHeaderCell>Name</TableHeaderCell>
+              <TableHeaderCell>Type</TableHeaderCell>
               <TableHeaderCell>Members</TableHeaderCell>
-              <TableHeaderCell>Primary contact</TableHeaderCell>
+              <TableHeaderCell>Billing contact</TableHeaderCell>
               <TableHeaderCell align="right">Credit</TableHeaderCell>
               <TableHeaderCell align="right">Debt</TableHeaderCell>
               <TableHeaderCell align="right">Net</TableHeaderCell>
@@ -100,6 +100,7 @@ export const BillingAccountsListPage = () => {
               <TableRow key={row.id}>
                 <TableCell className="font-mono text-xs">{row.account_number}</TableCell>
                 <TableCell>{row.display_name}</TableCell>
+                <TableCell className="capitalize">{row.account_type}</TableCell>
                 <TableCell>{row.member_count}</TableCell>
                 <TableCell>
                   <div className="flex flex-col">
@@ -141,15 +142,15 @@ export const BillingAccountsListPage = () => {
             ))}
             {loading && (
               <TableRow>
-                <td colSpan={8} className="px-4 py-8 text-center">
+                <td colSpan={9} className="px-4 py-8 text-center">
                   <Spinner size="medium" />
                 </td>
               </TableRow>
             )}
             {!rows.length && !loading && (
               <TableRow>
-                <td colSpan={8} className="px-4 py-8 text-center">
-                  <Typography color="secondary">No family billing accounts found</Typography>
+                <td colSpan={9} className="px-4 py-8 text-center">
+                  <Typography color="secondary">No billing accounts found</Typography>
                 </td>
               </TableRow>
             )}

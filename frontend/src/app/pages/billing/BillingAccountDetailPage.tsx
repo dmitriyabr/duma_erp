@@ -6,6 +6,7 @@ import { api } from '../../services/api'
 import { canManageBillingAccounts } from '../../utils/permissions'
 import { formatDate, formatDateTime, formatMoney } from '../../utils/format'
 import type { PaginatedResponse } from '../../types/api'
+import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { Checkbox } from '../../components/ui/Checkbox'
@@ -14,6 +15,14 @@ import { Input } from '../../components/ui/Input'
 import { Spinner } from '../../components/ui/Spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '../../components/ui/Table'
 import { Typography } from '../../components/ui/Typography'
+import { BillingAccountChildEditor } from './components/BillingAccountChildEditor'
+import {
+  buildBillingChildPayload,
+  createEmptyBillingChildDraft,
+  type BillingAccountChildDraft,
+  type BillingAccountChildErrors,
+  validateBillingChildDraft,
+} from './components/billingAccountChildForm'
 
 interface BillingAccountMember {
   student_id: number
@@ -98,6 +107,7 @@ export const BillingAccountDetailPage = () => {
   const { accountId } = useParams()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { grades, transportZones, error: referencedError } = useReferencedData()
   const canManage = canManageBillingAccounts(user)
   const resolvedId = Number(accountId)
 
@@ -123,6 +133,7 @@ export const BillingAccountDetailPage = () => {
   }, [])
 
   const addMembersMutation = useApiMutation<BillingAccountDetail>()
+  const addChildMutation = useApiMutation<BillingAccountDetail>()
   const statementMutation = useApiMutation<StatementResponse>()
   const autoAllocateMutation = useApiMutation<{
     total_allocated: number
@@ -132,7 +143,10 @@ export const BillingAccountDetailPage = () => {
   }>()
 
   const [addDialogOpen, setAddDialogOpen] = useState(false)
+  const [addChildDialogOpen, setAddChildDialogOpen] = useState(false)
   const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([])
+  const [childDraft, setChildDraft] = useState<BillingAccountChildDraft>(createEmptyBillingChildDraft())
+  const [childErrors, setChildErrors] = useState<BillingAccountChildErrors>({})
   const [statementForm, setStatementForm] = useState(() => {
     const now = new Date()
     const start = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -163,6 +177,12 @@ export const BillingAccountDetailPage = () => {
     )
   }
 
+  const openAddChildDialog = () => {
+    setChildDraft(createEmptyBillingChildDraft())
+    setChildErrors({})
+    setAddChildDialogOpen(true)
+  }
+
   const submitMembers = async () => {
     setError(null)
     addMembersMutation.reset()
@@ -177,6 +197,34 @@ export const BillingAccountDetailPage = () => {
       paymentsApi.refetch()
     } else if (addMembersMutation.error) {
       setError(addMembersMutation.error)
+    }
+  }
+
+  const submitChild = async () => {
+    const nextErrors = validateBillingChildDraft(childDraft, {
+      guardian_name: account?.primary_guardian_name ?? '',
+      guardian_phone: account?.primary_guardian_phone ?? '',
+      guardian_email: account?.primary_guardian_email ?? '',
+    })
+    setChildErrors(nextErrors)
+    if (Object.keys(nextErrors).length > 0) {
+      setError('Fix the highlighted child details before saving.')
+      return
+    }
+
+    setError(null)
+    addChildMutation.reset()
+    const result = await addChildMutation.execute(() =>
+      api.post(`/billing-accounts/${resolvedId}/children`, buildBillingChildPayload(childDraft))
+    )
+    if (result) {
+      setAddChildDialogOpen(false)
+      refetch()
+      invoicesApi.refetch()
+      paymentsApi.refetch()
+      setSuccessMessage('Child added to the billing account.')
+    } else if (addChildMutation.error) {
+      setError(addChildMutation.error)
     }
   }
 
@@ -236,9 +284,9 @@ export const BillingAccountDetailPage = () => {
         Back
       </Button>
 
-      {(error || accountError || invoicesApi.error || paymentsApi.error || studentsApi.error) && (
+      {(error || accountError || invoicesApi.error || paymentsApi.error || studentsApi.error || referencedError) && (
         <Alert severity="error" onClose={() => setError(null)}>
-          {error ?? accountError ?? invoicesApi.error ?? paymentsApi.error ?? studentsApi.error}
+          {error ?? accountError ?? invoicesApi.error ?? paymentsApi.error ?? studentsApi.error ?? referencedError}
         </Alert>
       )}
       {successMessage && (
@@ -285,8 +333,11 @@ export const BillingAccountDetailPage = () => {
               <Button variant="outlined" onClick={() => navigate(`/billing/families/${account.id}/edit`)}>
                 Edit
               </Button>
+              <Button variant="outlined" onClick={openAddChildDialog}>
+                Add child
+              </Button>
               <Button variant="contained" onClick={() => setAddDialogOpen(true)}>
-                Add students
+                Link existing students
               </Button>
             </>
           )}
@@ -519,9 +570,38 @@ export const BillingAccountDetailPage = () => {
         )}
       </section>
 
+      <Dialog open={addChildDialogOpen} onClose={() => setAddChildDialogOpen(false)} maxWidth="lg">
+        <DialogCloseButton onClose={() => setAddChildDialogOpen(false)} />
+        <DialogTitle>Add child to billing account</DialogTitle>
+        <DialogContent>
+          <div className="mt-4">
+            <BillingAccountChildEditor
+              title="New child"
+              value={childDraft}
+              onChange={(next) => {
+                setChildDraft(next)
+                setChildErrors({})
+              }}
+              grades={grades}
+              transportZones={transportZones}
+              errors={childErrors}
+              helperText="Guardian fields can be left blank if they match the billing contact."
+            />
+          </div>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="outlined" onClick={() => setAddChildDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={submitChild} disabled={addChildMutation.loading}>
+            {addChildMutation.loading ? <Spinner size="small" /> : 'Add child'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={addDialogOpen} onClose={() => setAddDialogOpen(false)} maxWidth="md">
         <DialogCloseButton onClose={() => setAddDialogOpen(false)} />
-        <DialogTitle>Add students to family</DialogTitle>
+        <DialogTitle>Link existing students</DialogTitle>
         <DialogContent>
           <div className="space-y-3 mt-4 max-h-[420px] overflow-y-auto">
             {eligibleStudents.map((student) => {

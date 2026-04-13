@@ -14,6 +14,7 @@ from src.modules.billing_accounts.models import BillingAccountType
 from src.modules.billing_accounts.schemas import (
     BillingAccountAddMembersRequest,
     BillingAccountCreate,
+    BillingAccountListFilters,
 )
 from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
@@ -414,6 +415,98 @@ class TestBillingAccountService:
         assert accounts[0].id == family.id
         assert accounts[0].account_type == BillingAccountType.FAMILY.value
 
+    async def test_create_family_account_with_new_children_only_keeps_family_type(
+        self,
+        db_session: AsyncSession,
+    ):
+        data = await self._setup_data(db_session)
+        account_service = BillingAccountService(db_session)
+        grade_id = data["students"][0].grade_id
+
+        family = await account_service.create_family_account(
+            BillingAccountCreate(
+                display_name="Solo Family",
+                primary_guardian_name="Rose Otieno",
+                primary_guardian_phone="+254700000001",
+                primary_guardian_email=None,
+                notes=None,
+                new_children=[
+                    {
+                        "first_name": "Solo",
+                        "last_name": "Otieno",
+                        "gender": Gender.MALE,
+                        "grade_id": grade_id,
+                    }
+                ],
+            ),
+            created_by_id=data["user"].id,
+        )
+
+        detail = await account_service.get_billing_account_detail(family.id)
+        assert detail.account_type == BillingAccountType.FAMILY.value
+        assert detail.member_count == 1
+        assert detail.members[0].student_name == "Solo Otieno"
+
+    async def test_create_family_account_with_existing_and_new_children(
+        self,
+        db_session: AsyncSession,
+    ):
+        data = await self._setup_data(db_session)
+        account_service = BillingAccountService(db_session)
+        student_one = data["students"][0]
+
+        family = await account_service.create_family_account(
+            BillingAccountCreate(
+                display_name="Mixed Family",
+                primary_guardian_name="Rose Otieno",
+                primary_guardian_phone="+254700000001",
+                primary_guardian_email=None,
+                notes=None,
+                student_ids=[student_one.id],
+                new_children=[
+                    {
+                        "first_name": "Daisy",
+                        "last_name": "Otieno",
+                        "gender": Gender.FEMALE,
+                        "grade_id": student_one.grade_id,
+                    }
+                ],
+            ),
+            created_by_id=data["user"].id,
+        )
+
+        detail = await account_service.get_billing_account_detail(family.id)
+        member_names = {member.student_name for member in detail.members}
+        assert detail.account_type == BillingAccountType.FAMILY.value
+        assert detail.member_count == 2
+        assert member_names == {"Amina Otieno", "Daisy Otieno"}
+
+    async def test_list_billing_accounts_default_includes_individual_and_family(
+        self,
+        db_session: AsyncSession,
+    ):
+        data = await self._setup_data(db_session)
+        student_one, student_two = data["students"]
+        account_service = BillingAccountService(db_session)
+
+        individual = await account_service.ensure_student_billing_account(student_one.id)
+        family = await account_service.create_family_account(
+            BillingAccountCreate(
+                display_name="Otieno Admission",
+                primary_guardian_name="Rose Otieno",
+                primary_guardian_phone="+254700000001",
+                student_ids=[student_two.id],
+            ),
+            created_by_id=data["user"].id,
+        )
+
+        rows, total = await account_service.list_billing_accounts(BillingAccountListFilters())
+        returned_ids = {row.id for row in rows}
+
+        assert total == 2
+        assert individual.id in returned_ids
+        assert family.id in returned_ids
+
 
 class TestBillingAccountEndpoints:
     async def _create_family_context(
@@ -509,6 +602,83 @@ class TestBillingAccountEndpoints:
         assert list_response.status_code == 200
         listed = list_response.json()["data"]["items"]
         assert listed[0]["display_name"] == "Kamau Family"
+
+    async def test_create_family_account_with_new_child_only_via_api(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+    ):
+        auth_service = AuthService(db_session)
+        user = await auth_service.create_user(
+            email="family-new-child@test.com",
+            password="Test123!",
+            full_name="Family API Admin",
+            role=UserRole.SUPER_ADMIN,
+        )
+        await db_session.commit()
+        _, access_token, _ = await auth_service.authenticate("family-new-child@test.com", "Test123!")
+
+        grade = Grade(code="FAMNEW", name="Family New Grade", display_order=1, is_active=True)
+        db_session.add(grade)
+        await db_session.commit()
+
+        response = await client.post(
+            "/api/v1/billing-accounts",
+            headers={"Authorization": f"Bearer {access_token}"},
+            json={
+                "display_name": "Single Child Family",
+                "primary_guardian_name": "Grace Njeri",
+                "primary_guardian_phone": "+254733333333",
+                "new_children": [
+                    {
+                        "first_name": "Hope",
+                        "last_name": "Njeri",
+                        "gender": "female",
+                        "grade_id": grade.id,
+                    }
+                ],
+            },
+        )
+
+        assert response.status_code == 201
+        data = response.json()["data"]
+        assert data["account_type"] == BillingAccountType.FAMILY.value
+        assert data["member_count"] == 1
+        assert data["members"][0]["student_name"] == "Hope Njeri"
+
+        list_response = await client.get(
+            "/api/v1/billing-accounts",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert list_response.status_code == 200
+        items = list_response.json()["data"]["items"]
+        assert any(item["id"] == data["id"] for item in items)
+
+    async def test_add_child_to_family_via_api(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+    ):
+        context = await self._create_family_context(client, db_session)
+        access_token = context["access_token"]
+        grade = context["grade"]
+        family = context["family"]
+
+        response = await client.post(
+            f"/api/v1/billing-accounts/{family['id']}/children",
+            headers={"Authorization": f"Bearer {access_token}"},
+            json={
+                "first_name": "Child3",
+                "last_name": "Kamau",
+                "gender": "female",
+                "grade_id": grade.id,
+            },
+        )
+
+        assert response.status_code == 200
+        detail = response.json()["data"]
+        assert detail["member_count"] == 3
+        assert any(member["student_name"] == "Child3 Kamau" for member in detail["members"])
 
     async def test_student_balance_and_students_list_show_student_debt_not_sibling_debt(
         self,
