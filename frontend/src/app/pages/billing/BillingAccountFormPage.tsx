@@ -151,6 +151,7 @@ const BillingAccountFormContent = ({
     editing ? [] : [createEmptyBillingChildDraft()]
   )
   const [childErrors, setChildErrors] = useState<BillingAccountChildErrors[]>([])
+  const [existingStudentsOpen, setExistingStudentsOpen] = useState(false)
 
   const familyDefaults = useMemo(
     () => ({
@@ -321,34 +322,50 @@ const BillingAccountFormContent = ({
           </section>
 
           <section className="space-y-3">
-            <div>
-              <Typography variant="h6">Link existing students</Typography>
-              <Typography variant="body2" color="secondary" className="mt-1">
-                Optional. Attach already admitted students who should use this billing account.
-              </Typography>
+            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <Typography variant="body2" className="font-medium">
+                    Already admitted child?
+                  </Typography>
+                  <Typography variant="body2" color="secondary" className="mt-1">
+                    Optional. Link an existing student only if they should use this billing account.
+                  </Typography>
+                </div>
+                <Button
+                  type="button"
+                  variant="outlined"
+                  onClick={() => setExistingStudentsOpen((current) => !current)}
+                >
+                  {existingStudentsOpen ? 'Hide existing students' : 'Link existing student'}
+                  {selectedStudentIds.length > 0 ? ` (${selectedStudentIds.length})` : ''}
+                </Button>
+              </div>
             </div>
 
-            <div className="border border-slate-200 rounded-lg p-4 max-h-[360px] overflow-y-auto space-y-3 bg-white">
-              {loadingChoices && !availableStudents.length ? (
-                <div className="py-6 flex justify-center">
-                  <Spinner size="medium" />
-                </div>
-              ) : (
-                availableStudents.map((student) => (
-                  <div key={student.id} className="flex items-start justify-between gap-4">
-                    <Checkbox
-                      checked={selectedStudentIds.includes(student.id)}
-                      onChange={() => toggleStudent(student.id)}
-                      label={`${student.full_name} · ${student.student_number}`}
-                    />
-                    <span className="text-sm text-slate-500">{student.grade_name ?? 'No grade'}</span>
+            {existingStudentsOpen && (
+              <div className="border border-slate-200 rounded-lg p-4 max-h-[360px] overflow-y-auto space-y-3 bg-white">
+                {loadingChoices && !availableStudents.length ? (
+                  <div className="py-6 flex justify-center">
+                    <Spinner size="medium" />
                   </div>
-                ))
-              )}
-              {!availableStudents.length && !loadingChoices && (
-                <Typography color="secondary">No eligible students available.</Typography>
-              )}
-            </div>
+                ) : (
+                  availableStudents.map((student) => (
+                    <div key={student.id} className="flex items-start justify-between gap-4">
+                      <Checkbox
+                        checked={selectedStudentIds.includes(student.id)}
+                        onChange={() => toggleStudent(student.id)}
+                        label={`${student.full_name} · ${student.student_number}`}
+                      />
+                      <span className="text-sm text-slate-500">{student.grade_name ?? 'No grade'}</span>
+                    </div>
+                  ))
+                )}
+                {!availableStudents.length && !loadingChoices && (
+                  <Typography color="secondary">No eligible students available.</Typography>
+                )}
+              </div>
+            )}
           </section>
         </>
       )}
