@@ -484,20 +484,18 @@ Student statement показывает только:
 
 ## 11. Reports и exports
 
-Минимально нужно обновить:
-- aged receivables;
-- collection reports;
-- student balances exports;
-- payments exports.
+Статус реализации:
+- `Aged Receivables` остается student-level по invoice debt, но debt считается snapshot-ом через allocations up to `as_at_date`, а `last_payment_date` берется с linked billing account. Поэтому payment, принятый на family account, виден у каждого debtor-child этого account, и invoice, закрытый после `as_at_date`, не пропадает из исторического отчета.
+- `Cash Flow` считает cash received по `Payment.billing_account_id` и сопоставляет same-day allocations тоже по `CreditAllocation.billing_account_id`, чтобы family payment корректно раскладывался по invoice types siblings.
+- `Balance Sheet` считает `Billing Account Credit Balances` на уровне billing accounts: positive `completed payments - allocations`, без промежуточных отрицательных/положительных остатков на reference-student и без netting отрицательных account positions против настоящих credit balances.
+- `Revenue Trend` считает denominator как количество students в billing accounts, где были payments за год, а не только `Payment.student_id` reference.
+- Accountant `student-payments` CSV включает billing account columns и полный roster linked students.
+- Accountant `student-balance-changes` CSV остается student-level ledger: invoices = debit, allocations = credit. Raw unallocated family payments не дублируются по детям и должны смотреться через account statement/account-level export.
 
-Рекомендация:
-- сохранить student-level отчеты;
-- добавить family-level агрегаты как отдельные views/filters.
-
-Особенно полезно:
-- outstanding by family;
-- family payment history;
-- family statement export.
+Остается отдельным follow-up:
+- family/account-level statement CSV/PDF;
+- outstanding by billing account;
+- family payment history export.
 
 ---
 

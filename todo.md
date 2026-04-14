@@ -5,6 +5,7 @@
 - [ ] Добавить split / remove member flow: как безопасно выводить ученика из billing account с переносом его открытых долгов и кредитного баланса в новый individual account
 - [ ] Сделать merge / consolidation flow для двух billing accounts, если account завели дублем
 - [ ] Расширить M-Pesa matching: поддержать `billing_account_number` как основной BillRef и UI для ручной привязки платежа сразу к billing account
+- [ ] Добавить accountant export для billing account statement / balance changes CSV: account-level payments, allocations, running shared credit balance
 - [ ] Добавить printable / PDF statement на уровне billing account
 - [ ] Продумать отдельный reversal flow для случаев, когда нужно перекинуть уже completed payment между billing accounts
 

@@ -812,9 +812,10 @@
 **Backend (API для бухгалтера):**
 - [x] Роутер `/api/v1/accountant/` с проверкой роли Accountant (Admin/SuperAdmin тоже допущены)
 - [x] Документы: все GET для просмотра допускают Accountant (students list/get, grades, transport-zones, payments list/get/receipt/pdf, invoices list/get/pdf, procurement: purchase-orders list/get, grns list/get, payments list/get, payment-purposes, dashboard; compensations: claims list/get, payouts list/get, employee-balances). Запись (POST/PUT/PATCH/DELETE) для Accountant запрещена: create/update/complete payment, allocate, cancel payment, create/update PO/GRN/payout и т.д.
-- [x] GET export/student-payments (CSV; ссылки на фронт: Receipt PDF → /payment/{id}/receipt, Attachment → /attachment/{id}/download; FRONTEND_URL в .env)
+- [x] GET export/student-payments (CSV; ссылки на фронт: Receipt PDF → /payment/{id}/receipt, Attachment → /attachment/{id}/download; FRONTEND_URL в .env; family-aware columns: Billing Account#, Billing Account Name, full linked student roster)
 - [x] GET export/procurement-payments (CSV; ссылка на фронт: Attachment → /attachment/{id}/download)
-- [x] GET export/student-balance-changes (CSV: платежи и аллокации по периоду)
+- [x] GET export/student-balance-changes (CSV: student-level ledger; invoices as debit, allocations as credit, billing account columns; raw family payments не дублируются по детям до allocation)
+- [x] Reports/accountant exports audited for billing accounts: aged receivables as-at allocation snapshot + last payment, cash-flow allocation split, balance sheet credit balances, revenue trend, student payments CSV, student balance changes CSV.
 - [x] GET audit-trail с фильтрами (date_from, date_to, user_id, entity_type, action, page, limit)
 - [x] Тесты API (tests/modules/accountant/test_accountant.py — audit-trail и оба export, роль User — 403)
 - [ ] GET export: transactions, vat, wht

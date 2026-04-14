@@ -330,6 +330,8 @@
 
 ### 5.xx. Accountant exports (CSV)
 
+- `GET /accountant/export/student-payments` — completed student/billing-account receipts за период (CSV). Для shared/family account CSV включает `Billing Account#`, `Billing Account Name`, `Billing Contact`; поля `Student Name`, `Admission#`, `Grade` содержат roster всех linked students account, чтобы общий family payment не выглядел как личный платеж reference-student.
+- `GET /accountant/export/student-balance-changes` — student-level ledger за период (CSV): opening balance, invoices как debit, credit allocations как credit, running balance. Для family/shared accounts raw payment на общий account не дублируется по детям; student balance меняется только после allocation на invoice конкретного student. CSV включает billing account columns.
 - `GET /accountant/export/bank-transfers` — outgoing bank transfers (debits) за период + matched document numbers (CSV).
 - `GET /accountant/export/bank-statement-files` — список импортированных выписок за период + download links (CSV).
 
