@@ -264,6 +264,12 @@ export const PaymentsTab = ({
             </Typography>
             <Typography variant="body2">Reference: {selectedPayment?.reference ?? '—'}</Typography>
             <Typography variant="body2">
+              Billing account: {selectedPayment?.billing_account_name ?? '—'}
+              {selectedPayment?.billing_account_number
+                ? ` · ${selectedPayment.billing_account_number}`
+                : ''}
+            </Typography>
+            <Typography variant="body2">
               Preferred invoice: {selectedPayment?.preferred_invoice_number ?? '—'}
             </Typography>
             {selectedPayment?.confirmation_attachment_id && (

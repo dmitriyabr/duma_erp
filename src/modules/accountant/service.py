@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.modules.billing_accounts.models import BillingAccount
 from src.modules.invoices.models import Invoice, InvoiceStatus
 from src.modules.payments.models import CreditAllocation, Payment, PaymentStatus
 from src.modules.procurement.models import ProcurementPayment, ProcurementPaymentStatus
@@ -28,8 +29,6 @@ async def list_student_payments_for_export(
     List completed payments in date range with student (grade) and received_by.
     Returns list of (payment, grade_name, received_by_name).
     """
-    from src.core.auth.models import User
-
     q = (
         select(Payment)
         .where(Payment.payment_date >= date_from)
@@ -37,6 +36,9 @@ async def list_student_payments_for_export(
         .where(Payment.status == PaymentStatus.COMPLETED.value)
         .options(
             selectinload(Payment.student).selectinload(Student.grade),
+            selectinload(Payment.billing_account)
+            .selectinload(BillingAccount.students)
+            .selectinload(Student.grade),
             selectinload(Payment.received_by),
         )
         .order_by(Payment.payment_date, Payment.id)
@@ -125,10 +127,12 @@ def build_student_payments_csv(
     writer.writerow([
         "Receipt Date",
         "Receipt#",
+        "Billing Account#",
+        "Billing Account Name",
         "Student Name",
         "Admission#",
         "Grade",
-        "Parent Name",
+        "Billing Contact",
         "Payment Method",
         "Reference",
         "Amount",
@@ -137,18 +141,32 @@ def build_student_payments_csv(
         "Attachment link",
     ])
     for p, grade_name, received_by_name in rows:
-        student_name = p.student.full_name if p.student else ""
-        parent_name = p.student.guardian_name if p.student else ""
-        admission = p.student.student_number if p.student else ""
+        account = p.billing_account
+        account_students = list(account.students) if account else []
+        students = account_students or ([p.student] if p.student else [])
+        student_name = "; ".join(student.full_name for student in students)
+        admission = "; ".join(student.student_number for student in students)
+        grade_values = []
+        for student in students:
+            if student.grade and student.grade.name not in grade_values:
+                grade_values.append(student.grade.name)
+        grades = "; ".join(grade_values) or (grade_name or "")
+        billing_contact = ""
+        if account and account.primary_guardian_name:
+            billing_contact = account.primary_guardian_name
+        elif p.student:
+            billing_contact = p.student.guardian_name
         receipt_link = f"{app_base_url}/payment/{p.id}/receipt" if app_base_url else ""
         att_link = f"{app_base_url}/attachment/{p.confirmation_attachment_id}/download" if app_base_url and p.confirmation_attachment_id else ""
         writer.writerow([
             p.payment_date.isoformat(),
             p.receipt_number or p.payment_number,
+            account.account_number if account else "",
+            account.display_name if account else "",
             student_name,
             admission,
-            grade_name or "",
-            parent_name,
+            grades,
+            billing_contact,
             p.payment_method,
             p.reference or "",
             str(p.amount),
@@ -298,16 +316,10 @@ async def list_student_balance_changes_for_export(
     limit: int = 10000,
 ) -> list[dict]:
     """
-    List all balance-affecting transactions with running balances, grouped by student.
+    List student debt ledger transactions with running balances, grouped by student.
+    Shared account payments affect this export only after they are allocated to a student invoice.
     Returns list of dicts with student info, opening/closing balances, and transactions.
     """
-    pay_students = await db.execute(
-        select(Payment.student_id)
-        .where(Payment.payment_date >= date_from)
-        .where(Payment.payment_date <= date_to)
-        .where(Payment.status == PaymentStatus.COMPLETED.value)
-        .distinct()
-    )
     invoice_students = await db.execute(
         select(Invoice.student_id)
         .where(Invoice.issue_date >= date_from)
@@ -315,7 +327,17 @@ async def list_student_balance_changes_for_export(
         .where(Invoice.status.notin_([InvoiceStatus.DRAFT.value, InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value]))
         .distinct()
     )
-    student_ids = set([r[0] for r in pay_students.all()] + [r[0] for r in invoice_students.all()])
+    allocation_students = await db.execute(
+        select(CreditAllocation.student_id)
+        .where(func.date(CreditAllocation.created_at) >= date_from)
+        .where(func.date(CreditAllocation.created_at) <= date_to)
+        .distinct()
+    )
+    student_ids = {
+        r[0]
+        for r in list(invoice_students.all()) + list(allocation_students.all())
+        if r[0] is not None
+    }
 
     if not student_ids:
         return []
@@ -323,27 +345,13 @@ async def list_student_balance_changes_for_export(
     students_q = (
         select(Student)
         .where(Student.id.in_(list(student_ids)))
-        .options(selectinload(Student.grade))
+        .options(selectinload(Student.grade), selectinload(Student.billing_account))
     )
     students_result = await db.execute(students_q)
     students = {s.id: s for s in students_result.scalars().unique().all()}
 
     # Batch queries for opening balances (avoid N+1)
     student_ids_list = list(student_ids)
-
-    opening_payments_result = await db.execute(
-        select(
-            Payment.student_id,
-            func.coalesce(func.sum(Payment.amount), 0)
-        ).where(
-            Payment.student_id.in_(student_ids_list),
-            Payment.status == PaymentStatus.COMPLETED.value,
-            Payment.payment_date < date_from,
-        ).group_by(Payment.student_id)
-    )
-    opening_payments_map = {
-        row[0]: Decimal(str(row[1])) for row in opening_payments_result.all()
-    }
 
     opening_allocations_result = await db.execute(
         select(
@@ -358,40 +366,25 @@ async def list_student_balance_changes_for_export(
         row[0]: Decimal(str(row[1])) for row in opening_allocations_result.all()
     }
 
-    excluded = (InvoiceStatus.PAID.value, InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value)
-    opening_debt_result = await db.execute(
+    opening_invoices_result = await db.execute(
         select(
             Invoice.student_id,
-            func.coalesce(func.sum(Invoice.amount_due), 0)
+            func.coalesce(func.sum(Invoice.total), 0)
         ).where(
             Invoice.student_id.in_(student_ids_list),
-            Invoice.status.notin_(excluded),
+            Invoice.status.notin_([InvoiceStatus.DRAFT.value, InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value]),
             Invoice.issue_date < date_from,
         ).group_by(Invoice.student_id)
     )
-    opening_debt_map = {
-        row[0]: Decimal(str(row[1])) for row in opening_debt_result.all()
+    opening_invoices_map = {
+        row[0]: Decimal(str(row[1])) for row in opening_invoices_result.all()
     }
 
     opening_balances = {}
     for student_id in student_ids:
-        opening_credits = opening_payments_map.get(student_id, Decimal("0"))
+        opening_debt = opening_invoices_map.get(student_id, Decimal("0"))
         opening_allocated = opening_allocations_map.get(student_id, Decimal("0"))
-        opening_credit_balance = opening_credits - opening_allocated
-        opening_debt = opening_debt_map.get(student_id, Decimal("0"))
-        opening_balances[student_id] = round_money(opening_debt - opening_credit_balance)
-
-    pay_q = (
-        select(Payment)
-        .where(Payment.payment_date >= date_from)
-        .where(Payment.payment_date <= date_to)
-        .where(Payment.status == PaymentStatus.COMPLETED.value)
-        .where(Payment.student_id.in_(student_ids_list))
-        .order_by(Payment.payment_date, Payment.id)
-        .limit(limit)
-    )
-    pay_result = await db.execute(pay_q)
-    payments = list(pay_result.scalars().unique().all())
+        opening_balances[student_id] = round_money(opening_debt - opening_allocated)
 
     invoice_q = (
         select(Invoice)
@@ -405,6 +398,18 @@ async def list_student_balance_changes_for_export(
     invoice_result = await db.execute(invoice_q)
     invoices = list(invoice_result.scalars().unique().all())
 
+    allocation_q = (
+        select(CreditAllocation)
+        .where(func.date(CreditAllocation.created_at) >= date_from)
+        .where(func.date(CreditAllocation.created_at) <= date_to)
+        .where(CreditAllocation.student_id.in_(student_ids_list))
+        .options(selectinload(CreditAllocation.invoice))
+        .order_by(CreditAllocation.created_at, CreditAllocation.id)
+        .limit(limit)
+    )
+    allocation_result = await db.execute(allocation_q)
+    allocations = list(allocation_result.scalars().unique().all())
+
     students_data: dict[int, dict] = {}
 
     for student_id in student_ids:
@@ -416,33 +421,17 @@ async def list_student_balance_changes_for_export(
             "student_name": student.full_name,
             "student_number": student.student_number,
             "grade_name": student.grade.name if student.grade else "",
+            "billing_account_number": (
+                student.billing_account.account_number if student.billing_account else ""
+            ),
+            "billing_account_name": (
+                student.billing_account.display_name if student.billing_account else ""
+            ),
             "opening_balance": opening_balances.get(student_id, Decimal("0.00")),
             "transactions": [],
             "total_credits": Decimal("0.00"),
             "total_debits": Decimal("0.00"),
         }
-
-    for p in payments:
-        if p.student_id not in students_data:
-            continue
-        payment_dt = datetime.combine(
-            p.payment_date, datetime.min.time(), tzinfo=timezone.utc
-        )
-        sort_dt = (
-            p.created_at
-            if p.created_at.tzinfo
-            else p.created_at.replace(tzinfo=timezone.utc)
-        )
-        students_data[p.student_id]["transactions"].append({
-            "date": payment_dt,
-            "sort_date": sort_dt,
-            "type": "Payment",
-            "description": f"Payment - {p.payment_method.upper()}",
-            "reference": p.receipt_number or p.payment_number,
-            "credit": p.amount,
-            "debit": None,
-        })
-        students_data[p.student_id]["total_credits"] += p.amount
 
     for inv in invoices:
         if inv.student_id not in students_data:
@@ -465,6 +454,29 @@ async def list_student_balance_changes_for_export(
             "debit": inv.total,
         })
         students_data[inv.student_id]["total_debits"] += inv.total
+
+    for allocation in allocations:
+        if allocation.student_id not in students_data:
+            continue
+        allocation_dt = (
+            allocation.created_at
+            if allocation.created_at.tzinfo
+            else allocation.created_at.replace(tzinfo=timezone.utc)
+        )
+        invoice = allocation.invoice
+        invoice_type = (
+            invoice.invoice_type.replace("_", " ").title() if invoice else "Invoice"
+        )
+        students_data[allocation.student_id]["transactions"].append({
+            "date": allocation_dt,
+            "sort_date": allocation_dt,
+            "type": "Allocation",
+            "description": f"Payment allocated - {invoice_type}",
+            "reference": invoice.invoice_number if invoice else "",
+            "credit": allocation.amount,
+            "debit": None,
+        })
+        students_data[allocation.student_id]["total_credits"] += allocation.amount
 
     result = []
     for student_id, data in students_data.items():
@@ -502,6 +514,8 @@ def build_student_balance_changes_csv(
         "Student Number",
         "Student Name",
         "Grade",
+        "Billing Account#",
+        "Billing Account Name",
         "Date",
         "Type",
         "Description",
@@ -516,6 +530,8 @@ def build_student_balance_changes_csv(
         student_number = student_data["student_number"]
         student_name = student_data["student_name"]
         grade_name = student_data["grade_name"]
+        billing_account_number = student_data.get("billing_account_number", "")
+        billing_account_name = student_data.get("billing_account_name", "")
         opening_balance = student_data["opening_balance"]
 
         opening_dt = datetime.combine(
@@ -525,6 +541,8 @@ def build_student_balance_changes_csv(
             student_number,
             student_name,
             grade_name,
+            billing_account_number,
+            billing_account_name,
             opening_dt.isoformat(),
             "Opening Balance",
             "Balance at start of period",
@@ -539,6 +557,8 @@ def build_student_balance_changes_csv(
                 student_number,
                 student_name,
                 grade_name,
+                billing_account_number,
+                billing_account_name,
                 txn["date"].isoformat(),
                 txn["type"],
                 txn["description"],

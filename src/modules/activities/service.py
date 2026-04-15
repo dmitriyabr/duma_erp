@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from src.core.audit.service import AuditService
 from src.core.documents.number_generator import DocumentNumberGenerator
 from src.core.exceptions import NotFoundError, ValidationError
+from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.activities.models import (
     Activity,
     ActivityAudienceType,
@@ -380,6 +381,7 @@ class ActivityService:
         invoice_service = InvoiceService(self.db)
         number_gen = DocumentNumberGenerator(self.db)
         payment_service = PaymentService(self.db)
+        billing_account_service = BillingAccountService(self.db)
 
         invoices_created = 0
         participants_skipped = 0
@@ -402,10 +404,14 @@ class ActivityService:
                 participant.excluded_reason = "Student is inactive"
                 participants_skipped += 1
                 continue
+            if student.billing_account_id is None:
+                await billing_account_service.ensure_student_billing_account(student.id)
+                await self.db.refresh(student)
 
             invoice = Invoice(
                 invoice_number=await number_gen.generate("INV"),
                 student_id=student.id,
+                billing_account_id=student.billing_account_id,
                 term_id=activity.term_id,
                 invoice_type=InvoiceType.ACTIVITY.value,
                 status=InvoiceStatus.ISSUED.value,

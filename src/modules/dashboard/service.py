@@ -12,6 +12,7 @@ from src.modules.compensations.models import (
     ExpenseClaim,
     ExpenseClaimStatus,
 )
+from src.modules.billing_accounts.models import BillingAccount
 from src.modules.invoices.models import Invoice, InvoiceStatus
 from src.modules.payments.models import Payment, PaymentStatus
 from src.modules.procurement.models import (
@@ -282,7 +283,7 @@ class DashboardService:
         )
 
         credit_task = self.db.execute(
-            select(func.coalesce(func.sum(Student.cached_credit_balance), 0))
+            select(func.coalesce(func.sum(BillingAccount.cached_credit_balance), 0))
         )
 
         count_result, debt_result, credit_result = await asyncio.gather(

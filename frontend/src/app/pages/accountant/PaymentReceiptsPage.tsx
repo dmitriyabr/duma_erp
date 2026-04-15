@@ -26,6 +26,9 @@ interface PaymentRow {
   student_id: number
   student_name: string | null
   student_number: string | null
+  billing_account_id?: number | null
+  billing_account_name?: string | null
+  billing_account_number?: string | null
   amount: string
   payment_method: string
   payment_date: string
@@ -189,6 +192,7 @@ export const PaymentReceiptsPage = () => {
               <TableHeaderCell>Payment #</TableHeaderCell>
               <TableHeaderCell>Receipt #</TableHeaderCell>
               <TableHeaderCell>Student</TableHeaderCell>
+              <TableHeaderCell>Billing account</TableHeaderCell>
               <TableHeaderCell>Reference</TableHeaderCell>
               <TableHeaderCell>Method</TableHeaderCell>
               <TableHeaderCell align="right">Amount</TableHeaderCell>
@@ -211,6 +215,12 @@ export const PaymentReceiptsPage = () => {
                         ? `#${formatStudentNumberShort(row.student_number)}`
                         : `ID ${row.student_id}`}
                     </span>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-col">
+                    <span>{row.billing_account_name ?? '—'}</span>
+                    <span className="text-xs text-slate-500">{row.billing_account_number ?? '—'}</span>
                   </div>
                 </TableCell>
                 <TableCell className="font-mono text-xs">{row.reference || '—'}</TableCell>
@@ -254,14 +264,14 @@ export const PaymentReceiptsPage = () => {
             ))}
             {loading && (
               <TableRow>
-                <td colSpan={10} className="px-4 py-8 text-center">
+                <td colSpan={11} className="px-4 py-8 text-center">
                   <Spinner size="medium" />
                 </td>
               </TableRow>
             )}
             {!payments.length && !loading && (
               <TableRow>
-                <td colSpan={10} className="px-4 py-8 text-center">
+                <td colSpan={11} className="px-4 py-8 text-center">
                   <Typography color="secondary">No payments found</Typography>
                 </td>
               </TableRow>

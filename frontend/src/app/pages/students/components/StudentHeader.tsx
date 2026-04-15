@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../../auth/AuthContext'
 import { ConfirmDialog } from '../../../components/ConfirmDialog'
 import { canManageStudents } from '../../../utils/permissions'
@@ -36,6 +37,7 @@ export const StudentHeader = ({
   onStudentUpdate,
   onError,
 }: StudentHeaderProps) => {
+  const navigate = useNavigate()
   const { user } = useAuth()
   const canManage = canManageStudents(user)
   const { execute: updateStudent, loading, error: updateError } = useApiMutation()
@@ -123,7 +125,9 @@ export const StudentHeader = ({
     }
   }
 
-  const netBalance = balance != null ? parseNumber(balance.balance) : -debt
+  const studentBalance = balance != null ? parseNumber(balance.balance) : -debt
+  const sharedCredit = balance != null ? parseNumber(balance.available_balance) : 0
+  const isFamilyAccount = student.billing_account_type === 'family'
 
   return (
     <div className="flex items-center justify-between mb-4 flex-wrap gap-4">
@@ -134,6 +138,15 @@ export const StudentHeader = ({
         <Typography variant="body2" color="secondary" className="mt-1">
           Student #{formatStudentNumberShort(student.student_number)} · {student.grade_name ?? 'No grade'}
         </Typography>
+        {student.billing_account_id && (
+          <Typography variant="body2" color="secondary" className="mt-1">
+            Billing account {student.billing_account_name ?? '—'}
+            {student.billing_account_number ? ` · ${student.billing_account_number}` : ''}
+            {student.billing_account_type === 'family' && student.billing_account_member_count
+              ? ` · ${student.billing_account_member_count} students`
+              : ''}
+          </Typography>
+        )}
       </div>
       <div className="flex gap-2 flex-wrap">
         <Chip
@@ -141,11 +154,25 @@ export const StudentHeader = ({
           color={student.status === 'active' ? 'success' : 'default'}
         />
         <Chip
-          label={`Balance ${formatMoney(netBalance)}`}
-          color={netBalance > 0 ? 'success' : netBalance < 0 ? 'error' : 'default'}
+          label={`${isFamilyAccount ? 'Student balance' : 'Balance'} ${formatMoney(studentBalance)}`}
+          color={studentBalance > 0 ? 'success' : studentBalance < 0 ? 'error' : 'default'}
         />
+        {isFamilyAccount && (
+          <Chip
+            label={`Family credit ${formatMoney(sharedCredit)}`}
+            color={sharedCredit > 0 ? 'success' : 'default'}
+          />
+        )}
         {canManage && (
           <>
+            {student.billing_account_id && (
+              <Button
+                variant="outlined"
+                onClick={() => navigate(`/billing/families/${student.billing_account_id}`)}
+              >
+                Billing account
+              </Button>
+            )}
             <Button variant="outlined" onClick={openEdit}>
               Edit
             </Button>

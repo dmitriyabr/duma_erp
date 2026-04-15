@@ -53,6 +53,9 @@ class Invoice(Base):
     student_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("students.id"), nullable=False, index=True
     )
+    billing_account_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("billing_accounts.id"), nullable=False, index=True
+    )
     term_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("terms.id"), nullable=True, index=True
     )
@@ -100,6 +103,9 @@ class Invoice(Base):
 
     # Relationships
     student: Mapped["Student"] = relationship("Student")
+    billing_account: Mapped["BillingAccount"] = relationship(
+        "BillingAccount", back_populates="invoices"
+    )
     term: Mapped["Term | None"] = relationship("Term")
     created_by: Mapped["User"] = relationship("User")
     lines: Mapped[list["InvoiceLine"]] = relationship(
@@ -246,6 +252,7 @@ class InvoiceLineComponent(Base):
 
 # Import at the end to avoid circular imports
 from src.modules.students.models import Student
+from src.modules.billing_accounts.models import BillingAccount
 from src.modules.terms.models import Term
 from src.modules.items.models import Item, Kit
 from src.core.auth.models import User

@@ -101,20 +101,41 @@ class ReportsService:
         """
         as_at = as_at_date or date.today()
 
-        # Load invoices with amount_due > 0, status issued/partially_paid, with student
+        excluded_invoice_statuses = (
+            InvoiceStatus.DRAFT.value,
+            InvoiceStatus.CANCELLED.value,
+            InvoiceStatus.VOID.value,
+        )
+        allocation_totals_as_at = (
+            select(
+                CreditAllocation.invoice_id,
+                func.coalesce(func.sum(CreditAllocation.amount), 0).label("allocated"),
+            )
+            .where(cast(CreditAllocation.created_at, SqlDate) <= as_at)
+            .group_by(CreditAllocation.invoice_id)
+        ).subquery()
+        amount_due_as_at = (
+            Invoice.total - func.coalesce(allocation_totals_as_at.c.allocated, 0)
+        )
+
+        # Load invoices that had outstanding debt at as_at. Current amount_due can
+        # already be zero if the invoice was paid after as_at, so use allocation
+        # history for snapshot correctness.
         result = await self.db.execute(
-            select(Invoice)
+            select(Invoice, amount_due_as_at.label("amount_due_as_at"))
+            .outerjoin(
+                allocation_totals_as_at,
+                Invoice.id == allocation_totals_as_at.c.invoice_id,
+            )
             .where(
-                Invoice.amount_due > 0,
-                Invoice.status.in_(
-                    [InvoiceStatus.ISSUED.value, InvoiceStatus.PARTIALLY_PAID.value]
-                ),
                 Invoice.issue_date.is_not(None),
                 Invoice.issue_date <= as_at,
+                Invoice.status.notin_(excluded_invoice_statuses),
+                amount_due_as_at > 0,
             )
             .options(selectinload(Invoice.student))
         )
-        invoices = list(result.scalars().unique().all())
+        invoice_rows = result.unique().all()
 
         # By student: buckets — current (0-30 days), 31-60, 61-90, 90+
         by_student: dict[int, dict] = defaultdict(
@@ -129,13 +150,16 @@ class ReportsService:
             }
         )
 
-        for inv in invoices:
+        student_account_ids: dict[int, set[int]] = defaultdict(set)
+
+        for inv, invoice_amount_due_as_at in invoice_rows:
             sid = inv.student_id
+            student_account_ids[sid].add(inv.billing_account_id)
             if by_student[sid]["student_name"] == "" and inv.student:
                 by_student[sid]["student_id"] = sid
                 by_student[sid]["student_name"] = inv.student.full_name
 
-            amount = round_money(inv.amount_due)
+            amount = round_money(Decimal(str(invoice_amount_due_as_at or 0)))
             due = inv.due_date
             if due is None:
                 days = 0  # treat as current
@@ -152,19 +176,37 @@ class ReportsService:
             else:
                 by_student[sid]["bucket_90_plus"] += amount
 
-        # Last payment per student
-        last_pay = await self.db.execute(
-            select(
-                Payment.student_id,
-                func.max(Payment.payment_date).label("last_date"),
+        # Payments are owned by billing account. For family accounts, every debtor
+        # student on that account should show the same latest account payment date.
+        account_ids = {
+            account_id
+            for account_ids_for_student in student_account_ids.values()
+            for account_id in account_ids_for_student
+            if account_id
+        }
+        last_payment_by_account: dict[int, date] = {}
+        if account_ids:
+            last_pay = await self.db.execute(
+                select(
+                    Payment.billing_account_id,
+                    func.max(Payment.payment_date).label("last_date"),
+                )
+                .where(
+                    Payment.status == PaymentStatus.COMPLETED.value,
+                    Payment.payment_date <= as_at,
+                    Payment.billing_account_id.in_(account_ids),
+                )
+                .group_by(Payment.billing_account_id)
             )
-            .where(
-                Payment.status == PaymentStatus.COMPLETED.value,
-                Payment.payment_date <= as_at,
-            )
-            .group_by(Payment.student_id)
-        )
-        last_payment_by_student = {r[0]: r[1] for r in last_pay.all()}
+            last_payment_by_account = {r[0]: r[1] for r in last_pay.all()}
+        last_payment_by_student = {}
+        for sid, account_ids_for_student in student_account_ids.items():
+            payment_dates = [
+                last_payment_by_account[account_id]
+                for account_id in account_ids_for_student
+                if account_id in last_payment_by_account
+            ]
+            last_payment_by_student[sid] = max(payment_dates) if payment_dates else None
 
         summary_total = Decimal("0")
         summary_current = Decimal("0")
@@ -490,10 +532,11 @@ class ReportsService:
             "activity": "Activities",
         }
 
-        # Payments received per student per day
+        # Payments received per billing account per day. Payment.student_id is only
+        # a compatibility/reference student and is not the owner of family credit.
         pay_q = (
             select(
-                Payment.student_id,
+                Payment.billing_account_id,
                 Payment.payment_date,
                 func.coalesce(func.sum(Payment.amount), 0).label("paid"),
             )
@@ -501,17 +544,20 @@ class ReportsService:
                 Payment.status == PaymentStatus.COMPLETED.value,
                 Payment.payment_date >= date_from,
                 Payment.payment_date <= date_to,
+                Payment.billing_account_id.isnot(None),
             )
-            .group_by(Payment.student_id, Payment.payment_date)
+            .group_by(Payment.billing_account_id, Payment.payment_date)
         )
         if payment_method:
             pay_q = pay_q.where(Payment.payment_method == payment_method)
         pay_rows = (await self.db.execute(pay_q)).all()
         payments_by_key: dict[tuple[int, date], Decimal] = {
-            (int(sid), pdate): Decimal(str(paid or 0)) for sid, pdate, paid in pay_rows
+            (int(account_id), pdate): Decimal(str(paid or 0))
+            for account_id, pdate, paid in pay_rows
+            if account_id is not None
         }
 
-        # Allocations created per student per day, grouped by invoice_type
+        # Allocations created per billing account per day, grouped by invoice_type
         # Cross-database date extraction:
         # - SQLite: date(<timestamp>) returns "YYYY-MM-DD" even when timezone is present
         # - Postgres: date(<timestamptz>) returns date
@@ -525,7 +571,7 @@ class ReportsService:
         alloc_to = date_to.isoformat() if dialect_name == "sqlite" else date_to
         alloc_q = (
             select(
-                CreditAllocation.student_id,
+                CreditAllocation.billing_account_id,
                 alloc_date,
                 Invoice.invoice_type,
                 func.coalesce(func.sum(CreditAllocation.amount), 0).label("allocated"),
@@ -535,14 +581,19 @@ class ReportsService:
             .where(
                 alloc_date_expr >= alloc_from,
                 alloc_date_expr <= alloc_to,
+                CreditAllocation.billing_account_id.isnot(None),
             )
-            .group_by(CreditAllocation.student_id, alloc_date_expr, Invoice.invoice_type)
+            .group_by(
+                CreditAllocation.billing_account_id,
+                alloc_date_expr,
+                Invoice.invoice_type,
+            )
         )
         alloc_rows = (await self.db.execute(alloc_q)).all()
         alloc_by_key: dict[tuple[int, date], dict[str, Decimal]] = defaultdict(
             lambda: defaultdict(lambda: Decimal("0"))
         )
-        for sid, adate, inv_type, allocated in alloc_rows:
+        for account_id, adate, inv_type, allocated in alloc_rows:
             if adate is None:
                 continue
             # Normalize to python `date` across DBs/drivers:
@@ -552,13 +603,15 @@ class ReportsService:
                 adate = date.fromisoformat(adate)
             elif not isinstance(adate, date) and hasattr(adate, "date"):
                 adate = adate.date()
-            alloc_by_key[(int(sid), adate)][str(inv_type)] += Decimal(str(allocated or 0))
+            if account_id is None:
+                continue
+            alloc_by_key[(int(account_id), adate)][str(inv_type)] += Decimal(str(allocated or 0))
 
         totals_by_type: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
         unallocated_total = Decimal("0")
         payments_total = Decimal("0")
 
-        # Cap allocations to cash received per student/day; remainder goes to credit
+        # Cap allocations to cash received per billing account/day; remainder goes to credit.
         for key, paid_total in payments_by_key.items():
             paid_total = round_money(Decimal(str(paid_total)))
             payments_total += paid_total
@@ -843,28 +896,33 @@ class ReportsService:
         )
         pay_tot = await self.db.execute(
             select(
-                Payment.student_id,
+                Payment.billing_account_id,
                 func.coalesce(func.sum(Payment.amount), 0).label("s"),
             )
             .where(Payment.status == PaymentStatus.COMPLETED.value)
             .where(Payment.payment_date <= as_at_date)
-            .group_by(Payment.student_id)
+            .where(Payment.billing_account_id.isnot(None))
+            .group_by(Payment.billing_account_id)
         )
-        payments_by_student = {r[0]: Decimal(str(r[1])) for r in pay_tot.all()}
+        payments_by_account = {r[0]: Decimal(str(r[1])) for r in pay_tot.all()}
         alloc_tot = await self.db.execute(
             select(
-                CreditAllocation.student_id,
+                CreditAllocation.billing_account_id,
                 func.coalesce(func.sum(CreditAllocation.amount), 0).label("s"),
             )
             .where(cast(CreditAllocation.created_at, SqlDate) <= as_at_date)
-            .group_by(CreditAllocation.student_id)
+            .where(CreditAllocation.billing_account_id.isnot(None))
+            .group_by(CreditAllocation.billing_account_id)
         )
-        allocated_by_student = {r[0]: Decimal(str(r[1])) for r in alloc_tot.all()}
+        allocated_by_account = {r[0]: Decimal(str(r[1])) for r in alloc_tot.all()}
         credit_total = Decimal("0")
-        for sid in set(payments_by_student) | set(allocated_by_student):
-            credit_total += round_money(
-                payments_by_student.get(sid, Decimal("0")) - allocated_by_student.get(sid, Decimal("0"))
+        for account_id in set(payments_by_account) | set(allocated_by_account):
+            account_credit = round_money(
+                payments_by_account.get(account_id, Decimal("0"))
+                - allocated_by_account.get(account_id, Decimal("0"))
             )
+            if account_credit > 0:
+                credit_total += account_credit
         credit_balances = round_money(credit_total)
         # Employee Payable (Pending Claims) as at date: for claims created by date and not draft/rejected,
         # remaining as at date = amount - sum(allocated_amount from payouts with payout_date <= as_at_date).
@@ -914,7 +972,7 @@ class ReportsService:
             "total_assets": total_assets,
             "liability_lines": [
                 ("Accounts Payable (Supplier Debts)", supplier_debt),
-                ("Student Credit Balances", credit_balances),
+                ("Billing Account Credit Balances", credit_balances),
                 ("Employee Payable (Pending Claims)", pending_claims),
             ],
             "total_liabilities": total_liabilities,
@@ -1183,20 +1241,42 @@ class ReportsService:
         sorted_rows = sorted(rows_data, key=lambda r: -float(r.total))[:limit]
         total_debt = sum(r.total for r in sorted_rows)
 
-        # Get grade_name and oldest_due_date per student
+        # Get grade_name and oldest_due_date per student using the same as-at
+        # allocation snapshot as aged_receivables.
         student_ids = [r.student_id for r in sorted_rows]
+        allocation_totals_as_at = (
+            select(
+                CreditAllocation.invoice_id,
+                func.coalesce(func.sum(CreditAllocation.amount), 0).label("allocated"),
+            )
+            .where(cast(CreditAllocation.created_at, SqlDate) <= as_at)
+            .group_by(CreditAllocation.invoice_id)
+        ).subquery()
+        amount_due_as_at = (
+            Invoice.total - func.coalesce(allocation_totals_as_at.c.allocated, 0)
+        )
         inv_q = (
             select(
                 Invoice.student_id,
                 func.count(Invoice.id).label("inv_count"),
                 func.min(Invoice.due_date).label("oldest_due"),
             )
+            .outerjoin(
+                allocation_totals_as_at,
+                Invoice.id == allocation_totals_as_at.c.invoice_id,
+            )
             .where(
                 Invoice.student_id.in_(student_ids),
-                Invoice.amount_due > 0,
-                Invoice.status.in_(
-                    [InvoiceStatus.ISSUED.value, InvoiceStatus.PARTIALLY_PAID.value]
+                Invoice.issue_date.is_not(None),
+                Invoice.issue_date <= as_at,
+                Invoice.status.notin_(
+                    [
+                        InvoiceStatus.DRAFT.value,
+                        InvoiceStatus.CANCELLED.value,
+                        InvoiceStatus.VOID.value,
+                    ]
                 ),
+                amount_due_as_at > 0,
             )
             .group_by(Invoice.student_id)
         )
@@ -1782,13 +1862,18 @@ class ReportsService:
             )
             rev_res = await self.db.execute(rev_q)
             total_rev = round_money(Decimal(str(rev_res.scalar() or 0)))
-            cnt_q = (
-                select(func.count(func.distinct(Payment.student_id))).where(
+            paid_accounts = (
+                select(Payment.billing_account_id)
+                .where(
                     Payment.status == PaymentStatus.COMPLETED.value,
                     Payment.payment_date >= start,
                     Payment.payment_date <= end,
-                    Payment.student_id.isnot(None),
+                    Payment.billing_account_id.isnot(None),
                 )
+                .distinct()
+            ).subquery()
+            cnt_q = select(func.count(func.distinct(Student.id))).where(
+                Student.billing_account_id.in_(select(paid_accounts.c.billing_account_id))
             )
             cnt_res = await self.db.execute(cnt_q)
             students_count = int(cnt_res.scalar() or 0)

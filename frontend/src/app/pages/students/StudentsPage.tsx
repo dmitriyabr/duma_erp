@@ -37,10 +37,12 @@ interface StudentRow {
   status: StudentStatus
   enrollment_date?: string | null
   notes?: string | null
+  billing_account_name?: string | null
+  billing_account_type?: string | null
   // Balance fields (optional, included when include_balance=true)
   available_balance?: number | null
   outstanding_debt?: number | null
-  balance?: number | null // net: available_balance - outstanding_debt
+  balance?: number | null
 }
 
 export const StudentsPage = () => {
@@ -95,7 +97,7 @@ export const StudentsPage = () => {
         </Typography>
         {!readOnly && (
           <Button variant="contained" onClick={() => navigate('/students/new')}>
-            New student
+            New admission
           </Button>
         )}
       </div>
@@ -166,7 +168,7 @@ export const StudentsPage = () => {
               <TableHeaderCell>Transport zone</TableHeaderCell>
               <TableHeaderCell>Guardian</TableHeaderCell>
               <TableHeaderCell>Status</TableHeaderCell>
-              <TableHeaderCell>Balance</TableHeaderCell>
+              <TableHeaderCell>Student balance</TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -195,7 +197,16 @@ export const StudentsPage = () => {
                     size="small"
                   />
                 </TableCell>
-                <TableCell>{formatMoney(row.balance ?? 0)}</TableCell>
+                <TableCell>
+                  <div>
+                    <Typography variant="body2">{formatMoney(row.balance ?? 0)}</Typography>
+                    {row.billing_account_type === 'family' && (
+                      <Typography variant="caption" color="secondary">
+                        Family credit {formatMoney(row.available_balance ?? 0)}
+                      </Typography>
+                    )}
+                  </div>
+                </TableCell>
               </TableRow>
             ))}
             {loading && (

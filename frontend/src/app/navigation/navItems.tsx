@@ -42,6 +42,7 @@ export const accountantNavItems: NavItem[] = [
     children: [
       { label: 'Terms', path: '/billing/terms', roles: ['Accountant'] },
       { label: 'Fixed Fees', path: '/billing/fixed-fees', roles: ['Accountant'] },
+      { label: 'Billing Accounts', path: '/billing/families', roles: ['Accountant'] },
       { label: 'Activities', path: '/billing/activities', roles: ['Accountant'] },
       { label: 'Catalog', path: '/billing/catalog', roles: ['Accountant'] },
     ],
@@ -92,6 +93,7 @@ export const navItems: NavItem[] = [
     children: [
       { label: 'Terms', path: '/billing/terms', roles: ['SuperAdmin'] },
       { label: 'Fixed Fees', path: '/billing/fixed-fees', roles: ['SuperAdmin'] },
+      { label: 'Billing Accounts', path: '/billing/families', roles: viewRoles },
       { label: 'Activities', path: '/billing/activities', roles: viewRoles },
       { label: 'Catalog', path: '/billing/catalog', roles: adminRoles },
       { label: 'Payments', path: '/billing/payments', roles: viewRoles },

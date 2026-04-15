@@ -1,10 +1,14 @@
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth.models import UserRole
 from src.core.auth.service import AuthService
 from src.core.exceptions import DuplicateError, NotFoundError, ValidationError
+from src.modules.billing_accounts.models import BillingAccount
+from src.modules.billing_accounts.schemas import BillingAccountCreate
+from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.students.models import Gender, Grade, Student, StudentStatus
 from src.modules.students.schemas import GradeCreate, GradeUpdate, StudentCreate, StudentUpdate
 from src.modules.students.service import StudentService
@@ -139,6 +143,47 @@ class TestStudentService:
         )
 
         assert student.guardian_phone == "+254712345678"
+
+    async def test_create_student_in_existing_family_account(self, db_session: AsyncSession):
+        """Test creating a child directly under an existing family billing account."""
+        grade = await self._create_grade(db_session)
+        service = StudentService(db_session)
+        billing_account_service = BillingAccountService(db_session)
+
+        family = await billing_account_service.create_family_account(
+            BillingAccountCreate(
+                display_name="Doe Family",
+                primary_guardian_name="Jane Doe",
+                primary_guardian_phone="+254712345678",
+                new_children=[
+                    {
+                        "first_name": "Older",
+                        "last_name": "Doe",
+                        "gender": Gender.MALE,
+                        "grade_id": grade.id,
+                    }
+                ],
+            ),
+            created_by_id=1,
+        )
+
+        student = await service.create_student(
+            StudentCreate(
+                first_name="Younger",
+                last_name="Doe",
+                gender=Gender.FEMALE,
+                grade_id=grade.id,
+                guardian_name="Jane Doe",
+                guardian_phone="+254712345678",
+                billing_account_id=family.id,
+            ),
+            created_by_id=1,
+        )
+
+        accounts = list((await db_session.execute(select(BillingAccount))).scalars().all())
+
+        assert student.billing_account_id == family.id
+        assert len(accounts) == 1
 
     async def test_create_student_invalid_grade(self, db_session: AsyncSession):
         """Test creating student with invalid grade."""
@@ -394,6 +439,38 @@ class TestStudentEndpoints:
         assert data["success"] is True
         assert "items" in data["data"]
         assert "total" in data["data"]
+
+    async def test_list_students_with_balance(self, client: AsyncClient, db_session: AsyncSession):
+        """Test listing students with balance payload via API."""
+        token, _, grade = await self._create_auth_and_grade(db_session)
+
+        await client.post(
+            "/api/v1/students",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "first_name": "Balance",
+                "last_name": "Test",
+                "gender": "female",
+                "grade_id": grade.id,
+                "guardian_name": "Guardian",
+                "guardian_phone": "+254712345678",
+            },
+        )
+
+        response = await client.get(
+            "/api/v1/students?include_balance=true",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["data"]["total"] >= 1
+        student = next(item for item in data["data"]["items"] if item["first_name"] == "Balance")
+        assert student["billing_account_id"] is not None
+        assert student["available_balance"] == 0.0
+        assert student["outstanding_debt"] == 0.0
+        assert student["balance"] == 0.0
 
     async def test_search_students(self, client: AsyncClient, db_session: AsyncSession):
         """Test searching students via API."""

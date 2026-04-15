@@ -83,6 +83,9 @@ class Student(Base):
     gender: Mapped[str] = mapped_column(String(10), nullable=False)  # male | female
 
     # Academic info
+    billing_account_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("billing_accounts.id"), nullable=False, index=True
+    )
     grade_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("grades.id"), nullable=False, index=True
     )
@@ -104,6 +107,7 @@ class Student(Base):
     enrollment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     # Cached credit balance (updated when payments/allocations change)
+    # This mirrors the linked billing account balance for convenient per-student reads.
     cached_credit_balance: Mapped[Decimal] = mapped_column(
         Numeric(15, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
     )
@@ -121,6 +125,9 @@ class Student(Base):
     )
 
     # Relationships
+    billing_account: Mapped["BillingAccount"] = relationship(
+        "BillingAccount", back_populates="students"
+    )
     grade: Mapped["Grade"] = relationship("Grade", back_populates="students")
     transport_zone: Mapped["TransportZone | None"] = relationship("TransportZone")
     created_by: Mapped["User"] = relationship("User")
@@ -140,3 +147,4 @@ class Student(Base):
 # Import at the end to avoid circular imports
 from src.modules.terms.models import TransportZone
 from src.core.auth.models import User
+from src.modules.billing_accounts.models import BillingAccount

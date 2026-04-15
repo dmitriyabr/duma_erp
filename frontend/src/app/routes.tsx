@@ -31,7 +31,6 @@ import { ProcurementPaymentsListPage } from './pages/procurement/ProcurementPaym
 import { ProcurementPaymentFormPage } from './pages/procurement/ProcurementPaymentFormPage'
 import { ProcurementPaymentDetailPage } from './pages/procurement/ProcurementPaymentDetailPage'
 import { StudentsPage } from './pages/students/StudentsPage'
-import { CreateStudentPage } from './pages/students/CreateStudentPage'
 import { StudentDetailPage } from './pages/students/StudentDetailPage'
 import { CreateInvoicePage } from './pages/students/CreateInvoicePage'
 import { ReceivePaymentPage } from './pages/students/ReceivePaymentPage'
@@ -79,6 +78,9 @@ import { MpesaUnmatchedPage } from './pages/billing/MpesaUnmatchedPage'
 import { ActivitiesListPage } from './pages/billing/ActivitiesListPage'
 import { ActivityFormPage } from './pages/billing/ActivityFormPage'
 import { ActivityDetailPage } from './pages/billing/ActivityDetailPage'
+import { BillingAccountsListPage } from './pages/billing/BillingAccountsListPage'
+import { BillingAccountFormPage } from './pages/billing/BillingAccountFormPage'
+import { BillingAccountDetailPage } from './pages/billing/BillingAccountDetailPage'
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useAuth()
@@ -175,7 +177,14 @@ export const AppRoutes = () => {
             }
           />
           <Route path="students" element={<StudentsPage />} />
-          <Route path="students/new" element={<CreateStudentPage />} />
+          <Route
+            path="students/new"
+            element={
+              <AdminOnly>
+                <BillingAccountFormPage />
+              </AdminOnly>
+            }
+          />
           <Route path="students/:studentId" element={<StudentDetailPage />} />
           <Route path="students/:studentId/invoices/new" element={<CreateInvoicePage />} />
           <Route path="billing" element={<PlaceholderPage title="Billing" />} />
@@ -184,6 +193,34 @@ export const AppRoutes = () => {
           <Route path="billing/terms/:termId" element={<TermDetailPage />} />
           <Route path="billing/terms/:termId/edit" element={<TermFormPage />} />
           <Route path="billing/fixed-fees" element={<FixedFeesPage />} />
+          <Route
+            path="billing/families"
+            element={
+              <StaffViewOnly>
+                <BillingAccountsListPage />
+              </StaffViewOnly>
+            }
+          />
+          <Route
+            path="billing/families/new"
+            element={<Navigate to="/students/new" replace />}
+          />
+          <Route
+            path="billing/families/:accountId"
+            element={
+              <StaffViewOnly>
+                <BillingAccountDetailPage />
+              </StaffViewOnly>
+            }
+          />
+          <Route
+            path="billing/families/:accountId/edit"
+            element={
+              <AdminOnly>
+                <BillingAccountFormPage />
+              </AdminOnly>
+            }
+          />
           <Route
             path="billing/activities"
             element={
@@ -314,7 +351,14 @@ export const AppRoutes = () => {
               </AdminOnly>
             }
           />
-          <Route path="payments/new" element={<ReceivePaymentPage />} />
+          <Route
+            path="payments/new"
+            element={
+              <AdminOnly>
+                <ReceivePaymentPage />
+              </AdminOnly>
+            }
+          />
           <Route
             path="payments"
             element={

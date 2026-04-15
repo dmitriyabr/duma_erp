@@ -18,6 +18,10 @@ export function canManageActivities(user: AuthUser | null): boolean {
   return user?.role === 'SuperAdmin' || user?.role === 'Admin'
 }
 
+export function canManageBillingAccounts(user: AuthUser | null): boolean {
+  return user?.role === 'SuperAdmin' || user?.role === 'Admin'
+}
+
 export function canCancelPayment(user: AuthUser | null): boolean {
   return user?.role === 'SuperAdmin'
 }

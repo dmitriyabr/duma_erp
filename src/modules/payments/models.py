@@ -56,6 +56,9 @@ class Payment(Base):
     student_id: Mapped[int] = mapped_column(
         BigIntPK, ForeignKey("students.id"), nullable=False, index=True
     )
+    billing_account_id: Mapped[int] = mapped_column(
+        BigIntPK, ForeignKey("billing_accounts.id"), nullable=False, index=True
+    )
     preferred_invoice_id: Mapped[int | None] = mapped_column(
         BigIntPK, ForeignKey("invoices.id"), nullable=True, index=True
     )
@@ -94,6 +97,9 @@ class Payment(Base):
 
     # Relationships
     student: Mapped["Student"] = relationship("Student", back_populates="payments")
+    billing_account: Mapped["BillingAccount"] = relationship(
+        "BillingAccount", back_populates="payments"
+    )
     preferred_invoice: Mapped["Invoice | None"] = relationship(
         "Invoice", foreign_keys=[preferred_invoice_id]
     )
@@ -127,6 +133,9 @@ class CreditAllocation(Base):
     student_id: Mapped[int] = mapped_column(
         BigIntPK, ForeignKey("students.id"), nullable=False, index=True
     )
+    billing_account_id: Mapped[int] = mapped_column(
+        BigIntPK, ForeignKey("billing_accounts.id"), nullable=False, index=True
+    )
     invoice_id: Mapped[int] = mapped_column(
         BigIntPK, ForeignKey("invoices.id"), nullable=False, index=True
     )
@@ -146,6 +155,9 @@ class CreditAllocation(Base):
 
     # Relationships
     student: Mapped["Student"] = relationship("Student")
+    billing_account: Mapped["BillingAccount"] = relationship(
+        "BillingAccount", back_populates="allocations"
+    )
     invoice: Mapped["Invoice"] = relationship("Invoice", back_populates="allocations")
     invoice_line: Mapped["InvoiceLine"] = relationship("InvoiceLine")
     allocated_by: Mapped["User"] = relationship("User")
@@ -153,5 +165,6 @@ class CreditAllocation(Base):
 
 # Import for type hints
 from src.core.auth.models import User
+from src.modules.billing_accounts.models import BillingAccount
 from src.modules.students.models import Student
 from src.modules.invoices.models import Invoice, InvoiceLine

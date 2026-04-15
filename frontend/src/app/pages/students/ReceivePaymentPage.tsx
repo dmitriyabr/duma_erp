@@ -18,6 +18,10 @@ interface StudentOption {
   id: number
   full_name: string
   student_number: string
+  billing_account_id?: number | null
+  billing_account_number?: string | null
+  billing_account_name?: string | null
+  billing_account_type?: string | null
 }
 
 interface PaymentResponse {
@@ -29,8 +33,17 @@ interface PaymentResponse {
 interface InvoiceOption {
   id: number
   invoice_number: string
+  student_name?: string | null
   amount_due: number
   status: string
+}
+
+interface BillingAccountDetail {
+  id: number
+  account_number: string
+  display_name: string
+  account_type: string
+  members: Array<{ student_id: number; student_name: string }>
 }
 
 const emptyForm = {
@@ -47,6 +60,8 @@ export const ReceivePaymentPage = () => {
   const state = (
     location.state as {
       studentId?: number
+      billingAccountId?: number
+      billingAccountName?: string
       preferredInvoiceId?: number
       preferredInvoiceNumber?: string
     } | null
@@ -67,12 +82,22 @@ export const ReceivePaymentPage = () => {
   const studentsApi = useApi<PaginatedResponse<StudentOption>>('/students', {
     params: { page: 1, limit: DEFAULT_PAGE_SIZE, status: 'active' },
   }, [])
+  const selectedStudent = studentsApi.data?.items?.find((student) => student.id === resolvedId) ?? null
+  const resolvedBillingAccountId =
+    state?.billingAccountId ??
+    selectedStudent?.billing_account_id ??
+    0
+  const billingAccountApi = useApi<BillingAccountDetail>(
+    state?.billingAccountId ? `/billing-accounts/${state.billingAccountId}` : null
+  )
   const invoicesApi = useApi<PaginatedResponse<InvoiceOption>>(
-    resolvedId ? '/invoices' : null,
+    resolvedBillingAccountId ? '/invoices' : resolvedId ? '/invoices' : null,
     {
-      params: { student_id: resolvedId, limit: INVOICE_LIST_LIMIT, page: 1 },
+      params: resolvedBillingAccountId
+        ? { billing_account_id: resolvedBillingAccountId, limit: INVOICE_LIST_LIMIT, page: 1 }
+        : { student_id: resolvedId, limit: INVOICE_LIST_LIMIT, page: 1 },
     },
-    [resolvedId]
+    [resolvedId, resolvedBillingAccountId]
   )
   const submitMutation = useApiMutation<PaymentResponse>()
   const uploadMutation = useApiMutation<{ id: number; file_name: string }>()
@@ -106,7 +131,7 @@ export const ReceivePaymentPage = () => {
   }
 
   const submitPayment = async () => {
-    if (!resolvedId) {
+    if (!resolvedId && !resolvedBillingAccountId) {
       setError('Select a student.')
       return
     }
@@ -120,7 +145,8 @@ export const ReceivePaymentPage = () => {
     submitMutation.reset()
     const created = await submitMutation.execute(async () => {
       const createRes = await api.post('/payments', {
-        student_id: resolvedId,
+        student_id: resolvedId || undefined,
+        billing_account_id: resolvedBillingAccountId || undefined,
         preferred_invoice_id: preferredInvoiceId === '' ? undefined : preferredInvoiceId,
         amount: Number(form.amount),
         payment_method: form.payment_method,
@@ -134,13 +160,17 @@ export const ReceivePaymentPage = () => {
       return { data: { data: payment } }
     })
     if (created != null) {
-      navigate(`/students/${resolvedId}?tab=payments`)
+      if (state?.billingAccountId) {
+        navigate(`/billing/families/${resolvedBillingAccountId}`)
+      } else {
+        navigate(`/students/${resolvedId}?tab=payments`)
+      }
     } else if (submitMutation.error) {
       setError(submitMutation.error)
     }
   }
 
-  if (!resolvedId) {
+  if (!resolvedId && !state?.billingAccountId) {
     return (
       <div>
         <Button onClick={() => navigate(-1)} className="mb-4">
@@ -175,7 +205,15 @@ export const ReceivePaymentPage = () => {
   }
 
   const student = students.find((s) => s.id === resolvedId)
-  const displayError = error ?? submitMutation.error ?? uploadMutation.error ?? invoicesApi.error
+  const displayError =
+    error ?? submitMutation.error ?? uploadMutation.error ?? invoicesApi.error ?? billingAccountApi.error
+  const accountLabel =
+    billingAccountApi.data?.display_name ??
+    state?.billingAccountName ??
+    selectedStudent?.billing_account_name ??
+    null
+  const accountNumber =
+    billingAccountApi.data?.account_number ?? selectedStudent?.billing_account_number ?? null
 
   return (
     <div>
@@ -183,16 +221,25 @@ export const ReceivePaymentPage = () => {
         Back
       </Button>
       <Typography variant="h4" className="mb-2">
-        Receive student payment
+        {state?.billingAccountId ? 'Receive family payment' : 'Receive student payment'}
       </Typography>
       {student && (
         <Typography variant="body2" color="secondary" className="mb-4">
           {student.full_name} · #{formatStudentNumberShort(student.student_number)}
+          {selectedStudent?.billing_account_type === 'family' && accountLabel
+            ? ` · ${accountLabel}${accountNumber ? ` (${accountNumber})` : ''}`
+            : ''}
           {!studentIdLocked && (
             <Button size="small" variant="text" className="ml-2" onClick={() => setSelectedStudentId('')}>
               Change student
             </Button>
           )}
+        </Typography>
+      )}
+      {!student && state?.billingAccountId && accountLabel && (
+        <Typography variant="body2" color="secondary" className="mb-4">
+          {accountLabel}
+          {accountNumber ? ` · ${accountNumber}` : ''}
         </Typography>
       )}
       {displayError && (
@@ -225,7 +272,10 @@ export const ReceivePaymentPage = () => {
           <option value="">Auto-allocate normally</option>
           {openInvoices.map((invoice) => (
             <option key={invoice.id} value={String(invoice.id)}>
-              {invoice.invoice_number} · Due {formatMoney(invoice.amount_due)}
+              {invoice.invoice_number}
+              {invoice.student_name ? ` · ${invoice.student_name}` : ''}
+              {' · '}
+              Due {formatMoney(invoice.amount_due)}
             </option>
           ))}
         </Select>

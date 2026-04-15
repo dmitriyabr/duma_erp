@@ -11,6 +11,7 @@ from src.core.audit.service import AuditService
 from src.core.documents.number_generator import DocumentNumberGenerator
 from src.core.exceptions import NotFoundError, ValidationError
 from src.shared.utils.money import round_money
+from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.invoices.models import (
     Invoice,
     InvoiceLine,
@@ -352,11 +353,17 @@ class InvoiceService:
         """Create an ad-hoc invoice (draft)."""
         # Validate student
         result = await self.db.execute(
-            select(Student).where(Student.id == data.student_id)
+            select(Student)
+            .where(Student.id == data.student_id)
+            .options(selectinload(Student.billing_account))
         )
         student = result.scalar_one_or_none()
         if not student:
             raise NotFoundError(f"Student with id {data.student_id} not found")
+        if student.billing_account_id is None:
+            billing_account_service = BillingAccountService(self.db)
+            await billing_account_service.ensure_student_billing_account(student.id)
+            await self.db.refresh(student)
 
         # Generate invoice number
         number_gen = DocumentNumberGenerator(self.db)
@@ -365,6 +372,7 @@ class InvoiceService:
         invoice = Invoice(
             invoice_number=invoice_number,
             student_id=data.student_id,
+            billing_account_id=student.billing_account_id,
             term_id=None,
             invoice_type=InvoiceType.ADHOC.value,
             status=InvoiceStatus.DRAFT.value,
@@ -644,6 +652,7 @@ class InvoiceService:
             .options(
                 selectinload(Invoice.lines),
                 selectinload(Invoice.student).selectinload(Student.grade),
+                selectinload(Invoice.billing_account),
                 selectinload(Invoice.term),
             )
         )
@@ -660,6 +669,7 @@ class InvoiceService:
             .options(
                 selectinload(Invoice.lines),
                 selectinload(Invoice.student),
+                selectinload(Invoice.billing_account),
                 selectinload(Invoice.term),
             )
         )
@@ -677,6 +687,7 @@ class InvoiceService:
             .options(
                 selectinload(Invoice.lines),
                 selectinload(Invoice.student),
+                selectinload(Invoice.billing_account),
                 selectinload(Invoice.term),
             )
             .order_by(Invoice.created_at.desc())
@@ -684,6 +695,8 @@ class InvoiceService:
 
         if filters.student_id is not None:
             query = query.where(Invoice.student_id == filters.student_id)
+        if filters.billing_account_id is not None:
+            query = query.where(Invoice.billing_account_id == filters.billing_account_id)
         if filters.term_id is not None:
             query = query.where(Invoice.term_id == filters.term_id)
         if filters.invoice_type is not None:
@@ -756,6 +769,32 @@ class InvoiceService:
             for sid in student_ids
         ]
 
+    async def get_outstanding_totals_by_billing_account(
+        self, billing_account_ids: list[int]
+    ) -> dict[int, Decimal]:
+        """Get outstanding debt per billing account."""
+        if not billing_account_ids:
+            return {}
+
+        result = await self.db.execute(
+            select(
+                Invoice.billing_account_id,
+                func.coalesce(func.sum(InvoiceLine.remaining_amount), 0),
+            )
+            .join(InvoiceLine, InvoiceLine.invoice_id == Invoice.id)
+            .where(
+                Invoice.billing_account_id.in_(billing_account_ids),
+                Invoice.status.in_(
+                    [InvoiceStatus.ISSUED.value, InvoiceStatus.PARTIALLY_PAID.value]
+                ),
+            )
+            .group_by(Invoice.billing_account_id)
+        )
+        return {
+            row[0]: round_money(Decimal(str(row[1])))
+            for row in result.all()
+        }
+
     # --- Term Invoice Generation ---
 
     async def generate_term_invoices(
@@ -808,6 +847,12 @@ class InvoiceService:
                 total_students_processed=0,
                 affected_student_ids=[],
             )
+
+        billing_account_service = BillingAccountService(self.db)
+        for student in students:
+            if student.billing_account_id is None:
+                await billing_account_service.ensure_student_billing_account(student.id)
+                await self.db.refresh(student)
 
         student_ids = [s.id for s in students]
 
@@ -933,6 +978,7 @@ class InvoiceService:
             school_fee_invoice = Invoice(
                 invoice_number=await number_gen.generate("INV"),
                 student_id=student.id,
+                billing_account_id=student.billing_account_id,
                 term_id=term_id,
                 invoice_type=InvoiceType.SCHOOL_FEE.value,
                 status=InvoiceStatus.ISSUED.value,
@@ -981,6 +1027,7 @@ class InvoiceService:
                         transport_invoice = Invoice(
                             invoice_number=await number_gen.generate("INV"),
                             student_id=student.id,
+                            billing_account_id=student.billing_account_id,
                             term_id=term_id,
                             invoice_type=InvoiceType.TRANSPORT.value,
                             status=InvoiceStatus.ISSUED.value,
@@ -1101,6 +1148,10 @@ class InvoiceService:
             raise NotFoundError(f"Student with id {student_id} not found")
         if student.status != StudentStatus.ACTIVE.value:
             raise ValidationError("Student is not active")
+        if student.billing_account_id is None:
+            billing_account_service = BillingAccountService(self.db)
+            await billing_account_service.ensure_student_billing_account(student.id)
+            await self.db.refresh(student)
 
         # Get School Fee and Transport Fee kits
         school_fee_kit = await self._get_kit_by_price_type(PriceType.BY_GRADE.value)
@@ -1152,6 +1203,7 @@ class InvoiceService:
             school_fee_invoice = Invoice(
                 invoice_number=await number_gen.generate("INV"),
                 student_id=student.id,
+                billing_account_id=student.billing_account_id,
                 term_id=term_id,
                 invoice_type=InvoiceType.SCHOOL_FEE.value,
                 status=InvoiceStatus.ISSUED.value,
@@ -1199,6 +1251,7 @@ class InvoiceService:
                 transport_invoice = Invoice(
                     invoice_number=await number_gen.generate("INV"),
                     student_id=student.id,
+                    billing_account_id=student.billing_account_id,
                     term_id=term_id,
                     invoice_type=InvoiceType.TRANSPORT.value,
                     status=InvoiceStatus.ISSUED.value,
@@ -1328,6 +1381,7 @@ class InvoiceService:
         invoice = Invoice(
             invoice_number=await number_gen.generate("INV"),
             student_id=student.id,
+            billing_account_id=student.billing_account_id,
             term_id=term_id,
             invoice_type=InvoiceType.ADHOC.value,
             status=InvoiceStatus.ISSUED.value,

@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,6 +12,8 @@ from src.core.audit.service import AuditService
 from src.core.documents.number_generator import DocumentNumberGenerator
 from src.core.exceptions import NotFoundError, ValidationError
 from src.shared.utils.money import round_money
+from src.modules.billing_accounts.models import BillingAccount
+from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.payments.models import (
     CreditAllocation,
     Payment,
@@ -32,7 +34,6 @@ from src.modules.payments.schemas import (
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus
 from src.modules.students.models import Student
 from src.modules.reservations.service import ReservationService
-from sqlalchemy import update
 
 
 class PaymentService:
@@ -108,15 +109,45 @@ class PaymentService:
 
         return allocations, self._cents_to_money(leftover_cents)
 
+    async def _resolve_billing_context(
+        self,
+        *,
+        student_id: int | None,
+        billing_account_id: int | None,
+    ) -> tuple[BillingAccount, Student]:
+        """Resolve owner account plus a reference student for compatibility."""
+        billing_account_service = BillingAccountService(self.db)
+
+        if student_id is not None:
+            await billing_account_service.ensure_student_billing_account(student_id)
+            student = await self._get_student(student_id)
+            if student.billing_account_id is None:
+                raise ValidationError("Student has no billing account")
+            account = await self._get_billing_account(student.billing_account_id)
+            if billing_account_id is not None and account.id != billing_account_id:
+                raise ValidationError("Student does not belong to this billing account")
+            return account, student
+
+        if billing_account_id is None:
+            raise ValidationError("Either student_id or billing_account_id is required")
+
+        account = await self._get_billing_account(billing_account_id)
+        reference_student = next((student for student in account.students), None)
+        if reference_student is None:
+            raise ValidationError("Billing account has no linked students")
+        return account, reference_student
+
     # --- Payment Methods ---
 
     async def create_payment(
         self, data: PaymentCreate, received_by_id: int
     ) -> Payment:
         """Create a new payment (credit top-up)."""
-        # Validate student exists
-        await self._get_student(data.student_id)
-        await self._validate_preferred_invoice(data.student_id, data.preferred_invoice_id)
+        account, reference_student = await self._resolve_billing_context(
+            student_id=data.student_id,
+            billing_account_id=data.billing_account_id,
+        )
+        await self._validate_preferred_invoice(account.id, data.preferred_invoice_id)
 
         # Generate payment number
         number_gen = DocumentNumberGenerator(self.db)
@@ -124,7 +155,8 @@ class PaymentService:
 
         payment = Payment(
             payment_number=payment_number,
-            student_id=data.student_id,
+            student_id=reference_student.id,
+            billing_account_id=account.id,
             preferred_invoice_id=data.preferred_invoice_id,
             amount=round_money(data.amount),
             payment_method=data.payment_method.value,
@@ -145,7 +177,8 @@ class PaymentService:
             entity_identifier=payment_number,
             user_id=received_by_id,
             new_values={
-                "student_id": data.student_id,
+                "student_id": reference_student.id,
+                "billing_account_id": account.id,
                 "preferred_invoice_id": data.preferred_invoice_id,
                 "amount": str(data.amount),
                 "payment_method": data.payment_method.value,
@@ -162,6 +195,7 @@ class PaymentService:
             .where(Payment.id == payment_id)
             .options(
                 selectinload(Payment.student).selectinload(Student.grade),
+                selectinload(Payment.billing_account).selectinload(BillingAccount.students),
                 selectinload(Payment.preferred_invoice),
                 selectinload(Payment.received_by),
             )
@@ -179,27 +213,44 @@ class PaymentService:
             select(Payment)
             .options(
                 selectinload(Payment.student),
+                selectinload(Payment.billing_account).selectinload(BillingAccount.students),
                 selectinload(Payment.preferred_invoice),
                 selectinload(Payment.received_by),
             )
         )
 
         if filters.student_id is not None:
-            query = query.where(Payment.student_id == filters.student_id)
+            account, _ = await self._resolve_billing_context(
+                student_id=filters.student_id,
+                billing_account_id=filters.billing_account_id,
+            )
+            query = query.where(Payment.billing_account_id == account.id)
+        elif filters.billing_account_id is not None:
+            query = query.where(Payment.billing_account_id == filters.billing_account_id)
         if filters.status:
             query = query.where(Payment.status == filters.status.value)
         if filters.payment_method:
             query = query.where(Payment.payment_method == filters.payment_method.value)
         if filters.search and filters.search.strip():
             search_term = f"%{filters.search.strip()}%"
-            query = query.join(Student).where(
+            account_student_match = exists(
+                select(Student.id).where(
+                    Student.billing_account_id == Payment.billing_account_id,
+                    or_(
+                        Student.first_name.ilike(search_term),
+                        Student.last_name.ilike(search_term),
+                        Student.student_number.ilike(search_term),
+                    ),
+                )
+            )
+            query = query.join(Payment.billing_account).where(
                 or_(
                     Payment.payment_number.ilike(search_term),
                     Payment.receipt_number.ilike(search_term),
                     Payment.reference.ilike(search_term),
-                    Student.first_name.ilike(search_term),
-                    Student.last_name.ilike(search_term),
-                    Student.student_number.ilike(search_term),
+                    BillingAccount.account_number.ilike(search_term),
+                    BillingAccount.display_name.ilike(search_term),
+                    account_student_match,
                 )
             )
         if filters.date_from:
@@ -240,7 +291,7 @@ class PaymentService:
         if "preferred_invoice_id" in data.model_fields_set:
             old_values["preferred_invoice_id"] = payment.preferred_invoice_id
             await self._validate_preferred_invoice(
-                payment.student_id,
+                payment.billing_account_id,
                 data.preferred_invoice_id,
             )
             payment.preferred_invoice_id = data.preferred_invoice_id
@@ -287,7 +338,7 @@ class PaymentService:
             raise ValidationError("Can only complete pending payments")
 
         await self._validate_preferred_invoice(
-            payment.student_id,
+            payment.billing_account_id,
             payment.preferred_invoice_id,
         )
 
@@ -311,7 +362,7 @@ class PaymentService:
         )
 
         # Update cached credit balance (recalculate)
-        await self._update_student_balance_cache(payment.student_id)
+        await self._update_billing_account_balance_cache(payment.billing_account_id)
 
         await self.db.commit()
         targeted_amount = Decimal("0.00")
@@ -321,7 +372,7 @@ class PaymentService:
             if targeted_amount > 0:
                 await self.allocate_manual(
                     AllocationCreate(
-                        student_id=payment.student_id,
+                        billing_account_id=payment.billing_account_id,
                         invoice_id=preferred_invoice.id,
                         amount=targeted_amount,
                     ),
@@ -332,7 +383,7 @@ class PaymentService:
         if remaining_to_auto_allocate > 0:
             await self.allocate_auto(
                 AutoAllocateRequest(
-                    student_id=payment.student_id,
+                    billing_account_id=payment.billing_account_id,
                     max_amount=remaining_to_auto_allocate,
                 ),
                 completed_by_id,
@@ -367,17 +418,18 @@ class PaymentService:
 
     async def get_student_balance(self, student_id: int) -> StudentBalance:
         """Get student's credit balance from cache."""
-        # Get student with cached balance
         student = await self._get_student(student_id)
+        if student.billing_account_id is None:
+            billing_account_service = BillingAccountService(self.db)
+            await billing_account_service.ensure_student_billing_account(student.id)
+            student = await self._get_student(student_id)
+        account = await self._get_billing_account(student.billing_account_id)
 
-        # Use cached balance (faster than SUM queries)
-        available_balance = round_money(student.cached_credit_balance)
+        available_balance = round_money(account.cached_credit_balance)
 
-        # Calculate totals for response (needed for API compatibility, but not used in UI)
-        # These could be removed if not needed, but keeping for backward compatibility
         payments_result = await self.db.execute(
             select(func.coalesce(func.sum(Payment.amount), 0)).where(
-                Payment.student_id == student_id,
+                Payment.billing_account_id == account.id,
                 Payment.status == PaymentStatus.COMPLETED.value,
             )
         )
@@ -385,16 +437,20 @@ class PaymentService:
 
         allocations_result = await self.db.execute(
             select(func.coalesce(func.sum(CreditAllocation.amount), 0)).where(
-                CreditAllocation.student_id == student_id
+                CreditAllocation.billing_account_id == account.id
             )
         )
         total_allocated = Decimal(str(allocations_result.scalar() or 0))
 
         return StudentBalance(
             student_id=student_id,
+            billing_account_id=account.id,
+            billing_account_number=account.account_number,
+            billing_account_name=account.display_name,
+            billing_account_type=account.account_type,
             total_payments=round_money(total_payments),
             total_allocated=round_money(total_allocated),
-            available_balance=available_balance,  # ✅ From cache
+            available_balance=available_balance,
         )
 
     async def get_student_balances_batch(
@@ -404,35 +460,70 @@ class PaymentService:
         if not student_ids:
             return []
 
-        # Get students with cached balances (single query, much faster)
-        result = await self.db.execute(
-            select(Student.id, Student.cached_credit_balance)
+        students_result = await self.db.execute(
+            select(Student)
             .where(Student.id.in_(student_ids))
+            .options(selectinload(Student.billing_account))
         )
-        cached_balances = {row[0]: round_money(row[1]) for row in result.all()}
+        students = {student.id: student for student in students_result.scalars().unique().all()}
+        account_ids = sorted(
+            {
+                student.billing_account_id
+                for student in students.values()
+                if student.billing_account_id is not None
+            }
+        )
 
-        # Calculate totals for response (needed for API compatibility, but not used in UI)
         payments_result = await self.db.execute(
-            select(Payment.student_id, func.coalesce(func.sum(Payment.amount), 0)).where(
-                Payment.student_id.in_(student_ids),
+            select(Payment.billing_account_id, func.coalesce(func.sum(Payment.amount), 0))
+            .where(
+                Payment.billing_account_id.in_(account_ids),
                 Payment.status == PaymentStatus.COMPLETED.value,
-            ).group_by(Payment.student_id)
+            )
+            .group_by(Payment.billing_account_id)
         )
-        payments_by_student = {row[0]: Decimal(str(row[1])) for row in payments_result.all()}
+        payments_by_account = {row[0]: Decimal(str(row[1])) for row in payments_result.all()}
 
         allocations_result = await self.db.execute(
-            select(CreditAllocation.student_id, func.coalesce(func.sum(CreditAllocation.amount), 0)).where(
-                CreditAllocation.student_id.in_(student_ids)
-            ).group_by(CreditAllocation.student_id)
+            select(
+                CreditAllocation.billing_account_id,
+                func.coalesce(func.sum(CreditAllocation.amount), 0),
+            )
+            .where(CreditAllocation.billing_account_id.in_(account_ids))
+            .group_by(CreditAllocation.billing_account_id)
         )
-        allocations_by_student = {row[0]: Decimal(str(row[1])) for row in allocations_result.all()}
+        allocations_by_account = {row[0]: Decimal(str(row[1])) for row in allocations_result.all()}
 
         return [
             StudentBalance(
                 student_id=sid,
-                total_payments=round_money(payments_by_student.get(sid, Decimal("0"))),
-                total_allocated=round_money(allocations_by_student.get(sid, Decimal("0"))),
-                available_balance=cached_balances.get(sid, Decimal("0")),
+                billing_account_id=students[sid].billing_account_id if sid in students else None,
+                billing_account_number=students[sid].billing_account.account_number
+                if sid in students and students[sid].billing_account
+                else None,
+                billing_account_name=students[sid].billing_account.display_name
+                if sid in students and students[sid].billing_account
+                else None,
+                billing_account_type=students[sid].billing_account.account_type
+                if sid in students and students[sid].billing_account
+                else None,
+                total_payments=round_money(
+                    payments_by_account.get(
+                        students[sid].billing_account_id if sid in students else None,
+                        Decimal("0"),
+                    )
+                ),
+                total_allocated=round_money(
+                    allocations_by_account.get(
+                        students[sid].billing_account_id if sid in students else None,
+                        Decimal("0"),
+                    )
+                ),
+                available_balance=round_money(
+                    students[sid].billing_account.cached_credit_balance
+                    if sid in students and students[sid].billing_account
+                    else Decimal("0")
+                ),
             )
             for sid in student_ids
         ]
@@ -443,13 +534,15 @@ class PaymentService:
         self, data: AllocationCreate, allocated_by_id: int
     ) -> CreditAllocation:
         """Manually allocate credit to an invoice."""
-        # Validate student
-        await self._get_student(data.student_id)
+        account, _ = await self._resolve_billing_context(
+            student_id=data.student_id,
+            billing_account_id=data.billing_account_id,
+        )
 
         # Validate invoice
         invoice = await self._get_invoice(data.invoice_id)
-        if invoice.student_id != data.student_id:
-            raise ValidationError("Invoice does not belong to this student")
+        if invoice.billing_account_id != account.id:
+            raise ValidationError("Invoice does not belong to this billing account")
 
         if invoice.status in (InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value):
             raise ValidationError("Cannot allocate to cancelled/void invoice")
@@ -458,7 +551,7 @@ class PaymentService:
             raise ValidationError("Invoice is already fully paid")
 
         # Check available balance
-        balance = await self.get_student_balance(data.student_id)
+        balance = await self.get_student_balance(invoice.student_id)
         if data.amount > balance.available_balance:
             raise ValidationError(
                 f"Insufficient balance. Available: {balance.available_balance}, "
@@ -485,7 +578,8 @@ class PaymentService:
 
         # Create allocation
         allocation = CreditAllocation(
-            student_id=data.student_id,
+            student_id=invoice.student_id,
+            billing_account_id=account.id,
             invoice_id=data.invoice_id,
             invoice_line_id=data.invoice_line_id,
             amount=round_money(data.amount),
@@ -494,8 +588,7 @@ class PaymentService:
         self.db.add(allocation)
         await self.db.flush()
 
-        # Update cached credit balance (recalculate)
-        await self._update_student_balance_cache(data.student_id)
+        await self._update_billing_account_balance_cache(account.id)
 
         # Update invoice paid amounts
         await self._update_invoice_paid_amounts(invoice)
@@ -507,7 +600,8 @@ class PaymentService:
             entity_id=allocation.id,
             user_id=allocated_by_id,
             new_values={
-                "student_id": data.student_id,
+                "student_id": invoice.student_id,
+                "billing_account_id": account.id,
                 "invoice_id": data.invoice_id,
                 "amount": str(data.amount),
             },
@@ -517,7 +611,11 @@ class PaymentService:
         return allocation
 
     async def allocate_auto(
-        self, data: AutoAllocateRequest, allocated_by_id: int
+        self,
+        data: AutoAllocateRequest,
+        allocated_by_id: int,
+        *,
+        commit: bool = True,
     ) -> AutoAllocateResult:
         """
         Auto-allocate credit to invoices.
@@ -528,11 +626,13 @@ class PaymentService:
         2. partial_ok invoices — distribute remaining balance proportionally by
            each invoice's amount_due (amount_i = remaining * (amount_due_i / total_due)).
         """
-        # Validate student
-        await self._get_student(data.student_id)
+        account, reference_student = await self._resolve_billing_context(
+            student_id=data.student_id,
+            billing_account_id=data.billing_account_id,
+        )
 
         # Get available balance
-        balance = await self.get_student_balance(data.student_id)
+        balance = await self.get_student_balance(reference_student.id)
         available = balance.available_balance
 
         if available <= 0:
@@ -554,7 +654,7 @@ class PaymentService:
         result = await self.db.execute(
             select(Invoice)
             .where(
-                Invoice.student_id == data.student_id,
+                Invoice.billing_account_id == account.id,
                 Invoice.status.in_([
                     InvoiceStatus.ISSUED.value,
                     InvoiceStatus.PARTIALLY_PAID.value,
@@ -585,7 +685,8 @@ class PaymentService:
         # Helper to create allocation
         async def create_allocation(invoice: Invoice, amount: Decimal) -> AllocationResponse:
             allocation = CreditAllocation(
-                student_id=data.student_id,
+                student_id=invoice.student_id,
+                billing_account_id=account.id,
                 invoice_id=invoice.id,
                 invoice_line_id=None,
                 amount=round_money(amount),
@@ -594,15 +695,13 @@ class PaymentService:
             self.db.add(allocation)
             await self.db.flush()
 
-            # Update cached credit balance (recalculate)
-            await self._update_student_balance_cache(data.student_id)
-
             await self._update_invoice_paid_amounts(invoice)
             await self._sync_reservations_for_invoice(invoice.id, allocated_by_id)
 
             return AllocationResponse(
                 id=allocation.id,
                 student_id=allocation.student_id,
+                billing_account_id=allocation.billing_account_id,
                 invoice_id=allocation.invoice_id,
                 invoice_line_id=allocation.invoice_line_id,
                 amount=allocation.amount,
@@ -657,11 +756,12 @@ class PaymentService:
                     remaining -= amount
 
         total_allocated = max_to_allocate - remaining
+        await self._update_billing_account_balance_cache(account.id)
 
         await self.audit.log(
             action="allocation.auto",
-            entity_type="Student",
-            entity_id=data.student_id,
+            entity_type="BillingAccount",
+            entity_id=account.id,
             user_id=allocated_by_id,
             new_values={
                 "total_allocated": str(total_allocated),
@@ -670,10 +770,13 @@ class PaymentService:
             },
         )
 
-        await self.db.commit()
+        if commit:
+            await self.db.commit()
+        else:
+            await self.db.flush()
 
         # Get updated balance
-        updated_balance = await self.get_student_balance(data.student_id)
+        updated_balance = await self.get_student_balance(reference_student.id)
 
         return AutoAllocateResult(
             total_allocated=round_money(total_allocated),
@@ -710,13 +813,10 @@ class PaymentService:
             comment=reason,
         )
 
-        student_id = allocation.student_id
-
         await self.db.delete(allocation)
         await self.db.flush()
 
-        # Update cached credit balance (recalculate)
-        await self._update_student_balance_cache(student_id)
+        await self._update_billing_account_balance_cache(allocation.billing_account_id)
 
         # Update invoice paid amounts
         await self._update_invoice_paid_amounts(invoice)
@@ -734,11 +834,35 @@ class PaymentService:
     ) -> StatementResponse:
         """Generate account statement for a student."""
         student = await self._get_student(student_id)
+        if student.billing_account_id is None:
+            billing_account_service = BillingAccountService(self.db)
+            await billing_account_service.ensure_student_billing_account(student.id)
+            student = await self._get_student(student_id)
+        return await self.get_billing_account_statement(
+            student.billing_account_id,
+            date_from,
+            date_to,
+            reference_student=student,
+        )
+
+    async def get_billing_account_statement(
+        self,
+        billing_account_id: int,
+        date_from: date,
+        date_to: date,
+        reference_student: Student | None = None,
+    ) -> StatementResponse:
+        """Generate account statement for a billing account."""
+        account = await self._get_billing_account(billing_account_id)
+        if reference_student is None:
+            reference_student = next((student for student in account.students), None)
+        if reference_student is None:
+            raise ValidationError("Billing account has no linked students")
 
         # Get opening balance (sum of all transactions before date_from)
         opening_payments = await self.db.execute(
             select(func.coalesce(func.sum(Payment.amount), 0)).where(
-                Payment.student_id == student_id,
+                Payment.billing_account_id == billing_account_id,
                 Payment.status == PaymentStatus.COMPLETED.value,
                 Payment.payment_date < date_from,
             )
@@ -747,7 +871,7 @@ class PaymentService:
 
         opening_allocations = await self.db.execute(
             select(func.coalesce(func.sum(CreditAllocation.amount), 0)).where(
-                CreditAllocation.student_id == student_id,
+                CreditAllocation.billing_account_id == billing_account_id,
                 func.date(CreditAllocation.created_at) < date_from,
             )
         )
@@ -759,7 +883,7 @@ class PaymentService:
         payments_result = await self.db.execute(
             select(Payment)
             .where(
-                Payment.student_id == student_id,
+                Payment.billing_account_id == billing_account_id,
                 Payment.status == PaymentStatus.COMPLETED.value,
                 Payment.payment_date >= date_from,
                 Payment.payment_date <= date_to,
@@ -772,11 +896,13 @@ class PaymentService:
         allocations_result = await self.db.execute(
             select(CreditAllocation)
             .where(
-                CreditAllocation.student_id == student_id,
+                CreditAllocation.billing_account_id == billing_account_id,
                 func.date(CreditAllocation.created_at) >= date_from,
                 func.date(CreditAllocation.created_at) <= date_to,
             )
-            .options(selectinload(CreditAllocation.invoice))
+            .options(
+                selectinload(CreditAllocation.invoice).selectinload(Invoice.student)
+            )
             .order_by(CreditAllocation.created_at)
         )
         allocations = list(allocations_result.scalars().all())
@@ -815,7 +941,7 @@ class PaymentService:
                 entries.append(
                     StatementEntry(
                         date=dt,
-                        description=f"Payment - {payment.payment_method.upper()}",
+                        description=f"Payment - {payment.payment_method.upper()} ({account.display_name})",
                         reference=payment.receipt_number or payment.payment_number,
                         credit=payment.amount,
                         debit=None,
@@ -830,7 +956,7 @@ class PaymentService:
                 entries.append(
                     StatementEntry(
                         date=dt,
-                        description=f"Payment to {invoice.invoice_number}",
+                        description=f"Payment to {invoice.invoice_number} ({invoice.student.full_name})",
                         reference=invoice.invoice_number,
                         credit=None,
                         debit=allocation.amount,
@@ -839,8 +965,11 @@ class PaymentService:
                 )
 
         return StatementResponse(
-            student_id=student_id,
-            student_name=student.full_name,
+            student_id=reference_student.id,
+            student_name=reference_student.full_name,
+            billing_account_id=account.id,
+            billing_account_number=account.account_number,
+            billing_account_name=account.display_name,
             period_from=date_from,
             period_to=date_to,
             opening_balance=opening_balance,
@@ -855,19 +984,36 @@ class PaymentService:
     async def _get_student(self, student_id: int) -> Student:
         """Get student by ID."""
         result = await self.db.execute(
-            select(Student).where(Student.id == student_id)
+            select(Student)
+            .where(Student.id == student_id)
+            .options(selectinload(Student.billing_account))
         )
         student = result.scalar_one_or_none()
         if not student:
             raise NotFoundError(f"Student with id {student_id} not found")
         return student
 
+    async def _get_billing_account(self, billing_account_id: int) -> BillingAccount:
+        result = await self.db.execute(
+            select(BillingAccount)
+            .where(BillingAccount.id == billing_account_id)
+            .options(selectinload(BillingAccount.students))
+        )
+        account = result.scalar_one_or_none()
+        if not account:
+            raise NotFoundError(f"Billing account with id {billing_account_id} not found")
+        return account
+
     async def _get_invoice(self, invoice_id: int) -> Invoice:
         """Get invoice by ID with lines loaded."""
         result = await self.db.execute(
             select(Invoice)
             .where(Invoice.id == invoice_id)
-            .options(selectinload(Invoice.lines))
+            .options(
+                selectinload(Invoice.lines),
+                selectinload(Invoice.student),
+                selectinload(Invoice.billing_account),
+            )
         )
         invoice = result.scalar_one_or_none()
         if not invoice:
@@ -876,15 +1022,15 @@ class PaymentService:
 
     async def _validate_preferred_invoice(
         self,
-        student_id: int,
+        billing_account_id: int,
         preferred_invoice_id: int | None,
     ) -> None:
         if preferred_invoice_id is None:
             return
 
         invoice = await self._get_invoice(preferred_invoice_id)
-        if invoice.student_id != student_id:
-            raise ValidationError("Preferred invoice does not belong to this student")
+        if invoice.billing_account_id != billing_account_id:
+            raise ValidationError("Preferred invoice does not belong to this billing account")
         if invoice.status in (InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value):
             raise ValidationError("Preferred invoice cannot be cancelled or void")
         if invoice.amount_due <= Decimal("0.00"):
@@ -1043,7 +1189,7 @@ class PaymentService:
             )
 
         if released_total > 0:
-            await self._update_student_balance_cache(invoice.student_id)
+            await self._update_billing_account_balance_cache(invoice.billing_account_id)
             await self._update_invoice_paid_amounts(invoice)
 
         return round_money(released_total)
@@ -1138,29 +1284,31 @@ class PaymentService:
         reservation_service = ReservationService(self.db)
         await reservation_service.sync_for_invoice(invoice_id=invoice_id, user_id=user_id)
 
-    async def _update_student_balance_cache(self, student_id: int) -> None:
-        """Recalculate and update cached credit balance for a student."""
-        # Calculate total completed payments
+    async def _update_billing_account_balance_cache(self, billing_account_id: int) -> None:
+        """Recalculate and mirror cached credit balance for a billing account."""
         payments_result = await self.db.execute(
             select(func.coalesce(func.sum(Payment.amount), 0)).where(
-                Payment.student_id == student_id,
+                Payment.billing_account_id == billing_account_id,
                 Payment.status == PaymentStatus.COMPLETED.value,
             )
         )
         total_payments = Decimal(str(payments_result.scalar() or 0))
 
-        # Calculate total allocations
         allocations_result = await self.db.execute(
             select(func.coalesce(func.sum(CreditAllocation.amount), 0)).where(
-                CreditAllocation.student_id == student_id
+                CreditAllocation.billing_account_id == billing_account_id
             )
         )
         total_allocated = Decimal(str(allocations_result.scalar() or 0))
 
-        # Update cached balance
         new_balance = round_money(total_payments - total_allocated)
         await self.db.execute(
+            update(BillingAccount)
+            .where(BillingAccount.id == billing_account_id)
+            .values(cached_credit_balance=new_balance)
+        )
+        await self.db.execute(
             update(Student)
-            .where(Student.id == student_id)
+            .where(Student.billing_account_id == billing_account_id)
             .values(cached_credit_balance=new_balance)
         )

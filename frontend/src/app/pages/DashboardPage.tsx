@@ -32,7 +32,7 @@ const quickActions: Array<{
   { label: 'Receive Student Payment', path: '/payments/new', icon: <CreditCard className="w-5 h-5" /> },
   { label: 'Issue Item From Stock', path: '/inventory/issue', icon: <Shirt className="w-5 h-5" /> },
   { label: 'Issue Reserved Item', path: '/inventory/reservations', icon: <CheckCircle className="w-5 h-5" /> },
-  { label: 'Admit New Student', path: '/students/new', icon: <UserPlus className="w-5 h-5" /> },
+  { label: 'New Admission', path: '/students/new', icon: <UserPlus className="w-5 h-5" /> },
   { label: 'Sell Items To Student', path: '/billing/invoices/new', icon: <ShoppingCart className="w-5 h-5" /> },
   { label: 'Track Order Items', path: '/procurement/orders/new', icon: <Truck className="w-5 h-5" /> },
   { label: 'Receive Order Items', path: '/procurement/orders', icon: <Package className="w-5 h-5" /> },

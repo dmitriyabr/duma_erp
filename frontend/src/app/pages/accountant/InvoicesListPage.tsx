@@ -16,6 +16,8 @@ interface InvoiceRow {
   invoice_number: string
   student_id: number
   student_name: string | null
+  billing_account_name?: string | null
+  billing_account_number?: string | null
   invoice_type: string
   status: string
   total: number
@@ -96,6 +98,7 @@ export const InvoicesListPage = () => {
             <TableRow>
               <TableHeaderCell>Invoice #</TableHeaderCell>
               <TableHeaderCell>Student</TableHeaderCell>
+              <TableHeaderCell>Billing account</TableHeaderCell>
               <TableHeaderCell>Type</TableHeaderCell>
               <TableHeaderCell>Status</TableHeaderCell>
               <TableHeaderCell align="right">Total</TableHeaderCell>
@@ -111,6 +114,12 @@ export const InvoicesListPage = () => {
               <TableRow key={invoice.id}>
                 <TableCell>{invoice.invoice_number}</TableCell>
                 <TableCell>{invoice.student_name ?? '—'}</TableCell>
+                <TableCell>
+                  <div className="flex flex-col">
+                    <span>{invoice.billing_account_name ?? '—'}</span>
+                    <span className="text-xs text-slate-500">{invoice.billing_account_number ?? '—'}</span>
+                  </div>
+                </TableCell>
                 <TableCell>{invoice.invoice_type}</TableCell>
                 <TableCell>{invoice.status}</TableCell>
                 <TableCell align="right">{formatMoney(invoice.total)}</TableCell>
@@ -127,14 +136,14 @@ export const InvoicesListPage = () => {
             ))}
             {loading && (
               <TableRow>
-                <td colSpan={10} className="px-4 py-8 text-center">
+                <td colSpan={11} className="px-4 py-8 text-center">
                   <Spinner size="medium" />
                 </td>
               </TableRow>
             )}
             {!invoices.length && !loading && (
               <TableRow>
-                <td colSpan={10} className="px-4 py-8 text-center">
+                <td colSpan={11} className="px-4 py-8 text-center">
                   <Typography color="secondary">No invoices found</Typography>
                 </td>
               </TableRow>

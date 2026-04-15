@@ -153,6 +153,196 @@ class TestAgedReceivables:
         assert d["as_at_date"] == "2026-01-31"
         assert d["rows"] == []
 
+    async def test_aged_receivables_uses_allocation_history_for_as_at_debt(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Invoice paid after as_at_date should still appear as debt on the snapshot date."""
+        from datetime import datetime, timezone
+
+        from src.modules.payments.models import CreditAllocation, Payment
+
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_ar_allocation_snapshot_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        grade = Grade(code="ARS", name="Aged Snapshot", display_order=1, is_active=True)
+        db_session.add(grade)
+        await db_session.flush()
+
+        student = Student(
+            student_number="STU-2026-ARS001",
+            first_name="Allocation",
+            last_name="Snapshot",
+            gender=Gender.FEMALE.value,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Parent",
+            guardian_phone="+254700000011",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add(student)
+        await db_session.flush()
+
+        invoice = Invoice(
+            invoice_number="INV-2026-ARS001",
+            student_id=student.id,
+            billing_account_id=student.billing_account_id,
+            term_id=None,
+            invoice_type="school_fee",
+            status=InvoiceStatus.PAID.value,
+            issue_date=date(2026, 1, 10),
+            due_date=date(2026, 1, 31),
+            subtotal=Decimal("200.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("200.00"),
+            paid_total=Decimal("200.00"),
+            amount_due=Decimal("0.00"),
+            created_by_id=user.id,
+        )
+        payment = Payment(
+            payment_number="PAY-2026-ARS001",
+            receipt_number="RCP-2026-ARS001",
+            student_id=student.id,
+            billing_account_id=student.billing_account_id,
+            amount=Decimal("200.00"),
+            payment_method="mpesa",
+            payment_date=date(2026, 2, 5),
+            status="completed",
+            received_by_id=user.id,
+        )
+        db_session.add_all([invoice, payment])
+        await db_session.flush()
+
+        allocation = CreditAllocation(
+            student_id=student.id,
+            billing_account_id=student.billing_account_id,
+            invoice_id=invoice.id,
+            invoice_line_id=None,
+            amount=Decimal("200.00"),
+            allocated_by_id=user.id,
+            created_at=datetime(2026, 2, 5, 12, 0, tzinfo=timezone.utc),
+        )
+        db_session.add(allocation)
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate(
+            "reports_ar_allocation_snapshot_admin@test.com", "Pass123"
+        )
+        response = await client.get(
+            "/api/v1/reports/aged-receivables?as_at_date=2026-01-31",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        rows = response.json()["data"]["rows"]
+        row = next(item for item in rows if item["student_id"] == student.id)
+        assert Decimal(row["total"]) == Decimal("200.00")
+        assert row["last_payment_date"] is None
+
+    async def test_aged_receivables_last_payment_uses_billing_account(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """A family account payment should appear as last payment for every debtor child."""
+        from src.modules.billing_accounts.models import BillingAccount, BillingAccountType
+        from src.modules.payments.models import Payment
+
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_ar_family_payment_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        grade = Grade(code="ARF", name="Aged Family", display_order=1, is_active=True)
+        account = BillingAccount(
+            account_number="FAM-2026-AR0001",
+            display_name="Aged Family Account",
+            account_type=BillingAccountType.FAMILY.value,
+            primary_guardian_name="Family Payer",
+            primary_guardian_phone="+254700000010",
+            created_by_id=user.id,
+        )
+        db_session.add_all([grade, account])
+        await db_session.flush()
+
+        payer_child = Student(
+            student_number="STU-2026-ARF001",
+            first_name="Payer",
+            last_name="Child",
+            gender=Gender.MALE.value,
+            billing_account_id=account.id,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Family Payer",
+            guardian_phone="+254700000010",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        debtor_child = Student(
+            student_number="STU-2026-ARF002",
+            first_name="Debtor",
+            last_name="Child",
+            gender=Gender.FEMALE.value,
+            billing_account_id=account.id,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Family Payer",
+            guardian_phone="+254700000010",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add_all([payer_child, debtor_child])
+        await db_session.flush()
+
+        invoice = Invoice(
+            invoice_number="INV-2026-ARF001",
+            student_id=debtor_child.id,
+            billing_account_id=account.id,
+            term_id=None,
+            invoice_type="school_fee",
+            status=InvoiceStatus.ISSUED.value,
+            issue_date=date(2026, 1, 1),
+            due_date=date(2026, 1, 15),
+            subtotal=Decimal("100.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("100.00"),
+            paid_total=Decimal("0.00"),
+            amount_due=Decimal("100.00"),
+            created_by_id=user.id,
+        )
+        payment = Payment(
+            payment_number="PAY-2026-ARF001",
+            receipt_number="RCP-2026-ARF001",
+            student_id=payer_child.id,
+            billing_account_id=account.id,
+            amount=Decimal("50.00"),
+            payment_method="mpesa",
+            payment_date=date(2026, 1, 20),
+            status="completed",
+            received_by_id=user.id,
+        )
+        db_session.add_all([invoice, payment])
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate(
+            "reports_ar_family_payment_admin@test.com", "Pass123"
+        )
+        response = await client.get(
+            "/api/v1/reports/aged-receivables?as_at_date=2026-01-31",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        rows = response.json()["data"]["rows"]
+        debtor_row = next(row for row in rows if row["student_id"] == debtor_child.id)
+        assert debtor_row["last_payment_date"] == "2026-01-20"
+
     async def test_aged_receivables_format_xlsx_returns_excel(
         self, client: AsyncClient, db_session: AsyncSession
     ):
@@ -683,6 +873,117 @@ class TestCashFlow:
         assert lines["Unallocated / Credit"] == Decimal("20.00")
         assert Decimal(d["total_inflows"]) == Decimal("100.00")
 
+    async def test_cash_flow_matches_family_payment_to_sibling_allocations(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Cash-flow allocation split must use billing account, not reference student."""
+        from datetime import datetime, timezone
+
+        from src.modules.billing_accounts.models import BillingAccount, BillingAccountType
+        from src.modules.payments.models import CreditAllocation, Payment
+
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_cf_family_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        grade = Grade(code="CFF", name="Cash Family", display_order=1, is_active=True)
+        account = BillingAccount(
+            account_number="FAM-2026-CF0001",
+            display_name="Cash Flow Family",
+            account_type=BillingAccountType.FAMILY.value,
+            primary_guardian_name="Family Payer",
+            primary_guardian_phone="+254700000020",
+            created_by_id=user.id,
+        )
+        db_session.add_all([grade, account])
+        await db_session.flush()
+
+        payer_child = Student(
+            student_number="STU-2026-CFF001",
+            first_name="Cash",
+            last_name="Reference",
+            gender=Gender.MALE.value,
+            billing_account_id=account.id,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Family Payer",
+            guardian_phone="+254700000020",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        debtor_child = Student(
+            student_number="STU-2026-CFF002",
+            first_name="Cash",
+            last_name="Debtor",
+            gender=Gender.FEMALE.value,
+            billing_account_id=account.id,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Family Payer",
+            guardian_phone="+254700000020",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add_all([payer_child, debtor_child])
+        await db_session.flush()
+
+        invoice = Invoice(
+            invoice_number="INV-2026-CFF001",
+            student_id=debtor_child.id,
+            billing_account_id=account.id,
+            term_id=None,
+            invoice_type="school_fee",
+            status=InvoiceStatus.ISSUED.value,
+            issue_date=date(2026, 1, 10),
+            due_date=date(2026, 1, 31),
+            subtotal=Decimal("80.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("80.00"),
+            paid_total=Decimal("80.00"),
+            amount_due=Decimal("0.00"),
+            created_by_id=user.id,
+        )
+        payment = Payment(
+            payment_number="PAY-2026-CFF001",
+            receipt_number="RCP-2026-CFF001",
+            student_id=payer_child.id,
+            billing_account_id=account.id,
+            amount=Decimal("100.00"),
+            payment_method="mpesa",
+            payment_date=date(2026, 1, 10),
+            status="completed",
+            received_by_id=user.id,
+        )
+        db_session.add_all([invoice, payment])
+        await db_session.flush()
+
+        allocation = CreditAllocation(
+            student_id=debtor_child.id,
+            billing_account_id=account.id,
+            invoice_id=invoice.id,
+            invoice_line_id=None,
+            amount=Decimal("80.00"),
+            allocated_by_id=user.id,
+            created_at=datetime(2026, 1, 10, 12, 0, tzinfo=timezone.utc),
+        )
+        db_session.add(allocation)
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate("reports_cf_family_admin@test.com", "Pass123")
+        response = await client.get(
+            "/api/v1/reports/cash-flow?date_from=2026-01-01&date_to=2026-01-31",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        lines = {r["label"]: Decimal(r["amount"]) for r in response.json()["data"]["inflow_lines"]}
+        assert lines["School Fee"] == Decimal("80.00")
+        assert lines["Unallocated / Credit"] == Decimal("20.00")
+
 
 class TestBalanceSheet:
     """Tests for GET /reports/balance-sheet."""
@@ -723,6 +1024,170 @@ class TestBalanceSheet:
         assert d["months"] == ["2026-01", "2026-02", "2026-03"]
         assert "debt_to_asset_percent_monthly" in d
         assert "current_ratio_monthly" in d
+
+    async def test_balance_sheet_credit_balances_do_not_net_negative_accounts(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Credit balance liability should sum positive account credits only."""
+        from datetime import datetime, timezone
+
+        from src.modules.billing_accounts.models import BillingAccount, BillingAccountType
+        from src.modules.payments.models import CreditAllocation, Payment
+
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_bs_credit_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        grade = Grade(code="BSC", name="Balance Sheet Credit", display_order=1, is_active=True)
+        credit_account = BillingAccount(
+            account_number="FAM-2026-BSC001",
+            display_name="Credit Account",
+            account_type=BillingAccountType.INDIVIDUAL.value,
+            primary_guardian_name="Credit Parent",
+            primary_guardian_phone="+254700000060",
+            created_by_id=user.id,
+        )
+        negative_account = BillingAccount(
+            account_number="FAM-2026-BSC002",
+            display_name="Negative Account",
+            account_type=BillingAccountType.INDIVIDUAL.value,
+            primary_guardian_name="Negative Parent",
+            primary_guardian_phone="+254700000061",
+            created_by_id=user.id,
+        )
+        db_session.add_all([grade, credit_account, negative_account])
+        await db_session.flush()
+
+        credit_student = Student(
+            student_number="STU-2026-BSC001",
+            first_name="Credit",
+            last_name="Student",
+            gender=Gender.MALE.value,
+            billing_account_id=credit_account.id,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Credit Parent",
+            guardian_phone="+254700000060",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        negative_student = Student(
+            student_number="STU-2026-BSC002",
+            first_name="Negative",
+            last_name="Student",
+            gender=Gender.FEMALE.value,
+            billing_account_id=negative_account.id,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Negative Parent",
+            guardian_phone="+254700000061",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add_all([credit_student, negative_student])
+        await db_session.flush()
+
+        credit_invoice = Invoice(
+            invoice_number="INV-2026-BSC001",
+            student_id=credit_student.id,
+            billing_account_id=credit_account.id,
+            term_id=None,
+            invoice_type="school_fee",
+            status=InvoiceStatus.PARTIALLY_PAID.value,
+            issue_date=date(2026, 1, 1),
+            due_date=date(2026, 1, 31),
+            subtotal=Decimal("80.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("80.00"),
+            paid_total=Decimal("80.00"),
+            amount_due=Decimal("0.00"),
+            created_by_id=user.id,
+        )
+        negative_invoice = Invoice(
+            invoice_number="INV-2026-BSC002",
+            student_id=negative_student.id,
+            billing_account_id=negative_account.id,
+            term_id=None,
+            invoice_type="school_fee",
+            status=InvoiceStatus.PARTIALLY_PAID.value,
+            issue_date=date(2026, 1, 1),
+            due_date=date(2026, 1, 31),
+            subtotal=Decimal("70.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("70.00"),
+            paid_total=Decimal("70.00"),
+            amount_due=Decimal("0.00"),
+            created_by_id=user.id,
+        )
+        credit_payment = Payment(
+            payment_number="PAY-2026-BSC001",
+            receipt_number="RCP-2026-BSC001",
+            student_id=credit_student.id,
+            billing_account_id=credit_account.id,
+            amount=Decimal("100.00"),
+            payment_method="mpesa",
+            payment_date=date(2026, 1, 5),
+            status="completed",
+            received_by_id=user.id,
+        )
+        negative_payment = Payment(
+            payment_number="PAY-2026-BSC002",
+            receipt_number="RCP-2026-BSC002",
+            student_id=negative_student.id,
+            billing_account_id=negative_account.id,
+            amount=Decimal("50.00"),
+            payment_method="mpesa",
+            payment_date=date(2026, 1, 5),
+            status="completed",
+            received_by_id=user.id,
+        )
+        db_session.add_all([
+            credit_invoice,
+            negative_invoice,
+            credit_payment,
+            negative_payment,
+        ])
+        await db_session.flush()
+
+        allocation_date = datetime(2026, 1, 5, 12, 0, tzinfo=timezone.utc)
+        db_session.add_all([
+            CreditAllocation(
+                student_id=credit_student.id,
+                billing_account_id=credit_account.id,
+                invoice_id=credit_invoice.id,
+                invoice_line_id=None,
+                amount=Decimal("80.00"),
+                allocated_by_id=user.id,
+                created_at=allocation_date,
+            ),
+            CreditAllocation(
+                student_id=negative_student.id,
+                billing_account_id=negative_account.id,
+                invoice_id=negative_invoice.id,
+                invoice_line_id=None,
+                amount=Decimal("70.00"),
+                allocated_by_id=user.id,
+                created_at=allocation_date,
+            ),
+        ])
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate("reports_bs_credit_admin@test.com", "Pass123")
+        response = await client.get(
+            "/api/v1/reports/balance-sheet?as_at_date=2026-01-31",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        liabilities = {
+            row["label"]: Decimal(row["amount"])
+            for row in response.json()["data"]["liability_lines"]
+        }
+        assert liabilities["Billing Account Credit Balances"] == Decimal("20.00")
 
     async def test_balance_sheet_user_forbidden(
         self, client: AsyncClient, db_session: AsyncSession
@@ -1152,6 +1617,89 @@ class TestRevenueTrend:
         assert len(d["rows"]) == 3
         assert "growth_percent" in d
         assert "years_included" in d
+
+    async def test_revenue_trend_counts_students_in_paid_billing_accounts(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """A family payment should count all current students in that paid account."""
+        from src.modules.billing_accounts.models import BillingAccount, BillingAccountType
+        from src.modules.payments.models import Payment
+
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_revenue_family_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        grade = Grade(code="RVF", name="Revenue Family", display_order=1, is_active=True)
+        account = BillingAccount(
+            account_number="FAM-2026-RVF001",
+            display_name="Revenue Family",
+            account_type=BillingAccountType.FAMILY.value,
+            primary_guardian_name="Family Payer",
+            primary_guardian_phone="+254700000030",
+            created_by_id=user.id,
+        )
+        db_session.add_all([grade, account])
+        await db_session.flush()
+
+        first_child = Student(
+            student_number="STU-2026-RVF001",
+            first_name="Revenue",
+            last_name="One",
+            gender=Gender.MALE.value,
+            billing_account_id=account.id,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Family Payer",
+            guardian_phone="+254700000030",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        second_child = Student(
+            student_number="STU-2026-RVF002",
+            first_name="Revenue",
+            last_name="Two",
+            gender=Gender.FEMALE.value,
+            billing_account_id=account.id,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Family Payer",
+            guardian_phone="+254700000030",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add_all([first_child, second_child])
+        await db_session.flush()
+
+        payment = Payment(
+            payment_number="PAY-2026-RVF001",
+            receipt_number="RCP-2026-RVF001",
+            student_id=first_child.id,
+            billing_account_id=account.id,
+            amount=Decimal("200.00"),
+            payment_method="mpesa",
+            payment_date=date(2026, 1, 10),
+            status="completed",
+            received_by_id=user.id,
+        )
+        db_session.add(payment)
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate(
+            "reports_revenue_family_admin@test.com", "Pass123"
+        )
+        response = await client.get(
+            "/api/v1/reports/revenue-trend?years=1",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        row = response.json()["data"]["rows"][0]
+        assert row["students_count"] == 2
+        assert Decimal(row["avg_revenue_per_student"]) == Decimal("100.00")
 
     async def test_revenue_trend_user_forbidden(
         self, client: AsyncClient, db_session: AsyncSession
