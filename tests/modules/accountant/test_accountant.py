@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.audit.service import create_audit_log
 from src.core.auth.models import UserRole
 from src.core.auth.service import AuthService
-from src.modules.billing_accounts.models import BillingAccount, BillingAccountType
+from src.modules.billing_accounts.models import BillingAccount
 from src.modules.invoices.models import Invoice, InvoiceStatus
 from src.modules.payments.models import CreditAllocation, Payment
 from src.modules.students.models import Gender, Grade, Student, StudentStatus
@@ -140,7 +140,6 @@ class TestAccountantExportStudentPayments:
         account = BillingAccount(
             account_number="FAM-2026-AFP001",
             display_name="Accountant Family Account",
-            account_type=BillingAccountType.FAMILY.value,
             primary_guardian_name="Family Contact",
             primary_guardian_phone="+254700000040",
             created_by_id=user.id,
@@ -225,7 +224,6 @@ class TestAccountantExportStudentPayments:
         account = BillingAccount(
             account_number="FAM-2026-AFB001",
             display_name="Balance Family Account",
-            account_type=BillingAccountType.FAMILY.value,
             primary_guardian_name="Family Contact",
             primary_guardian_phone="+254700000050",
             created_by_id=user.id,

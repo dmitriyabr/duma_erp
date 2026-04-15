@@ -248,7 +248,7 @@ class TestAgedReceivables:
         self, client: AsyncClient, db_session: AsyncSession
     ):
         """A family account payment should appear as last payment for every debtor child."""
-        from src.modules.billing_accounts.models import BillingAccount, BillingAccountType
+        from src.modules.billing_accounts.models import BillingAccount
         from src.modules.payments.models import Payment
 
         auth = AuthService(db_session)
@@ -264,7 +264,6 @@ class TestAgedReceivables:
         account = BillingAccount(
             account_number="FAM-2026-AR0001",
             display_name="Aged Family Account",
-            account_type=BillingAccountType.FAMILY.value,
             primary_guardian_name="Family Payer",
             primary_guardian_phone="+254700000010",
             created_by_id=user.id,
@@ -879,7 +878,7 @@ class TestCashFlow:
         """Cash-flow allocation split must use billing account, not reference student."""
         from datetime import datetime, timezone
 
-        from src.modules.billing_accounts.models import BillingAccount, BillingAccountType
+        from src.modules.billing_accounts.models import BillingAccount
         from src.modules.payments.models import CreditAllocation, Payment
 
         auth = AuthService(db_session)
@@ -895,7 +894,6 @@ class TestCashFlow:
         account = BillingAccount(
             account_number="FAM-2026-CF0001",
             display_name="Cash Flow Family",
-            account_type=BillingAccountType.FAMILY.value,
             primary_guardian_name="Family Payer",
             primary_guardian_phone="+254700000020",
             created_by_id=user.id,
@@ -1031,7 +1029,7 @@ class TestBalanceSheet:
         """Credit balance liability should sum positive account credits only."""
         from datetime import datetime, timezone
 
-        from src.modules.billing_accounts.models import BillingAccount, BillingAccountType
+        from src.modules.billing_accounts.models import BillingAccount
         from src.modules.payments.models import CreditAllocation, Payment
 
         auth = AuthService(db_session)
@@ -1047,7 +1045,6 @@ class TestBalanceSheet:
         credit_account = BillingAccount(
             account_number="FAM-2026-BSC001",
             display_name="Credit Account",
-            account_type=BillingAccountType.INDIVIDUAL.value,
             primary_guardian_name="Credit Parent",
             primary_guardian_phone="+254700000060",
             created_by_id=user.id,
@@ -1055,7 +1052,6 @@ class TestBalanceSheet:
         negative_account = BillingAccount(
             account_number="FAM-2026-BSC002",
             display_name="Negative Account",
-            account_type=BillingAccountType.INDIVIDUAL.value,
             primary_guardian_name="Negative Parent",
             primary_guardian_phone="+254700000061",
             created_by_id=user.id,
@@ -1622,7 +1618,7 @@ class TestRevenueTrend:
         self, client: AsyncClient, db_session: AsyncSession
     ):
         """A family payment should count all current students in that paid account."""
-        from src.modules.billing_accounts.models import BillingAccount, BillingAccountType
+        from src.modules.billing_accounts.models import BillingAccount
         from src.modules.payments.models import Payment
 
         auth = AuthService(db_session)
@@ -1638,7 +1634,6 @@ class TestRevenueTrend:
         account = BillingAccount(
             account_number="FAM-2026-RVF001",
             display_name="Revenue Family",
-            account_type=BillingAccountType.FAMILY.value,
             primary_guardian_name="Family Payer",
             primary_guardian_phone="+254700000030",
             created_by_id=user.id,

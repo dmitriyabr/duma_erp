@@ -38,7 +38,6 @@ interface StudentRow {
   enrollment_date?: string | null
   notes?: string | null
   billing_account_name?: string | null
-  billing_account_type?: string | null
   // Balance fields (optional, included when include_balance=true)
   available_balance?: number | null
   outstanding_debt?: number | null
@@ -198,14 +197,7 @@ export const StudentsPage = () => {
                   />
                 </TableCell>
                 <TableCell>
-                  <div>
-                    <Typography variant="body2">{formatMoney(row.balance ?? 0)}</Typography>
-                    {row.billing_account_type === 'family' && (
-                      <Typography variant="caption" color="secondary">
-                        Family credit {formatMoney(row.available_balance ?? 0)}
-                      </Typography>
-                    )}
-                  </div>
+                  <Typography variant="body2">{formatMoney(row.balance ?? 0)}</Typography>
                 </TableCell>
               </TableRow>
             ))}

@@ -21,7 +21,6 @@ interface StudentOption {
   billing_account_id?: number | null
   billing_account_number?: string | null
   billing_account_name?: string | null
-  billing_account_type?: string | null
 }
 
 interface PaymentResponse {
@@ -42,7 +41,6 @@ interface BillingAccountDetail {
   id: number
   account_number: string
   display_name: string
-  account_type: string
   members: Array<{ student_id: number; student_name: string }>
 }
 
@@ -221,14 +219,12 @@ export const ReceivePaymentPage = () => {
         Back
       </Button>
       <Typography variant="h4" className="mb-2">
-        {state?.billingAccountId ? 'Receive family payment' : 'Receive student payment'}
+        {state?.billingAccountId ? 'Receive billing account payment' : 'Receive student payment'}
       </Typography>
       {student && (
         <Typography variant="body2" color="secondary" className="mb-4">
           {student.full_name} · #{formatStudentNumberShort(student.student_number)}
-          {selectedStudent?.billing_account_type === 'family' && accountLabel
-            ? ` · ${accountLabel}${accountNumber ? ` (${accountNumber})` : ''}`
-            : ''}
+          {accountLabel ? ` · ${accountLabel}${accountNumber ? ` (${accountNumber})` : ''}` : ''}
           {!studentIdLocked && (
             <Button size="small" variant="text" className="ml-2" onClick={() => setSelectedStudentId('')}>
               Change student

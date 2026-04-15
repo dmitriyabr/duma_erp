@@ -9,7 +9,7 @@ from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from src.core.documents.models import DocumentSequence
-from src.modules.billing_accounts.models import BillingAccount, BillingAccountType
+from src.modules.billing_accounts.models import BillingAccount
 from src.modules.invoices.models import Invoice
 from src.modules.payments.models import CreditAllocation, Payment
 from src.modules.students.models import Student
@@ -53,7 +53,6 @@ def _ensure_student_account(session: Session, student: Student) -> BillingAccoun
     account = BillingAccount(
         account_number=_next_account_number(session),
         display_name=f"{student.first_name} {student.last_name}".strip() or student.student_number,
-        account_type=BillingAccountType.INDIVIDUAL.value,
         primary_guardian_name=student.guardian_name,
         primary_guardian_phone=student.guardian_phone,
         primary_guardian_email=student.guardian_email,

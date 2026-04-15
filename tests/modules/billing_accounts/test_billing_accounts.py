@@ -10,9 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.auth.models import UserRole
 from src.core.auth.service import AuthService
 from src.modules.billing_accounts.models import BillingAccount
-from src.modules.billing_accounts.models import BillingAccountType
 from src.modules.billing_accounts.schemas import (
     BillingAccountAddMembersRequest,
+    BillingAccountChildCreate,
     BillingAccountCreate,
     BillingAccountListFilters,
 )
@@ -165,7 +165,6 @@ class TestBillingAccountService:
         await db_session.refresh(invoice)
         family_detail = await account_service.get_billing_account_detail(family.id)
 
-        assert family.account_type == BillingAccountType.FAMILY.value
         assert result.total_allocated == Decimal("1000.00")
         assert invoice.amount_due == Decimal("0.00")
         assert family_detail.available_balance == Decimal("0.00")
@@ -389,7 +388,7 @@ class TestBillingAccountService:
         assert invoice.amount_due == Decimal("0.00")
         assert updated_family.available_balance == Decimal("0.00")
 
-    async def test_create_family_account_removes_empty_individual_accounts(
+    async def test_create_billing_account_removes_empty_source_accounts(
         self,
         db_session: AsyncSession,
     ):
@@ -413,9 +412,46 @@ class TestBillingAccountService:
 
         assert len(accounts) == 1
         assert accounts[0].id == family.id
-        assert accounts[0].account_type == BillingAccountType.FAMILY.value
 
-    async def test_create_family_account_with_new_children_only_keeps_family_type(
+    async def test_create_billing_account_moves_account_level_credit_from_single_source(
+        self,
+        db_session: AsyncSession,
+    ):
+        data = await self._setup_data(db_session)
+        student_one, student_two = data["students"]
+        payment_service = PaymentService(db_session)
+        account_service = BillingAccountService(db_session)
+
+        source_account = await account_service.ensure_student_billing_account(student_one.id)
+        payment = await payment_service.create_payment(
+            PaymentCreate(
+                billing_account_id=source_account.id,
+                amount=Decimal("750.00"),
+                payment_method=PaymentMethod.MPESA,
+                payment_date=date.today(),
+                reference="ACCOUNT-LEVEL-CREDIT",
+            ),
+            received_by_id=data["user"].id,
+        )
+        await payment_service.complete_payment(payment.id, data["user"].id)
+
+        target_account = await account_service.create_family_account(
+            BillingAccountCreate(
+                display_name="Otieno Billing Account",
+                primary_guardian_name="Rose Otieno",
+                primary_guardian_phone="+254700000001",
+                student_ids=[student_one.id, student_two.id],
+            ),
+            created_by_id=data["user"].id,
+        )
+
+        await db_session.refresh(payment)
+        detail = await account_service.get_billing_account_detail(target_account.id)
+
+        assert payment.billing_account_id == target_account.id
+        assert detail.available_balance == Decimal("750.00")
+
+    async def test_create_billing_account_with_new_children_only(
         self,
         db_session: AsyncSession,
     ):
@@ -443,7 +479,6 @@ class TestBillingAccountService:
         )
 
         detail = await account_service.get_billing_account_detail(family.id)
-        assert detail.account_type == BillingAccountType.FAMILY.value
         assert detail.member_count == 1
         assert detail.members[0].student_name == "Solo Otieno"
 
@@ -477,11 +512,10 @@ class TestBillingAccountService:
 
         detail = await account_service.get_billing_account_detail(family.id)
         member_names = {member.student_name for member in detail.members}
-        assert detail.account_type == BillingAccountType.FAMILY.value
         assert detail.member_count == 2
         assert member_names == {"Amina Otieno", "Daisy Otieno"}
 
-    async def test_list_billing_accounts_default_includes_individual_and_family(
+    async def test_list_billing_accounts_default_includes_single_and_shared_accounts(
         self,
         db_session: AsyncSession,
     ):
@@ -489,7 +523,7 @@ class TestBillingAccountService:
         student_one, student_two = data["students"]
         account_service = BillingAccountService(db_session)
 
-        individual = await account_service.ensure_student_billing_account(student_one.id)
+        single_account = await account_service.ensure_student_billing_account(student_one.id)
         family = await account_service.create_family_account(
             BillingAccountCreate(
                 display_name="Otieno Admission",
@@ -504,8 +538,59 @@ class TestBillingAccountService:
         returned_ids = {row.id for row in rows}
 
         assert total == 2
-        assert individual.id in returned_ids
+        assert single_account.id in returned_ids
         assert family.id in returned_ids
+
+    async def test_add_members_to_existing_single_student_account(
+        self,
+        db_session: AsyncSession,
+    ):
+        data = await self._setup_data(db_session)
+        student_one, student_two = data["students"]
+        account_service = BillingAccountService(db_session)
+
+        single_account = await account_service.ensure_student_billing_account(student_one.id)
+
+        updated = await account_service.add_members(
+            single_account.id,
+            BillingAccountAddMembersRequest(student_ids=[student_two.id]),
+            added_by_id=data["user"].id,
+        )
+
+        detail = await account_service.get_billing_account_detail(updated.id)
+        await db_session.refresh(student_one)
+        await db_session.refresh(student_two)
+
+        assert detail.member_count == 2
+        assert student_one.billing_account_id == single_account.id
+        assert student_two.billing_account_id == single_account.id
+
+    async def test_add_child_to_existing_single_student_account(
+        self,
+        db_session: AsyncSession,
+    ):
+        data = await self._setup_data(db_session)
+        student_one = data["students"][0]
+        account_service = BillingAccountService(db_session)
+
+        single_account = await account_service.ensure_student_billing_account(student_one.id)
+
+        updated = await account_service.add_child(
+            single_account.id,
+            BillingAccountChildCreate(
+                first_name="Chris",
+                last_name="Otieno",
+                gender=Gender.MALE,
+                grade_id=student_one.grade_id,
+            ),
+            added_by_id=data["user"].id,
+        )
+
+        detail = await account_service.get_billing_account_detail(updated.id)
+        member_names = {member.student_name for member in detail.members}
+
+        assert detail.member_count == 2
+        assert member_names == {"Amina Otieno", "Chris Otieno"}
 
 
 class TestBillingAccountEndpoints:
@@ -642,7 +727,6 @@ class TestBillingAccountEndpoints:
 
         assert response.status_code == 201
         data = response.json()["data"]
-        assert data["account_type"] == BillingAccountType.FAMILY.value
         assert data["member_count"] == 1
         assert data["members"][0]["student_name"] == "Hope Njeri"
 

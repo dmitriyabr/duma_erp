@@ -16,7 +16,6 @@ interface BillingAccountRow {
   id: number
   account_number: string
   display_name: string
-  account_type: string
   primary_guardian_name?: string | null
   primary_guardian_phone?: string | null
   member_count: number
@@ -86,7 +85,6 @@ export const BillingAccountsListPage = () => {
             <TableRow>
               <TableHeaderCell>Account</TableHeaderCell>
               <TableHeaderCell>Name</TableHeaderCell>
-              <TableHeaderCell>Type</TableHeaderCell>
               <TableHeaderCell>Members</TableHeaderCell>
               <TableHeaderCell>Billing contact</TableHeaderCell>
               <TableHeaderCell align="right">Credit</TableHeaderCell>
@@ -100,7 +98,6 @@ export const BillingAccountsListPage = () => {
               <TableRow key={row.id}>
                 <TableCell className="font-mono text-xs">{row.account_number}</TableCell>
                 <TableCell>{row.display_name}</TableCell>
-                <TableCell className="capitalize">{row.account_type}</TableCell>
                 <TableCell>{row.member_count}</TableCell>
                 <TableCell>
                   <div className="flex flex-col">
@@ -142,14 +139,14 @@ export const BillingAccountsListPage = () => {
             ))}
             {loading && (
               <TableRow>
-                <td colSpan={9} className="px-4 py-8 text-center">
+                <td colSpan={8} className="px-4 py-8 text-center">
                   <Spinner size="medium" />
                 </td>
               </TableRow>
             )}
             {!rows.length && !loading && (
               <TableRow>
-                <td colSpan={9} className="px-4 py-8 text-center">
+                <td colSpan={8} className="px-4 py-8 text-center">
                   <Typography color="secondary">No billing accounts found</Typography>
                 </td>
               </TableRow>

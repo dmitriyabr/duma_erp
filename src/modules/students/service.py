@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 from src.core.audit.service import AuditService
 from src.core.documents.number_generator import DocumentNumberGenerator
 from src.core.exceptions import DuplicateError, NotFoundError, ValidationError
-from src.modules.billing_accounts.models import BillingAccount, BillingAccountType
+from src.modules.billing_accounts.models import BillingAccount
 from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.students.models import Grade, Student, StudentStatus
 from src.modules.students.schemas import (
@@ -150,18 +150,13 @@ class StudentService:
         return zone
 
     async def _validate_billing_account(self, billing_account_id: int) -> BillingAccount:
-        """Validate billing account exists and can accept directly-created children."""
+        """Validate billing account exists and can accept directly-created students."""
         result = await self.db.execute(
             select(BillingAccount).where(BillingAccount.id == billing_account_id)
         )
         account = result.scalar_one_or_none()
         if not account:
             raise ValidationError("Selected billing account was not found", field="billing_account_id")
-        if account.account_type != BillingAccountType.FAMILY.value:
-            raise ValidationError(
-                "Students can only be attached directly to family billing accounts",
-                field="billing_account_id",
-            )
         return account
 
     async def create_student(
@@ -417,14 +412,8 @@ class StudentService:
             )
 
         if student.billing_account_id:
-            await self.db.refresh(student, attribute_names=["billing_account"])
-            if student.billing_account is not None:
-                billing_account_service = BillingAccountService(self.db)
-                await billing_account_service._sync_individual_account_from_student(
-                    student.billing_account,
-                    student,
-                )
-                await billing_account_service.sync_cached_balance(student.billing_account_id)
+            billing_account_service = BillingAccountService(self.db)
+            await billing_account_service.sync_cached_balance(student.billing_account_id)
 
         await self.db.commit()
         await self.db.refresh(student)

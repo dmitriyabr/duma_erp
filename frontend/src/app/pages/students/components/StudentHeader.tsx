@@ -127,7 +127,6 @@ export const StudentHeader = ({
 
   const studentBalance = balance != null ? parseNumber(balance.balance) : -debt
   const sharedCredit = balance != null ? parseNumber(balance.available_balance) : 0
-  const isFamilyAccount = student.billing_account_type === 'family'
 
   return (
     <div className="flex items-center justify-between mb-4 flex-wrap gap-4">
@@ -142,7 +141,7 @@ export const StudentHeader = ({
           <Typography variant="body2" color="secondary" className="mt-1">
             Billing account {student.billing_account_name ?? '—'}
             {student.billing_account_number ? ` · ${student.billing_account_number}` : ''}
-            {student.billing_account_type === 'family' && student.billing_account_member_count
+            {student.billing_account_member_count
               ? ` · ${student.billing_account_member_count} students`
               : ''}
           </Typography>
@@ -154,15 +153,13 @@ export const StudentHeader = ({
           color={student.status === 'active' ? 'success' : 'default'}
         />
         <Chip
-          label={`${isFamilyAccount ? 'Student balance' : 'Balance'} ${formatMoney(studentBalance)}`}
+          label={`Student balance ${formatMoney(studentBalance)}`}
           color={studentBalance > 0 ? 'success' : studentBalance < 0 ? 'error' : 'default'}
         />
-        {isFamilyAccount && (
-          <Chip
-            label={`Family credit ${formatMoney(sharedCredit)}`}
-            color={sharedCredit > 0 ? 'success' : 'default'}
-          />
-        )}
+        <Chip
+          label={`Account credit ${formatMoney(sharedCredit)}`}
+          color={sharedCredit > 0 ? 'success' : 'default'}
+        />
         {canManage && (
           <>
             {student.billing_account_id && (

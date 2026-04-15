@@ -151,15 +151,14 @@ class StudentBalance(BaseSchema):
 
     `available_balance` is the shared credit currently available on the linked billing account.
     `outstanding_debt` is always this student's own unpaid invoices.
-    `balance` is student-facing net position; for family accounts shared credit is not attributed
-    to one child, so balance only reflects that student's own debt.
+    `balance` is student-facing net position. Shared credit is not attributed to one
+    student, so balance only reflects that student's own debt.
     """
 
     student_id: int
     billing_account_id: int | None = None
     billing_account_number: str | None = None
     billing_account_name: str | None = None
-    billing_account_type: str | None = None
     total_payments: Decimal
     total_allocated: Decimal
     available_balance: Decimal

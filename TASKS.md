@@ -272,15 +272,15 @@
 ### 3.1.2 Billing Accounts / Shared Family Payments
 > Решения: владелец денег = `BillingAccount`; student остаётся владельцем invoice, но payments/allocations/statement работают на уровне общего billing account
 
-- [x] Модель `BillingAccount` (`account_number`, `display_name`, `account_type`, billing contact fields, cached credit balance)
-- [x] Миграция `043_family_billing_accounts.py` с backfill: 1 existing student = 1 individual billing account
+- [x] Модель `BillingAccount` (`account_number`, `display_name`, billing contact fields, cached credit balance); legacy `account_type` удалён миграцией `044`
+- [x] Миграция `043_family_billing_accounts.py` с backfill: 1 existing student = 1 billing account
 - [x] Поле `billing_account_id` в `students`, `invoices`, `payments`, `credit_allocations`
-- [x] Auto-create individual billing account при создании нового student и direct ORM inserts
+- [x] Auto-create billing account при создании нового student и direct ORM inserts
 - [x] Unified admission flow: создание billing account с `new_children`, mixed existing+new roster и add-child flow внутри existing billing account
 - [x] Общий кошелёк: payments и allocations могут идти по `billing_account_id`, а auto-allocation закрывает invoices всех студентов семьи
 - [x] Billing account statement endpoint и account-aware student balance / payments / invoices responses
 - [x] UI: `Billing -> Billing Accounts` (`/billing/families` legacy path), unified `/students/new` admission form, detail page с members, invoices, payments и statement
-- [x] Billing Accounts list shows all accounts by default (`individual` + `family`), not only accounts with multiple children
+- [x] Billing Accounts list shows all accounts by default, including accounts with one child
 - [x] Доступы: accountant может смотреть, но `Record payment` и create/edit доступны только `SuperAdmin` / `Admin`
 - [x] Документация и тесты
 
@@ -812,9 +812,9 @@
 **Backend (API для бухгалтера):**
 - [x] Роутер `/api/v1/accountant/` с проверкой роли Accountant (Admin/SuperAdmin тоже допущены)
 - [x] Документы: все GET для просмотра допускают Accountant (students list/get, grades, transport-zones, payments list/get/receipt/pdf, invoices list/get/pdf, procurement: purchase-orders list/get, grns list/get, payments list/get, payment-purposes, dashboard; compensations: claims list/get, payouts list/get, employee-balances). Запись (POST/PUT/PATCH/DELETE) для Accountant запрещена: create/update/complete payment, allocate, cancel payment, create/update PO/GRN/payout и т.д.
-- [x] GET export/student-payments (CSV; ссылки на фронт: Receipt PDF → /payment/{id}/receipt, Attachment → /attachment/{id}/download; FRONTEND_URL в .env; family-aware columns: Billing Account#, Billing Account Name, full linked student roster)
+- [x] GET export/student-payments (CSV; ссылки на фронт: Receipt PDF → /payment/{id}/receipt, Attachment → /attachment/{id}/download; FRONTEND_URL в .env; billing-account columns: Billing Account#, Billing Account Name, full linked student roster)
 - [x] GET export/procurement-payments (CSV; ссылка на фронт: Attachment → /attachment/{id}/download)
-- [x] GET export/student-balance-changes (CSV: student-level ledger; invoices as debit, allocations as credit, billing account columns; raw family payments не дублируются по детям до allocation)
+- [x] GET export/student-balance-changes (CSV: student-level ledger; invoices as debit, allocations as credit, billing account columns; raw shared-account payments не дублируются по детям до allocation)
 - [x] Reports/accountant exports audited for billing accounts: aged receivables as-at allocation snapshot + last payment, cash-flow allocation split, balance sheet credit balances, revenue trend, student payments CSV, student balance changes CSV.
 - [x] GET audit-trail с фильтрами (date_from, date_to, user_id, entity_type, action, page, limit)
 - [x] Тесты API (tests/modules/accountant/test_accountant.py — audit-trail и оба export, роль User — 403)

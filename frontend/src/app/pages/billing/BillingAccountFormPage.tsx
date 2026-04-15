@@ -28,7 +28,7 @@ interface StudentOption {
   student_number: string
   grade_name?: string | null
   billing_account_id?: number | null
-  billing_account_type?: string | null
+  billing_account_member_count?: number | null
 }
 
 interface BillingAccountDetail {
@@ -166,7 +166,7 @@ const BillingAccountFormContent = ({
     () =>
       students.filter((student) => {
         if (editing) return selectedStudentIds.includes(student.id)
-        return student.billing_account_type !== 'family'
+        return (student.billing_account_member_count ?? 0) <= 1
       }),
     [editing, selectedStudentIds, students]
   )
