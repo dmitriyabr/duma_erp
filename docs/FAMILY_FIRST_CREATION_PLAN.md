@@ -19,8 +19,8 @@ The old `/billing/families/new` path is kept only as a compatibility redirect to
 Backend and database naming:
 - Entity: `BillingAccount`
 - Public account number: `account_number`
-- Type: `account_type = individual | family`
 - Contact fields currently remain named `primary_guardian_*` in the schema for compatibility.
+- There is no `individual/family` account type. One billing account can have one or many students.
 
 UI naming:
 - Menu label: `Billing Accounts`
@@ -39,8 +39,8 @@ Rules:
 - Invoices remain student-owned but store `billing_account_id` as a snapshot.
 - Student screens show student-specific debt separately from shared account credit.
 - Billing account screens aggregate members, invoices, payments, credit, debt, and statement.
-- A `family` billing account can have one child and must still appear in the billing accounts list.
-- The billing accounts list shows all accounts by default: `individual` and `family`.
+- A billing account can have one child and must still appear in the billing accounts list.
+- The billing accounts list shows all accounts by default.
 
 ## 4. Backend API
 
@@ -91,7 +91,9 @@ Used by the `Add child` action on billing account detail.
 
 ### `POST /billing-accounts/{id}/members`
 
-Links existing students into an existing billing account.
+Links existing students into an existing billing account. Existing students can be moved
+from a single-student account; students already in another shared account require a
+separate split/merge flow.
 
 Used by the `Link existing students` action.
 
@@ -99,9 +101,9 @@ Used by the `Link existing students` action.
 
 Still supports standalone creation.
 
-If `billing_account_id` is not provided, the system creates an `individual` account automatically.
+If `billing_account_id` is not provided, the system creates a billing account automatically.
 
-If `billing_account_id` is provided, the student is created directly inside that existing shared billing account and no temporary individual account is created.
+If `billing_account_id` is provided, the student is created directly inside that existing billing account and no temporary separate account is created.
 
 ## 5. Frontend
 
@@ -122,8 +124,8 @@ Save button:
 Legacy path retained for routing compatibility, but UI label is `Billing Accounts`.
 
 The page:
-- shows both `individual` and `family` accounts by default;
-- includes a `Type` column;
+- shows all billing accounts by default;
+- does not include a `Type` column;
 - has `New admission`, which routes to `/students/new`.
 
 ### `/billing/families/{accountId}`
@@ -144,13 +146,13 @@ Backend regression coverage should include:
 - create billing account with existing + new child;
 - create student with explicit `billing_account_id`;
 - add child to existing billing account;
-- default `GET /billing-accounts` includes both `individual` and `family`;
-- account with one child and `account_type=family` remains visible.
+- default `GET /billing-accounts` includes accounts with one or many students;
+- account with one child remains visible.
 
 Frontend checks should cover:
 - `/students/new` uses the unified admission form;
 - `/billing/families/new` redirects to `/students/new`;
-- Billing Accounts list does not send `account_type=family` by default.
+- Billing Accounts list does not send an account type filter.
 
 ## 7. Open Follow-Ups
 

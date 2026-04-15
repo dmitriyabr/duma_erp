@@ -1,4 +1,4 @@
-"""Service layer for family/shared billing accounts."""
+"""Service layer for shared billing accounts."""
 
 from decimal import Decimal
 
@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 from src.core.audit.service import AuditService
 from src.core.documents.number_generator import DocumentNumberGenerator
 from src.core.exceptions import NotFoundError, ValidationError
-from src.modules.billing_accounts.models import BillingAccount, BillingAccountType
+from src.modules.billing_accounts.models import BillingAccount
 from src.modules.billing_accounts.schemas import (
     BillingAccountAddMembersRequest,
     BillingAccountChildCreate,
@@ -35,19 +35,15 @@ class BillingAccountService:
         self.audit = AuditService(db)
 
     async def ensure_student_billing_account(self, student_id: int) -> BillingAccount:
-        """Guarantee that a student has an individual billing account."""
+        """Guarantee that a student has a billing account."""
         student = await self._get_student(student_id)
         if student.billing_account_id:
-            account = await self.get_billing_account_by_id(student.billing_account_id)
-            if account.account_type == BillingAccountType.INDIVIDUAL.value:
-                await self._sync_individual_account_from_student(account, student)
-            return account
+            return await self.get_billing_account_by_id(student.billing_account_id)
 
         number_gen = DocumentNumberGenerator(self.db)
         account = BillingAccount(
             account_number=await number_gen.generate("FAM"),
             display_name=student.full_name,
-            account_type=BillingAccountType.INDIVIDUAL.value,
             primary_guardian_name=student.guardian_name,
             primary_guardian_phone=student.guardian_phone,
             primary_guardian_email=student.guardian_email,
@@ -68,7 +64,6 @@ class BillingAccountService:
             user_id=student.created_by_id,
             new_values={
                 "display_name": account.display_name,
-                "account_type": account.account_type,
                 "student_id": student.id,
             },
         )
@@ -77,15 +72,13 @@ class BillingAccountService:
     async def list_billing_accounts(
         self, filters: BillingAccountListFilters
     ) -> tuple[list[BillingAccountSummary], int]:
-        """List family billing accounts with balances and member counts."""
+        """List billing accounts with balances and member counts."""
         query = (
             select(BillingAccount)
             .options(selectinload(BillingAccount.students).selectinload(Student.grade))
             .order_by(BillingAccount.updated_at.desc(), BillingAccount.id.desc())
         )
 
-        if filters.account_type is not None:
-            query = query.where(BillingAccount.account_type == filters.account_type.value)
         if filters.search and filters.search.strip():
             search_term = f"%{filters.search.strip()}%"
             query = (
@@ -145,14 +138,13 @@ class BillingAccountService:
     async def create_family_account(
         self, data: BillingAccountCreate, created_by_id: int
     ) -> BillingAccount:
-        """Create a new family billing account and move selected students into it."""
+        """Create a new billing account and move selected students into it."""
         students = await self._get_students(data.student_ids) if data.student_ids else []
 
         number_gen = DocumentNumberGenerator(self.db)
         account = BillingAccount(
             account_number=await number_gen.generate("FAM"),
             display_name=data.display_name.strip(),
-            account_type=BillingAccountType.FAMILY.value,
             primary_guardian_name=data.primary_guardian_name,
             primary_guardian_phone=data.primary_guardian_phone,
             primary_guardian_email=data.primary_guardian_email,
@@ -169,7 +161,7 @@ class BillingAccountService:
         await self._refresh_account_state(account)
         await self._allocate_account_credit(account.id, created_by_id)
         await self.audit.log(
-            action="billing_account.create_family",
+            action="billing_account.create",
             entity_type="BillingAccount",
             entity_id=account.id,
             entity_identifier=account.account_number,
@@ -237,7 +229,6 @@ class BillingAccountService:
     ) -> BillingAccount:
         """Attach more students to an existing billing account."""
         account = await self.get_billing_account_by_id(account_id)
-        self._require_family_account(account)
         students = await self._get_students(data.student_ids)
 
         moved_ids: list[int] = []
@@ -269,9 +260,8 @@ class BillingAccountService:
         data: BillingAccountChildCreate,
         added_by_id: int,
     ) -> BillingAccount:
-        """Create a brand-new student directly inside an existing family account."""
+        """Create a brand-new student directly inside an existing billing account."""
         account = await self.get_billing_account_by_id(account_id)
-        self._require_family_account(account)
 
         created_children = await self._create_children(account, [data], added_by_id)
         await self._refresh_account_state(account)
@@ -310,7 +300,6 @@ class BillingAccountService:
                 id=account.id,
                 account_number=account.account_number,
                 display_name=account.display_name,
-                account_type=account.account_type,
                 primary_guardian_name=account.primary_guardian_name,
                 primary_guardian_phone=account.primary_guardian_phone,
                 primary_guardian_email=account.primary_guardian_email,
@@ -398,24 +387,39 @@ class BillingAccountService:
             return
 
         source_member_count = len(source_account.students)
-        if source_account.account_type == BillingAccountType.FAMILY.value or source_member_count > 1:
+        if source_member_count > 1:
             raise ValidationError(
-                f"Student {student.full_name} already belongs to another family billing account"
+                f"Student {student.full_name} already belongs to another shared billing account"
             )
 
         await self.db.execute(
             update(Invoice)
-            .where(Invoice.student_id == student.id)
+            .where(
+                or_(
+                    Invoice.student_id == student.id,
+                    Invoice.billing_account_id == source_account.id,
+                )
+            )
             .values(billing_account_id=account.id)
         )
         await self.db.execute(
             update(Payment)
-            .where(Payment.student_id == student.id)
+            .where(
+                or_(
+                    Payment.student_id == student.id,
+                    Payment.billing_account_id == source_account.id,
+                )
+            )
             .values(billing_account_id=account.id)
         )
         await self.db.execute(
             update(CreditAllocation)
-            .where(CreditAllocation.student_id == student.id)
+            .where(
+                or_(
+                    CreditAllocation.student_id == student.id,
+                    CreditAllocation.billing_account_id == source_account.id,
+                )
+            )
             .values(billing_account_id=account.id)
         )
 
@@ -465,19 +469,8 @@ class BillingAccountService:
             .values(cached_credit_balance=round_money(total_payments - total_allocated))
         )
 
-    async def _sync_individual_account_from_student(
-        self, account: BillingAccount, student: Student
-    ) -> None:
-        if account.account_type != BillingAccountType.INDIVIDUAL.value:
-            return
-        account.display_name = student.full_name
-        account.primary_guardian_name = student.guardian_name
-        account.primary_guardian_phone = student.guardian_phone
-        account.primary_guardian_email = student.guardian_email
-        await self.db.flush()
-
     async def _allocate_account_credit(self, account_id: int, user_id: int) -> None:
-        """Apply shared credit immediately after a family merge/membership change."""
+        """Apply shared credit immediately after a billing account membership change."""
         from src.modules.payments.schemas import AutoAllocateRequest
         from src.modules.payments.service import PaymentService
 
@@ -487,10 +480,6 @@ class BillingAccountService:
             user_id,
             commit=False,
         )
-
-    def _require_family_account(self, account: BillingAccount) -> None:
-        if account.account_type != BillingAccountType.FAMILY.value:
-            raise ValidationError("This action is only available for family billing accounts")
 
     async def _create_children(
         self,
@@ -516,12 +505,12 @@ class BillingAccountService:
 
             if not guardian_name:
                 raise ValidationError(
-                    "Guardian name is required either on the family account or the child",
+                    "Guardian name is required either on the billing account or the child",
                     field="guardian_name",
                 )
             if not guardian_phone:
                 raise ValidationError(
-                    "Guardian phone is required either on the family account or the child",
+                    "Guardian phone is required either on the billing account or the child",
                     field="guardian_phone",
                 )
 

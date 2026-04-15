@@ -447,7 +447,6 @@ class PaymentService:
             billing_account_id=account.id,
             billing_account_number=account.account_number,
             billing_account_name=account.display_name,
-            billing_account_type=account.account_type,
             total_payments=round_money(total_payments),
             total_allocated=round_money(total_allocated),
             available_balance=available_balance,
@@ -502,9 +501,6 @@ class PaymentService:
                 if sid in students and students[sid].billing_account
                 else None,
                 billing_account_name=students[sid].billing_account.display_name
-                if sid in students and students[sid].billing_account
-                else None,
-                billing_account_type=students[sid].billing_account.account_type
                 if sid in students and students[sid].billing_account
                 else None,
                 total_payments=round_money(

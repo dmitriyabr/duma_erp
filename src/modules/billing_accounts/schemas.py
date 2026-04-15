@@ -1,11 +1,10 @@
-"""Schemas for family/shared billing accounts."""
+"""Schemas for shared billing accounts."""
 
 from datetime import date
 from decimal import Decimal
 
 from pydantic import Field, field_validator, model_validator
 
-from src.modules.billing_accounts.models import BillingAccountType
 from src.modules.students.models import Gender
 from src.modules.students.schemas import KENYAN_PHONE_REGEX
 from src.shared.schemas.base import BaseSchema
@@ -84,7 +83,6 @@ class BillingAccountAddMembersRequest(BaseSchema):
 
 class BillingAccountListFilters(BaseSchema):
     search: str | None = None
-    account_type: BillingAccountType | None = None
     page: int = Field(1, ge=1)
     limit: int = Field(50, ge=1, le=100)
 
@@ -93,7 +91,6 @@ class BillingAccountSummary(BaseSchema):
     id: int
     account_number: str
     display_name: str
-    account_type: str
     primary_guardian_name: str | None = None
     primary_guardian_phone: str | None = None
     primary_guardian_email: str | None = None

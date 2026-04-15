@@ -82,7 +82,6 @@
 | id | BIGINT PK | внутренний id |
 | account_number | VARCHAR(50) UNIQUE | внешний человекочитаемый номер, например `FAM-000123` |
 | display_name | VARCHAR(255) | например `Family of John and Mary Doe` |
-| account_type | VARCHAR(20) | `family` / `sponsor` / `other` |
 | primary_contact_name | VARCHAR(200) NULL | основной плательщик |
 | primary_contact_phone | VARCHAR(20) NULL | |
 | primary_contact_email | VARCHAR(255) NULL | |

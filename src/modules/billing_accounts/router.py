@@ -1,4 +1,4 @@
-"""API endpoints for family/shared billing accounts."""
+"""API endpoints for shared billing accounts."""
 
 from datetime import date
 
@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.auth.dependencies import require_roles
 from src.core.auth.models import User, UserRole
 from src.core.database.session import get_db
-from src.modules.billing_accounts.models import BillingAccountType
 from src.modules.billing_accounts.schemas import (
     BillingAccountAddMembersRequest,
     BillingAccountChildCreate,
@@ -32,7 +31,6 @@ router = APIRouter(prefix="/billing-accounts", tags=["Billing Accounts"])
 )
 async def list_billing_accounts(
     search: str | None = Query(None),
-    account_type: BillingAccountType | None = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -43,7 +41,6 @@ async def list_billing_accounts(
     service = BillingAccountService(db)
     filters = BillingAccountListFilters(
         search=search,
-        account_type=account_type,
         page=page,
         limit=limit,
     )
@@ -71,7 +68,7 @@ async def create_billing_account(
     service = BillingAccountService(db)
     account = await service.create_family_account(data, current_user.id)
     detail = await service.get_billing_account_detail(account.id)
-    return ApiResponse(data=detail, message="Family billing account created successfully")
+    return ApiResponse(data=detail, message="Billing account created successfully")
 
 
 @router.get(

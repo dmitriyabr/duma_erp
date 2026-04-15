@@ -114,18 +114,15 @@ async def update_grade(
 
 
 def _student_to_response(
-    student, 
+    student,
     available_balance: float | None = None,
     outstanding_debt: float | None = None,
 ) -> StudentResponse:
     """Helper to convert Student to response."""
     balance = None
     if available_balance is not None and outstanding_debt is not None:
-        if student.billing_account and student.billing_account.account_type == "family":
-            balance = round_money(Decimal("0.00") - Decimal(str(outstanding_debt)))
-        else:
-            balance = round_money(Decimal(str(available_balance)) - Decimal(str(outstanding_debt)))
-    
+        balance = round_money(Decimal("0.00") - Decimal(str(outstanding_debt)))
+
     return StudentResponse(
         id=student.id,
         student_number=student.student_number,
@@ -148,7 +145,6 @@ def _student_to_response(
         billing_account_id=student.billing_account_id,
         billing_account_number=student.billing_account.account_number if student.billing_account else None,
         billing_account_name=student.billing_account.display_name if student.billing_account else None,
-        billing_account_type=student.billing_account.account_type if student.billing_account else None,
         billing_account_member_count=len(student.billing_account.students) if student.billing_account else None,
         available_balance=float(available_balance) if available_balance is not None else None,
         outstanding_debt=float(outstanding_debt) if outstanding_debt is not None else None,

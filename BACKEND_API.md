@@ -169,22 +169,22 @@
 - `GET /students/grades`
 - `GET /students/grades/{grade_id}`
 - `PATCH /students/grades/{grade_id}`
-- `POST /students` — при создании автоматически создаётся individual billing account (`account_type=individual`); optional `billing_account_id` разрешён только для family/shared billing accounts, чтобы создать нового ребёнка сразу внутри существующего account без лишнего individual account
-- `GET /students` — filters: `status`, `grade_id`, `transport_zone_id`, `search`, `page`, `limit`; в response есть `billing_account_id`, `billing_account_number`, `billing_account_name`, `billing_account_type`, `billing_account_member_count`. Если `include_balance=true`, то `available_balance` = shared credit linked billing account, а `outstanding_debt` / `balance` считаются по конкретному ученику, без долгов siblings.
+- `POST /students` — при создании автоматически создаётся billing account; optional `billing_account_id` позволяет создать нового ребёнка сразу внутри существующего account без временного отдельного account
+- `GET /students` — filters: `status`, `grade_id`, `transport_zone_id`, `search`, `page`, `limit`; в response есть `billing_account_id`, `billing_account_number`, `billing_account_name`, `billing_account_member_count`. Если `include_balance=true`, то `available_balance` = shared credit linked billing account, а `outstanding_debt` / `balance` считаются по конкретному ученику, без долгов siblings.
 - `GET /students/{student_id}` — response также содержит linked billing account summary
 - `PATCH /students/{student_id}`
 - `POST /students/{student_id}/activate`
 - `POST /students/{student_id}/deactivate`
 
 ### 5.5.1. Billing Accounts
-- `GET /billing-accounts` — filters: `search`, optional `account_type` (`family` / `individual`), `page`, `limit`; без `account_type` возвращает все billing accounts
-- `POST /billing-accounts` — создать billing account / admission. Payload поддерживает `student_ids` для already admitted students и `new_children` для unified admission flow; можно создать billing account даже с одним ребёнком, если account был создан как `family`
+- `GET /billing-accounts` — filters: `search`, `page`, `limit`; возвращает все billing accounts, независимо от количества linked students
+- `POST /billing-accounts` — создать billing account / admission. Payload поддерживает `student_ids` для already admitted students и `new_children` для unified admission flow; можно создать billing account с одним или несколькими детьми
 - `GET /billing-accounts/{account_id}` — header account + members + balances
 - `PATCH /billing-accounts/{account_id}` — обновить account name, billing contact, notes
-- `POST /billing-accounts/{account_id}/members` — добавить existing students в существующий billing account
+- `POST /billing-accounts/{account_id}/members` — добавить existing students в существующий billing account; student из single-student account может быть перенесён, student из уже shared account требует отдельного split/merge flow
 - `POST /billing-accounts/{account_id}/children` — создать нового ребёнка сразу внутри существующего billing account; child может унаследовать guardian contact из account header
 - `GET /billing-accounts/{account_id}/statement` — account statement по общему кошельку (`date_from`, `date_to`)
-- `BillingAccount` — канонический owner of money: payments и credit allocations привязываются к account, invoices хранят snapshot `billing_account_id`, а student response показывает к какому family/individual account он относится. `account_type=family` больше не вычисляется только из количества детей: family account с одним ребёнком остаётся family account
+- `BillingAccount` — канонический owner of money: payments и credit allocations привязываются к account, invoices хранят snapshot `billing_account_id`, а student response показывает linked billing account metadata. Разделения `individual/family` и поля `account_type` больше нет: один account может иметь одного или нескольких students.
 
 ### 5.5.2. Paid Activities
 - `POST /activities` — создать платную активность и snapshot audience (`audience_type = all_active | grades | manual`, для `grades` передаются `grade_ids`, для `manual` — `student_ids`)
@@ -235,9 +235,9 @@
 - `PATCH /payments/{payment_id}`
 - `POST /payments/{payment_id}/complete`
 - `POST /payments/{payment_id}/cancel`
-- `POST /payments/students/balances-batch` — body: `{ student_ids: number[] }`. Ответ: `{ balances: StudentBalance[] }` — по каждому ученику: shared `available_balance` billing account, student-specific `outstanding_debt` и student-facing `balance`; для `family` account общий credit не размазывается как личный баланс каждого ребёнка.
-- `GET /payments/students/{student_id}/balance` — response family-aware: кроме billing account metadata вернёт `available_balance` как shared credit account, а `outstanding_debt` / `balance` как student-specific position; для `family` account общий credit не атрибутируется одному ребёнку, поэтому `balance` не включает долги siblings и не дублирует shared credit как личный баланс ученика
-- `GET /payments/students/{student_id}/statement` — `date_from`, `date_to`; если студент состоит в family account, statement строится по общему кошельку семьи
+- `POST /payments/students/balances-batch` — body: `{ student_ids: number[] }`. Ответ: `{ balances: StudentBalance[] }` — по каждому ученику: shared `available_balance` billing account, student-specific `outstanding_debt` и student-facing `balance`; общий credit не размазывается как личный баланс каждого ребёнка.
+- `GET /payments/students/{student_id}/balance` — response возвращает billing account metadata, `available_balance` как shared credit account, а `outstanding_debt` / `balance` как student-specific position; общий credit не атрибутируется одному ребёнку, поэтому `balance` не включает долги siblings и не дублирует shared credit как личный баланс ученика
+- `GET /payments/students/{student_id}/statement` — `date_from`, `date_to`; statement строится по linked billing account wallet
 - `POST /payments/allocations/auto` — body принимает `student_id` или `billing_account_id`
 - `POST /payments/allocations/manual` — body принимает `student_id` или `billing_account_id`
 - `DELETE /payments/allocations/{allocation_id}`
@@ -330,8 +330,8 @@
 
 ### 5.xx. Accountant exports (CSV)
 
-- `GET /accountant/export/student-payments` — completed student/billing-account receipts за период (CSV). Для shared/family account CSV включает `Billing Account#`, `Billing Account Name`, `Billing Contact`; поля `Student Name`, `Admission#`, `Grade` содержат roster всех linked students account, чтобы общий family payment не выглядел как личный платеж reference-student.
-- `GET /accountant/export/student-balance-changes` — student-level ledger за период (CSV): opening balance, invoices как debit, credit allocations как credit, running balance. Для family/shared accounts raw payment на общий account не дублируется по детям; student balance меняется только после allocation на invoice конкретного student. CSV включает billing account columns.
+- `GET /accountant/export/student-payments` — completed student/billing-account receipts за период (CSV). Для shared billing account CSV включает `Billing Account#`, `Billing Account Name`, `Billing Contact`; поля `Student Name`, `Admission#`, `Grade` содержат roster всех linked students account, чтобы общий account payment не выглядел как личный платеж reference-student.
+- `GET /accountant/export/student-balance-changes` — student-level ledger за период (CSV): opening balance, invoices как debit, credit allocations как credit, running balance. Raw payment на общий account не дублируется по детям; student balance меняется только после allocation на invoice конкретного student. CSV включает billing account columns.
 - `GET /accountant/export/bank-transfers` — outgoing bank transfers (debits) за период + matched document numbers (CSV).
 - `GET /accountant/export/bank-statement-files` — список импортированных выписок за период + download links (CSV).
 

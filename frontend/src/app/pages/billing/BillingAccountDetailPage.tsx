@@ -38,7 +38,6 @@ interface BillingAccountDetail {
   id: number
   account_number: string
   display_name: string
-  account_type: string
   primary_guardian_name?: string | null
   primary_guardian_phone?: string | null
   primary_guardian_email?: string | null
@@ -56,7 +55,7 @@ interface BillingStudent {
   student_number: string
   grade_name?: string | null
   billing_account_id?: number | null
-  billing_account_type?: string | null
+  billing_account_member_count?: number | null
 }
 
 interface InvoiceRow {
@@ -606,7 +605,7 @@ export const BillingAccountDetailPage = () => {
           <div className="space-y-3 mt-4 max-h-[420px] overflow-y-auto">
             {eligibleStudents.map((student) => {
               const disabled =
-                student.billing_account_type === 'family' &&
+                (student.billing_account_member_count ?? 0) > 1 &&
                 student.billing_account_id !== account.id
               return (
                 <div key={student.id} className="flex items-start justify-between gap-4">
@@ -616,7 +615,11 @@ export const BillingAccountDetailPage = () => {
                     onChange={() => toggleStudent(student.id)}
                     label={`${student.full_name} · ${student.student_number}`}
                   />
-                  <span className="text-sm text-slate-500">{student.grade_name ?? 'No grade'}</span>
+                  <span className="text-sm text-slate-500">
+                    {disabled
+                      ? 'Already in another shared account'
+                      : student.grade_name ?? 'No grade'}
+                  </span>
                 </div>
               )
             })}

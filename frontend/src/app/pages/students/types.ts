@@ -23,7 +23,6 @@ export interface StudentResponse {
   billing_account_id?: number | null
   billing_account_number?: string | null
   billing_account_name?: string | null
-  billing_account_type?: string | null
   billing_account_member_count?: number | null
   // Balance fields (optional, included when include_balance=true)
   available_balance?: number | null
@@ -36,7 +35,6 @@ export interface StudentBalance {
   billing_account_id?: number | null
   billing_account_number?: string | null
   billing_account_name?: string | null
-  billing_account_type?: string | null
   total_payments: number
   total_allocated: number
   available_balance: number

@@ -36,15 +36,13 @@ from src.shared.utils.money import round_money
 router = APIRouter(prefix="/payments", tags=["Payments"])
 
 
-def _build_student_net_balance(available_balance: Decimal, outstanding_debt: Decimal, billing_account_type: str | None) -> Decimal:
+def _build_student_net_balance(outstanding_debt: Decimal) -> Decimal:
     """Student balance shown in student screens.
 
-    For family accounts, shared credit belongs to the billing account, not to any one child,
-    so student balance only reflects that student's own debt.
+    Shared credit belongs to the billing account, not to any one student, so student balance
+    only reflects that student's own debt.
     """
-    if billing_account_type == "family":
-        return round_money(Decimal("0.00") - outstanding_debt)
-    return round_money(available_balance - outstanding_debt)
+    return round_money(Decimal("0.00") - outstanding_debt)
 
 
 def _payment_to_response(payment) -> PaymentResponse:
@@ -297,7 +295,6 @@ async def get_student_balances_batch(
             billing_account_id=b.billing_account_id,
             billing_account_number=b.billing_account_number,
             billing_account_name=b.billing_account_name,
-            billing_account_type=b.billing_account_type,
             total_payments=b.total_payments,
             total_allocated=b.total_allocated,
             available_balance=b.available_balance,
@@ -306,9 +303,7 @@ async def get_student_balances_batch(
                 b.outstanding_debt,
             ),
             balance=_build_student_net_balance(
-                b.available_balance,
-                debt_by_student.get(b.student_id, b.outstanding_debt),
-                b.billing_account_type,
+                debt_by_student.get(b.student_id, b.outstanding_debt)
             ),
         )
         for b in balances
@@ -338,16 +333,11 @@ async def get_student_balance(
         billing_account_id=balance.billing_account_id,
         billing_account_number=balance.billing_account_number,
         billing_account_name=balance.billing_account_name,
-        billing_account_type=balance.billing_account_type,
         total_payments=balance.total_payments,
         total_allocated=balance.total_allocated,
         available_balance=balance.available_balance,
         outstanding_debt=total_due,
-        balance=_build_student_net_balance(
-            balance.available_balance,
-            total_due,
-            balance.billing_account_type,
-        ),
+        balance=_build_student_net_balance(total_due),
     )
     return ApiResponse(data=merged)
 
