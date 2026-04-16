@@ -405,6 +405,31 @@ async def manual_allocate(
     )
 
 
+@router.post(
+    "/allocations/{allocation_id}/undo-reallocate",
+    response_model=ApiResponse[AutoAllocateResult],
+)
+async def undo_and_reallocate_allocation(
+    allocation_id: int,
+    reason: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+    ),
+):
+    """Undo an allocation and immediately re-run auto-allocation."""
+    service = PaymentService(db)
+    result = await service.undo_and_reallocate_allocation(
+        allocation_id,
+        current_user.id,
+        reason,
+    )
+    return ApiResponse(
+        data=result,
+        message=f"Allocation removed and {result.total_allocated} reallocated",
+    )
+
+
 @router.delete(
     "/allocations/{allocation_id}",
     response_model=ApiResponse[None],

@@ -87,8 +87,12 @@ interface PaymentRow {
 
 interface StatementEntry {
   date: string
+  entry_type: string
   description: string
   reference?: string | null
+  payment_id?: number | null
+  allocation_id?: number | null
+  invoice_id?: number | null
   credit?: number | null
   debit?: number | null
   balance: number
@@ -140,6 +144,7 @@ export const BillingAccountDetailPage = () => {
     invoices_partially_paid: number
     remaining_balance: number
   }>()
+  const deleteAllocationMutation = useApiMutation<boolean>()
 
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [addChildDialogOpen, setAddChildDialogOpen] = useState(false)
@@ -252,6 +257,7 @@ export const BillingAccountDetailPage = () => {
       refetch()
       invoicesApi.refetch()
       paymentsApi.refetch()
+      if (statement) await loadStatement()
       setSuccessMessage(
         result.total_allocated > 0
           ? `Allocated ${formatMoney(result.total_allocated)} automatically.`
@@ -260,6 +266,60 @@ export const BillingAccountDetailPage = () => {
     } else if (autoAllocateMutation.error) {
       setError(autoAllocateMutation.error)
     }
+  }
+
+  const undoAllocation = async (allocationId: number, reallocate: boolean) => {
+    setError(null)
+    setSuccessMessage(null)
+    let allocatedAmount = 0
+    if (reallocate) {
+      autoAllocateMutation.reset()
+      const result = await autoAllocateMutation.execute(() =>
+        api.post(
+          `/payments/allocations/${allocationId}/undo-reallocate`,
+          {},
+          {
+            params: {
+              reason: 'Undo allocation before reallocation',
+            },
+          }
+        )
+      )
+      if (result == null) {
+        refetch()
+        invoicesApi.refetch()
+        paymentsApi.refetch()
+        await loadStatement()
+        setError(autoAllocateMutation.error ?? 'Failed to reallocate credit.')
+        return
+      }
+      allocatedAmount = result.total_allocated
+    } else {
+      deleteAllocationMutation.reset()
+      const ok = await deleteAllocationMutation.execute(() =>
+        api
+          .delete(`/payments/allocations/${allocationId}`, {
+            params: {
+              reason: 'Undo allocation from billing account statement',
+            },
+          })
+          .then(() => ({ data: { data: true } }))
+      )
+      if (ok == null) {
+        setError(deleteAllocationMutation.error ?? 'Failed to undo allocation.')
+        return
+      }
+    }
+
+    refetch()
+    invoicesApi.refetch()
+    paymentsApi.refetch()
+    await loadStatement()
+    setSuccessMessage(
+      reallocate
+        ? `Allocation removed and ${formatMoney(allocatedAmount)} reallocated.`
+        : 'Allocation removed. Credit returned to the billing account.'
+    )
   }
 
   if (accountLoading) {
@@ -549,17 +609,44 @@ export const BillingAccountDetailPage = () => {
                     <TableHeaderCell align="right">Credit</TableHeaderCell>
                     <TableHeaderCell align="right">Debit</TableHeaderCell>
                     <TableHeaderCell align="right">Balance</TableHeaderCell>
+                    {canManage && <TableHeaderCell align="right">Actions</TableHeaderCell>}
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {statement.entries.map((entry, index) => (
-                    <TableRow key={`${entry.reference ?? 'entry'}-${index}`}>
+                    <TableRow key={`${entry.entry_type}-${entry.payment_id ?? entry.allocation_id ?? index}`}>
                       <TableCell>{formatDateTime(entry.date)}</TableCell>
                       <TableCell>{entry.description}</TableCell>
                       <TableCell>{entry.reference ?? '—'}</TableCell>
                       <TableCell align="right">{entry.credit ? formatMoney(entry.credit) : '—'}</TableCell>
                       <TableCell align="right">{entry.debit ? formatMoney(entry.debit) : '—'}</TableCell>
                       <TableCell align="right">{formatMoney(entry.balance)}</TableCell>
+                      {canManage && (
+                        <TableCell align="right">
+                          {entry.allocation_id ? (
+                            <div className="flex gap-2 justify-end">
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                disabled={deleteAllocationMutation.loading || autoAllocateMutation.loading}
+                                onClick={() => undoAllocation(Number(entry.allocation_id), false)}
+                              >
+                                Undo
+                              </Button>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                disabled={deleteAllocationMutation.loading || autoAllocateMutation.loading}
+                                onClick={() => undoAllocation(Number(entry.allocation_id), true)}
+                              >
+                                Undo + reallocate
+                              </Button>
+                            </div>
+                          ) : (
+                            '—'
+                          )}
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>

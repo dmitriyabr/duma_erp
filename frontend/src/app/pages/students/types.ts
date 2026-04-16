@@ -131,8 +131,12 @@ export interface StudentDiscountResponse {
 
 export interface StatementEntry {
   date: string
+  entry_type: string
   description: string
   reference?: string | null
+  payment_id?: number | null
+  allocation_id?: number | null
+  invoice_id?: number | null
   credit?: number | null
   debit?: number | null
   balance: number

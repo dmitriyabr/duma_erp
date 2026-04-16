@@ -285,21 +285,23 @@
 - [x] Документация и тесты
 
 ### 3.2 Аллокация средств
-> Решения: Товары requires_full_payment, услуги можно частично, smallest first
+> Решения: сначала закрываем долги прошлых terms, затем active/current term; внутри term — requires_full_payment перед proportional partial allocation
 
 - [x] Поле `requires_full_payment` в Item (default: True для product, False для service)
 - [x] Поле `requires_full_payment` в Kit (default: True)
 - [x] Property `Invoice.requires_full_payment`
 - [x] Миграция 009_requires_full_payment.py
-- [x] Сервис allocate_auto (приоритет: requires_full — можно частично; partial_ok — пропорционально по amount_due; триггеры: payment complete, любой Issued)
+- [x] Сервис allocate_auto (приоритет: previous-term debt → active/current term → future/no-term; внутри bucket: requires_full — можно частично, partial_ok — пропорционально по amount_due; триггеры: payment complete, любой Issued)
 - [x] Сервис allocate_manual (ручная аллокация на конкретный invoice)
 - [x] Сервис delete_allocation (удаление аллокации с возвратом в баланс)
-- [x] API endpoints (POST /allocations/auto, POST /allocations/manual, DELETE /allocations/{id})
+- [x] Сервис undo_and_reallocate_allocation: атомарный undo + auto-allocation с сохранением исходной даты allocation для reports/exports
+- [x] API endpoints (POST /allocations/auto, POST /allocations/manual, DELETE /allocations/{id}, POST /allocations/{id}/undo-reallocate)
+- [x] UI на billing account statement: Undo allocation и Undo + reallocate для ошибочного auto-allocation
 - [x] Тесты
 
 ### 3.3 Выписка по счёту (Statement)
 - [x] Сервис get_statement (student_id, date_from, date_to)
-- [x] Схема StatementResponse (entries, total_credits, total_debits, opening_balance, closing_balance)
+- [x] Схема StatementResponse (entries с `entry_type`, `payment_id`, `allocation_id`, `invoice_id`, total_credits, total_debits, opening_balance, closing_balance)
 - [x] API endpoint GET /payments/students/{id}/statement
 - [x] Тесты
 

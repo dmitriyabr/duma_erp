@@ -3,6 +3,7 @@
 from collections import defaultdict
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from itertools import groupby
 
 from sqlalchemy import exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,6 +34,7 @@ from src.modules.payments.schemas import (
 )
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus
 from src.modules.students.models import Student
+from src.modules.terms.models import Term, TermStatus
 from src.modules.reservations.service import ReservationService
 
 
@@ -611,16 +613,16 @@ class PaymentService:
         data: AutoAllocateRequest,
         allocated_by_id: int,
         *,
+        allocation_created_at: datetime | None = None,
         commit: bool = True,
     ) -> AutoAllocateResult:
         """
         Auto-allocate credit to invoices.
 
         Algorithm:
-        1. requires_full invoices first (by amount_due asc) — can be paid partially
-           (uniform/fulfillment won't trigger until full; we just prioritize these).
-        2. partial_ok invoices — distribute remaining balance proportionally by
-           each invoice's amount_due (amount_i = remaining * (amount_due_i / total_due)).
+        1. Older term debt first, then active/current term, then future/no-term invoices.
+        2. Within each term bucket, requires_full invoices are paid first.
+        3. Other invoices in the same bucket share remaining balance proportionally by amount_due.
         """
         account, reference_student = await self._resolve_billing_context(
             student_id=data.student_id,
@@ -647,6 +649,7 @@ class PaymentService:
         remaining = max_to_allocate
 
         # Get unpaid invoices with lines loaded (needed for requires_full_payment check)
+        active_term = await self._get_active_term()
         result = await self.db.execute(
             select(Invoice)
             .where(
@@ -659,20 +662,10 @@ class PaymentService:
             )
             .options(
                 selectinload(Invoice.lines).selectinload(InvoiceLine.kit),
+                selectinload(Invoice.term),
             )
-            .order_by(Invoice.amount_due.asc())
         )
         invoices = list(result.scalars().all())
-
-        # Split into groups
-        requires_full_invoices = []
-        partial_ok_invoices = []
-
-        for invoice in invoices:
-            if invoice.requires_full_payment:
-                requires_full_invoices.append(invoice)
-            else:
-                partial_ok_invoices.append(invoice)
 
         allocations = []
         fully_paid = 0
@@ -680,14 +673,17 @@ class PaymentService:
 
         # Helper to create allocation
         async def create_allocation(invoice: Invoice, amount: Decimal) -> AllocationResponse:
-            allocation = CreditAllocation(
-                student_id=invoice.student_id,
-                billing_account_id=account.id,
-                invoice_id=invoice.id,
-                invoice_line_id=None,
-                amount=round_money(amount),
-                allocated_by_id=allocated_by_id,
-            )
+            allocation_values = {
+                "student_id": invoice.student_id,
+                "billing_account_id": account.id,
+                "invoice_id": invoice.id,
+                "invoice_line_id": None,
+                "amount": round_money(amount),
+                "allocated_by_id": allocated_by_id,
+            }
+            if allocation_created_at is not None:
+                allocation_values["created_at"] = allocation_created_at
+            allocation = CreditAllocation(**allocation_values)
             self.db.add(allocation)
             await self.db.flush()
 
@@ -705,51 +701,62 @@ class PaymentService:
                 created_at=allocation.created_at,
             )
 
-        # Step 1: Process requires_full invoices (allow partial; priority order only)
-        for invoice in requires_full_invoices:
+        sorted_invoices = sorted(
+            invoices,
+            key=lambda invoice: self._allocation_priority_key(invoice, active_term),
+        )
+
+        for _, term_invoices_iter in groupby(
+            sorted_invoices,
+            key=lambda invoice: self._allocation_term_bucket(invoice, active_term),
+        ):
             if remaining <= 0:
                 break
-            amount_to_allocate = min(remaining, invoice.amount_due)
-            alloc_response = await create_allocation(invoice, amount_to_allocate)
-            allocations.append(alloc_response)
-            if amount_to_allocate >= invoice.amount_due:
-                fully_paid += 1
-            else:
-                partially_paid += 1
-            remaining -= amount_to_allocate
 
-        # Step 2: Process partial_ok invoices — proportional by amount_due
-        if partial_ok_invoices and remaining > 0:
-            total_partial_due = sum(inv.amount_due for inv in partial_ok_invoices)
-            if total_partial_due > 0:
-                # Allocate proportionally; use Decimal for precision
-                amounts_per_invoice: list[tuple[Invoice, Decimal]] = []
-                for inv in partial_ok_invoices:
-                    share = (inv.amount_due / total_partial_due) * remaining
-                    amount = min(inv.amount_due, round_money(share))
-                    amounts_per_invoice.append((inv, amount))
-                # Ensure we don't over-allocate due to rounding: cap total at remaining
-                total_alloc = sum(amt for _, amt in amounts_per_invoice)
-                if total_alloc > remaining:
-                    # Reduce largest allocation(s) to fit
-                    diff = total_alloc - remaining
-                    for i in range(len(amounts_per_invoice) - 1, -1, -1):
-                        inv, amt = amounts_per_invoice[i]
-                        reduce_by = min(diff, amt)
-                        amounts_per_invoice[i] = (inv, amt - reduce_by)
-                        diff -= reduce_by
-                        if diff <= 0:
-                            break
-                for invoice, amount in amounts_per_invoice:
+            term_invoices = list(term_invoices_iter)
+            requires_full_invoices = [
+                invoice for invoice in term_invoices if invoice.requires_full_payment
+            ]
+            partial_ok_invoices = [
+                invoice for invoice in term_invoices if not invoice.requires_full_payment
+            ]
+
+            # Step 1: requires_full invoices first inside the term bucket.
+            for invoice in requires_full_invoices:
+                if remaining <= 0:
+                    break
+                due_before = round_money(invoice.amount_due)
+                amount_to_allocate = min(remaining, due_before)
+                alloc_response = await create_allocation(invoice, amount_to_allocate)
+                allocations.append(alloc_response)
+                if amount_to_allocate >= due_before:
+                    fully_paid += 1
+                else:
+                    partially_paid += 1
+                remaining = round_money(remaining - amount_to_allocate)
+
+            # Step 2: partial_ok invoices share remaining balance proportionally in this bucket.
+            if partial_ok_invoices and remaining > 0:
+                invoice_by_id = {invoice.id: invoice for invoice in partial_ok_invoices}
+                capacities = {
+                    invoice.id: round_money(invoice.amount_due)
+                    for invoice in partial_ok_invoices
+                    if invoice.amount_due > 0
+                }
+                amounts_by_invoice_id, _ = self._allocate_proportionally(remaining, capacities)
+                for invoice_id, amount in amounts_by_invoice_id.items():
+                    amount = round_money(amount)
                     if amount <= 0:
                         continue
+                    invoice = invoice_by_id[invoice_id]
+                    due_before = round_money(invoice.amount_due)
                     alloc_response = await create_allocation(invoice, amount)
                     allocations.append(alloc_response)
-                    if amount >= invoice.amount_due:
+                    if amount >= due_before:
                         fully_paid += 1
                     else:
                         partially_paid += 1
-                    remaining -= amount
+                    remaining = round_money(remaining - amount)
 
         total_allocated = max_to_allocate - remaining
         await self._update_billing_account_balance_cache(account.id)
@@ -782,8 +789,58 @@ class PaymentService:
             allocations=allocations,
         )
 
+    async def _get_active_term(self) -> Term | None:
+        result = await self.db.execute(
+            select(Term).where(Term.status == TermStatus.ACTIVE.value)
+        )
+        return result.scalar_one_or_none()
+
+    def _allocation_term_bucket(
+        self,
+        invoice: Invoice,
+        active_term: Term | None,
+    ) -> tuple[int, int, int]:
+        """Return a sortable bucket where older academic debt wins before current debt."""
+        term = invoice.term
+
+        if term is not None:
+            if active_term is not None:
+                invoice_key = (term.year, term.term_number)
+                active_key = (active_term.year, active_term.term_number)
+                if invoice_key < active_key:
+                    bucket = 0
+                elif invoice_key == active_key:
+                    bucket = 1
+                else:
+                    bucket = 2
+            elif term.status == TermStatus.CLOSED.value:
+                bucket = 0
+            else:
+                bucket = 1
+            return (bucket, term.year, term.term_number)
+
+        if active_term is not None and active_term.start_date is not None:
+            invoice_date = invoice.due_date or invoice.issue_date
+            if invoice_date is not None and invoice_date < active_term.start_date:
+                return (0, 9999, 99)
+
+        return (3, 9999, 99)
+
+    def _allocation_priority_key(
+        self,
+        invoice: Invoice,
+        active_term: Term | None,
+    ) -> tuple[int, int, int, date, int]:
+        fallback_date = invoice.due_date or invoice.issue_date or date.max
+        return (*self._allocation_term_bucket(invoice, active_term), fallback_date, invoice.id)
+
     async def delete_allocation(
-        self, allocation_id: int, deleted_by_id: int, reason: str | None = None
+        self,
+        allocation_id: int,
+        deleted_by_id: int,
+        reason: str | None = None,
+        *,
+        commit: bool = True,
     ) -> None:
         """Delete an allocation (return credit to balance)."""
         result = await self.db.execute(
@@ -818,7 +875,40 @@ class PaymentService:
         await self._update_invoice_paid_amounts(invoice)
         await self._sync_reservations_for_invoice(invoice.id, deleted_by_id)
 
+        if commit:
+            await self.db.commit()
+
+    async def undo_and_reallocate_allocation(
+        self,
+        allocation_id: int,
+        allocated_by_id: int,
+        reason: str | None = None,
+    ) -> AutoAllocateResult:
+        """Undo one allocation and re-run auto-allocation without moving report period."""
+        result = await self.db.execute(
+            select(CreditAllocation).where(CreditAllocation.id == allocation_id)
+        )
+        allocation = result.scalar_one_or_none()
+        if not allocation:
+            raise NotFoundError(f"Allocation with id {allocation_id} not found")
+
+        billing_account_id = allocation.billing_account_id
+        allocation_created_at = allocation.created_at
+
+        await self.delete_allocation(
+            allocation_id,
+            allocated_by_id,
+            reason or "Undo allocation before reallocation",
+            commit=False,
+        )
+        result = await self.allocate_auto(
+            AutoAllocateRequest(billing_account_id=billing_account_id),
+            allocated_by_id=allocated_by_id,
+            allocation_created_at=allocation_created_at,
+            commit=False,
+        )
         await self.db.commit()
+        return result
 
     # --- Statement Methods ---
 
@@ -937,8 +1027,10 @@ class PaymentService:
                 entries.append(
                     StatementEntry(
                         date=dt,
+                        entry_type="payment",
                         description=f"Payment - {payment.payment_method.upper()} ({account.display_name})",
                         reference=payment.receipt_number or payment.payment_number,
+                        payment_id=payment.id,
                         credit=payment.amount,
                         debit=None,
                         balance=round_money(running_balance),
@@ -952,8 +1044,11 @@ class PaymentService:
                 entries.append(
                     StatementEntry(
                         date=dt,
+                        entry_type="allocation",
                         description=f"Payment to {invoice.invoice_number} ({invoice.student.full_name})",
                         reference=invoice.invoice_number,
+                        allocation_id=allocation.id,
+                        invoice_id=invoice.id,
                         credit=None,
                         debit=allocation.amount,
                         balance=round_money(running_balance),

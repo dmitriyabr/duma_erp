@@ -182,8 +182,12 @@ class StatementEntry(BaseSchema):
     """Single entry in a statement."""
 
     date: datetime
+    entry_type: str
     description: str
     reference: str | None  # payment_number or invoice_number
+    payment_id: int | None = None
+    allocation_id: int | None = None
+    invoice_id: int | None = None
     credit: Decimal | None  # payment (positive)
     debit: Decimal | None  # allocation (negative)
     balance: Decimal  # running balance

@@ -21,6 +21,7 @@ from src.modules.payments.service import PaymentService
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
 from src.modules.students.models import Grade, Student, StudentStatus, Gender
 from src.modules.items.models import Category, Item, ItemType, Kit, KitItem, PriceType
+from src.modules.terms.models import Term, TermStatus
 
 
 class TestPaymentService:
@@ -502,6 +503,61 @@ class TestPaymentService:
         assert paid_totals[1] == Decimal("1800.00")
         assert paid_totals[2] == Decimal("1200.00")
 
+    async def test_auto_allocation_closes_previous_term_before_active_term(
+        self, db_session: AsyncSession
+    ):
+        """Previous term debt should be fully considered before active-term invoices."""
+        data = await self._setup_test_data(db_session)
+        user = data["user"]
+        previous_term = Term(
+            year=2097,
+            term_number=1,
+            display_name="2097-T1",
+            status=TermStatus.CLOSED.value,
+            start_date=date(2097, 1, 1),
+            end_date=date(2097, 3, 31),
+            created_by_id=user.id,
+        )
+        active_term = Term(
+            year=2097,
+            term_number=2,
+            display_name="2097-T2",
+            status=TermStatus.ACTIVE.value,
+            start_date=date(2097, 4, 1),
+            end_date=date(2097, 6, 30),
+            created_by_id=user.id,
+        )
+        db_session.add_all([previous_term, active_term])
+        await db_session.flush()
+
+        data["invoice1"].term_id = active_term.id
+        data["invoice2"].term_id = previous_term.id
+        data["invoice3"].term_id = active_term.id
+        await db_session.commit()
+
+        service = PaymentService(db_session)
+        payment = await service.create_payment(
+            PaymentCreate(
+                student_id=data["student"].id,
+                amount=Decimal("4000.00"),
+                payment_method=PaymentMethod.MPESA,
+                payment_date=date.today(),
+                reference="previous-term-first",
+            ),
+            received_by_id=user.id,
+        )
+        await service.complete_payment(payment.id, user.id)
+
+        previous_invoice = await db_session.get(Invoice, data["invoice2"].id)
+        active_invoice = await db_session.get(Invoice, data["invoice1"].id)
+
+        assert previous_invoice is not None
+        assert active_invoice is not None
+        assert previous_invoice.paid_total == Decimal("3000.00")
+        assert previous_invoice.amount_due == Decimal("0.00")
+        assert active_invoice.paid_total > Decimal("0.00")
+        assert active_invoice.paid_total < active_invoice.total
+
     async def test_auto_allocation_max_amount(self, db_session: AsyncSession):
         """Test auto allocation with max_amount limit."""
         data = await self._setup_test_data(db_session)
@@ -792,6 +848,63 @@ class TestPaymentService:
         balance_after = await service.get_student_balance(data["student"].id)
         assert balance_after.available_balance == amount_deleted
 
+    async def test_undo_and_reallocate_preserves_allocation_report_date(
+        self, db_session: AsyncSession
+    ):
+        """Undo + reallocate should not move allocation-based reports to today."""
+        data = await self._setup_test_data(db_session)
+        service = PaymentService(db_session)
+
+        payment = await service.create_payment(
+            PaymentCreate(
+                student_id=data["student"].id,
+                amount=Decimal("5000.00"),
+                payment_method=PaymentMethod.MPESA,
+                payment_date=date(2026, 1, 10),
+                reference="test-reallocate-date",
+            ),
+            received_by_id=data["user"].id,
+        )
+        await service.complete_payment(payment.id, data["user"].id)
+
+        alloc_result = await db_session.execute(
+            select(CreditAllocation)
+            .where(CreditAllocation.student_id == data["student"].id)
+            .order_by(CreditAllocation.id.asc())
+        )
+        allocation_to_reallocate = list(alloc_result.scalars().all())[0]
+        original_allocation_id = allocation_to_reallocate.id
+        original_amount = allocation_to_reallocate.amount
+        original_created_at = datetime(2026, 1, 10, 9, 30, tzinfo=timezone.utc)
+        allocation_to_reallocate.created_at = original_created_at
+        await db_session.commit()
+
+        result = await service.undo_and_reallocate_allocation(
+            original_allocation_id,
+            data["user"].id,
+            "Test undo and reallocate",
+        )
+
+        assert result.total_allocated == original_amount
+
+        refreshed_allocations = await db_session.execute(
+            select(CreditAllocation).where(
+                CreditAllocation.student_id == data["student"].id
+            )
+        )
+        allocations = list(refreshed_allocations.scalars().all())
+        assert all(allocation.id != original_allocation_id for allocation in allocations)
+
+        reallocated_same_day_total = sum(
+            (
+                allocation.amount
+                for allocation in allocations
+                if allocation.created_at.date() == original_created_at.date()
+            ),
+            Decimal("0.00"),
+        )
+        assert reallocated_same_day_total == original_amount
+
     async def test_get_statement(self, db_session: AsyncSession):
         """Test generating account statement."""
         data = await self._setup_test_data(db_session)
@@ -841,6 +954,13 @@ class TestPaymentService:
         assert statement.total_debits == Decimal("2000.00")
         assert statement.closing_balance == Decimal("8000.00")
         assert len(statement.entries) == 2  # 1 payment + 1 allocation
+        payment_entry = next(entry for entry in statement.entries if entry.entry_type == "payment")
+        allocation_entry = next(
+            entry for entry in statement.entries if entry.entry_type == "allocation"
+        )
+        assert payment_entry.payment_id == payment.id
+        assert allocation_entry.allocation_id == allocation.id
+        assert allocation_entry.invoice_id == data["invoice3"].id
 
 
 class TestPaymentEndpoints:
@@ -1099,3 +1219,60 @@ class TestPaymentEndpoints:
         result = response.json()
         assert Decimal(result["data"]["total_allocated"]) == Decimal("0.00")
         assert result["data"]["invoices_fully_paid"] == 0
+
+    async def test_undo_reallocate_allocation_api_preserves_report_date(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """API Undo + reallocate should preserve allocation date for period reports."""
+        token, user_id, data = await self._setup_auth_and_data(db_session)
+        service = PaymentService(db_session)
+
+        payment = await service.create_payment(
+            PaymentCreate(
+                student_id=data["student"].id,
+                amount=Decimal("5000.00"),
+                payment_method=PaymentMethod.MPESA,
+                payment_date=date(2026, 1, 10),
+                reference="api-undo-reallocate",
+            ),
+            received_by_id=user_id,
+        )
+        await service.complete_payment(payment.id, user_id)
+
+        allocation_result = await db_session.execute(
+            select(CreditAllocation).where(
+                CreditAllocation.student_id == data["student"].id
+            )
+        )
+        allocation = allocation_result.scalar_one()
+        allocation_id = allocation.id
+        allocation_amount = allocation.amount
+        original_created_at = datetime(2026, 1, 10, 8, 0, tzinfo=timezone.utc)
+        allocation.created_at = original_created_at
+        await db_session.commit()
+
+        response = await client.post(
+            f"/api/v1/payments/allocations/{allocation_id}/undo-reallocate",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"reason": "API test undo and reallocate"},
+        )
+
+        assert response.status_code == 200
+        result = response.json()["data"]
+        assert Decimal(result["total_allocated"]) == allocation_amount
+
+        refreshed_allocations = await db_session.execute(
+            select(CreditAllocation).where(
+                CreditAllocation.student_id == data["student"].id
+            )
+        )
+        allocations = list(refreshed_allocations.scalars().all())
+        assert all(item.id != allocation_id for item in allocations)
+        assert sum(
+            (
+                item.amount
+                for item in allocations
+                if item.created_at.date() == original_created_at.date()
+            ),
+            Decimal("0.00"),
+        ) == allocation_amount

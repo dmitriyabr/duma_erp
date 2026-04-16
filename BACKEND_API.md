@@ -237,10 +237,11 @@
 - `POST /payments/{payment_id}/cancel`
 - `POST /payments/students/balances-batch` — body: `{ student_ids: number[] }`. Ответ: `{ balances: StudentBalance[] }` — по каждому ученику: shared `available_balance` billing account, student-specific `outstanding_debt` и student-facing `balance`; общий credit не размазывается как личный баланс каждого ребёнка.
 - `GET /payments/students/{student_id}/balance` — response возвращает billing account metadata, `available_balance` как shared credit account, а `outstanding_debt` / `balance` как student-specific position; общий credit не атрибутируется одному ребёнку, поэтому `balance` не включает долги siblings и не дублирует shared credit как личный баланс ученика
-- `GET /payments/students/{student_id}/statement` — `date_from`, `date_to`; statement строится по linked billing account wallet
-- `POST /payments/allocations/auto` — body принимает `student_id` или `billing_account_id`
+- `GET /payments/students/{student_id}/statement` — `date_from`, `date_to`; statement строится по linked billing account wallet; entries содержат `entry_type`, `payment_id`, `allocation_id`, `invoice_id`, чтобы allocation можно было откатить
+- `POST /payments/allocations/auto` — body принимает `student_id` или `billing_account_id`; порядок: previous-term debt first, затем active/current term, затем future/no-term invoices; внутри одного term bucket `requires_full` invoices идут перед proportional partial allocation
 - `POST /payments/allocations/manual` — body принимает `student_id` или `billing_account_id`
-- `DELETE /payments/allocations/{allocation_id}`
+- `DELETE /payments/allocations/{allocation_id}` — отменить allocation и вернуть сумму в billing account credit
+- `POST /payments/allocations/{allocation_id}/undo-reallocate` — атомарно отменить allocation и сразу запустить auto-allocation заново по тому же billing account; новые allocations сохраняют исходный `created_at`, чтобы allocation-based reports/exports не переезжали в период фактического исправления
 
 ### 5.9.1. M-Pesa C2B (Paybill) Webhooks
 - `POST /c2b/validation/{token}` — публичный endpoint (без JWT) для validation callback (token берётся из `MPESA_WEBHOOK_TOKEN`)
@@ -432,13 +433,13 @@
 - `PaymentUpdate`: `amount?`, `preferred_invoice_id?`, `payment_method?`, `payment_date?`, `reference?`, `notes?`
 - `PaymentResponse`: `id`, `payment_number`, `receipt_number?`, `student_id`, `student_name?`, `student_number?`, `preferred_invoice_id?`, `preferred_invoice_number?`, `amount`, `payment_method`, `payment_date`, `reference?`, `confirmation_attachment_id?`, `status`, `notes?`, `received_by_id`, `created_at`, `updated_at`
 - `AttachmentResponse`: `id`, `file_name`, `content_type`, `file_size`, `created_at` (ответ POST /attachments и GET /attachments/{id})
-- `AllocationCreate`: `student_id`, `invoice_id`, `invoice_line_id?`, `amount`
-- `AllocationResponse`: `id`, `student_id`, `invoice_id`, `invoice_line_id?`, `amount`, `allocated_by_id`, `created_at`
-- `AutoAllocateRequest`: `student_id`, `max_amount?`
+- `AllocationCreate`: `student_id?`, `billing_account_id?`, `invoice_id`, `invoice_line_id?`, `amount`
+- `AllocationResponse`: `id`, `student_id`, `billing_account_id`, `invoice_id`, `invoice_line_id?`, `amount`, `allocated_by_id`, `created_at`
+- `AutoAllocateRequest`: `student_id?`, `billing_account_id?`, `max_amount?`
 - `AutoAllocateResult`: `total_allocated`, `invoices_fully_paid`, `invoices_partially_paid`, `remaining_balance`, `allocations[]`
 - `StudentBalance`: `student_id`, `total_payments`, `total_allocated`, `available_balance`, `outstanding_debt`, `balance` (net: available_balance − outstanding_debt, считается на бэкенде)
 - `StatementResponse`: `student_id`, `student_name`, `period_from`, `period_to`, `opening_balance`, `total_credits`, `total_debits`, `closing_balance`, `entries[]`
-- `StatementEntry`: `date`, `description`, `reference?`, `credit?`, `debit?`, `balance`
+- `StatementEntry`: `date`, `entry_type`, `payment_id?`, `allocation_id?`, `invoice_id?`, `description`, `reference?`, `credit?`, `debit?`, `balance`
 
 ### 6.9. Inventory
 - `ReceiveStockRequest`: `item_id`, `quantity`, `unit_cost`, `reference_type?`, `reference_id?`, `notes?`
