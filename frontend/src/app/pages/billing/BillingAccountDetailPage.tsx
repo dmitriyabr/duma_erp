@@ -5,16 +5,18 @@ import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api } from '../../services/api'
 import { canManageBillingAccounts } from '../../utils/permissions'
 import { formatDate, formatDateTime, formatMoney } from '../../utils/format'
-import type { PaginatedResponse } from '../../types/api'
+import type { ApiResponse, PaginatedResponse } from '../../types/api'
 import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { Checkbox } from '../../components/ui/Checkbox'
 import { Dialog, DialogActions, DialogCloseButton, DialogContent, DialogTitle } from '../../components/ui/Dialog'
 import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
 import { Spinner } from '../../components/ui/Spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '../../components/ui/Table'
 import { Typography } from '../../components/ui/Typography'
+import type { InvoiceDetail, InvoiceLine } from '../students/types'
 import { BillingAccountChildEditor } from './components/BillingAccountChildEditor'
 import {
   buildBillingChildPayload,
@@ -145,12 +147,21 @@ export const BillingAccountDetailPage = () => {
     remaining_balance: number
   }>()
   const deleteAllocationMutation = useApiMutation<boolean>()
+  const manualAllocationMutation = useApiMutation<unknown>()
 
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [addChildDialogOpen, setAddChildDialogOpen] = useState(false)
+  const [allocationDialogOpen, setAllocationDialogOpen] = useState(false)
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null)
   const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([])
   const [childDraft, setChildDraft] = useState<BillingAccountChildDraft>(createEmptyBillingChildDraft())
   const [childErrors, setChildErrors] = useState<BillingAccountChildErrors>({})
+  const [allocationForm, setAllocationForm] = useState({
+    invoice_id: '',
+    invoice_line_id: '',
+    amount: '',
+  })
+  const [allocationLines, setAllocationLines] = useState<InvoiceLine[]>([])
   const [statementForm, setStatementForm] = useState(() => {
     const now = new Date()
     const start = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -162,6 +173,11 @@ export const BillingAccountDetailPage = () => {
   const [statement, setStatement] = useState<StatementResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const invoiceDetailApi = useApi<InvoiceDetail>(
+    selectedInvoiceId ? `/invoices/${selectedInvoiceId}` : null,
+    undefined,
+    [selectedInvoiceId]
+  )
 
   const currentMemberIds = useMemo(
     () => new Set(account?.members.map((member) => member.student_id) ?? []),
@@ -185,6 +201,52 @@ export const BillingAccountDetailPage = () => {
     setChildDraft(createEmptyBillingChildDraft())
     setChildErrors({})
     setAddChildDialogOpen(true)
+  }
+
+  const openManualAllocation = () => {
+    invoicesApi.refetch()
+    setAllocationLines([])
+    setAllocationForm({ invoice_id: '', invoice_line_id: '', amount: '' })
+    setAllocationDialogOpen(true)
+  }
+
+  const loadInvoiceLinesForAllocation = async (invoiceId: string) => {
+    if (!invoiceId) {
+      setAllocationLines([])
+      return
+    }
+    try {
+      const response = await api.get<ApiResponse<InvoiceDetail>>(`/invoices/${invoiceId}`)
+      setAllocationLines(response.data.data.lines)
+    } catch {
+      setAllocationLines([])
+    }
+  }
+
+  const submitManualAllocation = async () => {
+    setError(null)
+    setSuccessMessage(null)
+    manualAllocationMutation.reset()
+    const result = await manualAllocationMutation.execute(() =>
+      api.post('/payments/allocations/manual', {
+        billing_account_id: resolvedId,
+        invoice_id: Number(allocationForm.invoice_id),
+        invoice_line_id: allocationForm.invoice_line_id
+          ? Number(allocationForm.invoice_line_id)
+          : null,
+        amount: Number(allocationForm.amount),
+      })
+    )
+    if (result != null) {
+      setAllocationDialogOpen(false)
+      refetch()
+      invoicesApi.refetch()
+      paymentsApi.refetch()
+      if (statement) await loadStatement()
+      setSuccessMessage('Credit allocated.')
+    } else if (manualAllocationMutation.error) {
+      setError(manualAllocationMutation.error)
+    }
   }
 
   const submitMembers = async () => {
@@ -336,6 +398,11 @@ export const BillingAccountDetailPage = () => {
 
   const invoices = invoicesApi.data?.items ?? []
   const payments = paymentsApi.data?.items ?? []
+  const selectedInvoice = invoiceDetailApi.data
+  const openInvoicesForAllocation = invoices.filter((invoice) => {
+    const status = invoice.status?.toLowerCase()
+    return status !== 'paid' && status !== 'cancelled' && status !== 'void'
+  })
 
   return (
     <div className="space-y-6">
@@ -343,9 +410,9 @@ export const BillingAccountDetailPage = () => {
         Back
       </Button>
 
-      {(error || accountError || invoicesApi.error || paymentsApi.error || studentsApi.error || referencedError) && (
+      {(error || accountError || invoicesApi.error || paymentsApi.error || studentsApi.error || referencedError || invoiceDetailApi.error) && (
         <Alert severity="error" onClose={() => setError(null)}>
-          {error ?? accountError ?? invoicesApi.error ?? paymentsApi.error ?? studentsApi.error ?? referencedError}
+          {error ?? accountError ?? invoicesApi.error ?? paymentsApi.error ?? studentsApi.error ?? referencedError ?? invoiceDetailApi.error}
         </Alert>
       )}
       {successMessage && (
@@ -388,6 +455,13 @@ export const BillingAccountDetailPage = () => {
                 disabled={autoAllocateMutation.loading}
               >
                 {autoAllocateMutation.loading ? <Spinner size="small" /> : 'Auto-allocate credit'}
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={openManualAllocation}
+                disabled={manualAllocationMutation.loading}
+              >
+                Allocate credit
               </Button>
               <Button variant="outlined" onClick={() => navigate(`/billing/families/${account.id}/edit`)}>
                 Edit
@@ -487,7 +561,15 @@ export const BillingAccountDetailPage = () => {
             <TableBody>
               {invoices.map((invoice) => (
                 <TableRow key={invoice.id}>
-                  <TableCell>{invoice.invoice_number}</TableCell>
+                  <TableCell>
+                    <button
+                      type="button"
+                      className="font-mono text-sm text-indigo-700 hover:underline"
+                      onClick={() => setSelectedInvoiceId(invoice.id)}
+                    >
+                      {invoice.invoice_number}
+                    </button>
+                  </TableCell>
                   <TableCell>{invoice.student_name ?? '—'}</TableCell>
                   <TableCell>{invoice.invoice_type}</TableCell>
                   <TableCell>{invoice.status}</TableCell>
@@ -495,7 +577,7 @@ export const BillingAccountDetailPage = () => {
                   <TableCell>{invoice.due_date ? formatDate(invoice.due_date) : '—'}</TableCell>
                   <TableCell align="right">
                     <div className="flex gap-2 justify-end">
-                      <Button size="small" variant="outlined" onClick={() => navigate(`/students/${invoice.student_id}?tab=invoices`)}>
+                      <Button size="small" variant="outlined" onClick={() => setSelectedInvoiceId(invoice.id)}>
                         View
                       </Button>
                       {canManage && invoice.amount_due > 0 && (
@@ -655,6 +737,166 @@ export const BillingAccountDetailPage = () => {
           </>
         )}
       </section>
+
+      <Dialog open={Boolean(selectedInvoiceId)} onClose={() => setSelectedInvoiceId(null)} maxWidth="lg">
+        <DialogCloseButton onClose={() => setSelectedInvoiceId(null)} />
+        <DialogTitle>
+          Invoice {selectedInvoice?.invoice_number ?? ''}
+          {selectedInvoice ? ` · ${selectedInvoice.status}` : invoiceDetailApi.loading ? ' (loading...)' : ''}
+        </DialogTitle>
+        <DialogContent>
+          {invoiceDetailApi.loading ? (
+            <div className="py-8 flex justify-center">
+              <Spinner size="medium" />
+            </div>
+          ) : selectedInvoice ? (
+            <div className="space-y-4 mt-4">
+              <div className="grid gap-3 md:grid-cols-3">
+                <div>
+                  <Typography variant="body2" color="secondary">Student</Typography>
+                  <Typography variant="body2">{selectedInvoice.student_name ?? '—'}</Typography>
+                </div>
+                <div>
+                  <Typography variant="body2" color="secondary">Type</Typography>
+                  <Typography variant="body2">{selectedInvoice.invoice_type}</Typography>
+                </div>
+                <div>
+                  <Typography variant="body2" color="secondary">Due date</Typography>
+                  <Typography variant="body2">{selectedInvoice.due_date ? formatDate(selectedInvoice.due_date) : '—'}</Typography>
+                </div>
+                <div>
+                  <Typography variant="body2" color="secondary">Total</Typography>
+                  <Typography variant="body2">{formatMoney(selectedInvoice.total)}</Typography>
+                </div>
+                <div>
+                  <Typography variant="body2" color="secondary">Paid</Typography>
+                  <Typography variant="body2">{formatMoney(selectedInvoice.paid_total)}</Typography>
+                </div>
+                <div>
+                  <Typography variant="body2" color="secondary">Due</Typography>
+                  <Typography variant="body2">{formatMoney(selectedInvoice.amount_due)}</Typography>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableHeaderCell>Description</TableHeaderCell>
+                      <TableHeaderCell align="right">Qty</TableHeaderCell>
+                      <TableHeaderCell align="right">Line total</TableHeaderCell>
+                      <TableHeaderCell align="right">Paid</TableHeaderCell>
+                      <TableHeaderCell align="right">Remaining</TableHeaderCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {selectedInvoice.lines.map((line) => (
+                      <TableRow key={line.id}>
+                        <TableCell>{line.description}</TableCell>
+                        <TableCell align="right">{line.quantity}</TableCell>
+                        <TableCell align="right">{formatMoney(line.line_total)}</TableCell>
+                        <TableCell align="right">{formatMoney(line.paid_amount)}</TableCell>
+                        <TableCell align="right">{formatMoney(line.remaining_amount)}</TableCell>
+                      </TableRow>
+                    ))}
+                    {!selectedInvoice.lines.length && (
+                      <TableRow>
+                        <td colSpan={5} className="px-4 py-8 text-center">
+                          <Typography color="secondary">No invoice lines.</Typography>
+                        </td>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          ) : (
+            <Typography color="secondary" className="mt-4">Invoice not found.</Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button variant="outlined" onClick={() => setSelectedInvoiceId(null)}>
+            Close
+          </Button>
+          {selectedInvoice?.student_id && (
+            <Button
+              variant="outlined"
+              onClick={() => navigate(`/students/${selectedInvoice.student_id}?tab=invoices`)}
+            >
+              Open student invoices
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={allocationDialogOpen} onClose={() => setAllocationDialogOpen(false)} maxWidth="sm">
+        <DialogCloseButton onClose={() => setAllocationDialogOpen(false)} />
+        <DialogTitle>Allocate credit</DialogTitle>
+        <DialogContent>
+          <div className="space-y-4 mt-4">
+            <Select
+              value={allocationForm.invoice_id}
+              onChange={(event) => {
+                const nextInvoice = event.target.value
+                setAllocationForm({
+                  ...allocationForm,
+                  invoice_id: nextInvoice,
+                  invoice_line_id: '',
+                })
+                loadInvoiceLinesForAllocation(nextInvoice)
+              }}
+              label="Invoice"
+            >
+              <option value="">Select invoice</option>
+              {openInvoicesForAllocation.map((invoice) => (
+                <option key={invoice.id} value={String(invoice.id)}>
+                  {invoice.invoice_number}
+                  {invoice.student_name ? ` · ${invoice.student_name}` : ''}
+                  {` · Due ${formatMoney(invoice.amount_due)}`}
+                </option>
+              ))}
+            </Select>
+            <Select
+              value={allocationForm.invoice_line_id}
+              onChange={(event) =>
+                setAllocationForm({ ...allocationForm, invoice_line_id: event.target.value })
+              }
+              label="Invoice line (optional)"
+            >
+              <option value="">Any line</option>
+              {allocationLines.map((line) => (
+                <option key={line.id} value={String(line.id)}>
+                  {line.description} · {formatMoney(line.remaining_amount)}
+                </option>
+              ))}
+            </Select>
+            <Input
+              label="Amount"
+              type="number"
+              value={allocationForm.amount}
+              onChange={(event) =>
+                setAllocationForm({ ...allocationForm, amount: event.target.value })
+              }
+            />
+          </div>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="outlined" onClick={() => setAllocationDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={submitManualAllocation}
+            disabled={
+              manualAllocationMutation.loading ||
+              !allocationForm.invoice_id ||
+              !allocationForm.amount
+            }
+          >
+            {manualAllocationMutation.loading ? <Spinner size="small" /> : 'Allocate'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={addChildDialogOpen} onClose={() => setAddChildDialogOpen(false)} maxWidth="lg">
         <DialogCloseButton onClose={() => setAddChildDialogOpen(false)} />
