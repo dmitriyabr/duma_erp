@@ -14,6 +14,7 @@ from src.modules.terms.schemas import (
     TermCreate,
     TransportPricingCreate,
     TransportZoneCreate,
+    TransportZoneUpdate,
 )
 from src.modules.terms.service import TermService
 
@@ -168,6 +169,36 @@ class TestTermService:
         zones = await service.list_transport_zones()
         assert len(zones) == 1
 
+    async def test_update_transport_zone_rejects_duplicate_name_or_code(
+        self, db_session: AsyncSession
+    ):
+        """Updating a zone to another zone's name/code should fail before DB unique errors."""
+        admin_id = await self._create_super_admin(db_session)
+        service = TermService(db_session)
+
+        zone_a = await service.create_transport_zone(
+            TransportZoneCreate(zone_name="Zone A", zone_code="ZA"),
+            created_by_id=admin_id,
+        )
+        zone_b = await service.create_transport_zone(
+            TransportZoneCreate(zone_name="Zone B", zone_code="ZB"),
+            created_by_id=admin_id,
+        )
+
+        with pytest.raises(DuplicateError):
+            await service.update_transport_zone(
+                zone_b.id,
+                TransportZoneUpdate(zone_name=zone_a.zone_name),
+                updated_by_id=admin_id,
+            )
+
+        with pytest.raises(DuplicateError):
+            await service.update_transport_zone(
+                zone_b.id,
+                TransportZoneUpdate(zone_code=zone_a.zone_code),
+                updated_by_id=admin_id,
+            )
+
     async def test_transport_pricing(self, db_session: AsyncSession):
         """Test transport pricing update."""
         admin_id = await self._create_super_admin(db_session)
@@ -285,6 +316,63 @@ class TestTermEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert len(data["data"]) == 2
+
+    async def test_update_transport_zone_duplicate_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Transport zone update duplicate should return API 409, not DB 500."""
+        token = await self._get_admin_token(client, db_session)
+
+        zone_a_response = await client.post(
+            "/api/v1/terms/transport-zones",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"zone_name": "Endpoint Zone A", "zone_code": "EZA"},
+        )
+        zone_b_response = await client.post(
+            "/api/v1/terms/transport-zones",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"zone_name": "Endpoint Zone B", "zone_code": "EZB"},
+        )
+        zone_b_id = zone_b_response.json()["data"]["id"]
+
+        response = await client.put(
+            f"/api/v1/terms/transport-zones/{zone_b_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "zone_name": zone_a_response.json()["data"]["zone_name"],
+                "zone_code": "EZB",
+                "is_active": True,
+            },
+        )
+
+        assert response.status_code == 409
+        assert response.json()["success"] is False
+
+    async def test_update_transport_zone_too_long_code_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Transport zone update length validation should fail before DB varchar errors."""
+        token = await self._get_admin_token(client, db_session)
+
+        zone_response = await client.post(
+            "/api/v1/terms/transport-zones",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"zone_name": "Length Zone", "zone_code": "LZ"},
+        )
+        zone_id = zone_response.json()["data"]["id"]
+
+        response = await client.put(
+            f"/api/v1/terms/transport-zones/{zone_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "zone_name": "Length Zone",
+                "zone_code": "X" * 21,
+                "is_active": True,
+            },
+        )
+
+        assert response.status_code == 422
+        assert response.json()["success"] is False
 
     async def test_list_terms(self, client: AsyncClient, db_session: AsyncSession):
         """Test listing terms via API."""

@@ -61,13 +61,13 @@ export const TransportZonesPage = () => {
     const result = await saveZone(() =>
       editingZone
         ? api.put(`/terms/transport-zones/${editingZone.id}`, {
-            zone_name: form.zone_name,
-            zone_code: form.zone_code,
+            zone_name: form.zone_name.trim(),
+            zone_code: form.zone_code.trim(),
             is_active: form.is_active,
           })
         : api.post('/terms/transport-zones', {
-            zone_name: form.zone_name,
-            zone_code: form.zone_code,
+            zone_name: form.zone_name.trim(),
+            zone_code: form.zone_code.trim(),
           })
     )
 
@@ -163,12 +163,14 @@ export const TransportZonesPage = () => {
               label="Zone name"
               value={form.zone_name}
               onChange={(e) => setForm({ ...form, zone_name: e.target.value })}
+              maxLength={100}
               required
             />
             <Input
               label="Zone code"
               value={form.zone_code}
               onChange={(e) => setForm({ ...form, zone_code: e.target.value })}
+              maxLength={20}
               required
             />
             {editingZone && (
@@ -187,7 +189,11 @@ export const TransportZonesPage = () => {
           <Button variant="outlined" onClick={() => setDialogOpen(false)}>
             Cancel
           </Button>
-          <Button variant="contained" onClick={submitForm} disabled={saving}>
+          <Button
+            variant="contained"
+            onClick={submitForm}
+            disabled={saving || !form.zone_name.trim() || !form.zone_code.trim()}
+          >
             {saving ? 'Saving...' : 'Save'}
           </Button>
         </DialogActions>

@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from sqlalchemy import select, func
+from sqlalchemy import or_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -381,6 +381,25 @@ class TermService:
 
         if not zone:
             raise NotFoundError("TransportZone", zone_id)
+
+        duplicate_conditions = []
+        if data.zone_name is not None:
+            duplicate_conditions.append(TransportZone.zone_name == data.zone_name)
+        if data.zone_code is not None:
+            duplicate_conditions.append(TransportZone.zone_code == data.zone_code)
+        if duplicate_conditions:
+            duplicate_stmt = select(TransportZone).where(
+                TransportZone.id != zone_id,
+                or_(*duplicate_conditions),
+            )
+            duplicate_result = await self.session.execute(duplicate_stmt)
+            duplicates = list(duplicate_result.scalars().all())
+            if duplicates:
+                if data.zone_name is not None and any(
+                    duplicate.zone_name == data.zone_name for duplicate in duplicates
+                ):
+                    raise DuplicateError("TransportZone", "zone_name", data.zone_name)
+                raise DuplicateError("TransportZone", "zone_code", data.zone_code)
 
         if data.zone_name is not None:
             zone.zone_name = data.zone_name

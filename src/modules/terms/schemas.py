@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 
 from src.modules.terms.models import TermStatus
 from src.shared.schemas import BaseSchema
@@ -113,16 +113,26 @@ class PriceSettingBulkUpdate(BaseSchema):
 class TransportZoneCreate(BaseSchema):
     """Schema for creating a transport zone."""
 
-    zone_name: str
-    zone_code: str
+    zone_name: str = Field(..., min_length=1, max_length=100)
+    zone_code: str = Field(..., min_length=1, max_length=20)
+
+    @field_validator("zone_name", "zone_code", mode="before")
+    @classmethod
+    def strip_text(cls, v: str) -> str:
+        return v.strip() if isinstance(v, str) else v
 
 
 class TransportZoneUpdate(BaseSchema):
     """Schema for updating a transport zone."""
 
-    zone_name: str | None = None
-    zone_code: str | None = None
+    zone_name: str | None = Field(None, min_length=1, max_length=100)
+    zone_code: str | None = Field(None, min_length=1, max_length=20)
     is_active: bool | None = None
+
+    @field_validator("zone_name", "zone_code", mode="before")
+    @classmethod
+    def strip_text(cls, v: str | None) -> str | None:
+        return v.strip() if isinstance(v, str) else v
 
 
 class TransportZoneResponse(BaseSchema):
