@@ -401,6 +401,7 @@ export const BillingAccountDetailPage = () => {
   const payments = paymentsApi.data?.items ?? []
   const selectedInvoice = invoiceDetailApi.data
   const displayStudentNumber = account.members[0]?.student_number
+  const studentCountLabel = `${account.member_count} student${account.member_count === 1 ? '' : 's'}`
   const openInvoicesForAllocation = invoices.filter((invoice) => {
     const status = invoice.status?.toLowerCase()
     return status !== 'paid' && status !== 'cancelled' && status !== 'void'
@@ -430,7 +431,7 @@ export const BillingAccountDetailPage = () => {
             {displayStudentNumber
               ? `Student #${formatStudentNumberShort(displayStudentNumber)}`
               : 'No linked students'}
-            {` · ${account.member_count} students`}
+            {` · ${studentCountLabel}`}
           </Typography>
           <Typography variant="body2" color="secondary" className="mt-1">
             {account.primary_guardian_name ?? 'No contact'}
@@ -523,7 +524,7 @@ export const BillingAccountDetailPage = () => {
                   <TableCell>
                     <div className="flex flex-col">
                       <span>{member.student_name}</span>
-                      <span className="text-xs text-slate-500">{member.student_number}</span>
+                      <span className="text-xs text-slate-500">#{formatStudentNumberShort(member.student_number)}</span>
                     </div>
                   </TableCell>
                   <TableCell>{member.grade_name ?? '—'}</TableCell>
