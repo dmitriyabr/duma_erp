@@ -90,6 +90,7 @@ class BillingAccountListFilters(BaseSchema):
 class BillingAccountSummary(BaseSchema):
     id: int
     account_number: str
+    primary_student_number: str | None = None
     display_name: str
     primary_guardian_name: str | None = None
     primary_guardian_phone: str | None = None

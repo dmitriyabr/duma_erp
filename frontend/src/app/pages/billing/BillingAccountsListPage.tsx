@@ -4,6 +4,7 @@ import { useAuth } from '../../auth/AuthContext'
 import { useApi } from '../../hooks/useApi'
 import { canManageBillingAccounts } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
+import { formatStudentNumberShort } from '../../utils/studentNumber'
 import type { PaginatedResponse } from '../../types/api'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
@@ -14,7 +15,7 @@ import { Spinner } from '../../components/ui/Spinner'
 
 interface BillingAccountRow {
   id: number
-  account_number: string
+  primary_student_number?: string | null
   display_name: string
   primary_guardian_name?: string | null
   primary_guardian_phone?: string | null
@@ -69,7 +70,7 @@ export const BillingAccountsListPage = () => {
             setSearch(event.target.value)
             setPage(0)
           }}
-          placeholder="Account, contact, student"
+          placeholder="Student #, contact, student"
         />
       </div>
 
@@ -83,7 +84,7 @@ export const BillingAccountsListPage = () => {
         <Table>
           <TableHead>
             <TableRow>
-              <TableHeaderCell>Account</TableHeaderCell>
+              <TableHeaderCell>Student #</TableHeaderCell>
               <TableHeaderCell>Name</TableHeaderCell>
               <TableHeaderCell>Members</TableHeaderCell>
               <TableHeaderCell>Billing contact</TableHeaderCell>
@@ -96,7 +97,11 @@ export const BillingAccountsListPage = () => {
           <TableBody>
             {rows.map((row) => (
               <TableRow key={row.id}>
-                <TableCell className="font-mono text-xs">{row.account_number}</TableCell>
+                <TableCell className="font-mono text-xs">
+                  {row.primary_student_number
+                    ? `#${formatStudentNumberShort(row.primary_student_number)}`
+                    : '—'}
+                </TableCell>
                 <TableCell>{row.display_name}</TableCell>
                 <TableCell>{row.member_count}</TableCell>
                 <TableCell>

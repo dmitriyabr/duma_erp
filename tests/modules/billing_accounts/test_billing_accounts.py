@@ -540,6 +540,9 @@ class TestBillingAccountService:
         assert total == 2
         assert single_account.id in returned_ids
         assert family.id in returned_ids
+        rows_by_id = {row.id: row for row in rows}
+        assert rows_by_id[single_account.id].primary_student_number == student_one.student_number
+        assert rows_by_id[family.id].primary_student_number == student_two.student_number
 
     async def test_add_members_to_existing_single_student_account(
         self,

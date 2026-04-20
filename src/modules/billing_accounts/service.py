@@ -299,6 +299,7 @@ class BillingAccountService:
             BillingAccountSummary(
                 id=account.id,
                 account_number=account.account_number,
+                primary_student_number=self._display_student_number(account),
                 display_name=account.display_name,
                 primary_guardian_name=account.primary_guardian_name,
                 primary_guardian_phone=account.primary_guardian_phone,
@@ -314,6 +315,12 @@ class BillingAccountService:
             )
             for account in accounts
         ]
+
+    @staticmethod
+    def _display_student_number(account: BillingAccount) -> str | None:
+        if not account.students:
+            return None
+        return min(student.student_number for student in account.students)
 
     async def _build_summary(self, account: BillingAccount) -> BillingAccountSummary:
         summaries = await self._build_summaries([account])
