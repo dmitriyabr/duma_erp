@@ -5,6 +5,7 @@ import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api } from '../../services/api'
 import { canManageBillingAccounts } from '../../utils/permissions'
 import { formatDate, formatDateTime, formatMoney } from '../../utils/format'
+import { formatStudentNumberShort } from '../../utils/studentNumber'
 import type { ApiResponse, PaginatedResponse } from '../../types/api'
 import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { Alert } from '../../components/ui/Alert'
@@ -399,6 +400,7 @@ export const BillingAccountDetailPage = () => {
   const invoices = invoicesApi.data?.items ?? []
   const payments = paymentsApi.data?.items ?? []
   const selectedInvoice = invoiceDetailApi.data
+  const displayStudentNumber = account.members[0]?.student_number
   const openInvoicesForAllocation = invoices.filter((invoice) => {
     const status = invoice.status?.toLowerCase()
     return status !== 'paid' && status !== 'cancelled' && status !== 'void'
@@ -425,7 +427,10 @@ export const BillingAccountDetailPage = () => {
         <div>
           <Typography variant="h4">{account.display_name}</Typography>
           <Typography variant="body2" color="secondary" className="mt-1">
-            {account.account_number} · {account.member_count} students
+            {displayStudentNumber
+              ? `Student #${formatStudentNumberShort(displayStudentNumber)}`
+              : 'No linked students'}
+            {` · ${account.member_count} students`}
           </Typography>
           <Typography variant="body2" color="secondary" className="mt-1">
             {account.primary_guardian_name ?? 'No contact'}
