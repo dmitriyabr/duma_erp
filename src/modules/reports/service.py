@@ -20,7 +20,7 @@ from src.modules.compensations.models import (
 from src.modules.discounts.models import Discount, DiscountReason
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus
 from src.modules.inventory.models import Issuance, Stock, StockMovement
-from src.modules.items.models import Category, Item
+from src.modules.items.models import Category, Item, Kit
 from src.modules.payments.models import CreditAllocation, Payment, PaymentStatus
 from src.modules.procurement.models import (
     GoodsReceivedNote,
@@ -40,6 +40,7 @@ from src.shared.utils.money import round_money
 from src.modules.reports.schemas import (
     AgedReceivablesRow,
     AgedReceivablesSummary,
+    ProfitLossBasis,
     StudentFeesRow,
     StudentFeesSummary,
     ProfitLossRevenueLine,
@@ -80,11 +81,459 @@ def _months_in_range(date_from: date, date_to: date) -> list[str]:
     return out
 
 
+def _month_periods(date_from: date, date_to: date) -> list[tuple[str, date, date]]:
+    """Return per-month clipped periods inside the requested date range."""
+    out: list[tuple[str, date, date]] = []
+    for month in _months_in_range(date_from, date_to):
+        year, month_no = int(month[:4]), int(month[5:7])
+        month_start = date(year, month_no, 1)
+        month_end = date(year, month_no, monthrange(year, month_no)[1])
+        out.append((month, max(date_from, month_start), min(date_to, month_end)))
+    return out
+
+
+PROFIT_LOSS_REVENUE_BUCKET_ORDER = (
+    "school_fee",
+    "transport",
+    "admission_fee",
+    "interview_fee",
+    "uniform_sales",
+    "activity",
+    "other_fees",
+)
+
+PROFIT_LOSS_REVENUE_BUCKET_LABELS = {
+    "school_fee": "School Fee",
+    "transport": "Transport",
+    "admission_fee": "Admission Fee",
+    "interview_fee": "Interview Fee",
+    "uniform_sales": "Uniform Sales",
+    "activity": "Activities",
+    "other_fees": "Other Fees",
+}
+
+
 class ReportsService:
     """Build report data for Admin/SuperAdmin."""
 
     def __init__(self, db: AsyncSession):
         self.db = db
+
+    @staticmethod
+    def _money_to_cents(value: Decimal) -> int:
+        return int((round_money(value) * 100).to_integral_value())
+
+    @staticmethod
+    def _cents_to_money(value: int) -> Decimal:
+        return round_money(Decimal(value) / Decimal("100"))
+
+    def _allocate_proportionally(
+        self,
+        total: Decimal,
+        capacities: dict[int, Decimal],
+    ) -> tuple[dict[int, Decimal], Decimal]:
+        """Distribute invoice-level amount across remaining line capacities."""
+        allocations = {key: Decimal("0.00") for key in capacities}
+        total = round_money(total)
+        if total <= 0:
+            return allocations, Decimal("0.00")
+
+        capacity_cents = {
+            key: max(0, self._money_to_cents(value))
+            for key, value in capacities.items()
+        }
+        total_capacity_cents = sum(capacity_cents.values())
+        if total_capacity_cents <= 0:
+            return allocations, total
+
+        total_cents = max(0, self._money_to_cents(total))
+        if total_cents >= total_capacity_cents:
+            for key, cents in capacity_cents.items():
+                allocations[key] = self._cents_to_money(cents)
+            return allocations, self._cents_to_money(total_cents - total_capacity_cents)
+
+        allocated_cents = {key: 0 for key in capacities}
+        remainders: list[tuple[Decimal, int]] = []
+        used_cents = 0
+
+        for key, cap_cents in capacity_cents.items():
+            if cap_cents <= 0:
+                continue
+            raw_share = Decimal(total_cents) * Decimal(cap_cents) / Decimal(total_capacity_cents)
+            base_cents = min(cap_cents, int(raw_share))
+            allocated_cents[key] = base_cents
+            used_cents += base_cents
+            remainders.append((raw_share - Decimal(base_cents), key))
+
+        leftover_cents = total_cents - used_cents
+        remainders.sort(key=lambda row: (row[0], row[1]), reverse=True)
+        while leftover_cents > 0:
+            updated = False
+            for _, key in remainders:
+                if leftover_cents <= 0:
+                    break
+                if allocated_cents[key] >= capacity_cents[key]:
+                    continue
+                allocated_cents[key] += 1
+                leftover_cents -= 1
+                updated = True
+            if not updated:
+                break
+
+        for key, cents in allocated_cents.items():
+            allocations[key] = self._cents_to_money(cents)
+
+        return allocations, self._cents_to_money(leftover_cents)
+
+    def _date_only_bound(self, value: date) -> date | str:
+        """SQLite `date()` returns text, Postgres returns DATE."""
+        bind = self.db.get_bind()
+        dialect_name = bind.dialect.name if bind is not None else ""
+        return value.isoformat() if dialect_name == "sqlite" else value
+
+    @staticmethod
+    def _profit_loss_revenue_bucket(
+        invoice_type: str | None,
+        kit_sku: str | None,
+        category_name: str | None,
+    ) -> str:
+        """Classify an invoice line into a reporting revenue bucket."""
+        if invoice_type == "school_fee":
+            return "school_fee"
+        if invoice_type == "transport":
+            return "transport"
+        if invoice_type == "activity":
+            return "activity"
+
+        sku = (kit_sku or "").strip().upper()
+        if sku == "ADMISSION-FEE":
+            return "admission_fee"
+        if sku == "INTERVIEW-FEE":
+            return "interview_fee"
+
+        category = (category_name or "").strip().casefold()
+        if category in {"uniform", "uniforms"}:
+            return "uniform_sales"
+        return "other_fees"
+
+    @staticmethod
+    def _round_named_amounts(values: dict[str, Decimal]) -> dict[str, Decimal]:
+        return {key: round_money(value) for key, value in values.items()}
+
+    def _build_revenue_lines(self, bucket_totals: dict[str, Decimal]) -> list[dict]:
+        """Build sorted revenue rows from bucket totals."""
+        rounded = self._round_named_amounts(bucket_totals)
+        rows: list[dict] = []
+        handled = set()
+        for bucket in PROFIT_LOSS_REVENUE_BUCKET_ORDER:
+            handled.add(bucket)
+            amount = rounded.get(bucket, Decimal("0.00"))
+            if amount == 0:
+                continue
+            rows.append(
+                {
+                    "label": PROFIT_LOSS_REVENUE_BUCKET_LABELS[bucket],
+                    "amount": amount,
+                }
+            )
+        for bucket in sorted(set(rounded) - handled):
+            amount = rounded.get(bucket, Decimal("0.00"))
+            if amount == 0:
+                continue
+            rows.append(
+                {
+                    "label": PROFIT_LOSS_REVENUE_BUCKET_LABELS.get(bucket, bucket),
+                    "amount": amount,
+                }
+            )
+        return rows
+
+    async def _resolve_term(self, term_id: int | None) -> Term | None:
+        """Resolve and validate optional term filter."""
+        if term_id is None:
+            return None
+        term = await self.db.scalar(select(Term).where(Term.id == term_id))
+        if term is None:
+            raise NotFoundError("Term not found")
+        return term
+
+    async def _profit_loss_expenses_accrual(
+        self,
+        date_from: date,
+        date_to: date,
+    ) -> tuple[list[dict], Decimal]:
+        """Economic expenses for accrual basis."""
+        proc_q = (
+            select(
+                PaymentPurpose.name,
+                func.coalesce(func.sum(ProcurementPayment.amount), 0).label("amt"),
+            )
+            .select_from(ProcurementPayment)
+            .join(PaymentPurpose, ProcurementPayment.purpose_id == PaymentPurpose.id)
+            .where(
+                ProcurementPayment.status == ProcurementPaymentStatus.POSTED.value,
+                ProcurementPayment.payment_date >= date_from,
+                ProcurementPayment.payment_date <= date_to,
+            )
+            .group_by(PaymentPurpose.name)
+            .order_by(PaymentPurpose.name)
+        )
+        proc_rows = (await self.db.execute(proc_q)).all()
+        expense_lines: list[dict] = []
+        total_expenses = Decimal("0.00")
+        for purpose_name, amount in proc_rows:
+            rounded = round_money(Decimal(str(amount or 0)))
+            if rounded == 0:
+                continue
+            total_expenses += rounded
+            expense_lines.append({"label": str(purpose_name), "amount": rounded})
+        return expense_lines, round_money(total_expenses)
+
+    async def _profit_loss_expenses_cash(
+        self,
+        date_from: date,
+        date_to: date,
+    ) -> tuple[list[dict], Decimal]:
+        """Company cash outflows for cash-allocated basis."""
+        proc_q = (
+            select(
+                PaymentPurpose.name,
+                func.coalesce(func.sum(ProcurementPayment.amount), 0).label("amt"),
+            )
+            .select_from(ProcurementPayment)
+            .join(PaymentPurpose, ProcurementPayment.purpose_id == PaymentPurpose.id)
+            .where(
+                ProcurementPayment.status == ProcurementPaymentStatus.POSTED.value,
+                ProcurementPayment.company_paid.is_(True),
+                ProcurementPayment.payment_date >= date_from,
+                ProcurementPayment.payment_date <= date_to,
+            )
+            .group_by(PaymentPurpose.name)
+            .order_by(PaymentPurpose.name)
+        )
+        proc_rows = (await self.db.execute(proc_q)).all()
+        expense_lines: list[dict] = []
+        total_expenses = Decimal("0.00")
+
+        for purpose_name, amount in proc_rows:
+            rounded = round_money(Decimal(str(amount or 0)))
+            if rounded == 0:
+                continue
+            total_expenses += rounded
+            expense_lines.append({"label": str(purpose_name), "amount": rounded})
+
+        comp_amount = await self.db.scalar(
+            select(func.coalesce(func.sum(CompensationPayout.amount), 0)).where(
+                CompensationPayout.payout_date >= date_from,
+                CompensationPayout.payout_date <= date_to,
+            )
+        )
+        comp_total = round_money(Decimal(str(comp_amount or 0)))
+        if comp_total != 0:
+            total_expenses += comp_total
+            expense_lines.append({"label": "Employee Compensations", "amount": comp_total})
+
+        return expense_lines, round_money(total_expenses)
+
+    async def _profit_loss_period_accrual(
+        self,
+        date_from: date,
+        date_to: date,
+        term_id: int | None = None,
+    ) -> dict:
+        """Compute accrual P&L for a single period."""
+        statuses = (
+            InvoiceStatus.ISSUED.value,
+            InvoiceStatus.PARTIALLY_PAID.value,
+            InvoiceStatus.PAID.value,
+        )
+        revenue_q = (
+            select(
+                Invoice.invoice_type,
+                Kit.sku_code,
+                Category.name,
+                func.coalesce(func.sum(InvoiceLine.line_total), 0).label("gross_total"),
+                func.coalesce(func.sum(InvoiceLine.discount_amount), 0).label("discount_total"),
+            )
+            .select_from(InvoiceLine)
+            .join(Invoice, InvoiceLine.invoice_id == Invoice.id)
+            .join(Kit, InvoiceLine.kit_id == Kit.id)
+            .join(Category, Kit.category_id == Category.id)
+            .where(
+                Invoice.issue_date >= date_from,
+                Invoice.issue_date <= date_to,
+                Invoice.status.in_(statuses),
+            )
+            .group_by(Invoice.invoice_type, Kit.sku_code, Category.name)
+        )
+        if term_id is not None:
+            revenue_q = revenue_q.where(Invoice.term_id == term_id)
+
+        revenue_rows = (await self.db.execute(revenue_q)).all()
+        bucket_gross: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
+        total_discounts_raw = Decimal("0.00")
+        for invoice_type, kit_sku, category_name, gross_total, discount_total in revenue_rows:
+            bucket = self._profit_loss_revenue_bucket(invoice_type, kit_sku, category_name)
+            bucket_gross[bucket] += Decimal(str(gross_total or 0))
+            total_discounts_raw += Decimal(str(discount_total or 0))
+
+        revenue_lines = self._build_revenue_lines(bucket_gross)
+        gross_revenue = round_money(sum(bucket_gross.values(), start=Decimal("0.00")))
+        total_discounts = round_money(total_discounts_raw)
+        net_revenue = round_money(gross_revenue - total_discounts)
+
+        expense_lines, total_expenses = await self._profit_loss_expenses_accrual(date_from, date_to)
+        net_profit = round_money(net_revenue - total_expenses)
+
+        return {
+            "revenue_lines": revenue_lines,
+            "gross_revenue": gross_revenue,
+            "total_discounts": total_discounts,
+            "net_revenue": net_revenue,
+            "expense_lines": expense_lines,
+            "total_expenses": total_expenses,
+            "net_profit": net_profit,
+        }
+
+    async def _profit_loss_period_cash_allocated(
+        self,
+        date_from: date,
+        date_to: date,
+        term_id: int | None = None,
+    ) -> dict:
+        """Compute cash-allocated P&L for a single period."""
+        alloc_date_expr = func.date(CreditAllocation.created_at)
+        alloc_from = self._date_only_bound(date_from)
+        alloc_to = self._date_only_bound(date_to)
+        excluded_statuses = (
+            InvoiceStatus.DRAFT.value,
+            InvoiceStatus.CANCELLED.value,
+            InvoiceStatus.VOID.value,
+        )
+
+        invoice_ids_q = (
+            select(CreditAllocation.invoice_id)
+            .join(Invoice, CreditAllocation.invoice_id == Invoice.id)
+            .where(
+                alloc_date_expr >= alloc_from,
+                alloc_date_expr <= alloc_to,
+                Invoice.status.notin_(excluded_statuses),
+            )
+            .distinct()
+        )
+        if term_id is not None:
+            invoice_ids_q = invoice_ids_q.where(Invoice.term_id == term_id)
+
+        invoice_ids = [row[0] for row in (await self.db.execute(invoice_ids_q)).all()]
+        if not invoice_ids:
+            expense_lines, total_expenses = await self._profit_loss_expenses_cash(date_from, date_to)
+            net_profit = round_money(Decimal("0.00") - total_expenses)
+            return {
+                "revenue_lines": [],
+                "gross_revenue": Decimal("0.00"),
+                "total_discounts": Decimal("0.00"),
+                "net_revenue": Decimal("0.00"),
+                "expense_lines": expense_lines,
+                "total_expenses": total_expenses,
+                "net_profit": net_profit,
+            }
+
+        invoices_result = await self.db.execute(
+            select(Invoice)
+            .where(Invoice.id.in_(invoice_ids))
+            .options(
+                selectinload(Invoice.lines)
+                .selectinload(InvoiceLine.kit)
+                .selectinload(Kit.category)
+            )
+        )
+        invoices = {invoice.id: invoice for invoice in invoices_result.scalars().unique().all()}
+        allocations_result = await self.db.execute(
+            select(CreditAllocation)
+            .where(
+                CreditAllocation.invoice_id.in_(invoice_ids),
+                alloc_date_expr <= alloc_to,
+            )
+            .order_by(
+                CreditAllocation.invoice_id.asc(),
+                CreditAllocation.created_at.asc(),
+                CreditAllocation.id.asc(),
+            )
+        )
+        allocations_by_invoice: dict[int, list[CreditAllocation]] = defaultdict(list)
+        for allocation in allocations_result.scalars().all():
+            allocations_by_invoice[allocation.invoice_id].append(allocation)
+
+        bucket_gross: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
+        net_revenue_raw = Decimal("0.00")
+
+        for invoice_id in invoice_ids:
+            invoice = invoices.get(invoice_id)
+            if invoice is None or not invoice.lines:
+                continue
+
+            remaining_capacity = {
+                line.id: round_money(max(Decimal("0.00"), line.net_amount))
+                for line in invoice.lines
+            }
+            line_period_net: dict[int, Decimal] = defaultdict(lambda: Decimal("0.00"))
+
+            for allocation in allocations_by_invoice.get(invoice_id, []):
+                allocation_amount = round_money(Decimal(str(allocation.amount or 0)))
+                if allocation_amount <= 0:
+                    continue
+                allocation_date = allocation.created_at.date()
+                in_period = date_from <= allocation_date <= date_to
+
+                if allocation.invoice_line_id is not None and allocation.invoice_line_id in remaining_capacity:
+                    line_id = allocation.invoice_line_id
+                    applied = round_money(min(remaining_capacity[line_id], allocation_amount))
+                    if applied <= 0:
+                        continue
+                    remaining_capacity[line_id] = round_money(remaining_capacity[line_id] - applied)
+                    if in_period:
+                        line_period_net[line_id] += applied
+                    continue
+
+                distributed, _ = self._allocate_proportionally(allocation_amount, remaining_capacity)
+                for line_id, applied in distributed.items():
+                    if applied <= 0:
+                        continue
+                    remaining_capacity[line_id] = round_money(remaining_capacity[line_id] - applied)
+                    if in_period:
+                        line_period_net[line_id] += applied
+
+            for line in invoice.lines:
+                allocated_net = round_money(line_period_net.get(line.id, Decimal("0.00")))
+                if allocated_net <= 0 or line.net_amount <= 0:
+                    continue
+                bucket = self._profit_loss_revenue_bucket(
+                    invoice.invoice_type,
+                    line.kit.sku_code if line.kit else None,
+                    line.kit.category.name if line.kit and line.kit.category else None,
+                )
+                cash_gross = round_money(
+                    Decimal(str(line.line_total)) * allocated_net / Decimal(str(line.net_amount))
+                )
+                bucket_gross[bucket] += cash_gross
+                net_revenue_raw += allocated_net
+
+        revenue_lines = self._build_revenue_lines(bucket_gross)
+        gross_revenue = round_money(sum(bucket_gross.values(), start=Decimal("0.00")))
+        net_revenue = round_money(net_revenue_raw)
+        total_discounts = round_money(gross_revenue - net_revenue)
+
+        expense_lines, total_expenses = await self._profit_loss_expenses_cash(date_from, date_to)
+        net_profit = round_money(net_revenue - total_expenses)
+        return {
+            "revenue_lines": revenue_lines,
+            "gross_revenue": gross_revenue,
+            "total_discounts": total_discounts,
+            "net_revenue": net_revenue,
+            "expense_lines": expense_lines,
+            "total_expenses": total_expenses,
+            "net_profit": net_profit,
+        }
 
     async def aged_receivables(
         self,
@@ -342,109 +791,42 @@ class ReportsService:
         self,
         date_from: date,
         date_to: date,
+        basis: ProfitLossBasis = ProfitLossBasis.ACCRUAL,
+        term_id: int | None = None,
     ) -> dict:
-        """Compute PnL for a single period; returns raw numbers for aggregation."""
-        statuses = (
-            InvoiceStatus.ISSUED.value,
-            InvoiceStatus.PARTIALLY_PAID.value,
-            InvoiceStatus.PAID.value,
+        """Compute P&L for a single period in the requested basis."""
+        if basis == ProfitLossBasis.CASH_ALLOCATED:
+            return await self._profit_loss_period_cash_allocated(
+                date_from=date_from,
+                date_to=date_to,
+                term_id=term_id,
+            )
+        return await self._profit_loss_period_accrual(
+            date_from=date_from,
+            date_to=date_to,
+            term_id=term_id,
         )
-        # IMPORTANT: derive gross/discounts from invoice lines, not Invoice.discount_total.
-        # In production we may have historical invoices where Discount records/line.discount_amount
-        # exist but Invoice.discount_total wasn't recalculated (e.g., during bulk generation).
-        # Summing by lines makes P&L discounts resilient and matches "discounts given" semantics.
-        rev_q = (
-            select(
-                Invoice.invoice_type,
-                func.coalesce(func.sum(InvoiceLine.line_total), 0).label("gross_total"),
-                func.coalesce(func.sum(InvoiceLine.discount_amount), 0).label("discounts"),
-            )
-            .select_from(Invoice)
-            .join(InvoiceLine, InvoiceLine.invoice_id == Invoice.id)
-            .where(
-                Invoice.issue_date >= date_from,
-                Invoice.issue_date <= date_to,
-                Invoice.status.in_(statuses),
-            )
-            .group_by(Invoice.invoice_type)
-        )
-        rev_result = await self.db.execute(rev_q)
-        rev_rows = rev_result.all()
-        type_labels = {
-            "school_fee": "School Fee",
-            "transport": "Transport",
-            "adhoc": "Other Fees",
-            "activity": "Activities",
-        }
-        revenue_lines: list[dict] = []
-        gross_revenue = Decimal("0")
-        total_discounts = Decimal("0")
-        for inv_type, gross_tot, disc in rev_rows:
-            # Invoice.total is already net (subtotal - discount_total). For P&L we expose:
-            # - gross revenue = sum(subtotal)
-            # - discounts = sum(discount_total)
-            # - net revenue = gross - discounts
-            tot = round_money(Decimal(str(gross_tot)))
-            disc = round_money(Decimal(str(disc)))
-            gross_revenue += tot
-            total_discounts += disc
-            revenue_lines.append({"label": type_labels.get(inv_type, inv_type or "Other"), "amount": tot})
-        net_revenue = round_money(gross_revenue - total_discounts)
-
-        # Expenses: group procurement journal by purpose/category.
-        proc_q = (
-            select(
-                PaymentPurpose.name,
-                func.coalesce(func.sum(ProcurementPayment.amount), 0).label("amt"),
-            )
-            .select_from(ProcurementPayment)
-            .join(PaymentPurpose, ProcurementPayment.purpose_id == PaymentPurpose.id)
-            .where(
-                ProcurementPayment.status == ProcurementPaymentStatus.POSTED.value,
-                ProcurementPayment.payment_date >= date_from,
-                ProcurementPayment.payment_date <= date_to,
-            )
-            .group_by(PaymentPurpose.name)
-            .order_by(PaymentPurpose.name)
-        )
-        proc_rows = (await self.db.execute(proc_q)).all()
-        expense_lines: list[dict] = []
-        total_expenses = Decimal("0")
-        for purpose_name, amt in proc_rows:
-            amt = round_money(Decimal(str(amt)))
-            total_expenses += amt
-            expense_lines.append({"label": str(purpose_name), "amount": amt})
-
-        # P&L is accrual-based in MVP: expenses are recognized via ProcurementPayment journal.
-        # Compensation payouts are settlements and should not be counted as expenses again.
-        total_expenses = round_money(total_expenses)
-        net_profit = round_money(net_revenue - total_expenses)
-
-        proc_total = total_expenses
-        return {
-            "revenue_lines": revenue_lines,
-            "gross_revenue": gross_revenue,
-            "total_discounts": total_discounts,
-            "net_revenue": net_revenue,
-            "proc_total": proc_total,
-            "expense_lines": expense_lines,
-            "total_expenses": total_expenses,
-            "net_profit": net_profit,
-        }
 
     async def profit_loss(
         self,
         date_from: date,
         date_to: date,
+        basis: ProfitLossBasis = ProfitLossBasis.ACCRUAL,
+        term_id: int | None = None,
         breakdown_monthly: bool = False,
     ) -> dict:
         """
-        Profit & Loss: revenue (invoiced by type), less discounts, expenses (procurement + compensations).
+        Profit & Loss: revenue in accrual or cash-allocated basis, less discounts and expenses.
 
-        Only invoices with issue_date in [date_from, date_to] and status issued/partially_paid/paid.
-        If breakdown_monthly=True, adds months list and monthly amounts per line and per total.
+        If breakdown_monthly=True, adds months list and per-month amounts clipped to the selected range.
         """
-        full = await self._profit_loss_period(date_from, date_to)
+        term = await self._resolve_term(term_id)
+        full = await self._profit_loss_period(
+            date_from,
+            date_to,
+            basis=basis,
+            term_id=term.id if term else None,
+        )
         revenue_lines = [
             ProfitLossRevenueLine(label=r["label"], amount=r["amount"])
             for r in full["revenue_lines"]
@@ -459,8 +841,12 @@ class ReportsService:
             else None
         )
         out: dict = {
+            "basis": basis,
             "date_from": date_from,
             "date_to": date_to,
+            "term_id": term.id if term else None,
+            "term_display_name": term.display_name if term else None,
+            "term_filter_applies_to_revenue_only": term is not None,
             "revenue_lines": revenue_lines,
             "gross_revenue": full["gross_revenue"],
             "total_discounts": full["total_discounts"],
@@ -473,19 +859,22 @@ class ReportsService:
         if not breakdown_monthly:
             return out
         months = _months_in_range(date_from, date_to)
-        rev_by_label: dict[str, dict[str, Decimal]] = defaultdict(lambda: {})
-        exp_by_label: dict[str, dict[str, Decimal]] = defaultdict(lambda: {})
-        gross_monthly: dict[str, Decimal] = {}
-        discounts_monthly: dict[str, Decimal] = {}
-        net_rev_monthly: dict[str, Decimal] = {}
-        total_exp_monthly: dict[str, Decimal] = {}
-        net_profit_monthly: dict[str, Decimal] = {}
+        zero_months = {month: Decimal("0.00") for month in months}
+        rev_by_label: dict[str, dict[str, Decimal]] = defaultdict(lambda: dict(zero_months))
+        exp_by_label: dict[str, dict[str, Decimal]] = defaultdict(lambda: dict(zero_months))
+        gross_monthly: dict[str, Decimal] = dict(zero_months)
+        discounts_monthly: dict[str, Decimal] = dict(zero_months)
+        net_rev_monthly: dict[str, Decimal] = dict(zero_months)
+        total_exp_monthly: dict[str, Decimal] = dict(zero_months)
+        net_profit_monthly: dict[str, Decimal] = dict(zero_months)
         profit_margin_monthly: dict[str, float] = {}
-        for mo in months:
-            y, m = int(mo[:4]), int(mo[5:7])
-            first = date(y, m, 1)
-            last = date(y, m, monthrange(y, m)[1])
-            period = await self._profit_loss_period(first, last)
+        for mo, first, last in _month_periods(date_from, date_to):
+            period = await self._profit_loss_period(
+                first,
+                last,
+                basis=basis,
+                term_id=term.id if term else None,
+            )
             gross_monthly[mo] = period["gross_revenue"]
             discounts_monthly[mo] = period["total_discounts"]
             net_rev_monthly[mo] = period["net_revenue"]
@@ -500,9 +889,9 @@ class ReportsService:
             for e in period.get("expense_lines") or []:
                 exp_by_label[e["label"]][mo] = e["amount"]
         for line in revenue_lines:
-            line.monthly = dict(rev_by_label.get(line.label, {}))
+            line.monthly = dict(rev_by_label.get(line.label, dict(zero_months)))
         for line in expense_lines:
-            line.monthly = dict(exp_by_label.get(line.label, {}))
+            line.monthly = dict(exp_by_label.get(line.label, dict(zero_months)))
         out["months"] = months
         out["gross_revenue_monthly"] = gross_monthly
         out["total_discounts_monthly"] = discounts_monthly

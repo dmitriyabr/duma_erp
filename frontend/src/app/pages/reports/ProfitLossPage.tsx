@@ -12,6 +12,8 @@ import { Spinner } from '../../components/ui/Spinner'
 import { DateRangeShortcuts, getDateRangeForPreset } from '../../components/DateRangeShortcuts'
 import { downloadReportExcel } from '../../utils/reportExcel'
 import { formatMoney } from '../../utils/format'
+import { useApi } from '../../hooks/useApi'
+import { Select } from '../../components/ui/Select'
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '../../components/ui/Table'
 
 interface RevenueLine {
@@ -27,8 +29,12 @@ interface ExpenseLine {
 }
 
 interface ProfitLossData {
+  basis: ProfitLossBasis
   date_from: string
   date_to: string
+  term_id: number | null
+  term_display_name: string | null
+  term_filter_applies_to_revenue_only: boolean
   revenue_lines: RevenueLine[]
   gross_revenue: string
   total_discounts: string
@@ -46,7 +52,25 @@ interface ProfitLossData {
   profit_margin_percent_monthly?: Record<string, number>
 }
 
+type ProfitLossBasis = 'accrual' | 'cash_allocated'
+
+interface TermRow {
+  id: number
+  display_name: string
+}
+
 const defaultRange = () => getDateRangeForPreset('this_year')
+
+const shouldUseMonthlyBreakdown = (from: string, to: string) => {
+  const fromD = new Date(from)
+  const toD = new Date(to)
+  return fromD.getFullYear() !== toD.getFullYear() || fromD.getMonth() !== toD.getMonth()
+}
+
+const basisLabels: Record<ProfitLossBasis, string> = {
+  accrual: 'Accrual',
+  cash_allocated: 'Real Cash (Allocated)',
+}
 
 
 export const ProfitLossPage = () => {
@@ -54,10 +78,13 @@ export const ProfitLossPage = () => {
   const hasAccess = canSeeReports(user)
   const [dateFrom, setDateFrom] = useState(() => defaultRange().from)
   const [dateTo, setDateTo] = useState(() => defaultRange().to)
+  const [basis, setBasis] = useState<ProfitLossBasis>('accrual')
+  const [termId, setTermId] = useState('')
   const [data, setData] = useState<ProfitLossData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [backendForbidden, setBackendForbidden] = useState(false)
+  const { data: terms, loading: termsLoading } = useApi<TermRow[]>('/terms')
 
   const runReportForRange = useCallback((from: string, to: string) => {
     if (!hasAccess) return
@@ -66,15 +93,14 @@ export const ProfitLossPage = () => {
     setLoading(true)
     setError(null)
     setBackendForbidden(false)
-    const fromD = new Date(from)
-    const toD = new Date(to)
-    const multiMonth = fromD.getFullYear() !== toD.getFullYear() ||
-      fromD.getMonth() !== toD.getMonth()
+    const multiMonth = shouldUseMonthlyBreakdown(from, to)
     api
       .get<ApiResponse<ProfitLossData>>('/reports/profit-loss', {
         params: {
           date_from: from,
           date_to: to,
+          basis,
+          ...(termId ? { term_id: Number(termId) } : {}),
           ...(multiMonth ? { breakdown: 'monthly' } : {}),
         },
       })
@@ -88,7 +114,7 @@ export const ProfitLossPage = () => {
         else setError(err.response?.data?.detail ?? 'Failed to load report')
       })
       .finally(() => setLoading(false))
-  }, [hasAccess])
+  }, [basis, hasAccess, termId])
 
   useEffect(() => {
     if (!hasAccess) return
@@ -140,18 +166,41 @@ export const ProfitLossPage = () => {
                 onChange={(e) => setDateTo(e.target.value)}
               />
             </div>
+            <div className="min-w-[220px]">
+              <Select
+                label="Basis"
+                value={basis}
+                onChange={(e) => setBasis(e.target.value as ProfitLossBasis)}
+              >
+                <option value="accrual">Accrual</option>
+                <option value="cash_allocated">Real Cash (Allocated)</option>
+              </Select>
+            </div>
+            <div className="min-w-[220px]">
+              <Select
+                label="Term"
+                value={termId}
+                onChange={(e) => setTermId(e.target.value)}
+                disabled={termsLoading}
+              >
+                <option value="">All terms</option>
+                {(terms ?? []).map((term) => (
+                  <option key={term.id} value={String(term.id)}>{term.display_name}</option>
+                ))}
+              </Select>
+            </div>
             <Button variant="contained" onClick={() => runReportForRange(dateFrom, dateTo)}>Run report</Button>
             <Button
               variant="outlined"
               onClick={() => {
                 const from = dateFrom
                 const to = dateTo
-                const fromD = new Date(from)
-                const toD = new Date(to)
-                const multiMonth = fromD.getFullYear() !== toD.getFullYear() || fromD.getMonth() !== toD.getMonth()
+                const multiMonth = shouldUseMonthlyBreakdown(from, to)
                 downloadReportExcel('/reports/profit-loss', {
                   date_from: from,
                   date_to: to,
+                  basis,
+                  ...(termId ? { term_id: Number(termId) } : {}),
                   ...(multiMonth ? { breakdown: 'monthly' } : {}),
                 }, 'profit-loss.xlsx')
               }}
@@ -173,8 +222,15 @@ export const ProfitLossPage = () => {
       {!loading && data && (
         <>
           <Typography variant="body2" color="secondary" className="mb-4">
-            Period: {data.date_from} — {data.date_to}
+            Period: {data.date_from} — {data.date_to} · Basis: {basisLabels[data.basis]}
+            {data.term_display_name ? ` · Term: ${data.term_display_name}` : ''}
           </Typography>
+
+          {data.term_filter_applies_to_revenue_only && data.term_display_name && (
+            <Alert severity="info" className="mb-4">
+              Revenue is filtered to {data.term_display_name}. Expenses remain date-based company expenses.
+            </Alert>
+          )}
 
           <div className="flex flex-wrap gap-4 mb-6">
             <Card className="min-w-[220px]">

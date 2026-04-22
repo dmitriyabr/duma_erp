@@ -2,6 +2,7 @@
 
 from datetime import date
 from decimal import Decimal
+from enum import StrEnum
 
 from src.shared.schemas.base import BaseSchema
 
@@ -71,6 +72,13 @@ class StudentFeesResponse(BaseSchema):
 
 # --- Profit & Loss ---
 
+class ProfitLossBasis(StrEnum):
+    """Supported bases for Profit & Loss."""
+
+    ACCRUAL = "accrual"
+    CASH_ALLOCATED = "cash_allocated"
+
+
 class ProfitLossRevenueLine(BaseSchema):
     """Revenue line by type (e.g. School Fee, Transport)."""
 
@@ -90,8 +98,12 @@ class ProfitLossExpenseLine(BaseSchema):
 class ProfitLossResponse(BaseSchema):
     """Profit & Loss statement for a date range."""
 
+    basis: ProfitLossBasis
     date_from: date
     date_to: date
+    term_id: int | None = None
+    term_display_name: str | None = None
+    term_filter_applies_to_revenue_only: bool = False
     revenue_lines: list[ProfitLossRevenueLine]
     gross_revenue: Decimal
     total_discounts: Decimal

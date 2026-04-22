@@ -192,20 +192,26 @@ Growth rate: +11% year-over-year
 ### 3.1 Profit & Loss Statement
 
 **Параметры:**
-- Period: Custom date range или по триместрам
-- Group by: Month / Quarter / Year
-- Compare with: Previous period / Same period last year
+- Period: Custom date range
+- Basis: `accrual` / `cash_allocated`
+- Term (optional): фильтр по revenue term
+- Breakdown: Monthly (если диапазон затрагивает несколько месяцев)
+
+**Логика:**
+- `basis=accrual`: revenue считается по `Invoice.issue_date` и line-level buckets.
+- `basis=cash_allocated`: revenue считается по `CreditAllocation.created_at` и только по уже аллоцированным деньгам.
+- `term_id` фильтрует только revenue; expenses остаются company-wide в пределах выбранного диапазона дат.
 
 **Структура:**
 ```
 REVENUE (Доходы)
-├─ Student Fees
-│  ├─ School Fee: 32,000,000 KES
-│  ├─ Transport Fee: 8,500,000 KES
-│  ├─ Admission Fee: 2,800,000 KES
-│  └─ Other Fees: 1,200,000 KES
+├─ School Fee: 32,000,000 KES
+├─ Transport: 8,500,000 KES
+├─ Admission Fee: 1,400,000 KES
+├─ Interview Fee: 350,000 KES
 ├─ Uniform Sales: 3,200,000 KES
-└─ Gross Revenue: 47,700,000 KES
+├─ Activities: 900,000 KES
+└─ Other Fees: 1,200,000 KES
 
 LESS: Discounts & Adjustments
 └─ Student Discounts: -2,400,000 KES
@@ -693,7 +699,8 @@ GET /api/v1/dashboard?period=current_term
 # Возвращает: карточки (revenue, expenses, collection rate, …), ключевые метрики, данные для 1–2 графиков, алерты, последнюю активность.
 
 # Отчёты (раздел Reports) — единый префикс /api/v1/reports/ или по ресурсам
-GET /api/v1/reports/profit-loss?date_from=...&date_to=...&breakdown=monthly&format=xlsx
+GET /api/v1/reports/profit-loss?date_from=...&date_to=...&basis=accrual&breakdown=monthly&format=xlsx
+GET /api/v1/reports/profit-loss?date_from=...&date_to=...&basis=cash_allocated&term_id=...&breakdown=monthly&format=xlsx
 GET /api/v1/reports/cash-flow?date_from=...&date_to=...&payment_method=mpesa&breakdown=monthly&format=xlsx
 GET /api/v1/reports/balance-sheet?as_at_date=...
 

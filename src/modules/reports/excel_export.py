@@ -88,17 +88,26 @@ def export_profit_loss_fixed(data: dict) -> bytes:
     ws.title = "Profit & Loss"
     date_from = data.get("date_from")
     date_to = data.get("date_to")
-    ws.cell(1, 1, f"Profit & Loss: {date_from} to {date_to}")
+    basis = data.get("basis") or "accrual"
+    basis_label = "Accrual" if basis == "accrual" else "Real Cash / Allocated"
+    term_name = data.get("term_display_name")
+    ws.cell(1, 1, f"Profit & Loss ({basis_label}): {date_from} to {date_to}")
     ws.cell(1, 1).font = Font(bold=True, size=12)
+    header_row = 3
+    if term_name:
+        ws.cell(2, 1, f"Term: {term_name}")
+        if data.get("term_filter_applies_to_revenue_only"):
+            ws.cell(3, 1, "Note: Revenue is filtered to the selected term. Expenses remain date-based company expenses.")
+            header_row = 4
     months = data.get("months") or []
     if months:
         header = ["Line"] + [m.replace("-", " ") for m in months] + ["Total (KES)"]
     else:
         header = ["Line", "Amount (KES)"]
-    _write_table(ws, [header], 3)
+    _write_table(ws, [header], header_row)
     for c in range(1, len(header) + 1):
-        ws.cell(3, c).font = Font(bold=True)
-    row = 4
+        ws.cell(header_row, c).font = Font(bold=True)
+    row = header_row + 1
     ws.cell(row, 1, "REVENUE").font = Font(bold=True)
     row += 1
     for r in data.get("revenue_lines", []):

@@ -482,6 +482,10 @@ class TestProfitLoss:
         d = response.json()["data"]
         assert d["date_from"] == "2026-01-01"
         assert d["date_to"] == "2026-01-31"
+        assert d["basis"] == "accrual"
+        assert d["term_id"] is None
+        assert d["term_display_name"] is None
+        assert d["term_filter_applies_to_revenue_only"] is False
         assert "revenue_lines" in d
         assert "gross_revenue" in d
         assert "total_discounts" in d
@@ -599,6 +603,192 @@ class TestProfitLoss:
             for r in d["revenue_lines"]
         )
 
+    async def test_profit_loss_accrual_uses_line_level_revenue_buckets(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Adhoc invoices should still split admission/interview/uniform into separate lines."""
+        from src.modules.billing_accounts.models import BillingAccount
+        from src.modules.items.models import Category, Kit
+
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_pl_buckets_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        grade = Grade(code="GB1", name="Bucket Grade", display_order=1, is_active=True)
+        db_session.add(grade)
+        await db_session.flush()
+
+        account = BillingAccount(
+            account_number="BA-PL-BUCKETS",
+            display_name="Buckets Family",
+            primary_guardian_name="Parent",
+            primary_guardian_phone="+254700001111",
+            created_by_id=user.id,
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        student = Student(
+            student_number="STU-2026-PLB001",
+            first_name="Bucket",
+            last_name="Student",
+            gender=Gender.MALE.value,
+            grade_id=grade.id,
+            billing_account_id=account.id,
+            transport_zone_id=None,
+            guardian_name="Parent",
+            guardian_phone="+254700001111",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add(student)
+        await db_session.flush()
+
+        fees_category = Category(name="Fees Buckets", is_active=True)
+        uniform_category = Category(name="Uniform", is_active=True)
+        db_session.add_all([fees_category, uniform_category])
+        await db_session.flush()
+
+        admission_kit = Kit(
+            category_id=fees_category.id,
+            sku_code="ADMISSION-FEE",
+            name="Admission Fee",
+            item_type="service",
+            price_type="standard",
+            price=Decimal("100.00"),
+            requires_full_payment=True,
+            is_editable_components=False,
+            is_active=True,
+        )
+        interview_kit = Kit(
+            category_id=fees_category.id,
+            sku_code="INTERVIEW-FEE",
+            name="Interview Fee",
+            item_type="service",
+            price_type="standard",
+            price=Decimal("50.00"),
+            requires_full_payment=True,
+            is_editable_components=False,
+            is_active=True,
+        )
+        uniform_kit = Kit(
+            category_id=uniform_category.id,
+            sku_code="UNIFORM-SET",
+            name="Uniform Set",
+            item_type="product",
+            price_type="standard",
+            price=Decimal("80.00"),
+            requires_full_payment=True,
+            is_editable_components=False,
+            is_active=True,
+        )
+        other_kit = Kit(
+            category_id=fees_category.id,
+            sku_code="MISC-FEE",
+            name="Misc Fee",
+            item_type="service",
+            price_type="standard",
+            price=Decimal("20.00"),
+            requires_full_payment=False,
+            is_editable_components=False,
+            is_active=True,
+        )
+        db_session.add_all([admission_kit, interview_kit, uniform_kit, other_kit])
+        await db_session.flush()
+
+        invoice = Invoice(
+            invoice_number="INV-2026-PLB001",
+            student_id=student.id,
+            billing_account_id=account.id,
+            term_id=None,
+            invoice_type="adhoc",
+            status=InvoiceStatus.ISSUED.value,
+            issue_date=date(2026, 1, 15),
+            due_date=date(2026, 1, 31),
+            subtotal=Decimal("250.00"),
+            discount_total=Decimal("15.00"),
+            total=Decimal("235.00"),
+            paid_total=Decimal("0.00"),
+            amount_due=Decimal("235.00"),
+            created_by_id=user.id,
+        )
+        db_session.add(invoice)
+        await db_session.flush()
+
+        db_session.add_all([
+            InvoiceLine(
+                invoice_id=invoice.id,
+                kit_id=admission_kit.id,
+                description="Admission",
+                quantity=1,
+                unit_price=Decimal("100.00"),
+                line_total=Decimal("100.00"),
+                discount_amount=Decimal("10.00"),
+                net_amount=Decimal("90.00"),
+                paid_amount=Decimal("0.00"),
+                remaining_amount=Decimal("90.00"),
+            ),
+            InvoiceLine(
+                invoice_id=invoice.id,
+                kit_id=interview_kit.id,
+                description="Interview",
+                quantity=1,
+                unit_price=Decimal("50.00"),
+                line_total=Decimal("50.00"),
+                discount_amount=Decimal("0.00"),
+                net_amount=Decimal("50.00"),
+                paid_amount=Decimal("0.00"),
+                remaining_amount=Decimal("50.00"),
+            ),
+            InvoiceLine(
+                invoice_id=invoice.id,
+                kit_id=uniform_kit.id,
+                description="Uniform",
+                quantity=1,
+                unit_price=Decimal("80.00"),
+                line_total=Decimal("80.00"),
+                discount_amount=Decimal("0.00"),
+                net_amount=Decimal("80.00"),
+                paid_amount=Decimal("0.00"),
+                remaining_amount=Decimal("80.00"),
+            ),
+            InvoiceLine(
+                invoice_id=invoice.id,
+                kit_id=other_kit.id,
+                description="Other",
+                quantity=1,
+                unit_price=Decimal("20.00"),
+                line_total=Decimal("20.00"),
+                discount_amount=Decimal("5.00"),
+                net_amount=Decimal("15.00"),
+                paid_amount=Decimal("0.00"),
+                remaining_amount=Decimal("15.00"),
+            ),
+        ])
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate("reports_pl_buckets_admin@test.com", "Pass123")
+        response = await client.get(
+            "/api/v1/reports/profit-loss?date_from=2026-01-01&date_to=2026-01-31",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        d = response.json()["data"]
+
+        revenue = {row["label"]: Decimal(row["amount"]) for row in d["revenue_lines"]}
+        assert revenue["Admission Fee"] == Decimal("100.00")
+        assert revenue["Interview Fee"] == Decimal("50.00")
+        assert revenue["Uniform Sales"] == Decimal("80.00")
+        assert revenue["Other Fees"] == Decimal("20.00")
+        assert Decimal(d["gross_revenue"]) == Decimal("250.00")
+        assert Decimal(d["total_discounts"]) == Decimal("15.00")
+        assert Decimal(d["net_revenue"]) == Decimal("235.00")
+
     async def test_profit_loss_expenses_breakdown_by_purpose(
         self, client: AsyncClient, db_session: AsyncSession
     ):
@@ -659,6 +849,461 @@ class TestProfitLoss:
         assert exp["Uniforms"] == Decimal("1000.00")
         assert Decimal(d["total_expenses"]) == Decimal("1250.00")
 
+    async def test_profit_loss_cash_allocated_uses_allocation_date_and_line_shares(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Cash-allocated P&L should recognize revenue on allocation date, not payment date."""
+        from datetime import datetime, timezone
+
+        from src.modules.billing_accounts.models import BillingAccount
+        from src.modules.items.models import Category, Kit
+        from src.modules.payments.models import CreditAllocation, Payment
+
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_pl_cash_basis_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        grade = Grade(code="GC1", name="Cash Basis Grade", display_order=1, is_active=True)
+        db_session.add(grade)
+        await db_session.flush()
+
+        account = BillingAccount(
+            account_number="BA-PL-CASH",
+            display_name="Cash Basis Family",
+            primary_guardian_name="Parent",
+            primary_guardian_phone="+254700002222",
+            created_by_id=user.id,
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        student = Student(
+            student_number="STU-2026-PLC001",
+            first_name="Cash",
+            last_name="Allocated",
+            gender=Gender.FEMALE.value,
+            grade_id=grade.id,
+            billing_account_id=account.id,
+            transport_zone_id=None,
+            guardian_name="Parent",
+            guardian_phone="+254700002222",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add(student)
+        await db_session.flush()
+
+        fees_category = Category(name="Fees Cash Basis", is_active=True)
+        uniform_category = Category(name="Uniform", is_active=True)
+        db_session.add_all([fees_category, uniform_category])
+        await db_session.flush()
+
+        admission_kit = Kit(
+            category_id=fees_category.id,
+            sku_code="ADMISSION-FEE",
+            name="Admission Fee",
+            item_type="service",
+            price_type="standard",
+            price=Decimal("100.00"),
+            requires_full_payment=True,
+            is_editable_components=False,
+            is_active=True,
+        )
+        uniform_kit = Kit(
+            category_id=uniform_category.id,
+            sku_code="UNIFORM-SHIRT",
+            name="Uniform Shirt",
+            item_type="product",
+            price_type="standard",
+            price=Decimal("60.00"),
+            requires_full_payment=True,
+            is_editable_components=False,
+            is_active=True,
+        )
+        db_session.add_all([admission_kit, uniform_kit])
+        await db_session.flush()
+
+        invoice = Invoice(
+            invoice_number="INV-2026-PLC001",
+            student_id=student.id,
+            billing_account_id=account.id,
+            term_id=None,
+            invoice_type="adhoc",
+            status=InvoiceStatus.PARTIALLY_PAID.value,
+            issue_date=date(2026, 1, 10),
+            due_date=date(2026, 1, 31),
+            subtotal=Decimal("160.00"),
+            discount_total=Decimal("10.00"),
+            total=Decimal("150.00"),
+            paid_total=Decimal("75.00"),
+            amount_due=Decimal("75.00"),
+            created_by_id=user.id,
+        )
+        db_session.add(invoice)
+        await db_session.flush()
+
+        line_admission = InvoiceLine(
+            invoice_id=invoice.id,
+            kit_id=admission_kit.id,
+            description="Admission",
+            quantity=1,
+            unit_price=Decimal("100.00"),
+            line_total=Decimal("100.00"),
+            discount_amount=Decimal("10.00"),
+            net_amount=Decimal("90.00"),
+            paid_amount=Decimal("45.00"),
+            remaining_amount=Decimal("45.00"),
+        )
+        line_uniform = InvoiceLine(
+            invoice_id=invoice.id,
+            kit_id=uniform_kit.id,
+            description="Uniform",
+            quantity=1,
+            unit_price=Decimal("60.00"),
+            line_total=Decimal("60.00"),
+            discount_amount=Decimal("0.00"),
+            net_amount=Decimal("60.00"),
+            paid_amount=Decimal("30.00"),
+            remaining_amount=Decimal("30.00"),
+        )
+        db_session.add_all([line_admission, line_uniform])
+        await db_session.flush()
+
+        db_session.add(
+            Payment(
+                payment_number="PAY-2026-PLC001",
+                receipt_number="RCP-2026-PLC001",
+                student_id=student.id,
+                billing_account_id=account.id,
+                amount=Decimal("75.00"),
+                payment_method="mpesa",
+                payment_date=date(2026, 1, 31),
+                status="completed",
+                received_by_id=user.id,
+            )
+        )
+        db_session.add(
+            CreditAllocation(
+                student_id=student.id,
+                billing_account_id=account.id,
+                invoice_id=invoice.id,
+                invoice_line_id=None,
+                amount=Decimal("75.00"),
+                allocated_by_id=user.id,
+                created_at=datetime(2026, 2, 2, 12, 0, tzinfo=timezone.utc),
+            )
+        )
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate("reports_pl_cash_basis_admin@test.com", "Pass123")
+
+        january = await client.get(
+            "/api/v1/reports/profit-loss?date_from=2026-01-01&date_to=2026-01-31&basis=cash_allocated",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert january.status_code == 200
+        jan_data = january.json()["data"]
+        assert jan_data["basis"] == "cash_allocated"
+        assert Decimal(jan_data["gross_revenue"]) == Decimal("0.00")
+        assert Decimal(jan_data["net_revenue"]) == Decimal("0.00")
+
+        february = await client.get(
+            "/api/v1/reports/profit-loss?date_from=2026-02-01&date_to=2026-02-28&basis=cash_allocated",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert february.status_code == 200
+        feb_data = february.json()["data"]
+
+        revenue = {row["label"]: Decimal(row["amount"]) for row in feb_data["revenue_lines"]}
+        assert revenue["Admission Fee"] == Decimal("50.00")
+        assert revenue["Uniform Sales"] == Decimal("30.00")
+        assert Decimal(feb_data["gross_revenue"]) == Decimal("80.00")
+        assert Decimal(feb_data["total_discounts"]) == Decimal("5.00")
+        assert Decimal(feb_data["net_revenue"]) == Decimal("75.00")
+
+    async def test_profit_loss_cash_allocated_uses_company_cash_expenses_only(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Cash-allocated P&L should exclude employee-paid claims and include compensation payouts."""
+        from src.modules.compensations.models import CompensationPayout
+        from src.modules.procurement.models import PaymentPurpose, ProcurementPayment
+
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_pl_cash_exp_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        purpose = PaymentPurpose(name="Cash Expenses Stationery", purpose_type="expense", is_active=True)
+        db_session.add(purpose)
+        await db_session.flush()
+
+        db_session.add_all([
+            ProcurementPayment(
+                payment_number="PP-2026-CEXP001",
+                po_id=None,
+                purpose_id=purpose.id,
+                payee_name="Supplier",
+                payment_date=date(2026, 1, 10),
+                amount=Decimal("100.00"),
+                payment_method="bank",
+                company_paid=True,
+                status="posted",
+                created_by_id=user.id,
+            ),
+            ProcurementPayment(
+                payment_number="PP-2026-CEXP002",
+                po_id=None,
+                purpose_id=purpose.id,
+                payee_name="Employee",
+                payment_date=date(2026, 1, 11),
+                amount=Decimal("80.00"),
+                payment_method="cash",
+                company_paid=False,
+                status="posted",
+                created_by_id=user.id,
+            ),
+            CompensationPayout(
+                payout_number="CP-2026-CEXP001",
+                employee_id=user.id,
+                payout_date=date(2026, 1, 12),
+                amount=Decimal("30.00"),
+                payment_method="mpesa",
+            ),
+        ])
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate("reports_pl_cash_exp_admin@test.com", "Pass123")
+        response = await client.get(
+            "/api/v1/reports/profit-loss?date_from=2026-01-01&date_to=2026-01-31&basis=cash_allocated",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        d = response.json()["data"]
+
+        expenses = {row["label"]: Decimal(row["amount"]) for row in d["expense_lines"]}
+        assert expenses["Cash Expenses Stationery"] == Decimal("100.00")
+        assert expenses["Employee Compensations"] == Decimal("30.00")
+        assert Decimal(d["total_expenses"]) == Decimal("130.00")
+        assert Decimal(d["net_profit"]) == Decimal("-130.00")
+
+    async def test_profit_loss_cash_allocated_term_filter_applies_to_revenue_only(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Term filter should scope revenue only and surface the limitation in response metadata."""
+        from datetime import datetime, timezone
+
+        from src.modules.billing_accounts.models import BillingAccount
+        from src.modules.items.models import Category, Kit
+        from src.modules.payments.models import CreditAllocation
+        from src.modules.procurement.models import PaymentPurpose, ProcurementPayment
+
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_pl_term_cash_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        grade = Grade(code="GT1", name="Term Filter Grade", display_order=1, is_active=True)
+        db_session.add(grade)
+        await db_session.flush()
+
+        term1 = Term(
+            year=2026,
+            term_number=1,
+            display_name="2026-T1",
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 4, 1),
+            status=TermStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        term2 = Term(
+            year=2026,
+            term_number=2,
+            display_name="2026-T2",
+            start_date=date(2026, 4, 2),
+            end_date=date(2026, 8, 1),
+            status=TermStatus.DRAFT.value,
+            created_by_id=user.id,
+        )
+        db_session.add_all([term1, term2])
+        await db_session.flush()
+
+        account = BillingAccount(
+            account_number="BA-PL-TERM",
+            display_name="Term Family",
+            primary_guardian_name="Parent",
+            primary_guardian_phone="+254700003333",
+            created_by_id=user.id,
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        student = Student(
+            student_number="STU-2026-PLT001",
+            first_name="Term",
+            last_name="Filter",
+            gender=Gender.MALE.value,
+            grade_id=grade.id,
+            billing_account_id=account.id,
+            transport_zone_id=None,
+            guardian_name="Parent",
+            guardian_phone="+254700003333",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add(student)
+        await db_session.flush()
+
+        category = Category(name="Fees Term Filter", is_active=True)
+        db_session.add(category)
+        await db_session.flush()
+
+        kit = Kit(
+            category_id=category.id,
+            sku_code="SCHOOL-TERM",
+            name="School Term Fee",
+            item_type="service",
+            price_type="standard",
+            price=Decimal("100.00"),
+            requires_full_payment=False,
+            is_editable_components=False,
+            is_active=True,
+        )
+        db_session.add(kit)
+        await db_session.flush()
+
+        inv_t1 = Invoice(
+            invoice_number="INV-2026-PLT001",
+            student_id=student.id,
+            billing_account_id=account.id,
+            term_id=term1.id,
+            invoice_type="school_fee",
+            status=InvoiceStatus.PAID.value,
+            issue_date=date(2026, 1, 5),
+            due_date=date(2026, 1, 31),
+            subtotal=Decimal("100.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("100.00"),
+            paid_total=Decimal("100.00"),
+            amount_due=Decimal("0.00"),
+            created_by_id=user.id,
+        )
+        inv_t2 = Invoice(
+            invoice_number="INV-2026-PLT002",
+            student_id=student.id,
+            billing_account_id=account.id,
+            term_id=term2.id,
+            invoice_type="school_fee",
+            status=InvoiceStatus.PAID.value,
+            issue_date=date(2026, 1, 5),
+            due_date=date(2026, 1, 31),
+            subtotal=Decimal("100.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("100.00"),
+            paid_total=Decimal("100.00"),
+            amount_due=Decimal("0.00"),
+            created_by_id=user.id,
+        )
+        db_session.add_all([inv_t1, inv_t2])
+        await db_session.flush()
+
+        db_session.add_all([
+            InvoiceLine(
+                invoice_id=inv_t1.id,
+                kit_id=kit.id,
+                description="Term 1",
+                quantity=1,
+                unit_price=Decimal("100.00"),
+                line_total=Decimal("100.00"),
+                discount_amount=Decimal("0.00"),
+                net_amount=Decimal("100.00"),
+                paid_amount=Decimal("100.00"),
+                remaining_amount=Decimal("0.00"),
+            ),
+            InvoiceLine(
+                invoice_id=inv_t2.id,
+                kit_id=kit.id,
+                description="Term 2",
+                quantity=1,
+                unit_price=Decimal("100.00"),
+                line_total=Decimal("100.00"),
+                discount_amount=Decimal("0.00"),
+                net_amount=Decimal("100.00"),
+                paid_amount=Decimal("100.00"),
+                remaining_amount=Decimal("0.00"),
+            ),
+        ])
+        await db_session.flush()
+
+        allocation_time = datetime(2026, 1, 20, 9, 0, tzinfo=timezone.utc)
+        db_session.add_all([
+            CreditAllocation(
+                student_id=student.id,
+                billing_account_id=account.id,
+                invoice_id=inv_t1.id,
+                invoice_line_id=None,
+                amount=Decimal("100.00"),
+                allocated_by_id=user.id,
+                created_at=allocation_time,
+            ),
+            CreditAllocation(
+                student_id=student.id,
+                billing_account_id=account.id,
+                invoice_id=inv_t2.id,
+                invoice_line_id=None,
+                amount=Decimal("100.00"),
+                allocated_by_id=user.id,
+                created_at=allocation_time,
+            ),
+        ])
+
+        purpose = PaymentPurpose(name="Term Filter Expenses", purpose_type="expense", is_active=True)
+        db_session.add(purpose)
+        await db_session.flush()
+        db_session.add(
+            ProcurementPayment(
+                payment_number="PP-2026-PLT001",
+                po_id=None,
+                purpose_id=purpose.id,
+                payee_name="Supplier",
+                payment_date=date(2026, 1, 21),
+                amount=Decimal("40.00"),
+                payment_method="bank",
+                company_paid=True,
+                status="posted",
+                created_by_id=user.id,
+            )
+        )
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate("reports_pl_term_cash_admin@test.com", "Pass123")
+        response = await client.get(
+            f"/api/v1/reports/profit-loss?date_from=2026-01-01&date_to=2026-01-31&basis=cash_allocated&term_id={term1.id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        d = response.json()["data"]
+
+        assert d["basis"] == "cash_allocated"
+        assert d["term_id"] == term1.id
+        assert d["term_display_name"] == term1.display_name
+        assert d["term_filter_applies_to_revenue_only"] is True
+        assert Decimal(d["gross_revenue"]) == Decimal("100.00")
+        assert Decimal(d["net_revenue"]) == Decimal("100.00")
+        assert Decimal(d["total_expenses"]) == Decimal("40.00")
+
     async def test_profit_loss_400_if_date_from_after_date_to(
         self, client: AsyncClient, db_session: AsyncSession
     ):
@@ -694,6 +1339,284 @@ class TestProfitLoss:
         assert "net_profit_monthly" in d
         assert all(len(r.get("monthly") or {}) == 3 for r in d["revenue_lines"])
         assert all(len(e.get("monthly") or {}) == 3 for e in d["expense_lines"])
+
+    async def test_profit_loss_breakdown_monthly_clips_partial_months_and_zero_fills(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Monthly breakdown must respect the selected date range and fill missing months with zero."""
+        from src.modules.billing_accounts.models import BillingAccount
+        from src.modules.items.models import Category, Kit
+        from src.modules.procurement.models import PaymentPurpose, ProcurementPayment
+
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_pl_month_clip_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        grade = Grade(code="GM1", name="Monthly Grade", display_order=1, is_active=True)
+        db_session.add(grade)
+        await db_session.flush()
+
+        account = BillingAccount(
+            account_number="BA-PL-MONTH",
+            display_name="Monthly Family",
+            primary_guardian_name="Parent",
+            primary_guardian_phone="+254700004444",
+            created_by_id=user.id,
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        student = Student(
+            student_number="STU-2026-PLM001",
+            first_name="Monthly",
+            last_name="Clip",
+            gender=Gender.FEMALE.value,
+            grade_id=grade.id,
+            billing_account_id=account.id,
+            transport_zone_id=None,
+            guardian_name="Parent",
+            guardian_phone="+254700004444",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add(student)
+        await db_session.flush()
+
+        fees_category = Category(name="Fees Monthly", is_active=True)
+        uniform_category = Category(name="Uniform", is_active=True)
+        db_session.add_all([fees_category, uniform_category])
+        await db_session.flush()
+
+        school_kit = Kit(
+            category_id=fees_category.id,
+            sku_code="SCHOOL-FEE-MONTH",
+            name="School Fee Monthly",
+            item_type="service",
+            price_type="standard",
+            price=Decimal("100.00"),
+            requires_full_payment=False,
+            is_editable_components=False,
+            is_active=True,
+        )
+        uniform_kit = Kit(
+            category_id=uniform_category.id,
+            sku_code="UNIFORM-MONTH",
+            name="Uniform Monthly",
+            item_type="product",
+            price_type="standard",
+            price=Decimal("200.00"),
+            requires_full_payment=True,
+            is_editable_components=False,
+            is_active=True,
+        )
+        db_session.add_all([school_kit, uniform_kit])
+        await db_session.flush()
+
+        invoices = [
+            Invoice(
+                invoice_number="INV-2026-PLM001",
+                student_id=student.id,
+                billing_account_id=account.id,
+                term_id=None,
+                invoice_type="school_fee",
+                status=InvoiceStatus.ISSUED.value,
+                issue_date=date(2026, 1, 10),
+                due_date=date(2026, 1, 31),
+                subtotal=Decimal("50.00"),
+                discount_total=Decimal("0.00"),
+                total=Decimal("50.00"),
+                paid_total=Decimal("0.00"),
+                amount_due=Decimal("50.00"),
+                created_by_id=user.id,
+            ),
+            Invoice(
+                invoice_number="INV-2026-PLM002",
+                student_id=student.id,
+                billing_account_id=account.id,
+                term_id=None,
+                invoice_type="school_fee",
+                status=InvoiceStatus.ISSUED.value,
+                issue_date=date(2026, 1, 20),
+                due_date=date(2026, 1, 31),
+                subtotal=Decimal("100.00"),
+                discount_total=Decimal("0.00"),
+                total=Decimal("100.00"),
+                paid_total=Decimal("0.00"),
+                amount_due=Decimal("100.00"),
+                created_by_id=user.id,
+            ),
+            Invoice(
+                invoice_number="INV-2026-PLM003",
+                student_id=student.id,
+                billing_account_id=account.id,
+                term_id=None,
+                invoice_type="adhoc",
+                status=InvoiceStatus.ISSUED.value,
+                issue_date=date(2026, 2, 5),
+                due_date=date(2026, 2, 28),
+                subtotal=Decimal("200.00"),
+                discount_total=Decimal("0.00"),
+                total=Decimal("200.00"),
+                paid_total=Decimal("0.00"),
+                amount_due=Decimal("200.00"),
+                created_by_id=user.id,
+            ),
+            Invoice(
+                invoice_number="INV-2026-PLM004",
+                student_id=student.id,
+                billing_account_id=account.id,
+                term_id=None,
+                invoice_type="adhoc",
+                status=InvoiceStatus.ISSUED.value,
+                issue_date=date(2026, 2, 20),
+                due_date=date(2026, 2, 28),
+                subtotal=Decimal("300.00"),
+                discount_total=Decimal("0.00"),
+                total=Decimal("300.00"),
+                paid_total=Decimal("0.00"),
+                amount_due=Decimal("300.00"),
+                created_by_id=user.id,
+            ),
+        ]
+        db_session.add_all(invoices)
+        await db_session.flush()
+
+        db_session.add_all([
+            InvoiceLine(
+                invoice_id=invoices[0].id,
+                kit_id=school_kit.id,
+                description="School Fee Outside",
+                quantity=1,
+                unit_price=Decimal("50.00"),
+                line_total=Decimal("50.00"),
+                discount_amount=Decimal("0.00"),
+                net_amount=Decimal("50.00"),
+                paid_amount=Decimal("0.00"),
+                remaining_amount=Decimal("50.00"),
+            ),
+            InvoiceLine(
+                invoice_id=invoices[1].id,
+                kit_id=school_kit.id,
+                description="School Fee Inside",
+                quantity=1,
+                unit_price=Decimal("100.00"),
+                line_total=Decimal("100.00"),
+                discount_amount=Decimal("0.00"),
+                net_amount=Decimal("100.00"),
+                paid_amount=Decimal("0.00"),
+                remaining_amount=Decimal("100.00"),
+            ),
+            InvoiceLine(
+                invoice_id=invoices[2].id,
+                kit_id=uniform_kit.id,
+                description="Uniform Inside",
+                quantity=1,
+                unit_price=Decimal("200.00"),
+                line_total=Decimal("200.00"),
+                discount_amount=Decimal("0.00"),
+                net_amount=Decimal("200.00"),
+                paid_amount=Decimal("0.00"),
+                remaining_amount=Decimal("200.00"),
+            ),
+            InvoiceLine(
+                invoice_id=invoices[3].id,
+                kit_id=uniform_kit.id,
+                description="Uniform Outside",
+                quantity=1,
+                unit_price=Decimal("300.00"),
+                line_total=Decimal("300.00"),
+                discount_amount=Decimal("0.00"),
+                net_amount=Decimal("300.00"),
+                paid_amount=Decimal("0.00"),
+                remaining_amount=Decimal("300.00"),
+            ),
+        ])
+
+        purpose_stationery = PaymentPurpose(name="Monthly Stationery", purpose_type="expense", is_active=True)
+        purpose_uniforms = PaymentPurpose(name="Monthly Uniforms", purpose_type="expense", is_active=True)
+        db_session.add_all([purpose_stationery, purpose_uniforms])
+        await db_session.flush()
+
+        db_session.add_all([
+            ProcurementPayment(
+                payment_number="PP-2026-PLM001",
+                po_id=None,
+                purpose_id=purpose_stationery.id,
+                payee_name="Supplier",
+                payment_date=date(2026, 1, 5),
+                amount=Decimal("20.00"),
+                payment_method="bank",
+                company_paid=True,
+                status="posted",
+                created_by_id=user.id,
+            ),
+            ProcurementPayment(
+                payment_number="PP-2026-PLM002",
+                po_id=None,
+                purpose_id=purpose_stationery.id,
+                payee_name="Supplier",
+                payment_date=date(2026, 1, 25),
+                amount=Decimal("40.00"),
+                payment_method="bank",
+                company_paid=True,
+                status="posted",
+                created_by_id=user.id,
+            ),
+            ProcurementPayment(
+                payment_number="PP-2026-PLM003",
+                po_id=None,
+                purpose_id=purpose_uniforms.id,
+                payee_name="Supplier",
+                payment_date=date(2026, 2, 7),
+                amount=Decimal("30.00"),
+                payment_method="bank",
+                company_paid=True,
+                status="posted",
+                created_by_id=user.id,
+            ),
+            ProcurementPayment(
+                payment_number="PP-2026-PLM004",
+                po_id=None,
+                purpose_id=purpose_uniforms.id,
+                payee_name="Supplier",
+                payment_date=date(2026, 2, 20),
+                amount=Decimal("50.00"),
+                payment_method="bank",
+                company_paid=True,
+                status="posted",
+                created_by_id=user.id,
+            ),
+        ])
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate("reports_pl_month_clip_admin@test.com", "Pass123")
+        response = await client.get(
+            "/api/v1/reports/profit-loss?date_from=2026-01-15&date_to=2026-02-10&breakdown=monthly",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        d = response.json()["data"]
+
+        assert d["months"] == ["2026-01", "2026-02"]
+        assert Decimal(d["gross_revenue"]) == Decimal("300.00")
+        assert Decimal(d["total_expenses"]) == Decimal("70.00")
+        assert Decimal(d["gross_revenue_monthly"]["2026-01"]) == Decimal("100.00")
+        assert Decimal(d["gross_revenue_monthly"]["2026-02"]) == Decimal("200.00")
+        assert Decimal(d["total_expenses_monthly"]["2026-01"]) == Decimal("40.00")
+        assert Decimal(d["total_expenses_monthly"]["2026-02"]) == Decimal("30.00")
+
+        revenue = {row["label"]: row["monthly"] for row in d["revenue_lines"]}
+        assert revenue["School Fee"] == {"2026-01": "100.00", "2026-02": "0.00"}
+        assert revenue["Uniform Sales"] == {"2026-01": "0.00", "2026-02": "200.00"}
+
+        expenses = {row["label"]: row["monthly"] for row in d["expense_lines"]}
+        assert expenses["Monthly Stationery"] == {"2026-01": "40.00", "2026-02": "0.00"}
+        assert expenses["Monthly Uniforms"] == {"2026-01": "0.00", "2026-02": "30.00"}
 
 
 class TestCashFlow:

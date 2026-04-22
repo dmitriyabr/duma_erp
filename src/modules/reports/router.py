@@ -13,6 +13,7 @@ from src.core.database.session import get_db
 from src.modules.reports.schemas import (
     AgedReceivablesResponse,
     StudentFeesResponse,
+    ProfitLossBasis,
     ProfitLossResponse,
     CashFlowResponse,
     BalanceSheetResponse,
@@ -105,6 +106,14 @@ async def get_student_fees(
 async def get_profit_loss(
     date_from: date = Query(..., description="Start date (inclusive)."),
     date_to: date = Query(..., description="End date (inclusive)."),
+    basis: ProfitLossBasis = Query(
+        ProfitLossBasis.ACCRUAL,
+        description="Revenue basis: accrual (invoiced) or cash_allocated (real cash allocated to invoices).",
+    ),
+    term_id: int | None = Query(
+        None,
+        description="Optional term filter for revenue lines. Expenses remain company-wide date-based expenses.",
+    ),
     breakdown: str | None = Query(
         None,
         description="Pass 'monthly' for per-month columns in the response.",
@@ -114,7 +123,7 @@ async def get_profit_loss(
     current_user: User = ReportsUser,
 ):
     """
-    Profit & Loss: revenue by type, less discounts, expenses (procurement + compensations).
+    Profit & Loss: accrual or cash-allocated revenue, less discounts and expenses.
 
     Access: SuperAdmin, Admin only.
     """
@@ -124,6 +133,8 @@ async def get_profit_loss(
     data = await service.profit_loss(
         date_from=date_from,
         date_to=date_to,
+        basis=basis,
+        term_id=term_id,
         breakdown_monthly=(breakdown == "monthly"),
     )
     if format == "xlsx":
