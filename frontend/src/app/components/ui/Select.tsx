@@ -12,6 +12,22 @@ export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   containerClassName?: string
 }
 
+const optionLabelFromChildren = (children: ReactNode, fallback: string): string => {
+  if (children == null || typeof children === 'boolean') return fallback
+  if (typeof children === 'string' || typeof children === 'number' || typeof children === 'bigint') {
+    return String(children)
+  }
+  if (Array.isArray(children)) {
+    const label = children.map((child) => optionLabelFromChildren(child, '')).join('')
+    return label || fallback
+  }
+  if (React.isValidElement(children)) {
+    const props = children.props as { children?: ReactNode }
+    return optionLabelFromChildren(props.children, fallback)
+  }
+  return fallback
+}
+
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(
   ({ className, containerClassName, label, error, helperText, id, value, onChange, children, ...props }, ref) => {
     const autoId = useId()
@@ -91,7 +107,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
           if (props.value !== undefined) {
             options.push({
               value: String(props.value),
-              label: typeof props.children === 'string' ? props.children : String(props.children || props.value),
+              label: optionLabelFromChildren(props.children, String(props.value)),
             })
           }
         }
