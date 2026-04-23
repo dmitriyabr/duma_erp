@@ -81,7 +81,7 @@ export const CreateInvoicePage = () => {
   const { studentId: paramStudentId } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
-  const state = (location.state as { studentId?: number } | null) ?? null
+  const state = (location.state as { studentId?: number; returnTo?: string } | null) ?? null
   const [selectedStudentId, setSelectedStudentId] = useState<number | ''>(state?.studentId ?? '')
   const resolvedId = paramStudentId
     ? Number(paramStudentId)
@@ -342,7 +342,7 @@ export const CreateInvoicePage = () => {
         })
         .then((r) => ({ data: { data: unwrapResponse<InvoiceDetail>(r) } }))
     )
-    if (result != null) navigate(`/students/${resolvedId}?tab=invoices`)
+    if (result != null) navigate(state?.returnTo ?? `/students/${resolvedId}?tab=invoices`)
   }
 
   if (isStandalone && !resolvedId) {

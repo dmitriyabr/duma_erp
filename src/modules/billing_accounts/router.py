@@ -15,10 +15,13 @@ from src.modules.billing_accounts.schemas import (
     BillingAccountDetail,
     BillingAccountListFilters,
     BillingAccountSummary,
+    BillingAccountTermInvoiceGenerationRequest,
     BillingAccountUpdate,
 )
 from src.modules.billing_accounts.service import BillingAccountService
-from src.modules.payments.schemas import StatementResponse
+from src.modules.invoices.schemas import TermInvoiceGenerationResult
+from src.modules.invoices.service import InvoiceService
+from src.modules.payments.schemas import AutoAllocateRequest, StatementResponse
 from src.modules.payments.service import PaymentService
 from src.shared.schemas.base import ApiResponse, PaginatedResponse
 
@@ -133,6 +136,34 @@ async def add_billing_account_child(
     account = await service.add_child(account_id, data, current_user.id)
     detail = await service.get_billing_account_detail(account.id)
     return ApiResponse(data=detail, message="Child added to billing account")
+
+
+@router.post(
+    "/{account_id}/generate-term-invoices",
+    response_model=ApiResponse[TermInvoiceGenerationResult],
+)
+async def generate_billing_account_term_invoices(
+    account_id: int,
+    data: BillingAccountTermInvoiceGenerationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
+):
+    invoice_service = InvoiceService(db)
+    result = await invoice_service.generate_term_invoices_for_billing_account(
+        data.term_id, account_id, current_user.id
+    )
+    if result.affected_student_ids:
+        await PaymentService(db).allocate_auto(
+            AutoAllocateRequest(billing_account_id=account_id),
+            current_user.id,
+        )
+    return ApiResponse(
+        data=result,
+        message=(
+            f"Generated {result.school_fee_invoices_created} school fee and "
+            f"{result.transport_invoices_created} transport invoices"
+        ),
+    )
 
 
 @router.get(

@@ -10,8 +10,13 @@ from sqlalchemy.orm import selectinload
 from src.core.audit.service import AuditService
 from src.core.documents.number_generator import DocumentNumberGenerator
 from src.core.exceptions import NotFoundError, ValidationError
-from src.shared.utils.money import round_money
 from src.modules.billing_accounts.service import BillingAccountService
+from src.modules.discounts.models import (
+    Discount,
+    DiscountValueType,
+    StudentDiscount,
+    StudentDiscountAppliesTo,
+)
 from src.modules.invoices.models import (
     Invoice,
     InvoiceLine,
@@ -22,8 +27,8 @@ from src.modules.invoices.models import (
 from src.modules.invoices.schemas import (
     InvoiceCreate,
     InvoiceFilters,
-    InvoiceLineCreate,
     InvoiceLineComponentConfig,
+    InvoiceLineCreate,
     OutstandingTotalItem,
     TermInvoiceGenerationResult,
 )
@@ -36,16 +41,11 @@ from src.modules.items.models import (
     KitItem,
     PriceType,
 )
-from src.modules.students.models import Grade, Student, StudentStatus
-from src.modules.terms.models import PriceSetting, Term, TermStatus, TransportPricing
-from src.modules.discounts.models import (
-    Discount,
-    DiscountValueType,
-    StudentDiscount,
-    StudentDiscountAppliesTo,
-)
 from src.modules.payments.schemas import AutoAllocateRequest
 from src.modules.payments.service import PaymentService
+from src.modules.students.models import Grade, Student, StudentStatus
+from src.modules.terms.models import PriceSetting, Term, TermStatus, TransportPricing
+from src.shared.utils.money import round_money
 
 
 class InvoiceService:
@@ -1126,7 +1126,11 @@ class InvoiceService:
         )
 
     async def generate_term_invoices_for_student(
-        self, term_id: int, student_id: int, generated_by_id: int
+        self,
+        term_id: int,
+        student_id: int,
+        generated_by_id: int,
+        commit: bool = True,
     ) -> TermInvoiceGenerationResult:
         """Generate term invoices for a single student."""
         # Validate term
@@ -1281,14 +1285,59 @@ class InvoiceService:
                 self._recalculate_invoice(transport_invoice)
                 transport_created += 1
 
-        await self.db.commit()
-        affected = [student_id] if (created_any_invoice or school_fee_created > 0 or transport_created > 0) else []
+        if commit:
+            await self.db.commit()
+        else:
+            await self.db.flush()
+        affected = (
+            [student_id]
+            if (created_any_invoice or school_fee_created > 0 or transport_created > 0)
+            else []
+        )
         return TermInvoiceGenerationResult(
             school_fee_invoices_created=school_fee_created,
             transport_invoices_created=transport_created,
             students_skipped=skipped,
             total_students_processed=1,
             affected_student_ids=affected,
+        )
+
+    async def generate_term_invoices_for_billing_account(
+        self, term_id: int, billing_account_id: int, generated_by_id: int
+    ) -> TermInvoiceGenerationResult:
+        """Generate missing term invoices for all active students in one billing account."""
+        account = await BillingAccountService(self.db).get_billing_account_by_id(
+            billing_account_id
+        )
+        student_ids = [
+            student.id
+            for student in account.students
+            if student.status == StudentStatus.ACTIVE.value
+        ]
+        if not student_ids:
+            raise ValidationError("Billing account has no active students")
+
+        school_fee_created = 0
+        transport_created = 0
+        students_skipped = 0
+        affected_student_ids: set[int] = set()
+
+        for student_id in student_ids:
+            result = await self.generate_term_invoices_for_student(
+                term_id, student_id, generated_by_id, commit=False
+            )
+            school_fee_created += result.school_fee_invoices_created
+            transport_created += result.transport_invoices_created
+            students_skipped += result.students_skipped
+            affected_student_ids.update(result.affected_student_ids)
+
+        await self.db.commit()
+        return TermInvoiceGenerationResult(
+            school_fee_invoices_created=school_fee_created,
+            transport_invoices_created=transport_created,
+            students_skipped=students_skipped,
+            total_students_processed=len(student_ids),
+            affected_student_ids=sorted(affected_student_ids),
         )
 
     async def _get_kit_by_price_type(self, price_type: str) -> Kit | None:

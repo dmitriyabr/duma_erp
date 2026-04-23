@@ -81,6 +81,10 @@ class BillingAccountAddMembersRequest(BaseSchema):
     student_ids: list[int] = Field(..., min_length=1, max_length=50)
 
 
+class BillingAccountTermInvoiceGenerationRequest(BaseSchema):
+    term_id: int = Field(..., gt=0)
+
+
 class BillingAccountListFilters(BaseSchema):
     search: str | None = None
     page: int = Field(1, ge=1)

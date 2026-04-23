@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api } from '../../services/api'
-import { canManageBillingAccounts } from '../../utils/permissions'
+import { canInvoiceTerm, canManageBillingAccounts } from '../../utils/permissions'
 import { formatDate, formatDateTime, formatMoney } from '../../utils/format'
 import { formatStudentNumberShort } from '../../utils/studentNumber'
 import type { ApiResponse, PaginatedResponse } from '../../types/api'
@@ -109,6 +109,13 @@ interface StatementResponse {
   entries: StatementEntry[]
 }
 
+interface GenerationResult {
+  school_fee_invoices_created: number
+  transport_invoices_created: number
+  students_skipped: number
+  total_students_processed: number
+}
+
 export const BillingAccountDetailPage = () => {
   const { accountId } = useParams()
   const navigate = useNavigate()
@@ -137,9 +144,11 @@ export const BillingAccountDetailPage = () => {
   const studentsApi = useApi<PaginatedResponse<BillingStudent>>('/students', {
     params: { status: 'active', page: 1, limit: 500 },
   }, [])
+  const activeTermApi = useApi<{ id: number } | null>('/terms/active')
 
   const addMembersMutation = useApiMutation<BillingAccountDetail>()
   const addChildMutation = useApiMutation<BillingAccountDetail>()
+  const generateTermMutation = useApiMutation<GenerationResult>()
   const statementMutation = useApiMutation<StatementResponse>()
   const autoAllocateMutation = useApiMutation<{
     total_allocated: number
@@ -152,8 +161,10 @@ export const BillingAccountDetailPage = () => {
 
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [addChildDialogOpen, setAddChildDialogOpen] = useState(false)
+  const [sellItemDialogOpen, setSellItemDialogOpen] = useState(false)
   const [allocationDialogOpen, setAllocationDialogOpen] = useState(false)
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null)
+  const [selectedSellStudentId, setSelectedSellStudentId] = useState<number | ''>('')
   const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([])
   const [childDraft, setChildDraft] = useState<BillingAccountChildDraft>(createEmptyBillingChildDraft())
   const [childErrors, setChildErrors] = useState<BillingAccountChildErrors>({})
@@ -402,10 +413,60 @@ export const BillingAccountDetailPage = () => {
   const selectedInvoice = invoiceDetailApi.data
   const displayStudentNumber = account.members[0]?.student_number
   const studentCountLabel = `${account.member_count} student${account.member_count === 1 ? '' : 's'}`
+  const activeTermId = activeTermApi.data?.id ?? null
+  const activeMembers = account.members.filter((member) => member.status?.toLowerCase() === 'active')
   const openInvoicesForAllocation = invoices.filter((invoice) => {
     const status = invoice.status?.toLowerCase()
     return status !== 'paid' && status !== 'cancelled' && status !== 'void'
   })
+
+  const navigateToSellItem = (studentId: number) => {
+    navigate('/billing/invoices/new', {
+      state: {
+        studentId,
+        returnTo: `/billing/families/${account.id}`,
+      },
+    })
+  }
+
+  const openSellItem = () => {
+    if (activeMembers.length === 1) {
+      navigateToSellItem(activeMembers[0].student_id)
+      return
+    }
+    setSelectedSellStudentId(activeMembers[0]?.student_id ?? '')
+    setSellItemDialogOpen(true)
+  }
+
+  const generateAccountTermInvoices = async () => {
+    if (!activeTermId) {
+      setError('No active term found.')
+      return
+    }
+    setError(null)
+    setSuccessMessage(null)
+    generateTermMutation.reset()
+    const result = await generateTermMutation.execute(() =>
+      api.post(`/billing-accounts/${account.id}/generate-term-invoices`, {
+        term_id: activeTermId,
+      })
+    )
+    if (result != null) {
+      refetch()
+      invoicesApi.refetch()
+      paymentsApi.refetch()
+      if (statement) await loadStatement()
+      const created = result.school_fee_invoices_created + result.transport_invoices_created
+      const studentLabel = `active student${result.total_students_processed === 1 ? '' : 's'}`
+      setSuccessMessage(
+        created > 0
+          ? `Generated ${created} term invoice${created === 1 ? '' : 's'} for ${result.total_students_processed} ${studentLabel}.`
+          : 'No missing term invoices to generate.'
+      )
+    } else if (generateTermMutation.error) {
+      setError(generateTermMutation.error)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -413,9 +474,25 @@ export const BillingAccountDetailPage = () => {
         Back
       </Button>
 
-      {(error || accountError || invoicesApi.error || paymentsApi.error || studentsApi.error || referencedError || invoiceDetailApi.error) && (
+      {(
+        error ||
+        accountError ||
+        invoicesApi.error ||
+        paymentsApi.error ||
+        studentsApi.error ||
+        activeTermApi.error ||
+        referencedError ||
+        invoiceDetailApi.error
+      ) && (
         <Alert severity="error" onClose={() => setError(null)}>
-          {error ?? accountError ?? invoicesApi.error ?? paymentsApi.error ?? studentsApi.error ?? referencedError ?? invoiceDetailApi.error}
+          {error ??
+            accountError ??
+            invoicesApi.error ??
+            paymentsApi.error ??
+            studentsApi.error ??
+            activeTermApi.error ??
+            referencedError ??
+            invoiceDetailApi.error}
         </Alert>
       )}
       {successMessage && (
@@ -442,6 +519,26 @@ export const BillingAccountDetailPage = () => {
         <div className="flex gap-2 flex-wrap">
           {canManage && (
             <>
+              {canInvoiceTerm(user) && (
+                <Button
+                  variant="outlined"
+                  onClick={generateAccountTermInvoices}
+                  disabled={
+                    !activeTermId ||
+                    activeMembers.length === 0 ||
+                    generateTermMutation.loading
+                  }
+                >
+                  {generateTermMutation.loading ? <Spinner size="small" /> : 'Invoice term'}
+                </Button>
+              )}
+              <Button
+                variant="outlined"
+                onClick={openSellItem}
+                disabled={activeMembers.length === 0}
+              >
+                Sell item
+              </Button>
               <Button
                 variant="outlined"
                 onClick={() =>
@@ -832,6 +929,48 @@ export const BillingAccountDetailPage = () => {
               Open student invoices
             </Button>
           )}
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={sellItemDialogOpen} onClose={() => setSellItemDialogOpen(false)} maxWidth="sm">
+        <DialogCloseButton onClose={() => setSellItemDialogOpen(false)} />
+        <DialogTitle>Sell item</DialogTitle>
+        <DialogContent>
+          <div className="space-y-4 mt-4">
+            <Typography variant="body2" color="secondary">
+              Select which student should receive the item invoice.
+            </Typography>
+            <Select
+              value={selectedSellStudentId === '' ? '' : String(selectedSellStudentId)}
+              onChange={(event) =>
+                setSelectedSellStudentId(event.target.value ? Number(event.target.value) : '')
+              }
+              label="Student"
+            >
+              <option value="">Select student</option>
+              {activeMembers.map((member) => (
+                <option key={member.student_id} value={String(member.student_id)}>
+                  {member.student_name} · #{formatStudentNumberShort(member.student_number)}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="outlined" onClick={() => setSellItemDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              if (!selectedSellStudentId) return
+              setSellItemDialogOpen(false)
+              navigateToSellItem(Number(selectedSellStudentId))
+            }}
+            disabled={!selectedSellStudentId}
+          >
+            Continue
+          </Button>
         </DialogActions>
       </Dialog>
 

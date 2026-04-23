@@ -1,14 +1,17 @@
-import pytest
-from decimal import Decimal
 from datetime import date, timedelta
-from sqlalchemy import func, select
+from decimal import Decimal
+
+import pytest
 from httpx import AsyncClient
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.core.auth.models import UserRole
 from src.core.auth.service import AuthService
-from src.core.exceptions import NotFoundError, ValidationError
+from src.core.exceptions import ValidationError
+from src.modules.billing_accounts.schemas import BillingAccountCreate
+from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
 from src.modules.invoices.schemas import (
     InvoiceCreate,
@@ -20,8 +23,8 @@ from src.modules.items.models import Category, ItemType, Kit, PriceType
 from src.modules.payments.models import CreditAllocation, PaymentMethod
 from src.modules.payments.schemas import PaymentCreate
 from src.modules.payments.service import PaymentService
-from src.modules.students.models import Grade, Student, StudentStatus, Gender
-from src.modules.terms.models import Term, TermStatus, PriceSetting, TransportZone, TransportPricing
+from src.modules.students.models import Gender, Grade, Student, StudentStatus
+from src.modules.terms.models import PriceSetting, Term, TermStatus, TransportPricing, TransportZone
 
 
 class TestInvoiceService:
@@ -1079,6 +1082,46 @@ class TestInvoiceService:
             )
         )
         assert (adhoc_result.scalar() or 0) == 2
+
+    async def test_generate_term_invoices_for_billing_account(self, db_session: AsyncSession):
+        """Test generating term invoices for all active students in one billing account."""
+        data = await self._setup_test_data(db_session)
+        account_service = BillingAccountService(db_session)
+        invoice_service = InvoiceService(db_session)
+
+        account = await account_service.create_family_account(
+            BillingAccountCreate(
+                display_name="Test Family",
+                primary_guardian_name="Test Guardian",
+                primary_guardian_phone="+254712345678",
+                student_ids=[data["student"].id, data["student_no_transport"].id],
+            ),
+            created_by_id=data["user"].id,
+        )
+
+        result = await invoice_service.generate_term_invoices_for_billing_account(
+            data["term"].id,
+            account.id,
+            generated_by_id=data["user"].id,
+        )
+
+        assert result.school_fee_invoices_created == 2
+        assert result.transport_invoices_created == 1
+        assert result.students_skipped == 0
+        assert result.total_students_processed == 2
+        assert result.affected_student_ids == sorted(
+            [data["student"].id, data["student_no_transport"].id]
+        )
+
+        invoices_result = await db_session.execute(
+            select(func.count())
+            .select_from(Invoice)
+            .where(
+                Invoice.billing_account_id == account.id,
+                Invoice.term_id == data["term"].id,
+            )
+        )
+        assert (invoices_result.scalar() or 0) == 5
 
     async def test_generate_term_invoices_skips_existing(self, db_session: AsyncSession):
         """Test that regenerating term invoices skips existing ones."""
