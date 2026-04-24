@@ -43,6 +43,11 @@ interface UserRow {
   full_name: string
 }
 
+interface PurposeRow {
+  id: number
+  name: string
+}
+
 const statusColor = (status: string) => {
   if (status === 'active' || status === 'issued' || status === 'settled' || status === 'closed') return 'success'
   if (status === 'draft' || status === 'closing' || status === 'overdue') return 'warning'
@@ -57,6 +62,7 @@ export const BudgetDetailPage = () => {
   const { budgetId } = useParams()
   const { user } = useAuth()
   const canManage = user?.role === 'SuperAdmin' || user?.role === 'Admin'
+  const canEditBudget = user?.role === 'SuperAdmin'
   const resolvedBudgetId = budgetId ? Number(budgetId) : null
 
   const { data: budget, loading, error, refetch: refetchBudget } = useApi<BudgetSummary>(
@@ -81,14 +87,28 @@ export const BudgetDetailPage = () => {
     undefined,
     [canManage]
   )
+  const { data: purposesData } = useApi<PurposeRow[]>(
+    canEditBudget ? '/procurement/payment-purposes' : null,
+    canEditBudget ? { params: { include_inactive: true, purpose_type: 'expense' } } : undefined,
+    [canEditBudget]
+  )
 
   const advances = advancesData?.items || []
   const transfers = transfersData?.items || []
   const employees = employeesData?.items || []
   const transferBudgetOptions = (activeBudgetsData?.items || []).filter((row) => row.id !== resolvedBudgetId)
+  const purposes = purposesData || []
 
   const [success, setSuccess] = useState<string | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)
+
+  const [editBudgetOpen, setEditBudgetOpen] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editPurposeId, setEditPurposeId] = useState<number | ''>('')
+  const [editPeriodFrom, setEditPeriodFrom] = useState('')
+  const [editPeriodTo, setEditPeriodTo] = useState('')
+  const [editLimitAmount, setEditLimitAmount] = useState('')
+  const [editNotes, setEditNotes] = useState('')
 
   const [createAdvanceOpen, setCreateAdvanceOpen] = useState(false)
   const [createEmployeeId, setCreateEmployeeId] = useState<number | ''>('')
@@ -132,6 +152,7 @@ export const BudgetDetailPage = () => {
   )
 
   const budgetActionMutation = useApiMutation<BudgetSummary>()
+  const updateBudgetMutation = useApiMutation<BudgetSummary>()
   const advanceActionMutation = useApiMutation<BudgetAdvanceSummary>()
   const createAdvanceMutation = useApiMutation<BudgetAdvanceSummary>()
   const returnMutation = useApiMutation<BudgetAdvanceReturn>()
@@ -141,6 +162,7 @@ export const BudgetDetailPage = () => {
     localError ||
     error ||
     budgetActionMutation.error ||
+    updateBudgetMutation.error ||
     advanceActionMutation.error ||
     createAdvanceMutation.error ||
     returnMutation.error ||
@@ -148,6 +170,57 @@ export const BudgetDetailPage = () => {
 
   const reloadAll = async () => {
     await Promise.all([refetchBudget(), refetchClosure(), refetchAdvances(), refetchTransfers()])
+  }
+
+  const openEditBudgetDialog = () => {
+    if (!budget) return
+    setLocalError(null)
+    setEditName(budget.name)
+    setEditPurposeId(budget.purpose_id)
+    setEditPeriodFrom(budget.period_from)
+    setEditPeriodTo(budget.period_to)
+    setEditLimitAmount(String(budget.limit_amount))
+    setEditNotes(budget.notes ?? '')
+    setEditBudgetOpen(true)
+  }
+
+  const handleUpdateBudget = async () => {
+    if (!budget) return
+    if (!editName.trim()) {
+      setLocalError('Budget name is required.')
+      return
+    }
+
+    const payload: Record<string, string | number | null> = {
+      name: editName.trim(),
+      notes: editNotes.trim() || null,
+    }
+
+    if (budget.status === 'draft') {
+      if (!editPurposeId || !editPeriodFrom || !editPeriodTo || !editLimitAmount) {
+        setLocalError('Fill purpose, period, and limit.')
+        return
+      }
+
+      const limitAmount = Number(editLimitAmount)
+      if (!limitAmount || limitAmount <= 0) {
+        setLocalError('Limit amount must be greater than 0.')
+        return
+      }
+
+      payload.purpose_id = Number(editPurposeId)
+      payload.period_from = editPeriodFrom
+      payload.period_to = editPeriodTo
+      payload.limit_amount = limitAmount
+    }
+
+    setLocalError(null)
+    const result = await updateBudgetMutation.execute(() => api.patch(`/budgets/${budget.id}`, payload))
+    if (!result) return
+
+    setSuccess(`Budget ${result.budget_number} updated.`)
+    setEditBudgetOpen(false)
+    await reloadAll()
   }
 
   const openCreateAdvanceDialog = () => {
@@ -375,6 +448,11 @@ export const BudgetDetailPage = () => {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Chip label={budget.status} color={statusColor(budget.status)} />
+          {canEditBudget ? (
+            <Button variant="outlined" onClick={openEditBudgetDialog} disabled={updateBudgetMutation.loading}>
+              Edit budget
+            </Button>
+          ) : null}
           {canManage && budget.status === 'draft' ? (
             <>
               <Button variant="contained" onClick={() => handleBudgetAction('activate')} disabled={budgetActionMutation.loading}>
@@ -399,6 +477,52 @@ export const BudgetDetailPage = () => {
           ) : null}
         </div>
       </div>
+
+      <Dialog open={editBudgetOpen} onClose={() => setEditBudgetOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Edit budget</DialogTitle>
+        <DialogContent>
+          <div className="grid gap-4 mt-2">
+            <Input label="Name" value={editName} onChange={(e) => setEditName(e.target.value)} />
+            {budget.status === 'draft' ? (
+              <>
+                <Select
+                  label="Purpose"
+                  value={editPurposeId}
+                  onChange={(e) => setEditPurposeId(e.target.value ? Number(e.target.value) : '')}
+                >
+                  <option value="">Select purpose</option>
+                  {purposes.map((purpose) => (
+                    <option key={purpose.id} value={purpose.id}>
+                      {purpose.name}
+                    </option>
+                  ))}
+                </Select>
+                <Input label="Period from" type="date" value={editPeriodFrom} onChange={(e) => setEditPeriodFrom(e.target.value)} />
+                <Input label="Period to" type="date" value={editPeriodTo} onChange={(e) => setEditPeriodTo(e.target.value)} />
+                <Input
+                  label="Limit amount"
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={editLimitAmount}
+                  onChange={(e) => setEditLimitAmount(e.target.value)}
+                />
+              </>
+            ) : (
+              <Alert severity="warning">
+                Purpose, period, and limit can only be edited while the budget is draft.
+              </Alert>
+            )}
+            <Textarea label="Notes" value={editNotes} onChange={(e) => setEditNotes(e.target.value)} rows={3} />
+          </div>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditBudgetOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleUpdateBudget} disabled={updateBudgetMutation.loading}>
+            {updateBudgetMutation.loading ? 'Saving…' : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {effectiveError ? (
         <Alert severity="error" className="mb-4">

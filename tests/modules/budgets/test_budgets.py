@@ -552,3 +552,82 @@ class TestBudgets:
         )
         assert create_claim.status_code == 422
         assert "purpose" in create_claim.json()["message"].lower()
+
+    async def test_super_admin_can_update_budget(self, client: AsyncClient, db_session: AsyncSession):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-update-super@test.com",
+            password="Pass123!",
+            full_name="Budget Super",
+            role=UserRole.SUPER_ADMIN,
+        )
+        purpose_id = await self._create_purpose(client, super_token, "Kitchen")
+
+        budget = await client.post(
+            "/api/v1/budgets",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "name": "Kitchen April",
+                "purpose_id": purpose_id,
+                "period_from": "2026-04-01",
+                "period_to": "2026-04-30",
+                "limit_amount": "1000.00",
+            },
+        )
+        assert budget.status_code == 201
+        budget_id = budget.json()["data"]["id"]
+
+        update_budget = await client.patch(
+            f"/api/v1/budgets/{budget_id}",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "name": "Kitchen April Revised",
+                "notes": "Updated by super admin",
+                "limit_amount": "1200.00",
+            },
+        )
+        assert update_budget.status_code == 200
+        assert update_budget.json()["data"]["name"] == "Kitchen April Revised"
+        assert update_budget.json()["data"]["notes"] == "Updated by super admin"
+        assert Decimal(update_budget.json()["data"]["limit_amount"]) == Decimal("1200.00")
+
+    async def test_admin_cannot_update_budget(self, client: AsyncClient, db_session: AsyncSession):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-update-owner@test.com",
+            password="Pass123!",
+            full_name="Budget Super",
+            role=UserRole.SUPER_ADMIN,
+        )
+        _, admin_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-update-admin@test.com",
+            password="Pass123!",
+            full_name="Budget Admin",
+            role=UserRole.ADMIN,
+        )
+        purpose_id = await self._create_purpose(client, super_token, "Kitchen")
+
+        budget = await client.post(
+            "/api/v1/budgets",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "name": "Kitchen April",
+                "purpose_id": purpose_id,
+                "period_from": "2026-04-01",
+                "period_to": "2026-04-30",
+                "limit_amount": "1000.00",
+            },
+        )
+        assert budget.status_code == 201
+        budget_id = budget.json()["data"]["id"]
+
+        update_budget = await client.patch(
+            f"/api/v1/budgets/{budget_id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={"name": "Admin edit attempt"},
+        )
+        assert update_budget.status_code == 403

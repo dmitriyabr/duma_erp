@@ -34,6 +34,7 @@ BudgetReadRole = Depends(
     require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
 )
 BudgetWriteRole = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN))
+BudgetEditRole = Depends(require_roles(UserRole.SUPER_ADMIN))
 BudgetUserRole = Depends(require_roles(*UserRole))
 
 
@@ -166,7 +167,7 @@ async def update_budget(
     budget_id: int,
     data: BudgetUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = BudgetWriteRole,
+    current_user: User = BudgetEditRole,
 ):
     service = BudgetService(db)
     budget = await service.update_budget(budget_id, data)

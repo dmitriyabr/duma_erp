@@ -143,7 +143,7 @@ export const BudgetFundingSection = ({
                 budgetsLoading
                   ? 'Loading budgets...'
                   : budgets.length
-                    ? 'Only budgets matching employee, purpose, and date are shown.'
+                    ? undefined
                     : 'No available budgets match the selected employee, purpose, and date.'
               }
             >
