@@ -56,7 +56,7 @@ export const BudgetFundingSection = ({
 
     const params = new URLSearchParams()
     params.set('page', '1')
-    params.set('limit', '200')
+    params.set('limit', '100')
     params.set('employee_id', String(selectedEmployeeId))
     return `/budgets?${params.toString()}`
   }, [fundingSource, selectedEmployeeId, currentUserRole])

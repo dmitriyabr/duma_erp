@@ -77,7 +77,7 @@ export const BudgetDetailPage = () => {
     [canManage]
   )
   const { data: activeBudgetsData } = useApi<BudgetListResponse>(
-    canManage ? '/budgets?page=1&limit=200&status=active' : null,
+    canManage ? '/budgets?page=1&limit=100&status=active' : null,
     undefined,
     [canManage]
   )
