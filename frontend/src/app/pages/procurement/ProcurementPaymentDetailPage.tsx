@@ -16,6 +16,7 @@ interface PaymentResponse {
   id: number
   payment_number: string
   po_id: number | null
+  budget_id: number | null
   purpose_id: number
   purpose_name: string | null
   payee_name: string | null
@@ -27,6 +28,7 @@ interface PaymentResponse {
   proof_attachment_id: number | null
   company_paid: boolean
   employee_paid_id: number | null
+  funding_source: 'personal_funds' | 'budget'
   status: string
   cancelled_reason: string | null
 }
@@ -222,6 +224,18 @@ export const ProcurementPaymentDetailPage = () => {
             Paid by
           </Typography>
           <Typography>{payment.company_paid ? 'Company' : 'Employee'}</Typography>
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Funding
+          </Typography>
+          <Typography>{payment.funding_source === 'budget' ? 'Budget advance' : 'Personal funds / company cash'}</Typography>
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Budget ID
+          </Typography>
+          <Typography>{payment.budget_id ?? '—'}</Typography>
         </div>
         <div>
           <Typography variant="subtitle2" color="secondary" className="mb-1">

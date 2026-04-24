@@ -9,11 +9,14 @@ from sqlalchemy.orm import selectinload
 
 from src.core.documents.number_generator import get_document_number
 from src.core.exceptions import NotFoundError, ValidationError
+from src.modules.budgets.models import BudgetClaimAllocation
 from src.modules.compensations.models import (
+    BudgetFundingStatus,
     CompensationPayout,
     EmployeeBalance,
     ExpenseClaim,
     ExpenseClaimStatus,
+    FundingSource,
     PayoutAllocation,
 )
 from src.modules.compensations.schemas import (
@@ -61,6 +64,7 @@ class ExpenseClaimService:
             claim_number=claim_number,
             payment_id=payment.id,
             fee_payment_id=None,
+            budget_id=getattr(payment, "budget_id", None),
             employee_id=payment.employee_paid_id,
             purpose_id=payment.purpose_id,
             amount=payment.amount,
@@ -71,6 +75,8 @@ class ExpenseClaimService:
             paid_amount=Decimal("0.00"),
             remaining_amount=payment.amount,
             auto_created_from_payment=True,
+            funding_source=getattr(payment, "funding_source", FundingSource.PERSONAL_FUNDS.value),
+            budget_funding_status=BudgetFundingStatus.NONE.value,
             related_procurement_payment_id=payment.id,
         )
         self.db.add(claim)
@@ -85,9 +91,10 @@ class ExpenseClaimService:
         created_by_id: int,
     ) -> ExpenseClaim:
         """Create an out-of-pocket expense claim (creates a procurement payment under the hood)."""
-        # Proof is always required (we don't support "draft" claims).
-        if not data.proof_text and not data.proof_attachment_id:
+        if data.submit and not data.proof_text and not data.proof_attachment_id:
             raise ValidationError("Proof is required: provide proof_text or proof_attachment_id")
+        if data.funding_source == FundingSource.BUDGET.value and not data.budget_id:
+            raise ValidationError("budget_id is required when funding_source=budget")
 
         # Validate purpose exists (shared catalog for procurement + claims).
         purpose = await self.db.scalar(select(PaymentPurpose).where(PaymentPurpose.id == data.purpose_id))
@@ -108,6 +115,8 @@ class ExpenseClaimService:
             proof_attachment_id=data.proof_attachment_id,
             company_paid=False,
             employee_paid_id=employee_id,
+            budget_id=data.budget_id,
+            funding_source=data.funding_source,
             status=ProcurementPaymentStatus.POSTED.value,
             created_by_id=created_by_id,
         )
@@ -133,6 +142,8 @@ class ExpenseClaimService:
                 proof_attachment_id=data.fee_proof_attachment_id,
                 company_paid=False,
                 employee_paid_id=employee_id,
+                budget_id=data.budget_id,
+                funding_source=data.funding_source,
                 status=ProcurementPaymentStatus.POSTED.value,
                 created_by_id=created_by_id,
             )
@@ -141,12 +152,15 @@ class ExpenseClaimService:
             fee_payment_id = fee_payment.id
 
         claim_number = await get_document_number(self.db, "CLM")
-        status = ExpenseClaimStatus.PENDING_APPROVAL.value
+        status = (
+            ExpenseClaimStatus.PENDING_APPROVAL.value if data.submit else ExpenseClaimStatus.DRAFT.value
+        )
         total_amount = Decimal(str(data.amount)) + fee_amount
         claim = ExpenseClaim(
             claim_number=claim_number,
             payment_id=payment.id,
             fee_payment_id=fee_payment_id,
+            budget_id=data.budget_id,
             employee_id=employee_id,
             purpose_id=data.purpose_id,
             amount=total_amount,
@@ -157,9 +171,18 @@ class ExpenseClaimService:
             paid_amount=Decimal("0.00"),
             remaining_amount=total_amount,
             auto_created_from_payment=False,
+            funding_source=data.funding_source,
+            budget_funding_status=BudgetFundingStatus.NONE.value,
             related_procurement_payment_id=payment.id,
         )
         self.db.add(claim)
+        await self.db.flush()
+
+        if claim.funding_source == FundingSource.BUDGET.value and claim.status == ExpenseClaimStatus.PENDING_APPROVAL.value:
+            from src.modules.budgets.service import BudgetService
+
+            await BudgetService(self.db).reserve_claim_allocations(claim.id)
+
         await self.db.commit()
         return await self.get_claim_by_id(claim.id)
 
@@ -187,6 +210,8 @@ class ExpenseClaimService:
 
         update = data.model_dump(exclude_unset=True)
         submit = update.pop("submit", None)
+        funding_source = update.pop("funding_source", None) if "funding_source" in update else None
+        budget_id = update.pop("budget_id", None) if "budget_id" in update else None
 
         # Extract fee-related updates (these live on the optional fee payment, not on the claim row).
         fee_amount = None
@@ -203,6 +228,11 @@ class ExpenseClaimService:
             payment = await self.db.scalar(select(ProcurementPayment).where(ProcurementPayment.id == claim.payment_id))
         if payment is None:
             raise ValidationError("Linked payment not found")
+
+        if claim.funding_source == FundingSource.BUDGET.value:
+            from src.modules.budgets.service import BudgetService
+
+            await BudgetService(self.db).release_claim_allocations(claim.id, "Claim updated")
 
         # Validate purpose exists (shared catalog for procurement + claims).
         if "purpose_id" in update and update["purpose_id"] is not None:
@@ -229,6 +259,27 @@ class ExpenseClaimService:
             payment.proof_text = update["proof_text"]
         if "proof_attachment_id" in update:
             payment.proof_attachment_id = update["proof_attachment_id"]
+
+        if funding_source is not None:
+            claim.funding_source = funding_source
+            if funding_source == FundingSource.PERSONAL_FUNDS.value:
+                claim.budget_id = None
+                claim.budget_funding_status = BudgetFundingStatus.NONE.value
+            payment.funding_source = funding_source
+
+        if budget_id is not None:
+            claim.budget_id = budget_id
+            payment.budget_id = budget_id
+
+        if claim.funding_source == FundingSource.BUDGET.value and not claim.budget_id:
+            raise ValidationError("budget_id is required when funding_source=budget")
+        if claim.funding_source == FundingSource.PERSONAL_FUNDS.value:
+            claim.budget_id = None
+            payment.budget_id = None
+            claim.budget_funding_status = BudgetFundingStatus.NONE.value
+        if claim.fee_payment is not None:
+            claim.fee_payment.budget_id = claim.budget_id
+            claim.fee_payment.funding_source = claim.funding_source
 
         # Fee payment sync (optional)
         if fee_amount is not None:
@@ -281,6 +332,8 @@ class ExpenseClaimService:
                         proof_attachment_id=fee_proof_attachment_id,
                         company_paid=False,
                         employee_paid_id=employee_id,
+                        budget_id=claim.budget_id,
+                        funding_source=claim.funding_source,
                         status=ProcurementPaymentStatus.POSTED.value,
                         created_by_id=employee_id,
                     )
@@ -290,6 +343,8 @@ class ExpenseClaimService:
                 else:
                     fee_payment.purpose_id = fee_purpose.id
                     fee_payment.amount = fee_amount
+                    fee_payment.budget_id = claim.budget_id
+                    fee_payment.funding_source = claim.funding_source
                     if fee_proof_text is not None:
                         fee_payment.proof_text = fee_proof_text
                     if fee_proof_attachment_id is not None:
@@ -317,6 +372,12 @@ class ExpenseClaimService:
                     raise ValidationError("Fee proof is required: provide fee_proof_text or fee_proof_attachment_id")
             claim.status = ExpenseClaimStatus.PENDING_APPROVAL.value
             claim.edit_comment = None
+
+        if claim.funding_source == FundingSource.BUDGET.value and claim.status == ExpenseClaimStatus.PENDING_APPROVAL.value:
+            from src.modules.budgets.service import BudgetService
+
+            await self.db.flush()
+            await BudgetService(self.db).reserve_claim_allocations(claim.id)
 
         await self.db.commit()
         return await self.get_claim_by_id(claim_id)
@@ -346,6 +407,10 @@ class ExpenseClaimService:
                 raise ValidationError("Fee proof is required: provide fee_proof_text or fee_proof_attachment_id")
         claim.status = ExpenseClaimStatus.PENDING_APPROVAL.value
         claim.edit_comment = None
+        if claim.funding_source == FundingSource.BUDGET.value:
+            from src.modules.budgets.service import BudgetService
+
+            await BudgetService(self.db).reserve_claim_allocations(claim.id)
         await self.db.commit()
         return await self.get_claim_by_id(claim_id)
 
@@ -367,6 +432,10 @@ class ExpenseClaimService:
 
         # Keep parity with approve/reject signature and future audit needs.
         _ = acted_by_id
+        if claim.funding_source == FundingSource.BUDGET.value:
+            from src.modules.budgets.service import BudgetService
+
+            await BudgetService(self.db).release_claim_allocations(claim.id, "Sent to edit")
         claim.status = ExpenseClaimStatus.NEEDS_EDIT.value
         claim.edit_comment = comment.strip()
         await self.db.commit()
@@ -386,19 +455,29 @@ class ExpenseClaimService:
             raise ValidationError("Claim is not pending approval")
 
         if approve:
-            claim.status = ExpenseClaimStatus.APPROVED.value
             claim.rejection_reason = None
             claim.edit_comment = None
-            # Ensure remaining_amount reflects the claim amount (defensive).
-            if claim.remaining_amount <= 0:
-                claim.remaining_amount = Decimal(str(claim.amount))
+            if claim.funding_source == FundingSource.BUDGET.value:
+                from src.modules.budgets.service import BudgetService
+
+                await BudgetService(self.db).settle_claim_allocations(claim.id)
+            else:
+                claim.status = ExpenseClaimStatus.APPROVED.value
+                if claim.remaining_amount <= 0:
+                    claim.remaining_amount = Decimal(str(claim.amount))
         else:
+            if claim.funding_source == FundingSource.BUDGET.value:
+                from src.modules.budgets.service import BudgetService
+
+                await BudgetService(self.db).release_claim_allocations(claim.id, "Rejected")
             claim.status = ExpenseClaimStatus.REJECTED.value
             claim.rejection_reason = reason.strip() if reason else None
             claim.edit_comment = None
             # Rejected claim means no obligation remains.
             claim.paid_amount = Decimal("0.00")
             claim.remaining_amount = Decimal("0.00")
+            if claim.funding_source == FundingSource.BUDGET.value:
+                claim.budget_funding_status = BudgetFundingStatus.RELEASED.value
             # Cancel the linked procurement payment so it doesn't count as an expense.
             if claim.payment_id:
                 # Use ProcurementPaymentService so PO totals are adjusted if this payment is tied to a PO.
@@ -421,14 +500,18 @@ class ExpenseClaimService:
         return await self.get_claim_by_id(claim_id)
 
     async def get_claim_by_id(self, claim_id: int) -> ExpenseClaim:
+        self.db.expire_all()
         result = await self.db.execute(
             select(ExpenseClaim)
+            .execution_options(populate_existing=True)
             .where(ExpenseClaim.id == claim_id)
             .options(
                 selectinload(ExpenseClaim.payment),
                 selectinload(ExpenseClaim.fee_payment),
+                selectinload(ExpenseClaim.budget),
                 selectinload(ExpenseClaim.employee),
                 selectinload(ExpenseClaim.purpose),
+                selectinload(ExpenseClaim.budget_allocations).selectinload(BudgetClaimAllocation.advance),
             )
         )
         claim = result.scalar_one_or_none()
@@ -439,20 +522,29 @@ class ExpenseClaimService:
     async def list_claims(
         self,
         employee_id: int | None = None,
+        budget_id: int | None = None,
+        funding_source: str | None = None,
         status: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
         page: int = 1,
         limit: int = 50,
     ) -> tuple[list[ExpenseClaim], int]:
+        self.db.expire_all()
         query = select(ExpenseClaim).options(
             selectinload(ExpenseClaim.payment),
             selectinload(ExpenseClaim.fee_payment),
+            selectinload(ExpenseClaim.budget),
             selectinload(ExpenseClaim.employee),
             selectinload(ExpenseClaim.purpose),
+            selectinload(ExpenseClaim.budget_allocations).selectinload(BudgetClaimAllocation.advance),
         )
         if employee_id:
             query = query.where(ExpenseClaim.employee_id == employee_id)
+        if budget_id:
+            query = query.where(ExpenseClaim.budget_id == budget_id)
+        if funding_source:
+            query = query.where(ExpenseClaim.funding_source == funding_source)
         if status:
             query = query.where(ExpenseClaim.status == status)
         if date_from:
@@ -503,6 +595,7 @@ class PayoutService:
             select(ExpenseClaim)
             .where(
                 ExpenseClaim.employee_id == payout.employee_id,
+                ExpenseClaim.funding_source == FundingSource.PERSONAL_FUNDS.value,
                 ExpenseClaim.status.in_(
                     [
                         ExpenseClaimStatus.APPROVED.value,
@@ -542,6 +635,7 @@ class PayoutService:
         approved_total = await self.db.scalar(
             select(func.coalesce(func.sum(ExpenseClaim.amount), 0)).where(
                 ExpenseClaim.employee_id == employee_id,
+                ExpenseClaim.funding_source == FundingSource.PERSONAL_FUNDS.value,
                 ExpenseClaim.status.in_(
                     [
                         ExpenseClaimStatus.APPROVED.value,
@@ -640,6 +734,7 @@ class PayoutService:
             )
             .where(
                 ExpenseClaim.employee_id.in_(employee_ids),
+                ExpenseClaim.funding_source == FundingSource.PERSONAL_FUNDS.value,
                 ExpenseClaim.status.in_(approved_statuses),
             )
             .group_by(ExpenseClaim.employee_id)
@@ -713,8 +808,9 @@ class PayoutService:
         )
 
         paid_total = await self.db.scalar(
-            select(func.coalesce(func.sum(CompensationPayout.amount), 0)).where(
-                CompensationPayout.employee_id == employee_id
+            select(func.coalesce(func.sum(ExpenseClaim.paid_amount), 0)).where(
+                ExpenseClaim.employee_id == employee_id,
+                ExpenseClaim.status.in_(submitted_statuses),
             )
         )
         total_paid = Decimal(str(paid_total or 0))

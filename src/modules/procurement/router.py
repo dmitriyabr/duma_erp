@@ -106,6 +106,8 @@ def _payment_to_response(payment) -> ProcurementPaymentResponse:
         proof_attachment_id=payment.proof_attachment_id,
         company_paid=payment.company_paid,
         employee_paid_id=payment.employee_paid_id,
+        budget_id=getattr(payment, "budget_id", None),
+        funding_source=getattr(payment, "funding_source", "personal_funds"),
         status=payment.status,
         cancelled_reason=payment.cancelled_reason,
         cancelled_by_id=payment.cancelled_by_id,

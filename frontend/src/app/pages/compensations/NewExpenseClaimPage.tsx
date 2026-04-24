@@ -15,6 +15,7 @@ import { Typography } from '../../components/ui/Typography'
 import { Alert } from '../../components/ui/Alert'
 import { Card, CardContent } from '../../components/ui/Card'
 import { Spinner } from '../../components/ui/Spinner'
+import { BudgetFundingSection } from '../../components/budgets/BudgetFundingSection'
 
 interface PurposeRow {
   id: number
@@ -44,6 +45,8 @@ export const NewExpenseClaimPage = () => {
   const canChooseEmployee = user?.role === 'SuperAdmin' || user?.role === 'Admin'
 
   const [employeeId, setEmployeeId] = useState<number | ''>('')
+  const [fundingSource, setFundingSource] = useState<'personal_funds' | 'budget'>('personal_funds')
+  const [budgetId, setBudgetId] = useState<number | ''>('')
   const [purposeId, setPurposeId] = useState<number | ''>('')
   const [expenseDate, setExpenseDate] = useState(today())
   const [amount, setAmount] = useState('')
@@ -149,6 +152,10 @@ export const NewExpenseClaimPage = () => {
       setError('Select category (purpose).')
       return
     }
+    if (fundingSource === 'budget' && !budgetId) {
+      setError('Select budget for budget-funded claim.')
+      return
+    }
     const amountValue = Number(amount)
     if (!amountValue || amountValue <= 0) {
       setError('Amount must be greater than 0.')
@@ -187,6 +194,8 @@ export const NewExpenseClaimPage = () => {
     const created = await createClaim(async () => {
       const res = await api.post('/compensations/claims', {
         employee_id: canChooseEmployee && employeeId ? Number(employeeId) : undefined,
+        budget_id: fundingSource === 'budget' && budgetId ? Number(budgetId) : null,
+        funding_source: fundingSource,
         purpose_id: Number(purposeId),
         amount: amountValue,
         payee_name: payeeName.trim() || null,
@@ -276,6 +285,22 @@ export const NewExpenseClaimPage = () => {
                 </Typography>
               )}
             </div>
+
+            <BudgetFundingSection
+              fundingSource={fundingSource}
+              onFundingSourceChange={(value) => {
+                setFundingSource(value)
+                if (value === 'personal_funds') {
+                  setBudgetId('')
+                }
+              }}
+              budgetId={budgetId}
+              onBudgetIdChange={setBudgetId}
+              employeeId={employeeId}
+              purposeId={purposeId}
+              effectiveDate={expenseDate}
+              disabled={readOnly}
+            />
 
             <Input
               label="Expense date"

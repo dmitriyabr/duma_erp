@@ -42,6 +42,9 @@ async def get_current_user(
     if not user.is_active:
         raise AuthenticationError("User account is deactivated")
 
+    # Detach the loaded user so later commits in request handlers don't expire the
+    # auth object and trigger lazy loads when only role/id are needed.
+    db.expunge(user)
     return user
 
 

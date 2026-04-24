@@ -1086,6 +1086,10 @@ class ProcurementPaymentService:
 
         if data.employee_paid_id and data.company_paid:
             raise ValidationError("employee_paid_id requires company_paid=false")
+        if data.funding_source == "budget" and not data.employee_paid_id:
+            raise ValidationError("budget-funded payment requires employee_paid_id")
+        if data.funding_source == "budget" and not data.budget_id:
+            raise ValidationError("budget_id is required when funding_source=budget")
 
         if data.po_id:
             po = await self.po_service.get_purchase_order_by_id(data.po_id)
@@ -1099,6 +1103,19 @@ class ProcurementPaymentService:
             purpose_id = data.purpose_id
 
         await PaymentPurposeService(self.db).get_purpose_by_id(purpose_id)
+
+        if data.budget_id is not None:
+            from src.modules.budgets.models import Budget, BudgetStatus
+
+            budget = await self.db.scalar(select(Budget).where(Budget.id == data.budget_id))
+            if not budget:
+                raise ValidationError("Invalid budget_id")
+            if budget.purpose_id != purpose_id:
+                raise ValidationError("Payment purpose must match budget purpose")
+            if data.payment_date < budget.period_from or data.payment_date > budget.period_to:
+                raise ValidationError("payment_date must be inside budget period")
+            if budget.status not in (BudgetStatus.ACTIVE.value, BudgetStatus.CLOSING.value):
+                raise ValidationError("Budget is not open")
 
         payment_method = data.payment_method
         if data.employee_paid_id:
@@ -1117,6 +1134,8 @@ class ProcurementPaymentService:
             proof_attachment_id=data.proof_attachment_id,
             company_paid=data.company_paid,
             employee_paid_id=data.employee_paid_id,
+            budget_id=data.budget_id,
+            funding_source=data.funding_source,
             status=ProcurementPaymentStatus.POSTED.value,
             created_by_id=created_by_id,
         )

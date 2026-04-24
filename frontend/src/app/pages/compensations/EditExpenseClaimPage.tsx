@@ -13,6 +13,7 @@ import { Typography } from '../../components/ui/Typography'
 import { Alert } from '../../components/ui/Alert'
 import { Card, CardContent } from '../../components/ui/Card'
 import { Spinner } from '../../components/ui/Spinner'
+import { BudgetFundingSection } from '../../components/budgets/BudgetFundingSection'
 
 interface PurposeRow {
   id: number
@@ -38,6 +39,8 @@ interface ClaimResponse {
   status: string
   edit_comment: string | null
   auto_created_from_payment: boolean
+  budget_id: number | null
+  funding_source: 'personal_funds' | 'budget'
 }
 
 export const EditExpenseClaimPage = () => {
@@ -57,6 +60,8 @@ export const EditExpenseClaimPage = () => {
   const purposes = useMemo(() => purposesData ?? [], [purposesData])
 
   const [purposeId, setPurposeId] = useState<number | ''>('')
+  const [fundingSource, setFundingSource] = useState<'personal_funds' | 'budget'>('personal_funds')
+  const [budgetId, setBudgetId] = useState<number | ''>('')
   const [expenseDate, setExpenseDate] = useState('')
   const [amount, setAmount] = useState('')
   const [payeeName, setPayeeName] = useState('')
@@ -82,6 +87,8 @@ export const EditExpenseClaimPage = () => {
   useEffect(() => {
     if (!claim) return
     setPurposeId(claim.purpose_id)
+    setFundingSource(claim.funding_source ?? 'personal_funds')
+    setBudgetId(claim.budget_id ?? '')
     setExpenseDate(claim.expense_date)
     setAmount(String(claim.expense_amount))
     setPayeeName(claim.payee_name ?? '')
@@ -151,6 +158,7 @@ export const EditExpenseClaimPage = () => {
 
   const validateForm = () => {
     if (!purposeId) return 'Select category (purpose).'
+    if (fundingSource === 'budget' && !budgetId) return 'Select budget for budget-funded claim.'
     const amountValue = Number(amount)
     if (!amountValue || amountValue <= 0) return 'Amount must be greater than 0.'
     if (!expenseDate) return 'Select expense date.'
@@ -183,6 +191,8 @@ export const EditExpenseClaimPage = () => {
     const feeAmountValue = feeAmount.trim() ? Number(feeAmount) : 0
     const result = await updateClaim(() =>
       api.patch(`/compensations/claims/${resolvedId}`, {
+        budget_id: fundingSource === 'budget' && budgetId ? Number(budgetId) : null,
+        funding_source: fundingSource,
         purpose_id: Number(purposeId),
         amount: Number(amount),
         payee_name: payeeName.trim() || null,
@@ -211,6 +221,8 @@ export const EditExpenseClaimPage = () => {
 
     const saveResult = await updateClaim(() =>
       api.patch(`/compensations/claims/${resolvedId}`, {
+        budget_id: fundingSource === 'budget' && budgetId ? Number(budgetId) : null,
+        funding_source: fundingSource,
         purpose_id: Number(purposeId),
         amount: Number(amount),
         payee_name: payeeName.trim() || null,
@@ -293,10 +305,25 @@ export const EditExpenseClaimPage = () => {
               <option value="">Select category</option>
               {purposes.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </Select>
+                {p.name}
+              </option>
+            ))}
+          </Select>
+
+            <BudgetFundingSection
+              fundingSource={fundingSource}
+              onFundingSourceChange={(value) => {
+                setFundingSource(value)
+                if (value === 'personal_funds') {
+                  setBudgetId('')
+                }
+              }}
+              budgetId={budgetId}
+              onBudgetIdChange={setBudgetId}
+              employeeId={claim.employee_id}
+              purposeId={purposeId}
+              effectiveDate={expenseDate}
+            />
 
             <Input
               label="Expense date"

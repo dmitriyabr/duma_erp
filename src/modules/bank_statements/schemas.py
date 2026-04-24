@@ -11,7 +11,12 @@ from pydantic import Field, model_validator
 from src.shared.schemas.base import BaseSchema, PaginatedResponse
 
 
-MatchedEntityType = Literal["procurement_payment", "compensation_payout"]
+MatchedEntityType = Literal[
+    "procurement_payment",
+    "compensation_payout",
+    "budget_advance",
+    "budget_advance_return",
+]
 
 
 class BankStatementImportListItem(BaseSchema):
@@ -110,6 +115,23 @@ class UnmatchedCompensationPayout(BaseSchema):
     reference_number: str | None = None
 
 
+class UnmatchedBudgetAdvance(BaseSchema):
+    id: int
+    advance_number: str
+    issue_date: date
+    amount: Decimal
+    employee_name: str | None = None
+    reference_number: str | None = None
+
+
+class UnmatchedBudgetAdvanceReturn(BaseSchema):
+    id: int
+    return_number: str
+    return_date: date
+    amount: Decimal
+    reference_number: str | None = None
+
+
 class ImportReconciliationSummary(BaseSchema):
     import_id: int
     range_from: date | None = None
@@ -117,3 +139,5 @@ class ImportReconciliationSummary(BaseSchema):
     unmatched_transactions: int
     unmatched_procurement_payments: list[UnmatchedProcurementPayment]
     unmatched_compensation_payouts: list[UnmatchedCompensationPayout]
+    unmatched_budget_advances: list[UnmatchedBudgetAdvance]
+    unmatched_budget_advance_returns: list[UnmatchedBudgetAdvanceReturn]

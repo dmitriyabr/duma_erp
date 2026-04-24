@@ -152,6 +152,10 @@ class BankTransactionMatch(Base):
         UniqueConstraint(
             "compensation_payout_id", name="uq_bank_txn_match_comp_payout"
         ),
+        UniqueConstraint("budget_advance_id", name="uq_bank_txn_match_budget_advance"),
+        UniqueConstraint(
+            "budget_advance_return_id", name="uq_bank_txn_match_budget_advance_return"
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
@@ -164,6 +168,12 @@ class BankTransactionMatch(Base):
     )
     compensation_payout_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("compensation_payouts.id"), nullable=True, index=True
+    )
+    budget_advance_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("budget_advances.id"), nullable=True, index=True
+    )
+    budget_advance_return_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("budget_advance_returns.id"), nullable=True, index=True
     )
 
     match_method: Mapped[str] = mapped_column(String(20), nullable=False, default="auto")
@@ -187,4 +197,10 @@ class BankTransactionMatch(Base):
     )
     compensation_payout: Mapped["CompensationPayout | None"] = relationship(
         "CompensationPayout", foreign_keys=[compensation_payout_id]
+    )
+    budget_advance: Mapped["BudgetAdvance | None"] = relationship(
+        "BudgetAdvance", foreign_keys=[budget_advance_id]
+    )
+    budget_advance_return: Mapped["BudgetAdvanceReturn | None"] = relationship(
+        "BudgetAdvanceReturn", foreign_keys=[budget_advance_return_id]
     )

@@ -21,11 +21,13 @@ interface PaymentRow {
   id: number
   payment_number: string
   po_id: number | null
+  budget_id: number | null
   purpose_name: string | null
   payee_name: string | null
   payment_date: string
   amount: number
   payment_method: string
+  funding_source: 'personal_funds' | 'budget'
   status: string
   proof_attachment_id: number | null
 }
@@ -131,6 +133,7 @@ export const ProcurementPaymentsListPage = () => {
               <TableHeaderCell>PO ID</TableHeaderCell>
               <TableHeaderCell>Category</TableHeaderCell>
               <TableHeaderCell>Payee</TableHeaderCell>
+              <TableHeaderCell>Funding</TableHeaderCell>
               <TableHeaderCell>Date</TableHeaderCell>
               <TableHeaderCell align="right">Amount</TableHeaderCell>
               <TableHeaderCell>Method</TableHeaderCell>
@@ -149,6 +152,7 @@ export const ProcurementPaymentsListPage = () => {
                 <TableCell>{payment.po_id ?? '—'}</TableCell>
                 <TableCell>{payment.purpose_name ?? '—'}</TableCell>
                 <TableCell>{payment.payee_name ?? '—'}</TableCell>
+                <TableCell>{payment.funding_source === 'budget' ? `Budget · ${payment.budget_id ?? '—'}` : 'Standard'}</TableCell>
                 <TableCell>{formatDate(payment.payment_date)}</TableCell>
                 <TableCell align="right">{formatMoney(payment.amount)}</TableCell>
                 <TableCell>{payment.payment_method}</TableCell>
@@ -175,16 +179,16 @@ export const ProcurementPaymentsListPage = () => {
             ))}
             {loading && (
               <TableRow>
-                <td colSpan={9} className="px-4 py-8 text-center">
-                  <Spinner size="medium" />
-                </td>
+                  <td colSpan={10} className="px-4 py-8 text-center">
+                    <Spinner size="medium" />
+                  </td>
               </TableRow>
             )}
             {!payments.length && !loading && (
               <TableRow>
-                <td colSpan={9} className="px-4 py-8 text-center">
-                  <Typography color="secondary">No payments found</Typography>
-                </td>
+                  <td colSpan={10} className="px-4 py-8 text-center">
+                    <Typography color="secondary">No payments found</Typography>
+                  </td>
               </TableRow>
             )}
           </TableBody>

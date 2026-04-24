@@ -19,6 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.database.base import Base, BigIntPK
+from src.modules.compensations.models import FundingSource
 
 
 class PurchaseOrderStatus(StrEnum):
@@ -285,6 +286,12 @@ class ProcurementPayment(Base):
     employee_paid_id: Mapped[int | None] = mapped_column(
         BigIntPK, ForeignKey("users.id"), nullable=True
     )
+    budget_id: Mapped[int | None] = mapped_column(
+        BigIntPK, ForeignKey("budgets.id"), nullable=True, index=True
+    )
+    funding_source: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=FundingSource.PERSONAL_FUNDS.value, index=True
+    )
 
     status: Mapped[str] = mapped_column(
         String(20),
@@ -318,5 +325,6 @@ class ProcurementPayment(Base):
     purchase_order: Mapped["PurchaseOrder"] = relationship("PurchaseOrder")
     purpose: Mapped["PaymentPurpose"] = relationship("PaymentPurpose")
     employee_paid: Mapped["User"] = relationship("User", foreign_keys=[employee_paid_id])
+    budget: Mapped["Budget | None"] = relationship("Budget")
     created_by: Mapped["User"] = relationship("User", foreign_keys=[created_by_id])
     cancelled_by: Mapped["User"] = relationship("User", foreign_keys=[cancelled_by_id])

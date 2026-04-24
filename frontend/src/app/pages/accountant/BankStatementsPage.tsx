@@ -23,7 +23,11 @@ function getDefaultDateRange(): { start: string; end: string } {
   return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) }
 }
 
-type MatchedEntityType = 'procurement_payment' | 'compensation_payout'
+type MatchedEntityType =
+  | 'procurement_payment'
+  | 'compensation_payout'
+  | 'budget_advance'
+  | 'budget_advance_return'
 
 interface BankTransactionMatchInfo {
   id: number
@@ -56,6 +60,7 @@ interface PaginatedResponse<T> {
 
 export const BankStatementsPage = () => {
   const [dates, setDates] = useState(getDefaultDateRange)
+  const [direction, setDirection] = useState<'outgoing' | 'incoming' | 'all'>('all')
   const [matched, setMatched] = useState<'all' | 'matched' | 'unmatched'>('all')
   const [entityType, setEntityType] = useState<'all' | MatchedEntityType>('all')
   const [txnType, setTxnType] = useState<'all' | string>('all')
@@ -77,13 +82,14 @@ export const BankStatementsPage = () => {
     params.set('limit', '100')
     if (dates.start) params.set('date_from', dates.start)
     if (dates.end) params.set('date_to', dates.end)
+    params.set('direction', direction)
     if (txnType !== 'all' && txnType.trim()) params.set('txn_type', txnType.trim())
     if (matched === 'matched') params.set('matched', 'true')
     if (matched === 'unmatched') params.set('matched', 'false')
     if (entityType !== 'all') params.set('entity_type', entityType)
     if (search.trim()) params.set('search', search.trim())
     return `/bank-statements/transactions?${params.toString()}`
-  }, [dates.start, dates.end, txnType, matched, entityType, search, page])
+  }, [dates.start, dates.end, direction, txnType, matched, entityType, search, page])
 
   const { data, loading, error, refetch } =
     useApi<PaginatedResponse<BankTransactionResponse>>(url)
@@ -121,6 +127,15 @@ export const BankStatementsPage = () => {
           className="w-44"
         />
         <Select
+          value={direction}
+          onChange={(e) => setDirection(e.target.value as typeof direction)}
+          className="w-44"
+        >
+          <option value="all">All directions</option>
+          <option value="outgoing">Outgoing</option>
+          <option value="incoming">Incoming</option>
+        </Select>
+        <Select
           value={matched}
           onChange={(e) => setMatched(e.target.value as typeof matched)}
           className="w-44"
@@ -137,6 +152,8 @@ export const BankStatementsPage = () => {
           <option value="all">All entity types</option>
           <option value="procurement_payment">Procurement payments</option>
           <option value="compensation_payout">Compensation payouts</option>
+          <option value="budget_advance">Budget advances</option>
+          <option value="budget_advance_return">Budget advance returns</option>
         </Select>
         <Select
           value={txnType}
@@ -203,8 +220,14 @@ export const BankStatementsPage = () => {
                             {m.entity_number}
                           </Button>
                         </RouterLink>
-                      ) : (
+                      ) : m.entity_type === 'compensation_payout' ? (
                         <RouterLink to={`/compensations/payouts/${m.entity_id}`}>
+                          <Button size="small" variant="outlined">
+                            {m.entity_number}
+                          </Button>
+                        </RouterLink>
+                      ) : (
+                        <RouterLink to="/compensations/advances">
                           <Button size="small" variant="outlined">
                             {m.entity_number}
                           </Button>

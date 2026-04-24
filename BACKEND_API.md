@@ -3,6 +3,10 @@
 Актуальная сводка по бэкенду: структуры, правила и все API‑эндпоинты.
 Спецификация `erp_spec.md` и статус/решения в `TASKS.md` сведены сюда, чтобы читать было удобно.
 
+Важно:
+- разделы без пометки описывают текущую реализованную систему;
+- отдельные блоки с пометкой `Planned / not implemented yet` фиксируют согласованный целевой дизайн для budget advances, чтобы продуктовые и технические решения не потерялись между `docs/` и `TASKS.md`.
+
 ## 1. Базовые сведения
 
 - **Base URL:** `/api/v1`
@@ -312,6 +316,49 @@
 - `GET /compensations/payouts/{payout_id}`
 - `GET /compensations/payouts/employees/{employee_id}/balance`
 
+> Note: текущая реализация compensations покрывает только reimbursement-кейс (`employee paid with personal funds -> claim -> approve -> payout`). Целевой бюджетный flow, где компания сначала выдаёт деньги сотруднику, а потом claim закрывается из ранее выданных funds, описан ниже как planned API.
+
+### 5.13.1. Planned: Budgets / Budget Advances (not implemented yet)
+
+Source of truth:
+- `docs/BUDGET_ADVANCES_PLAN.md`
+- `TASKS.md` (секция `6.4 Budget Advances / Предвыданные бюджеты`)
+
+Планируемые endpoints:
+
+- `POST /budgets`
+- `GET /budgets`
+- `GET /budgets/{budget_id}`
+- `PATCH /budgets/{budget_id}`
+- `POST /budgets/{budget_id}/activate`
+- `GET /budgets/{budget_id}/closure` — open advances, overdue, unresolved claims, rollover candidates
+- `POST /budgets/{budget_id}/close`
+- `POST /budgets/{budget_id}/cancel`
+- `POST /budgets/advances`
+- `GET /budgets/advances`
+- `GET /budgets/advances/{advance_id}`
+- `POST /budgets/advances/{advance_id}/issue`
+- `POST /budgets/advances/{advance_id}/transfer`
+- `POST /budgets/advances/{advance_id}/close`
+- `POST /budgets/advances/{advance_id}/cancel`
+- `POST /budgets/advances/{advance_id}/returns`
+- `GET /budgets/advances/{advance_id}/returns`
+- `GET /budgets/transfers`
+- `GET /budgets/transfers/{transfer_id}`
+- `GET /my/budgets`
+- `GET /my/budget-advances`
+- `GET /budgets/{budget_id}/my-available-balance`
+
+Planned claim integration:
+
+- `POST /compensations/claims` и `PATCH /compensations/claims/{claim_id}` смогут принимать:
+  - `funding_source`
+  - `budget_id?`
+- если `funding_source=budget`, то:
+  - claim создаётся как budget-funded;
+  - при submit backend создаёт `BudgetClaimAllocation(reserved)`;
+  - при approve claim закрывается из ранее выданных advances и не попадает в payout flow.
+
 ### 5.14. Bank statements / Reconciliation
 
 Импорт банковской выписки (Stanbic CSV), хранение файла в storage/S3 и сверка транзакций с:
@@ -328,6 +375,11 @@
 - `GET /bank-statements/imports/{import_id}/reconciliation?ignore_range=true` — то же, но **без** фильтра по `Range From/To` из выписки (удобно для свежесозданных документов вне диапазона).
 - `POST /bank-statements/transactions/{bank_transaction_id}/match` — manual match (body: `entity_type`, `entity_id`). Роли: SuperAdmin, Admin.
 - `DELETE /bank-statements/transactions/{bank_transaction_id}/match` — убрать match. Роли: SuperAdmin, Admin.
+
+Planned extension for budget advances (not implemented yet):
+- outgoing transactions смогут матчиться на `BudgetAdvance`;
+- incoming return transactions смогут матчиться на `BudgetAdvanceReturn`;
+- это потребует расширения `BankTransactionMatch` и reconciliation summary.
 
 ### 5.xx. Accountant exports (CSV)
 
@@ -490,3 +542,23 @@
 - `CompensationPayoutResponse`: `id`, `payout_number`, `employee_id`, `payout_date`, `amount`, `payment_method`, `reference_number?`, `proof_text?`, `proof_attachment_id?`, `created_at`, `updated_at`, `allocations[]`
 - `PayoutAllocationResponse`: `id`, `claim_id`, `allocated_amount`
 - `EmployeeBalanceResponse`: `employee_id`, `total_approved`, `total_paid`, `balance`
+
+### 6.12.1. Planned: Budgets / Budget Advances Schemas (not implemented yet)
+
+- `BudgetResponse`: `id`, `budget_number`, `name`, `purpose_id`, `period_from`, `period_to`, `limit_amount`, `status`, `created_by_id`, `approved_by_id?`, `created_at`, `updated_at`
+- `BudgetAdvanceResponse`: `id`, `advance_number`, `budget_id`, `employee_id`, `issue_date`, `amount_issued`, `payment_method`, `reference_number?`, `proof_text?`, `proof_attachment_id?`, `source_type` (`cash_issue | transfer_in`), `settlement_due_date`, `status`, `created_by_id`, `created_at`, `updated_at`
+- `BudgetAdvanceReturnResponse`: `id`, `return_number`, `advance_id`, `return_date`, `amount`, `return_method`, `reference_number?`, `proof_text?`, `proof_attachment_id?`, `created_by_id`, `created_at`
+- `BudgetAdvanceTransferResponse`: `id`, `transfer_number`, `from_advance_id`, `to_budget_id`, `to_employee_id`, `transfer_date`, `amount`, `transfer_type` (`rollover | reassignment | reallocation`), `reason`, `created_to_advance_id`, `created_by_id`, `created_at`
+- `BudgetClaimAllocationResponse`: `id`, `advance_id`, `claim_id`, `allocated_amount`, `allocation_status` (`reserved | settled | released`), `released_reason?`, `created_at`, `updated_at`
+
+Planned changes to existing schemas:
+
+- `ExpenseClaimCreate`: + `funding_source`, `budget_id?`
+- `ExpenseClaimUpdate`: + `funding_source?`, `budget_id?`
+- `ExpenseClaimResponse`: + `budget_id?`, `budget_funding_status?`, `allocations[]?`
+- `ProcurementPaymentCreate` / `ProcurementPaymentResponse`: + `funding_source?`, `budget_id?`
+
+Planned semantics:
+
+- `funding_source=personal_funds` — текущий reimbursement flow;
+- `funding_source=budget` — claim закрывается из ранее выданных advances и не участвует в `CompensationPayout`.

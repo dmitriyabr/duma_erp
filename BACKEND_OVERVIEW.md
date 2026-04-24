@@ -35,6 +35,15 @@
 - **CompensationPayout**: выплаты сотруднику с FIFO‑аллокацией по claims.
 - **EmployeeBalance**: агрегированный баланс сотрудника.
 
+### Planned Extension: Budget Advances (not implemented yet)
+- Целевой дизайн зафиксирован в `docs/BUDGET_ADVANCES_PLAN.md`.
+- **Budget**: бюджет направления расходов на период (например, kitchen supplies / месяц).
+- **BudgetAdvance**: выдача денег конкретному сотруднику под этот budget.
+- **BudgetAdvanceReturn**: возврат неиспользованных денег.
+- **BudgetAdvanceTransfer**: rollover / reassignment / reallocation остатка между периодами и/или сотрудниками.
+- **BudgetClaimAllocation**: reserve и final settlement claim из ранее выданных advances.
+- Важно: budget-funded claims не должны идти через `CompensationPayout`; payout остаётся только reimbursement-механизмом.
+
 ## 2. Основные жизненные циклы
 
 ### Term
@@ -81,11 +90,25 @@
 `CompensationPayout` создаётся и распределяет сумму FIFO по claim.
 - `send-to-edit` доступен только `SuperAdmin`, требует комментарий и применяется только к ручным out-of-pocket claims (`auto_created_from_payment=false`).
 
+### Planned: Budget Advances (not implemented yet)
+`Budget: draft → active → closing → closed/cancelled`
+`BudgetAdvance: draft → issued → overdue → settled/closed/cancelled`
+
+- Budget живёт на уровне направления расходов, а не сотрудника.
+- Claim выбирает `budget`, а backend сам резервирует и затем аллоцирует его по open advances сотрудника FIFO.
+- Budget-funded claim после approve считается сразу `paid`: компания уже не должна сотруднику деньги, funding был выдан раньше.
+- Конец месяца не закрывает open advances автоматически: остаток должен быть либо возвращён, либо перенесён через `BudgetAdvanceTransfer`, либо закрыт claims.
+- Rollover между месяцами допустим только через отдельный transfer-документ; старый advance не переписывается и не меняет `budget_id`.
+
 ### Bank reconciliation
 `BankStatementImport` создаётся загрузкой CSV (Admin/SuperAdmin) и парсит транзакции в `BankTransaction` (debits/credits).
 Для reconciliation используем только **исходящие** транзакции (debits). Матчинг:
 - auto‑match по сумме/дате + эвристики по reference (только если однозначный кандидат),
 - manual match/unmatch (Admin/SuperAdmin).
+
+Planned extension:
+- outgoing transactions смогут матчиться не только на `ProcurementPayment(company_paid=true)` и `CompensationPayout`, но и на `BudgetAdvance`;
+- incoming transactions для returns смогут матчиться на `BudgetAdvanceReturn`.
 
 ## 3. Ключевые бизнес‑правила
 

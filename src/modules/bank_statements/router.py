@@ -22,11 +22,14 @@ from src.modules.bank_statements.schemas import (
     BankStatementImportTransactionResponse,
     ImportReconciliationSummary,
     ManualMatchRequest,
+    UnmatchedBudgetAdvance,
+    UnmatchedBudgetAdvanceReturn,
     UnmatchedCompensationPayout,
     UnmatchedProcurementPayment,
 )
 from src.modules.bank_statements.service import BankStatementService
 from src.modules.bank_statements.models import BankTransactionMatch
+from src.modules.budgets.models import BudgetAdvance, BudgetAdvanceReturn
 from src.modules.procurement.models import ProcurementPayment
 from src.modules.compensations.models import CompensationPayout
 from src.shared.schemas.base import ApiResponse, PaginatedResponse
@@ -39,6 +42,58 @@ BankReadRole = Depends(
     require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
 )
 BankWriteRole = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN))
+
+
+def _match_to_response(match: BankTransactionMatch | None) -> BankTransactionMatchInfo | None:
+    if not match:
+        return None
+    if match.procurement_payment_id:
+        payment: ProcurementPayment | None = match.procurement_payment
+        return BankTransactionMatchInfo(
+            id=match.id,
+            entity_type="procurement_payment",
+            entity_id=match.procurement_payment_id,
+            entity_number=payment.payment_number if payment else str(match.procurement_payment_id),
+            match_method=match.match_method,
+            confidence=match.confidence,
+            matched_at=match.matched_at,
+            proof_attachment_id=payment.proof_attachment_id if payment else None,
+        )
+    if match.compensation_payout_id:
+        payout: CompensationPayout | None = match.compensation_payout
+        return BankTransactionMatchInfo(
+            id=match.id,
+            entity_type="compensation_payout",
+            entity_id=match.compensation_payout_id,
+            entity_number=payout.payout_number if payout else str(match.compensation_payout_id),
+            match_method=match.match_method,
+            confidence=match.confidence,
+            matched_at=match.matched_at,
+            proof_attachment_id=payout.proof_attachment_id if payout else None,
+        )
+    if match.budget_advance_id:
+        advance: BudgetAdvance | None = match.budget_advance
+        return BankTransactionMatchInfo(
+            id=match.id,
+            entity_type="budget_advance",
+            entity_id=match.budget_advance_id,
+            entity_number=advance.advance_number if advance else str(match.budget_advance_id),
+            match_method=match.match_method,
+            confidence=match.confidence,
+            matched_at=match.matched_at,
+            proof_attachment_id=advance.proof_attachment_id if advance else None,
+        )
+    advance_return: BudgetAdvanceReturn | None = match.budget_advance_return
+    return BankTransactionMatchInfo(
+        id=match.id,
+        entity_type="budget_advance_return",
+        entity_id=match.budget_advance_return_id or 0,
+        entity_number=advance_return.return_number if advance_return else str(match.budget_advance_return_id or 0),
+        match_method=match.match_method,
+        confidence=match.confidence,
+        matched_at=match.matched_at,
+        proof_attachment_id=advance_return.proof_attachment_id if advance_return else None,
+    )
 
 
 @router.post(
@@ -107,6 +162,7 @@ async def get_bank_statement_import(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     only_unmatched: bool | None = Query(None),
+    direction: str = Query("outgoing", description="outgoing | incoming | all"),
     txn_type: str | None = Query(None, description="Filter statement rows by txn_type (Type column)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = BankReadRole,
@@ -120,6 +176,7 @@ async def get_bank_statement_import(
         limit=limit,
         only_unmatched=only_unmatched,
         txn_type=txn_type,
+        direction=direction,
     )
 
     # Preload matches in one query (avoid N+1).
@@ -129,36 +186,6 @@ async def get_bank_statement_import(
     rows: list[BankStatementImportTransactionResponse] = []
     for row in items:
         t = row.bank_transaction
-        match_info = None
-        if t.match:
-            if t.match.procurement_payment_id:
-                payment: ProcurementPayment | None = t.match.procurement_payment
-                payment_number = payment.payment_number if payment else str(t.match.procurement_payment_id)
-                proof_attachment_id = payment.proof_attachment_id if payment else None
-                match_info = BankTransactionMatchInfo(
-                    id=t.match.id,
-                    entity_type="procurement_payment",
-                    entity_id=t.match.procurement_payment_id,
-                    entity_number=payment_number,
-                    match_method=t.match.match_method,
-                    confidence=t.match.confidence,
-                    matched_at=t.match.matched_at,
-                    proof_attachment_id=proof_attachment_id,
-                )
-            elif t.match.compensation_payout_id:
-                payout: CompensationPayout | None = t.match.compensation_payout
-                payout_number = payout.payout_number if payout else str(t.match.compensation_payout_id)
-                proof_attachment_id = payout.proof_attachment_id if payout else None
-                match_info = BankTransactionMatchInfo(
-                    id=t.match.id,
-                    entity_type="compensation_payout",
-                    entity_id=t.match.compensation_payout_id,
-                    entity_number=payout_number,
-                    match_method=t.match.match_method,
-                    confidence=t.match.confidence,
-                    matched_at=t.match.matched_at,
-                    proof_attachment_id=proof_attachment_id,
-                )
         rows.append(
             BankStatementImportTransactionResponse(
                 id=row.id,
@@ -176,7 +203,7 @@ async def get_bank_statement_import(
                     amount=t.amount,
                     account_owner_reference=t.account_owner_reference,
                     txn_type=t.txn_type,
-                    match=match_info,
+                    match=_match_to_response(t.match),
                 ),
             )
         )
@@ -204,10 +231,11 @@ async def get_bank_statement_import(
 async def list_bank_transactions(
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
+    direction: str = Query("outgoing", description="outgoing | incoming | all"),
     txn_type: str | None = Query(None, description="Transaction type code from statement (e.g. TRF/CHG/TAX)"),
     matched: bool | None = Query(None, description="Filter by matched status"),
     entity_type: str | None = Query(
-        None, description="procurement_payment | compensation_payout"
+        None, description="procurement_payment | compensation_payout | budget_advance | budget_advance_return"
     ),
     search: str | None = Query(None, description="Search in description/reference"),
     page: int = Query(1, ge=1),
@@ -220,6 +248,7 @@ async def list_bank_transactions(
         db,
         date_from=date_from,
         date_to=date_to,
+        direction=direction,
         txn_type=txn_type,
         matched=matched,
         entity_type=entity_type,
@@ -230,36 +259,6 @@ async def list_bank_transactions(
 
     txns: list[BankTransactionResponse] = []
     for t in items:
-        match_info = None
-        if t.match:
-            if t.match.procurement_payment_id:
-                payment: ProcurementPayment | None = t.match.procurement_payment
-                payment_number = payment.payment_number if payment else str(t.match.procurement_payment_id)
-                proof_attachment_id = payment.proof_attachment_id if payment else None
-                match_info = BankTransactionMatchInfo(
-                    id=t.match.id,
-                    entity_type="procurement_payment",
-                    entity_id=t.match.procurement_payment_id,
-                    entity_number=payment_number,
-                    match_method=t.match.match_method,
-                    confidence=t.match.confidence,
-                    matched_at=t.match.matched_at,
-                    proof_attachment_id=proof_attachment_id,
-                )
-            elif t.match.compensation_payout_id:
-                payout: CompensationPayout | None = t.match.compensation_payout
-                payout_number = payout.payout_number if payout else str(t.match.compensation_payout_id)
-                proof_attachment_id = payout.proof_attachment_id if payout else None
-                match_info = BankTransactionMatchInfo(
-                    id=t.match.id,
-                    entity_type="compensation_payout",
-                    entity_id=t.match.compensation_payout_id,
-                    entity_number=payout_number,
-                    match_method=t.match.match_method,
-                    confidence=t.match.confidence,
-                    matched_at=t.match.matched_at,
-                    proof_attachment_id=proof_attachment_id,
-                )
         txns.append(
             BankTransactionResponse(
                 id=t.id,
@@ -273,7 +272,7 @@ async def list_bank_transactions(
                 amount=t.amount,
                 account_owner_reference=t.account_owner_reference,
                 txn_type=t.txn_type,
-                match=match_info,
+                match=_match_to_response(t.match),
             )
         )
 
@@ -339,36 +338,12 @@ async def manual_match_transaction(
         .options(
             selectinload(BankTransactionMatch.procurement_payment),
             selectinload(BankTransactionMatch.compensation_payout),
+            selectinload(BankTransactionMatch.budget_advance),
+            selectinload(BankTransactionMatch.budget_advance_return),
         )
     )
     assert match is not None
-
-    if match.procurement_payment_id:
-        payment: ProcurementPayment | None = match.procurement_payment
-        payment_number = payment.payment_number if payment else str(match.procurement_payment_id)
-        proof_attachment_id = payment.proof_attachment_id if payment else None
-        entity_type = "procurement_payment"
-        entity_id = match.procurement_payment_id
-        entity_number = payment_number
-    else:
-        payout: CompensationPayout | None = match.compensation_payout
-        payout_number = payout.payout_number if payout else str(match.compensation_payout_id or 0)
-        proof_attachment_id = payout.proof_attachment_id if payout else None
-        entity_type = "compensation_payout"
-        entity_id = match.compensation_payout_id or 0
-        entity_number = payout_number
-    return ApiResponse(
-        data=BankTransactionMatchInfo(
-            id=match.id,
-            entity_type=entity_type,  # type: ignore[arg-type]
-            entity_id=entity_id,
-            entity_number=entity_number,
-            match_method=match.match_method,
-            confidence=match.confidence,
-            matched_at=match.matched_at,
-            proof_attachment_id=proof_attachment_id,
-        )
-    )
+    return ApiResponse(data=_match_to_response(match))
 
 
 @router.delete("/transactions/{bank_transaction_id}/match", response_model=ApiResponse[dict])
@@ -394,7 +369,7 @@ async def get_import_reconciliation_summary(
     current_user: User = BankReadRole,
 ):
     service = BankStatementService()
-    date_from, date_to, unmatched_txns, unmatched_proc, unmatched_payouts = (
+    date_from, date_to, unmatched_txns, unmatched_proc, unmatched_payouts, unmatched_advances, unmatched_returns = (
         await service.reconciliation_summary_for_import(db, import_id, ignore_range=ignore_range)
     )
 
@@ -424,6 +399,27 @@ async def get_import_reconciliation_summary(
                     reference_number=p.reference_number,
                 )
                 for p in unmatched_payouts
+            ],
+            unmatched_budget_advances=[
+                UnmatchedBudgetAdvance(
+                    id=p.id,
+                    advance_number=p.advance_number,
+                    issue_date=p.issue_date,
+                    amount=p.amount_issued,
+                    employee_name=getattr(p.employee, "full_name", None),
+                    reference_number=p.reference_number,
+                )
+                for p in unmatched_advances
+            ],
+            unmatched_budget_advance_returns=[
+                UnmatchedBudgetAdvanceReturn(
+                    id=p.id,
+                    return_number=p.return_number,
+                    return_date=p.return_date,
+                    amount=p.amount,
+                    reference_number=p.reference_number,
+                )
+                for p in unmatched_returns
             ],
         )
     )

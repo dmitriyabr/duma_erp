@@ -31,6 +31,22 @@ class ExpenseClaimStatus(StrEnum):
     PAID = "paid"
 
 
+class FundingSource(StrEnum):
+    """How the expense was funded before approval/settlement."""
+
+    PERSONAL_FUNDS = "personal_funds"
+    BUDGET = "budget"
+
+
+class BudgetFundingStatus(StrEnum):
+    """Budget allocation state tracked on a claim."""
+
+    NONE = "none"
+    RESERVED = "reserved"
+    SETTLED = "settled"
+    RELEASED = "released"
+
+
 class ExpenseClaim(Base):
     """Expense claim (out-of-pocket reimbursement or generated from a procurement payment)."""
 
@@ -45,6 +61,9 @@ class ExpenseClaim(Base):
     )
     fee_payment_id: Mapped[int | None] = mapped_column(
         BigIntPK, ForeignKey("procurement_payments.id"), nullable=True, index=True
+    )
+    budget_id: Mapped[int | None] = mapped_column(
+        BigIntPK, ForeignKey("budgets.id"), nullable=True, index=True
     )
     employee_id: Mapped[int] = mapped_column(
         BigIntPK, ForeignKey("users.id"), nullable=False, index=True
@@ -71,6 +90,12 @@ class ExpenseClaim(Base):
     auto_created_from_payment: Mapped[bool] = mapped_column(
         default=True, nullable=False
     )
+    funding_source: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=FundingSource.PERSONAL_FUNDS.value, index=True
+    )
+    budget_funding_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=BudgetFundingStatus.NONE.value, index=True
+    )
     related_procurement_payment_id: Mapped[int | None] = mapped_column(
         BigInteger, nullable=True
     )
@@ -92,8 +117,12 @@ class ExpenseClaim(Base):
     fee_payment: Mapped["ProcurementPayment | None"] = relationship(
         "ProcurementPayment", foreign_keys=[fee_payment_id]
     )
+    budget: Mapped["Budget | None"] = relationship("Budget", back_populates="claims")
     employee: Mapped["User"] = relationship("User")
     purpose: Mapped["PaymentPurpose"] = relationship("PaymentPurpose")
+    budget_allocations: Mapped[list["BudgetClaimAllocation"]] = relationship(
+        "BudgetClaimAllocation", back_populates="claim", cascade="all, delete-orphan"
+    )
 
     @property
     def employee_name(self) -> str:

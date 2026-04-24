@@ -11,10 +11,20 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.types import Date as SqlDate
 
 from src.core.exceptions import NotFoundError
+from src.modules.budgets.models import (
+    BudgetAdvance,
+    BudgetAdvanceReturn,
+    BudgetAdvanceSourceType,
+    BudgetAdvanceStatus,
+    BudgetAdvanceTransfer,
+    BudgetClaimAllocation,
+    BudgetClaimAllocationStatus,
+)
 from src.modules.compensations.models import (
     CompensationPayout,
     ExpenseClaim,
     ExpenseClaimStatus,
+    FundingSource,
     PayoutAllocation,
 )
 from src.modules.discounts.models import Discount, DiscountReason
@@ -333,6 +343,26 @@ class ReportsService:
             total_expenses += comp_total
             expense_lines.append({"label": "Employee Compensations", "amount": comp_total})
 
+        advance_issues = await self.db.scalar(
+            select(func.coalesce(func.sum(BudgetAdvance.amount_issued), 0)).where(
+                BudgetAdvance.source_type == BudgetAdvanceSourceType.CASH_ISSUE.value,
+                BudgetAdvance.status != BudgetAdvanceStatus.DRAFT.value,
+                BudgetAdvance.status != BudgetAdvanceStatus.CANCELLED.value,
+                BudgetAdvance.issue_date >= date_from,
+                BudgetAdvance.issue_date <= date_to,
+            )
+        )
+        advance_returns = await self.db.scalar(
+            select(func.coalesce(func.sum(BudgetAdvanceReturn.amount), 0)).where(
+                BudgetAdvanceReturn.return_date >= date_from,
+                BudgetAdvanceReturn.return_date <= date_to,
+            )
+        )
+        advances_net = round_money(Decimal(str(advance_issues or 0)) - Decimal(str(advance_returns or 0)))
+        if advances_net != 0:
+            total_expenses += advances_net
+            expense_lines.append({"label": "Employee Budget Advances (net)", "amount": advances_net})
+
         return expense_lines, round_money(total_expenses)
 
     async def _profit_loss_period_accrual(
@@ -560,7 +590,7 @@ class ReportsService:
                 CreditAllocation.invoice_id,
                 func.coalesce(func.sum(CreditAllocation.amount), 0).label("allocated"),
             )
-            .where(cast(CreditAllocation.created_at, SqlDate) <= as_at)
+            .where(func.date(CreditAllocation.created_at) <= as_at)
             .group_by(CreditAllocation.invoice_id)
         ).subquery()
         amount_due_as_at = (
@@ -1059,14 +1089,35 @@ class ReportsService:
                 CompensationPayout.payout_date <= date_to,
             )
         )
+        advance_issues_out = await self.db.execute(
+            select(func.coalesce(func.sum(BudgetAdvance.amount_issued), 0)).where(
+                BudgetAdvance.source_type == BudgetAdvanceSourceType.CASH_ISSUE.value,
+                BudgetAdvance.status != BudgetAdvanceStatus.DRAFT.value,
+                BudgetAdvance.status != BudgetAdvanceStatus.CANCELLED.value,
+                BudgetAdvance.issue_date >= date_from,
+                BudgetAdvance.issue_date <= date_to,
+            )
+        )
+        advance_returns_in = await self.db.execute(
+            select(func.coalesce(func.sum(BudgetAdvanceReturn.amount), 0)).where(
+                BudgetAdvanceReturn.return_date >= date_from,
+                BudgetAdvanceReturn.return_date <= date_to,
+            )
+        )
         proc_amt = round_money(Decimal(str(proc_out.scalar() or 0)))
         comp_amt = round_money(Decimal(str(comp_out.scalar() or 0)))
-        total_outflows = round_money(proc_amt + comp_amt)
+        advance_issue_amt = round_money(Decimal(str(advance_issues_out.scalar() or 0)))
+        advance_return_amt = round_money(Decimal(str(advance_returns_in.scalar() or 0)))
+        if advance_return_amt > 0:
+            inflow_rows.append(("Budget Advance Returns", advance_return_amt))
+        total_inflows = round_money(total_inflows + advance_return_amt)
+        total_outflows = round_money(proc_amt + comp_amt + advance_issue_amt)
         return {
             "inflow_rows": inflow_rows,
             "total_inflows": total_inflows,
             "proc_amt": proc_amt,
             "comp_amt": comp_amt,
+            "advance_issue_amt": advance_issue_amt,
             "total_outflows": total_outflows,
         }
 
@@ -1103,8 +1154,25 @@ class ReportsService:
                 CompensationPayout.payout_date < date_from,
             )
         )
+        advances_before = await self.db.execute(
+            select(func.coalesce(func.sum(BudgetAdvance.amount_issued), 0)).where(
+                BudgetAdvance.source_type == BudgetAdvanceSourceType.CASH_ISSUE.value,
+                BudgetAdvance.status != BudgetAdvanceStatus.DRAFT.value,
+                BudgetAdvance.status != BudgetAdvanceStatus.CANCELLED.value,
+                BudgetAdvance.issue_date < date_from,
+            )
+        )
+        returns_before = await self.db.execute(
+            select(func.coalesce(func.sum(BudgetAdvanceReturn.amount), 0)).where(
+                BudgetAdvanceReturn.return_date < date_from,
+            )
+        )
         opening_balance = round_money(
-            pay_in_val - Decimal(str(proc_before.scalar() or 0)) - Decimal(str(comp_before.scalar() or 0))
+            pay_in_val
+            - Decimal(str(proc_before.scalar() or 0))
+            - Decimal(str(comp_before.scalar() or 0))
+            - Decimal(str(advances_before.scalar() or 0))
+            + Decimal(str(returns_before.scalar() or 0))
         )
         full = await self._cash_flow_period(date_from, date_to, payment_method)
         inflow_lines = [
@@ -1118,6 +1186,7 @@ class ReportsService:
         outflow_lines = [
             CashFlowOutflowLine(label="Supplier Payments", amount=full["proc_amt"]),
             CashFlowOutflowLine(label="Employee Compensations", amount=full["comp_amt"]),
+            CashFlowOutflowLine(label="Budget Advances Issued", amount=full["advance_issue_amt"]),
         ]
         total_outflows = full["total_outflows"]
         net_cash_flow = round_money(total_inflows - total_outflows)
@@ -1140,6 +1209,7 @@ class ReportsService:
         total_inflows_monthly: dict[str, Decimal] = {}
         proc_monthly: dict[str, Decimal] = {}
         comp_monthly: dict[str, Decimal] = {}
+        advances_monthly: dict[str, Decimal] = {}
         total_outflows_monthly: dict[str, Decimal] = {}
         closing_balance_monthly: dict[str, Decimal] = {}
         cum = opening_balance
@@ -1151,6 +1221,7 @@ class ReportsService:
             total_inflows_monthly[mo] = period["total_inflows"]
             proc_monthly[mo] = period["proc_amt"]
             comp_monthly[mo] = period["comp_amt"]
+            advances_monthly[mo] = period["advance_issue_amt"]
             total_outflows_monthly[mo] = period["total_outflows"]
             for lbl, amt in period["inflow_rows"]:
                 inflow_by_label[str(lbl)][mo] = amt
@@ -1160,6 +1231,7 @@ class ReportsService:
             line.monthly = dict(inflow_by_label.get(line.label, {}))
         outflow_lines[0].monthly = dict(proc_monthly)
         outflow_lines[1].monthly = dict(comp_monthly)
+        outflow_lines[2].monthly = dict(advances_monthly)
         out["months"] = months
         out["total_inflows_monthly"] = total_inflows_monthly
         out["total_outflows_monthly"] = total_outflows_monthly
@@ -1186,10 +1258,25 @@ class ReportsService:
                 CompensationPayout.payout_date <= as_at_date,
             )
         )
+        advances = await self.db.execute(
+            select(func.coalesce(func.sum(BudgetAdvance.amount_issued), 0)).where(
+                BudgetAdvance.source_type == BudgetAdvanceSourceType.CASH_ISSUE.value,
+                BudgetAdvance.status != BudgetAdvanceStatus.DRAFT.value,
+                BudgetAdvance.status != BudgetAdvanceStatus.CANCELLED.value,
+                BudgetAdvance.issue_date <= as_at_date,
+            )
+        )
+        advance_returns = await self.db.execute(
+            select(func.coalesce(func.sum(BudgetAdvanceReturn.amount), 0)).where(
+                BudgetAdvanceReturn.return_date <= as_at_date,
+            )
+        )
         cash = round_money(
             Decimal(str(pay.scalar() or 0))
             - Decimal(str(proc.scalar() or 0))
             - Decimal(str(comp.scalar() or 0))
+            - Decimal(str(advances.scalar() or 0))
+            + Decimal(str(advance_returns.scalar() or 0))
         )
         # Receivables as at date: invoices issued by as_at_date; amount due = total - allocations created by as_at_date.
         # Do not filter by PAID: historically the invoice may have been unpaid as at that date; we use allocation history.
@@ -1244,7 +1331,55 @@ class ReportsService:
         )
         inv_res = await self.db.execute(inv_q)
         inventory = round_money(Decimal(str(inv_res.scalar() or 0)))
-        total_assets = round_money(cash + receivables + inventory)
+        settled_adv_alloc = (
+            select(
+                BudgetClaimAllocation.advance_id,
+                func.coalesce(func.sum(BudgetClaimAllocation.allocated_amount), 0).label("settled"),
+            )
+            .where(
+                BudgetClaimAllocation.allocation_status == BudgetClaimAllocationStatus.SETTLED.value,
+                cast(BudgetClaimAllocation.updated_at, SqlDate) <= as_at_date,
+            )
+            .group_by(BudgetClaimAllocation.advance_id)
+        ).subquery()
+        advance_returns_subq = (
+            select(
+                BudgetAdvanceReturn.advance_id,
+                func.coalesce(func.sum(BudgetAdvanceReturn.amount), 0).label("returned"),
+            )
+            .where(BudgetAdvanceReturn.return_date <= as_at_date)
+            .group_by(BudgetAdvanceReturn.advance_id)
+        ).subquery()
+        advance_transfers_subq = (
+            select(
+                BudgetAdvanceTransfer.from_advance_id,
+                func.coalesce(func.sum(BudgetAdvanceTransfer.amount), 0).label("transferred"),
+            )
+            .where(BudgetAdvanceTransfer.transfer_date <= as_at_date)
+            .group_by(BudgetAdvanceTransfer.from_advance_id)
+        ).subquery()
+        advance_balance_expr = (
+            BudgetAdvance.amount_issued
+            - func.coalesce(settled_adv_alloc.c.settled, 0)
+            - func.coalesce(advance_returns_subq.c.returned, 0)
+            - func.coalesce(advance_transfers_subq.c.transferred, 0)
+        )
+        employee_advances_q = (
+            select(
+                func.coalesce(
+                    func.sum(case((advance_balance_expr < 0, Decimal("0.00")), else_=advance_balance_expr)),
+                    0,
+                )
+            )
+            .select_from(BudgetAdvance)
+            .outerjoin(settled_adv_alloc, BudgetAdvance.id == settled_adv_alloc.c.advance_id)
+            .outerjoin(advance_returns_subq, BudgetAdvance.id == advance_returns_subq.c.advance_id)
+            .outerjoin(advance_transfers_subq, BudgetAdvance.id == advance_transfers_subq.c.from_advance_id)
+            .where(BudgetAdvance.issue_date <= as_at_date)
+            .where(BudgetAdvance.status.notin_([BudgetAdvanceStatus.DRAFT.value, BudgetAdvanceStatus.CANCELLED.value]))
+        )
+        employee_advances = round_money(Decimal(str((await self.db.execute(employee_advances_q)).scalar() or 0)))
+        total_assets = round_money(cash + receivables + inventory + employee_advances)
         # Accounts Payable (Supplier Debts) as at date: received value (from GRNs approved by date) minus payments by date, per PO.
         grn_value_q = (
             select(
@@ -1339,6 +1474,7 @@ class ReportsService:
             .outerjoin(payout_tot, ExpenseClaim.id == payout_tot.c.claim_id)
             .where(cast(ExpenseClaim.created_at, SqlDate) <= as_at_date)
             .where(ExpenseClaim.status.notin_(excluded_claim_statuses))
+            .where(ExpenseClaim.funding_source == FundingSource.PERSONAL_FUNDS.value)
         )
         claims_rows = (await self.db.execute(claims_q)).all()
         pending_claims = round_money(
@@ -1357,6 +1493,7 @@ class ReportsService:
                 ("Cash", cash),
                 ("Accounts Receivable (Student Debts)", receivables),
                 ("Inventory at Cost", inventory),
+                ("Employee Advances Outstanding", employee_advances),
             ],
             "total_assets": total_assets,
             "liability_lines": [
@@ -2551,6 +2688,7 @@ class ReportsService:
                 ExpenseClaim.status.in_(
                     [ExpenseClaimStatus.PENDING_APPROVAL.value, ExpenseClaimStatus.APPROVED.value]
                 ),
+                ExpenseClaim.funding_source == FundingSource.PERSONAL_FUNDS.value,
                 ExpenseClaim.remaining_amount > 0,
             )
         )

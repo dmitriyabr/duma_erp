@@ -129,6 +129,7 @@ claude_duma_erp/
 | `erp_spec.md` | Полная спецификация системы (на русском) |
 | `BACKEND_API.md` | Документация всех API endpoints |
 | `BACKEND_OVERVIEW.md` | Обзор архитектуры и бизнес-процессов |
+| `docs/BUDGET_ADVANCES_PLAN.md` | Полный продуктовый и технический план budget advances / rollover / returns |
 | `FRONTEND_REFACTORING_PLAN.md` | План рефакторинга фронтенда (производительность, архитектура) |
 | `CLAUDE.md` | Инструкции для Claude Code (AI-ассистент) |
 

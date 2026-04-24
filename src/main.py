@@ -30,6 +30,7 @@ from src.modules.discounts.router import router as discounts_router
 from src.modules.payments.router import router as payments_router
 from src.modules.reservations.router import router as reservations_router
 from src.modules.procurement.router import router as procurement_router
+from src.modules.budgets.router import router as budgets_router
 from src.modules.compensations.router import (
     router as compensations_router,
     payouts_router as compensations_payouts_router,
@@ -108,6 +109,7 @@ def create_app() -> FastAPI:
     app.include_router(payments_router, prefix="/api/v1")
     app.include_router(reservations_router, prefix="/api/v1")
     app.include_router(procurement_router, prefix="/api/v1")
+    app.include_router(budgets_router, prefix="/api/v1")
     app.include_router(compensations_router, prefix="/api/v1")
     app.include_router(compensations_payouts_router, prefix="/api/v1")
     app.include_router(accountant_router, prefix="/api/v1")

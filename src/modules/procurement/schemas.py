@@ -212,9 +212,13 @@ class ProcurementPaymentCreate(BaseSchema):
     proof_attachment_id: int | None = None
     company_paid: bool = True
     employee_paid_id: int | None = None
+    budget_id: int | None = None
+    funding_source: Literal["personal_funds", "budget"] = "personal_funds"
 
     @model_validator(mode="after")
     def validate_proof(self):
+        if self.funding_source == "budget" and not self.budget_id:
+            raise ValueError("budget_id is required when funding_source=budget")
         if not self.proof_text and not self.proof_attachment_id:
             raise ValueError("Proof is required: provide proof_text or proof_attachment_id")
         return self
@@ -237,6 +241,8 @@ class ProcurementPaymentResponse(BaseSchema):
     proof_attachment_id: int | None
     company_paid: bool
     employee_paid_id: int | None
+    budget_id: int | None
+    funding_source: str
     status: str
     cancelled_reason: str | None
     cancelled_by_id: int | None

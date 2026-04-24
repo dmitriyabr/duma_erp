@@ -432,6 +432,87 @@
 - [x] Frontend: карточка **My Totals** на странице Expense Claims
 - [x] Тесты totals endpoint
 
+### 6.4 Budget Advances / Предвыданные бюджеты
+> Решения:
+> - Бюджет живёт на уровне направления расходов и периода, а не на уровне сотрудника.
+> - Деньги сотруднику выдаются через отдельный документ `BudgetAdvance`.
+> - Claim привязывается к `budget`, а не к конкретному advance; backend сам резервирует и затем аллоцирует claim по open advances сотрудника FIFO.
+> - Budget-funded claim после approve считается сразу `paid` и **не** попадает в `CompensationPayout`.
+> - Конец месяца переводит budget в `closing`, но open advances не закрываются автоматически.
+> - Остаток денег между периодами переносится только через отдельный `BudgetAdvanceTransfer` (rollover), старый advance не меняет `budget_id`.
+> - Возвраты денег оформляются отдельным `BudgetAdvanceReturn`.
+> - Reconciliation и отчёты для budget advances ведутся отдельно от employee reimbursements.
+> - Полный согласованный дизайн зафиксирован в `docs/BUDGET_ADVANCES_PLAN.md`.
+
+#### 6.4.1 Модели и миграции
+- [ ] Модель `Budget` (budget_number, name, purpose_id, period_from, period_to, limit_amount, status, аудит)
+- [ ] Модель `BudgetAdvance` (advance_number, budget_id, employee_id, issue_date, amount_issued, payment_method, proof/reference, source_type, settlement_due_date, status)
+- [ ] Модель `BudgetAdvanceReturn`
+- [ ] Модель `BudgetAdvanceTransfer`
+- [ ] Модель `BudgetClaimAllocation`
+- [ ] Миграция: `budget_id` в `expense_claims`
+- [ ] Миграция: `budget_id` + `funding_source` в `procurement_payments`
+- [ ] Миграция/адаптация `BankTransactionMatch` для `budget_advance_id` и `budget_advance_return_id`
+
+#### 6.4.2 Бизнес-логика
+- [ ] Выдача advance с проверкой лимита budget
+- [ ] Reserve claim amount по open advances сотрудника внутри budget при submit
+- [ ] Release reservations при reject / send-to-edit / изменении claim
+- [ ] Final settlement claim из advances при approve
+- [ ] Закрытие advance через claims / returns / transfer out
+- [ ] Overdue logic по `settlement_due_date`
+- [ ] Period closing для budget
+- [ ] Rollover / reassignment / reallocation через `BudgetAdvanceTransfer`
+
+#### 6.4.3 API
+- [ ] `POST /budgets`
+- [ ] `GET /budgets`
+- [ ] `GET /budgets/{budget_id}`
+- [ ] `PATCH /budgets/{budget_id}`
+- [ ] `POST /budgets/{budget_id}/activate`
+- [ ] `GET /budgets/{budget_id}/closure`
+- [ ] `POST /budgets/{budget_id}/close`
+- [ ] `POST /budgets/{budget_id}/cancel`
+- [ ] `POST /budgets/advances`
+- [ ] `GET /budgets/advances`
+- [ ] `GET /budgets/advances/{advance_id}`
+- [ ] `POST /budgets/advances/{advance_id}/issue`
+- [ ] `POST /budgets/advances/{advance_id}/transfer`
+- [ ] `POST /budgets/advances/{advance_id}/close`
+- [ ] `POST /budgets/advances/{advance_id}/cancel`
+- [ ] `POST /budgets/advances/{advance_id}/returns`
+- [ ] `GET /budgets/advances/{advance_id}/returns`
+- [ ] `GET /budgets/transfers`
+- [ ] `GET /budgets/transfers/{transfer_id}`
+- [ ] `GET /my/budgets`
+- [ ] `GET /my/budget-advances`
+- [ ] `GET /budgets/{budget_id}/my-available-balance`
+- [ ] Расширение `POST/PATCH /compensations/claims` полями `funding_source`, `budget_id`
+
+#### 6.4.4 UI
+- [ ] Список budgets
+- [ ] Карточка budget + period closing widget
+- [ ] Список/деталка budget advances
+- [ ] Returns history и transfers history
+- [ ] Claim form: `Funding source = Personal money | Budget`
+- [ ] Employee-side список доступных budgets / advances
+- [ ] Overdue badges / filters
+
+#### 6.4.5 Reconciliation и отчёты
+- [ ] Reconciliation: outgoing `BudgetAdvance`
+- [ ] Reconciliation: incoming `BudgetAdvanceReturn`
+- [ ] Budget utilization report
+- [ ] Advances outstanding / aging report
+- [ ] Budget transfer register
+- [ ] Expense analytics split: out-of-pocket vs budget-funded
+
+#### 6.4.6 Документация и тесты
+- [x] Документация: `docs/BUDGET_ADVANCES_PLAN.md`
+- [x] Документация: обновить `README.md`, `BACKEND_OVERVIEW.md`, `BACKEND_API.md`, `TASKS.md`
+- [ ] Тесты: budgets / advances / returns / transfers / claim reserve-settle flow
+- [ ] Тесты: period closing / rollover / overdue
+- [ ] Тесты: reconciliation for advances and returns
+
 ---
 
 ## Фаза: HR — Справочник сотрудников

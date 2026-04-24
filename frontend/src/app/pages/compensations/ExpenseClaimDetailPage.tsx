@@ -19,6 +19,9 @@ interface ClaimResponse {
   claim_number: string
   payment_id: number | null
   fee_payment_id: number | null
+  budget_id: number | null
+  budget_number: string | null
+  budget_name: string | null
   employee_id: number
   employee_name: string
   purpose_id: number
@@ -38,7 +41,17 @@ interface ClaimResponse {
   paid_amount: number
   remaining_amount: number
   auto_created_from_payment: boolean
+  funding_source: 'personal_funds' | 'budget'
+  budget_funding_status: string
   related_procurement_payment_id: number | null
+  budget_allocations: Array<{
+    id: number
+    advance_id: number
+    advance_number: string
+    allocated_amount: number
+    allocation_status: string
+    released_reason: string | null
+  }>
 }
 
 const statusColor = (status: string) => {
@@ -402,6 +415,28 @@ export const ExpenseClaimDetailPage = () => {
             {formatMoney(claim.remaining_amount)}
           </Typography>
         </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Funding
+          </Typography>
+          <Typography>
+            {claim.funding_source === 'budget' ? 'Budget advance' : 'Personal funds'}
+          </Typography>
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Budget
+          </Typography>
+          <Typography>
+            {claim.budget_number ? `${claim.budget_number} · ${claim.budget_name ?? ''}` : '—'}
+          </Typography>
+        </div>
+        <div>
+          <Typography variant="subtitle2" color="secondary" className="mb-1">
+            Budget funding status
+          </Typography>
+          <Typography>{claim.funding_source === 'budget' ? claim.budget_funding_status : '—'}</Typography>
+        </div>
       </div>
 
       <div className="mb-6">
@@ -428,6 +463,27 @@ export const ExpenseClaimDetailPage = () => {
           <Typography>{claim.edit_comment}</Typography>
         </div>
       )}
+
+      {claim.budget_allocations?.length ? (
+        <div className="mb-6">
+          <Typography variant="subtitle2" color="secondary" className="mb-2">
+            Budget allocations
+          </Typography>
+          <div className="space-y-2">
+            {claim.budget_allocations.map((allocation) => (
+              <div key={allocation.id} className="rounded-lg border border-slate-200 p-3">
+                <Typography variant="body2" className="font-medium">
+                  {allocation.advance_number} · {formatMoney(allocation.allocated_amount)}
+                </Typography>
+                <Typography variant="caption" color="secondary">
+                  {allocation.allocation_status}
+                  {allocation.released_reason ? ` · ${allocation.released_reason}` : ''}
+                </Typography>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {(claim.payee_name || claim.proof_text || claim.proof_attachment_id != null) && (
         <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -38,6 +38,9 @@ def _claim_to_response(claim) -> ExpenseClaimResponse:
         claim_number=claim.claim_number,
         payment_id=claim.payment_id,
         fee_payment_id=getattr(claim, "fee_payment_id", None),
+        budget_id=getattr(claim, "budget_id", None),
+        budget_number=getattr(getattr(claim, "budget", None), "budget_number", None),
+        budget_name=getattr(getattr(claim, "budget", None), "name", None),
         employee_id=claim.employee_id,
         employee_name=claim.employee_name,
         purpose_id=payment.purpose_id if payment else claim.purpose_id,
@@ -57,9 +60,22 @@ def _claim_to_response(claim) -> ExpenseClaimResponse:
         paid_amount=claim.paid_amount,
         remaining_amount=claim.remaining_amount,
         auto_created_from_payment=claim.auto_created_from_payment,
+        funding_source=getattr(claim, "funding_source", "personal_funds"),
+        budget_funding_status=getattr(claim, "budget_funding_status", "none"),
         related_procurement_payment_id=payment.id if payment else claim.related_procurement_payment_id,
         created_at=claim.created_at,
         updated_at=claim.updated_at,
+        budget_allocations=[
+            {
+                "id": allocation.id,
+                "advance_id": allocation.advance_id,
+                "advance_number": allocation.advance.advance_number if allocation.advance else str(allocation.advance_id),
+                "allocated_amount": allocation.allocated_amount,
+                "allocation_status": allocation.allocation_status,
+                "released_reason": allocation.released_reason,
+            }
+            for allocation in getattr(claim, "budget_allocations", [])
+        ],
     )
 
 
@@ -118,13 +134,15 @@ async def update_claim(
     current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)),
 ):
     """Update a draft claim. USER can only update own draft claims."""
+    current_user_id = current_user.id
+    current_user_role = current_user.role
     service = ExpenseClaimService(db)
     claim = await service.get_claim_by_id(claim_id)
-    if current_user.role == UserRole.USER and claim.employee_id != current_user.id:
+    if current_user_role == UserRole.USER and claim.employee_id != current_user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only edit your own claims")
 
     # Service requires employee_id to match claim owner. For admins, pass the claim owner.
-    owner_id = current_user.id if current_user.role == UserRole.USER else claim.employee_id
+    owner_id = current_user_id if current_user_role == UserRole.USER else claim.employee_id
     updated = await service.update_out_of_pocket_claim(claim_id, data, employee_id=owner_id)
     return ApiResponse(success=True, message="Expense claim updated", data=_claim_to_response(updated))
 
@@ -139,11 +157,13 @@ async def submit_claim(
     current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER)),
 ):
     """Submit a draft claim for approval."""
+    current_user_id = current_user.id
+    current_user_role = current_user.role
     service = ExpenseClaimService(db)
     claim = await service.get_claim_by_id(claim_id)
-    if current_user.role == UserRole.USER and claim.employee_id != current_user.id:
+    if current_user_role == UserRole.USER and claim.employee_id != current_user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only submit your own claims")
-    owner_id = current_user.id if current_user.role == UserRole.USER else claim.employee_id
+    owner_id = current_user_id if current_user_role == UserRole.USER else claim.employee_id
     submitted = await service.submit_claim(claim_id, employee_id=owner_id)
     return ApiResponse(success=True, message="Expense claim submitted", data=_claim_to_response(submitted))
 
@@ -154,6 +174,8 @@ async def submit_claim(
 )
 async def list_claims(
     employee_id: int | None = Query(None),
+    budget_id: int | None = Query(None),
+    funding_source: str | None = Query(None),
     status: str | None = Query(None),
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
@@ -169,6 +191,8 @@ async def list_claims(
         employee_id = current_user.id
     claims, total = await service.list_claims(
         employee_id=employee_id,
+        budget_id=budget_id,
+        funding_source=funding_source,
         status=status,
         date_from=date_from,
         date_to=date_to,
@@ -196,10 +220,12 @@ async def get_claim(
     current_user: User = Depends(require_roles(*UserRole)),
 ):
     """Get expense claim by ID. Regular users can only see their own claims."""
+    current_user_id = current_user.id
+    current_user_role = current_user.role
     service = ExpenseClaimService(db)
     claim = await service.get_claim_by_id(claim_id)
     # Проверяем, что обычный пользователь может видеть только свои claims
-    if current_user.role == UserRole.USER and claim.employee_id != current_user.id:
+    if current_user_role == UserRole.USER and claim.employee_id != current_user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only view your own expense claims",

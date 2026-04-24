@@ -46,6 +46,9 @@ import { ExpenseClaimsListPage } from './pages/compensations/ExpenseClaimsListPa
 import { ExpenseClaimDetailPage } from './pages/compensations/ExpenseClaimDetailPage'
 import { NewExpenseClaimPage } from './pages/compensations/NewExpenseClaimPage'
 import { EditExpenseClaimPage } from './pages/compensations/EditExpenseClaimPage'
+import { BudgetsPage } from './pages/compensations/BudgetsPage'
+import { BudgetDetailPage } from './pages/compensations/BudgetDetailPage'
+import { BudgetAdvancesPage } from './pages/compensations/BudgetAdvancesPage'
 import { PayoutsPage } from './pages/compensations/PayoutsPage'
 import { PayoutDetailPage } from './pages/compensations/PayoutDetailPage'
 import { AuditTrailPage } from './pages/accountant/AuditTrailPage'
@@ -302,6 +305,16 @@ export const AppRoutes = () => {
           <Route path="procurement/payments/new" element={<ProcurementPaymentFormPage />} />
           <Route path="procurement/payments/:paymentId" element={<ProcurementPaymentDetailPage />} />
           <Route path="compensations" element={<PlaceholderPage title="Compensations" />} />
+          <Route path="compensations/budgets" element={<BudgetsPage />} />
+          <Route
+            path="compensations/budgets/:budgetId"
+            element={
+              <StaffViewOnly>
+                <BudgetDetailPage />
+              </StaffViewOnly>
+            }
+          />
+          <Route path="compensations/advances" element={<BudgetAdvancesPage />} />
           <Route path="compensations/claims" element={<ExpenseClaimsListPage />} />
           <Route path="compensations/claims/new" element={<NewExpenseClaimPage />} />
           <Route path="compensations/claims/:claimId" element={<ExpenseClaimDetailPage />} />

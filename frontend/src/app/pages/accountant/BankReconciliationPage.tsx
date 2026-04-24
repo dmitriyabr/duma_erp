@@ -25,7 +25,11 @@ import {
   Spinner,
 } from '../../components/ui'
 
-type MatchedEntityType = 'procurement_payment' | 'compensation_payout'
+type MatchedEntityType =
+  | 'procurement_payment'
+  | 'compensation_payout'
+  | 'budget_advance'
+  | 'budget_advance_return'
 
 interface BankStatementImportListItem {
   id: number
@@ -131,6 +135,23 @@ interface UnmatchedCompensationPayout {
   reference_number: string | null
 }
 
+interface UnmatchedBudgetAdvance {
+  id: number
+  advance_number: string
+  issue_date: string
+  amount: string
+  employee_name: string | null
+  reference_number: string | null
+}
+
+interface UnmatchedBudgetAdvanceReturn {
+  id: number
+  return_number: string
+  return_date: string
+  amount: string
+  reference_number: string | null
+}
+
 interface ImportReconciliationSummary {
   import_id: number
   range_from: string | null
@@ -138,6 +159,8 @@ interface ImportReconciliationSummary {
   unmatched_transactions: number
   unmatched_procurement_payments: UnmatchedProcurementPayment[]
   unmatched_compensation_payouts: UnmatchedCompensationPayout[]
+  unmatched_budget_advances: UnmatchedBudgetAdvance[]
+  unmatched_budget_advance_returns: UnmatchedBudgetAdvanceReturn[]
 }
 
 export const BankReconciliationPage = () => {
@@ -149,6 +172,7 @@ export const BankReconciliationPage = () => {
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null)
   const [selectedImportId, setSelectedImportId] = useState<number | null>(null)
   const [onlyUnmatched, setOnlyUnmatched] = useState(true)
+  const [direction, setDirection] = useState<'outgoing' | 'incoming' | 'all'>('all')
   const [ignoreRange, setIgnoreRange] = useState(false)
   const [txnType, setTxnType] = useState<'all' | string>('all')
   const [error, setError] = useState<string | null>(null)
@@ -178,9 +202,10 @@ export const BankReconciliationPage = () => {
     params.set('page', '1')
     params.set('limit', '100')
     if (onlyUnmatched) params.set('only_unmatched', 'true')
+    params.set('direction', direction)
     if (txnType !== 'all' && txnType.trim()) params.set('txn_type', txnType.trim())
     return `/bank-statements/imports/${effectiveImportId}?${params.toString()}`
-  }, [accessDenied, effectiveImportId, onlyUnmatched, txnType])
+  }, [accessDenied, effectiveImportId, onlyUnmatched, direction, txnType])
 
   const txnTypesUrl = useMemo(() => {
     if (accessDenied) return null
@@ -299,9 +324,23 @@ export const BankReconciliationPage = () => {
   }, [refetchImports, refetchDetail, refetchReconciliation])
 
   const manualCandidates = useMemo(() => {
-    if (!manualMatchTxnId) return { procurement: [] as UnmatchedProcurementPayment[], payouts: [] as UnmatchedCompensationPayout[] }
+    if (!manualMatchTxnId) {
+      return {
+        procurement: [] as UnmatchedProcurementPayment[],
+        payouts: [] as UnmatchedCompensationPayout[],
+        advances: [] as UnmatchedBudgetAdvance[],
+        returns: [] as UnmatchedBudgetAdvanceReturn[],
+      }
+    }
     const row = importDetail?.rows.items.find((r) => r.transaction.id === manualMatchTxnId)
-    if (!row) return { procurement: [] as UnmatchedProcurementPayment[], payouts: [] as UnmatchedCompensationPayout[] }
+    if (!row) {
+      return {
+        procurement: [] as UnmatchedProcurementPayment[],
+        payouts: [] as UnmatchedCompensationPayout[],
+        advances: [] as UnmatchedBudgetAdvance[],
+        returns: [] as UnmatchedBudgetAdvanceReturn[],
+      }
+    }
     const target = absMoney(row.transaction.amount)
     const procurement = (reconciliation?.unmatched_procurement_payments || []).filter((p) =>
       withinOne(normMoney(p.amount), target)
@@ -309,12 +348,20 @@ export const BankReconciliationPage = () => {
     const payouts = (reconciliation?.unmatched_compensation_payouts || []).filter((p) =>
       withinOne(normMoney(p.amount), target)
     )
-    return { procurement, payouts }
+    const advances = (reconciliation?.unmatched_budget_advances || []).filter((p) =>
+      withinOne(normMoney(p.amount), target)
+    )
+    const returns = (reconciliation?.unmatched_budget_advance_returns || []).filter((p) =>
+      withinOne(normMoney(p.amount), target)
+    )
+    return { procurement, payouts, advances, returns }
   }, [manualMatchTxnId, importDetail, reconciliation])
 
   const openManualMatch = (txnId: number) => {
+    const row = importDetail?.rows.items.find((item) => item.transaction.id === txnId)
+    const amount = row ? moneyNumber(row.transaction.amount) : null
     setManualMatchTxnId(txnId)
-    setManualMatchType('procurement_payment')
+    setManualMatchType(amount != null && amount > 0 ? 'budget_advance_return' : 'procurement_payment')
     setManualMatchEntityId('')
     setError(null)
     setSuccess(null)
@@ -343,7 +390,11 @@ export const BankReconciliationPage = () => {
     const entity =
       manualMatchEntity.type === 'procurement_payment'
         ? (reconciliation?.unmatched_procurement_payments || []).find((p) => p.id === manualMatchEntity.id)
-        : (reconciliation?.unmatched_compensation_payouts || []).find((p) => p.id === manualMatchEntity.id)
+        : manualMatchEntity.type === 'compensation_payout'
+          ? (reconciliation?.unmatched_compensation_payouts || []).find((p) => p.id === manualMatchEntity.id)
+          : manualMatchEntity.type === 'budget_advance'
+            ? (reconciliation?.unmatched_budget_advances || []).find((p) => p.id === manualMatchEntity.id)
+            : (reconciliation?.unmatched_budget_advance_returns || []).find((p) => p.id === manualMatchEntity.id)
 
     if (!entity) return []
 
@@ -496,6 +547,15 @@ export const BankReconciliationPage = () => {
             label="Show only unmatched"
           />
           <Select
+            containerClassName="w-[220px] min-w-[180px]"
+            value={direction}
+            onChange={(e) => setDirection(e.target.value as typeof direction)}
+          >
+            <option value="all">All directions</option>
+            <option value="outgoing">Outgoing only</option>
+            <option value="incoming">Incoming only</option>
+          </Select>
+          <Select
             containerClassName="w-[240px] min-w-[200px]"
             value={txnType}
             onChange={(e) => setTxnType(e.target.value as typeof txnType)}
@@ -581,6 +641,12 @@ export const BankReconciliationPage = () => {
               <Typography>
                 Unmatched compensation payouts: {reconciliation.unmatched_compensation_payouts.length}
               </Typography>
+              <Typography>
+                Unmatched budget advances: {reconciliation.unmatched_budget_advances.length}
+              </Typography>
+              <Typography>
+                Unmatched budget returns: {reconciliation.unmatched_budget_advance_returns.length}
+              </Typography>
             </div>
           ) : (
             <Typography variant="body2" color="secondary">
@@ -632,8 +698,18 @@ export const BankReconciliationPage = () => {
                               {m.entity_number}
                             </Button>
                           </RouterLink>
-                        ) : (
+                        ) : m.entity_type === 'compensation_payout' ? (
                           <RouterLink to={`/compensations/payouts/${m.entity_id}`}>
+                            <Button
+                              size="small"
+                              variant="text"
+                              className="px-0 py-0 rounded-none hover:bg-transparent focus:bg-transparent hover:underline underline-offset-4"
+                            >
+                              {m.entity_number}
+                            </Button>
+                          </RouterLink>
+                        ) : (
+                          <RouterLink to="/compensations/advances">
                             <Button
                               size="small"
                               variant="text"
@@ -785,6 +861,92 @@ export const BankReconciliationPage = () => {
             </TableBody>
           </Table>
         </div>
+
+        <div>
+          <Typography variant="h6" className="mb-2">
+            Unmatched budget advances
+          </Typography>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Date</TableHeaderCell>
+                <TableHeaderCell>Number</TableHeaderCell>
+                <TableHeaderCell>Employee</TableHeaderCell>
+                <TableHeaderCell align="right">Amount</TableHeaderCell>
+                <TableHeaderCell align="right">Actions</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {(reconciliation?.unmatched_budget_advances || []).slice(0, 50).map((p) => (
+                <TableRow key={p.id}>
+                  <TableCell>{p.issue_date}</TableCell>
+                  <TableCell>{p.advance_number}</TableCell>
+                  <TableCell>{p.employee_name || '—'}</TableCell>
+                  <TableCell align="right">{p.amount}</TableCell>
+                  <TableCell align="right">
+                    <div className="flex justify-end gap-2 flex-wrap">
+                      <Button size="small" onClick={() => openManualMatchForEntity('budget_advance', p.id)}>
+                        Manual match
+                      </Button>
+                      <RouterLink to="/compensations/advances">
+                        <Button size="small">Open</Button>
+                      </RouterLink>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!reconciliation?.unmatched_budget_advances?.length ? (
+                <TableRow>
+                  <td colSpan={5} className="px-4 py-3">
+                    No unmatched advances
+                  </td>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+        </div>
+
+        <div>
+          <Typography variant="h6" className="mb-2">
+            Unmatched budget advance returns
+          </Typography>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Date</TableHeaderCell>
+                <TableHeaderCell>Number</TableHeaderCell>
+                <TableHeaderCell align="right">Amount</TableHeaderCell>
+                <TableHeaderCell align="right">Actions</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {(reconciliation?.unmatched_budget_advance_returns || []).slice(0, 50).map((p) => (
+                <TableRow key={p.id}>
+                  <TableCell>{p.return_date}</TableCell>
+                  <TableCell>{p.return_number}</TableCell>
+                  <TableCell align="right">{p.amount}</TableCell>
+                  <TableCell align="right">
+                    <div className="flex justify-end gap-2 flex-wrap">
+                      <Button size="small" onClick={() => openManualMatchForEntity('budget_advance_return', p.id)}>
+                        Manual match
+                      </Button>
+                      <RouterLink to="/compensations/advances">
+                        <Button size="small">Open</Button>
+                      </RouterLink>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!reconciliation?.unmatched_budget_advance_returns?.length ? (
+                <TableRow>
+                  <td colSpan={4} className="px-4 py-3">
+                    No unmatched returns
+                  </td>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+        </div>
       </div>
 
       <Dialog open={manualMatchTxnId !== null} onClose={closeManualMatch} maxWidth="sm" fullWidth>
@@ -808,6 +970,8 @@ export const BankReconciliationPage = () => {
               >
                 <option value="procurement_payment">Procurement payment (company paid)</option>
                 <option value="compensation_payout">Compensation payout</option>
+                <option value="budget_advance">Budget advance</option>
+                <option value="budget_advance_return">Budget advance return</option>
               </Select>
             </div>
             <div>
@@ -824,10 +988,20 @@ export const BankReconciliationPage = () => {
                       id: p.id,
                       label: `${p.payment_date} • ${p.payment_number} • ${p.amount}${p.payee_name ? ` • ${p.payee_name}` : ''}`,
                     }))
-                  : manualCandidates.payouts.map((p) => ({
-                      id: p.id,
-                      label: `${p.payout_date} • ${p.payout_number} • ${p.amount}`,
-                    }))
+                  : manualMatchType === 'compensation_payout'
+                    ? manualCandidates.payouts.map((p) => ({
+                        id: p.id,
+                        label: `${p.payout_date} • ${p.payout_number} • ${p.amount}`,
+                      }))
+                    : manualMatchType === 'budget_advance'
+                      ? manualCandidates.advances.map((p) => ({
+                          id: p.id,
+                          label: `${p.issue_date} • ${p.advance_number} • ${p.amount}${p.employee_name ? ` • ${p.employee_name}` : ''}`,
+                        }))
+                      : manualCandidates.returns.map((p) => ({
+                          id: p.id,
+                          label: `${p.return_date} • ${p.return_number} • ${p.amount}`,
+                        }))
                 ).map((opt) => (
                   <option key={opt.id} value={opt.id}>
                     {opt.label}

@@ -1905,6 +1905,90 @@ class TestCashFlow:
         assert lines["School Fee"] == Decimal("80.00")
         assert lines["Unallocated / Credit"] == Decimal("20.00")
 
+    async def test_cash_flow_includes_budget_issues_and_returns(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        from src.modules.budgets.models import Budget, BudgetAdvance, BudgetAdvanceReturn
+        from src.modules.procurement.models import PaymentPurpose
+
+        auth = AuthService(db_session)
+        admin = await auth.create_user(
+            email="reports_cf_budget_admin@test.com",
+            password="Pass123",
+            full_name="Budget Admin",
+            role=UserRole.ADMIN,
+        )
+        employee = await auth.create_user(
+            email="reports_cf_budget_employee@test.com",
+            password="Pass123",
+            full_name="Budget Employee",
+            role=UserRole.USER,
+        )
+        await db_session.flush()
+
+        purpose = PaymentPurpose(name="Cash Flow Budgets", is_active=True, purpose_type="expense")
+        db_session.add(purpose)
+        await db_session.flush()
+
+        budget = Budget(
+            budget_number="BGT-2026-000001",
+            name="Kitchen Budget",
+            purpose_id=purpose.id,
+            period_from=date(2026, 1, 1),
+            period_to=date(2026, 1, 31),
+            limit_amount=Decimal("1000.00"),
+            status="active",
+            created_by_id=admin.id,
+            approved_by_id=admin.id,
+        )
+        db_session.add(budget)
+        await db_session.flush()
+
+        advance = BudgetAdvance(
+            advance_number="BADV-2026-000001",
+            budget_id=budget.id,
+            employee_id=employee.id,
+            issue_date=date(2026, 1, 10),
+            amount_issued=Decimal("200.00"),
+            payment_method="bank",
+            reference_number="ADV-CF-1",
+            proof_text="Transfer",
+            source_type="cash_issue",
+            settlement_due_date=date(2026, 1, 31),
+            status="issued",
+            created_by_id=admin.id,
+        )
+        db_session.add(advance)
+        await db_session.flush()
+
+        db_session.add(
+            BudgetAdvanceReturn(
+                return_number="BRT-2026-000001",
+                advance_id=advance.id,
+                return_date=date(2026, 1, 12),
+                amount=Decimal("50.00"),
+                return_method="cash",
+                reference_number="RET-CF-1",
+                proof_text="Returned cash",
+                created_by_id=admin.id,
+            )
+        )
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate("reports_cf_budget_admin@test.com", "Pass123")
+        response = await client.get(
+            "/api/v1/reports/cash-flow?date_from=2026-01-01&date_to=2026-01-31",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        inflows = {row["label"]: Decimal(row["amount"]) for row in data["inflow_lines"]}
+        outflows = {row["label"]: Decimal(row["amount"]) for row in data["outflow_lines"]}
+        assert inflows["Budget Advance Returns"] == Decimal("50.00")
+        assert outflows["Budget Advances Issued"] == Decimal("200.00")
+        assert Decimal(data["total_inflows"]) == Decimal("50.00")
+        assert Decimal(data["total_outflows"]) == Decimal("200.00")
+
 
 class TestBalanceSheet:
     """Tests for GET /reports/balance-sheet."""
@@ -2117,6 +2201,111 @@ class TestBalanceSheet:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 403
+
+    async def test_balance_sheet_shows_employee_advances_and_excludes_budget_claims_from_payable(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        from src.modules.budgets.models import Budget, BudgetAdvance
+        from src.modules.compensations.models import ExpenseClaim
+        from src.modules.procurement.models import PaymentPurpose
+
+        auth = AuthService(db_session)
+        admin = await auth.create_user(
+            email="reports_bs_budget_admin@test.com",
+            password="Pass123",
+            full_name="Budget Admin",
+            role=UserRole.ADMIN,
+        )
+        employee = await auth.create_user(
+            email="reports_bs_budget_employee@test.com",
+            password="Pass123",
+            full_name="Budget Employee",
+            role=UserRole.USER,
+        )
+        await db_session.flush()
+
+        purpose = PaymentPurpose(name="Balance Sheet Budgets", is_active=True, purpose_type="expense")
+        db_session.add(purpose)
+        await db_session.flush()
+
+        budget = Budget(
+            budget_number="BGT-2026-000002",
+            name="Office Budget",
+            purpose_id=purpose.id,
+            period_from=date(2026, 1, 1),
+            period_to=date(2026, 1, 31),
+            limit_amount=Decimal("1000.00"),
+            status="active",
+            created_by_id=admin.id,
+            approved_by_id=admin.id,
+        )
+        db_session.add(budget)
+        await db_session.flush()
+
+        db_session.add(
+            BudgetAdvance(
+                advance_number="BADV-2026-000002",
+                budget_id=budget.id,
+                employee_id=employee.id,
+                issue_date=date(2026, 1, 10),
+                amount_issued=Decimal("300.00"),
+                payment_method="bank",
+                reference_number="ADV-BS-1",
+                proof_text="Transfer",
+                source_type="cash_issue",
+                settlement_due_date=date(2026, 1, 31),
+                status="issued",
+                created_by_id=admin.id,
+            )
+        )
+        db_session.add_all(
+            [
+                ExpenseClaim(
+                    claim_number="CLM-2026-000001",
+                    budget_id=budget.id,
+                    employee_id=employee.id,
+                    purpose_id=purpose.id,
+                    amount=Decimal("60.00"),
+                    fee_amount=Decimal("0.00"),
+                    description="Budget claim should not be payable",
+                    expense_date=date(2026, 1, 15),
+                    status="pending_approval",
+                    paid_amount=Decimal("0.00"),
+                    remaining_amount=Decimal("60.00"),
+                    auto_created_from_payment=False,
+                    funding_source="budget",
+                    budget_funding_status="reserved",
+                ),
+                ExpenseClaim(
+                    claim_number="CLM-2026-000002",
+                    employee_id=employee.id,
+                    purpose_id=purpose.id,
+                    amount=Decimal("80.00"),
+                    fee_amount=Decimal("0.00"),
+                    description="Personal claim should be payable",
+                    expense_date=date(2026, 1, 16),
+                    status="approved",
+                    paid_amount=Decimal("0.00"),
+                    remaining_amount=Decimal("80.00"),
+                    auto_created_from_payment=False,
+                    funding_source="personal_funds",
+                    budget_funding_status="none",
+                ),
+            ]
+        )
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate("reports_bs_budget_admin@test.com", "Pass123")
+        response = await client.get(
+            "/api/v1/reports/balance-sheet?as_at_date=2026-01-31",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assets = {row["label"]: Decimal(row["amount"]) for row in data["asset_lines"]}
+        liabilities = {row["label"]: Decimal(row["amount"]) for row in data["liability_lines"]}
+        assert assets["Employee Advances Outstanding"] == Decimal("300.00")
+        assert liabilities["Employee Payable (Pending Claims)"] == Decimal("80.00")
 
 
 class TestCollectionRate:

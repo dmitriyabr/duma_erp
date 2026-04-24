@@ -24,6 +24,7 @@ interface ClaimRow {
   claim_number: string
   employee_id: number
   employee_name: string
+  budget_number: string | null
   amount: number
   description: string
   expense_date: string
@@ -31,6 +32,7 @@ interface ClaimRow {
   paid_amount: number
   remaining_amount: number
   proof_attachment_id: number | null
+  funding_source: 'personal_funds' | 'budget'
 }
 
 interface UserRow {
@@ -62,6 +64,12 @@ const statusOptions = [
   { value: 'paid', label: 'Paid' },
 ]
 
+const fundingSourceOptions = [
+  { value: 'all', label: 'All funding' },
+  { value: 'personal_funds', label: 'Personal funds' },
+  { value: 'budget', label: 'Budget advance' },
+]
+
 const statusColor = (status: string) => {
   if (status === 'approved' || status === 'paid') return 'success'
   if (status === 'rejected') return 'error'
@@ -83,6 +91,7 @@ export const ExpenseClaimsListPage = () => {
   const initialEmployee = searchParams.get('employee_id')
   const initialDateFrom = searchParams.get('date_from') || ''
   const initialDateTo = searchParams.get('date_to') || ''
+  const initialFundingSource = searchParams.get('funding_source') || 'all'
 
   const [page, setPage] = useState(initialPage)
   const [limit, setLimit] = useState(initialLimit)
@@ -92,6 +101,7 @@ export const ExpenseClaimsListPage = () => {
   )
   const [dateFrom, setDateFrom] = useState(initialDateFrom)
   const [dateTo, setDateTo] = useState(initialDateTo)
+  const [fundingSourceFilter, setFundingSourceFilter] = useState<string>(initialFundingSource)
 
   useEffect(() => {
     const params = new URLSearchParams()
@@ -101,8 +111,9 @@ export const ExpenseClaimsListPage = () => {
     if (userIsSuperAdmin && employeeFilter) params.set('employee_id', String(employeeFilter))
     if (dateFrom) params.set('date_from', dateFrom)
     if (dateTo) params.set('date_to', dateTo)
+    if (fundingSourceFilter !== 'all') params.set('funding_source', fundingSourceFilter)
     setSearchParams(params, { replace: true })
-  }, [page, limit, statusFilter, employeeFilter, dateFrom, dateTo, userIsSuperAdmin, setSearchParams])
+  }, [page, limit, statusFilter, employeeFilter, dateFrom, dateTo, fundingSourceFilter, userIsSuperAdmin, setSearchParams])
 
   const claimsUrl = useMemo(() => {
     const params: Record<string, string | number> = { page: page + 1, limit }
@@ -112,11 +123,12 @@ export const ExpenseClaimsListPage = () => {
     else if (userIsSuperAdmin && employeeFilter) params.employee_id = Number(employeeFilter)
     if (dateFrom) params.date_from = dateFrom
     if (dateTo) params.date_to = dateTo
+    if (fundingSourceFilter !== 'all') params.funding_source = fundingSourceFilter
 
     const sp = new URLSearchParams()
     Object.entries(params).forEach(([k, v]) => sp.append(k, String(v)))
     return `/compensations/claims?${sp.toString()}`
-  }, [page, limit, statusFilter, employeeFilter, dateFrom, dateTo, userIsSuperAdmin, user])
+  }, [page, limit, statusFilter, employeeFilter, dateFrom, dateTo, fundingSourceFilter, userIsSuperAdmin, user])
 
   const { data: claimsData, loading, error } = useApi<PaginatedResponse<ClaimRow>>(claimsUrl)
   const { data: employeesData } = useApi<{ items: UserRow[] }>(
@@ -146,7 +158,7 @@ export const ExpenseClaimsListPage = () => {
     }
   }
 
-  const colSpan = 9
+  const colSpan = 10
 
   return (
     <div>
@@ -252,6 +264,15 @@ export const ExpenseClaimsListPage = () => {
             onChange={(e) => setDateTo(e.target.value)}
           />
         </div>
+        <div className="w-full sm:min-w-[180px]">
+          <Select label="Funding" value={fundingSourceFilter} onChange={(e) => setFundingSourceFilter(e.target.value)}>
+            {fundingSourceOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        </div>
       </div>
 
       {error && (
@@ -272,6 +293,9 @@ export const ExpenseClaimsListPage = () => {
                   </Typography>
                   <Typography variant="body2" color="secondary" className="mt-0.5">
                     {claim.employee_name || '—'} · {formatDate(claim.expense_date)}
+                  </Typography>
+                  <Typography variant="caption" color="secondary" className="mt-1 block">
+                    {claim.funding_source === 'budget' ? `Budget · ${claim.budget_number ?? 'unassigned'}` : 'Personal funds'}
                   </Typography>
                 </div>
                 <Chip size="small" label={claim.status} color={statusColor(claim.status)} />
@@ -341,6 +365,7 @@ export const ExpenseClaimsListPage = () => {
               <TableHeaderCell>Claim Number</TableHeaderCell>
               <TableHeaderCell>Employee</TableHeaderCell>
               <TableHeaderCell>Description</TableHeaderCell>
+              <TableHeaderCell>Funding</TableHeaderCell>
               <TableHeaderCell>Date</TableHeaderCell>
               <TableHeaderCell align="right">Amount</TableHeaderCell>
               <TableHeaderCell align="right">Paid</TableHeaderCell>
@@ -359,6 +384,9 @@ export const ExpenseClaimsListPage = () => {
                 <TableCell>{claim.claim_number}</TableCell>
                 <TableCell>{claim.employee_name || '—'}</TableCell>
                 <TableCell>{claim.description}</TableCell>
+                <TableCell>
+                  {claim.funding_source === 'budget' ? `Budget · ${claim.budget_number ?? '—'}` : 'Personal'}
+                </TableCell>
                 <TableCell>{formatDate(claim.expense_date)}</TableCell>
                 <TableCell align="right">{formatMoney(claim.amount)}</TableCell>
                 <TableCell align="right">{formatMoney(claim.paid_amount)}</TableCell>

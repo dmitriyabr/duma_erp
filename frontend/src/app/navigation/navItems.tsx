@@ -58,6 +58,8 @@ export const accountantNavItems: NavItem[] = [
       { label: 'Purchase Orders', path: '/procurement/orders', roles: ['Accountant'] },
       { label: 'Goods Received', path: '/procurement/grn', roles: ['Accountant'] },
       { label: 'Procurement Payments', path: '/procurement/payments', roles: ['Accountant'] },
+      { label: 'Budget Advances', path: '/compensations/advances', roles: ['Accountant'] },
+      { label: 'Budgets', path: '/compensations/budgets', roles: ['Accountant'] },
       { label: 'Employee Expenses Claims', path: '/compensations/claims', roles: ['Accountant'] },
       { label: 'Employee Payouts', path: '/compensations/payouts', roles: ['Accountant'] },
       { label: 'Bank Statements', path: '/accountant/bank-statements', roles: ['Accountant'] },
@@ -141,6 +143,8 @@ export const navItems: NavItem[] = [
     icon: <CreditCard className="w-5 h-5" />,
     roles: allRoles,
     children: [
+      { label: 'Budgets', path: '/compensations/budgets', roles: allRoles },
+      { label: 'Advances', path: '/compensations/advances', roles: allRoles },
       { label: 'Employee Expenses Claims', path: '/compensations/claims', roles: allRoles },
       { label: 'Payouts', path: '/compensations/payouts', roles: viewRoles },
     ],

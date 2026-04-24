@@ -2,6 +2,7 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -13,6 +14,9 @@ class ExpenseClaimResponse(BaseModel):
     claim_number: str
     payment_id: int | None
     fee_payment_id: int | None
+    budget_id: int | None
+    budget_number: str | None
+    budget_name: str | None
     employee_id: int
     employee_name: str
     purpose_id: int
@@ -32,9 +36,12 @@ class ExpenseClaimResponse(BaseModel):
     paid_amount: Decimal
     remaining_amount: Decimal
     auto_created_from_payment: bool
+    funding_source: str
+    budget_funding_status: str
     related_procurement_payment_id: int | None
     created_at: datetime
     updated_at: datetime
+    budget_allocations: list["ClaimBudgetAllocationResponse"] = []
 
     model_config = {"from_attributes": True}
 
@@ -43,6 +50,8 @@ class ExpenseClaimCreate(BaseModel):
     """Create out-of-pocket expense claim."""
 
     employee_id: int | None = None
+    budget_id: int | None = None
+    funding_source: Literal["personal_funds", "budget"] = "personal_funds"
     purpose_id: int
     amount: Decimal = Field(..., gt=0)
     payee_name: str | None = Field(None, max_length=300)
@@ -57,6 +66,8 @@ class ExpenseClaimCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_proof(self):
+        if self.funding_source == "budget" and not self.budget_id:
+            raise ValueError("budget_id is required when funding_source=budget")
         if self.submit and not self.proof_text and not self.proof_attachment_id:
             raise ValueError("Proof is required: provide proof_text or proof_attachment_id")
         if self.fee_amount and self.fee_amount > 0:
@@ -69,6 +80,8 @@ class ExpenseClaimUpdate(BaseModel):
     """Update out-of-pocket claim (draft only)."""
 
     employee_id: int | None = None
+    budget_id: int | None = None
+    funding_source: Literal["personal_funds", "budget"] | None = None
     purpose_id: int | None = None
     amount: Decimal | None = Field(None, gt=0)
     payee_name: str | None = Field(None, max_length=300)
@@ -98,6 +111,17 @@ class ApproveExpenseClaimRequest(BaseModel):
     reason: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+class ClaimBudgetAllocationResponse(BaseModel):
+    """Budget allocation visible on claim responses."""
+
+    id: int
+    advance_id: int
+    advance_number: str
+    allocated_amount: Decimal
+    allocation_status: str
+    released_reason: str | None
 
 
 class SendToEditExpenseClaimRequest(BaseModel):
@@ -193,3 +217,6 @@ class EmployeeBalancesBatchResponse(BaseModel):
     """Response with list of employee balances."""
 
     balances: list[EmployeeBalanceResponse]
+
+
+ExpenseClaimResponse.model_rebuild()

@@ -22,6 +22,7 @@ import {
   Spinner,
   FileDropzone,
 } from '../../components/ui'
+import { BudgetFundingSection } from '../../components/budgets/BudgetFundingSection'
 
 interface PurposeRow {
   id: number
@@ -69,6 +70,8 @@ export const ProcurementPaymentFormPage = () => {
   const [uploadingProof, setUploadingProof] = useState(false)
   const [companyPaid, setCompanyPaid] = useState(true)
   const [employeePaidId, setEmployeePaidId] = useState<number | ''>('')
+  const [fundingSource, setFundingSource] = useState<'personal_funds' | 'budget'>('personal_funds')
+  const [budgetId, setBudgetId] = useState<number | ''>('')
   const isEmployeePaid = !companyPaid
 
   useEffect(() => {
@@ -76,6 +79,12 @@ export const ProcurementPaymentFormPage = () => {
       queueMicrotask(() => setPaymentMethod('employee'))
     } else if (paymentMethod === 'employee') {
       queueMicrotask(() => setPaymentMethod('mpesa'))
+    }
+    if (!isEmployeePaid) {
+      queueMicrotask(() => {
+        setFundingSource('personal_funds')
+        setBudgetId('')
+      })
     }
   }, [isEmployeePaid, paymentMethod])
 
@@ -241,6 +250,14 @@ export const ProcurementPaymentFormPage = () => {
       setError('Amount must be greater than 0.')
       return
     }
+    if (isEmployeePaid && !employeePaidId) {
+      setError('Select employee who paid.')
+      return
+    }
+    if (isEmployeePaid && fundingSource === 'budget' && !budgetId) {
+      setError('Select budget for budget-funded employee payment.')
+      return
+    }
     const hasProofText = Boolean(proofText.trim())
     const hasProofFile = proofAttachmentId != null
     if (!hasProofText && !hasProofFile) {
@@ -267,6 +284,8 @@ export const ProcurementPaymentFormPage = () => {
       proof_attachment_id: proofAttachmentId ?? null,
       company_paid: companyPaid,
       employee_paid_id: employeePaidId ? Number(employeePaidId) : null,
+      budget_id: isEmployeePaid && fundingSource === 'budget' && budgetId ? Number(budgetId) : null,
+      funding_source: isEmployeePaid ? fundingSource : 'personal_funds',
     }
 
     const result = await createPayment(() => api.post('/procurement/payments', payload))
@@ -412,19 +431,39 @@ export const ProcurementPaymentFormPage = () => {
           className="rounded-full"
         />
         {isEmployeePaid && (
-          <Select
-            value={employeePaidId === '' ? '' : String(employeePaidId)}
-            onChange={(event) => setEmployeePaidId(event.target.value ? Number(event.target.value) : '')}
-            label="Employee who paid"
-            containerClassName='mt-2'
-            required={!companyPaid}
-          >
-            {users.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.full_name}
-              </option>
-            ))}
-          </Select>
+          <>
+            <Select
+              value={employeePaidId === '' ? '' : String(employeePaidId)}
+              onChange={(event) => setEmployeePaidId(event.target.value ? Number(event.target.value) : '')}
+              label="Employee who paid"
+              containerClassName='mt-2'
+              required={!companyPaid}
+            >
+              <option value="">Select employee</option>
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.full_name}
+                </option>
+              ))}
+            </Select>
+            <div className="md:col-span-2">
+              <BudgetFundingSection
+                fundingSource={fundingSource}
+                onFundingSourceChange={(value) => {
+                  setFundingSource(value)
+                  if (value === 'personal_funds') {
+                    setBudgetId('')
+                  }
+                }}
+                budgetId={budgetId}
+                onBudgetIdChange={setBudgetId}
+                employeeId={employeePaidId}
+                purposeId={purposeId}
+                effectiveDate={paymentDate}
+                requireExplicitEmployee
+              />
+            </div>
+          </>
         )}
       </div>
 
