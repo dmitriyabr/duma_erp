@@ -161,13 +161,13 @@ def upgrade() -> None:
         batch.add_column(sa.Column("budget_advance_id", sa.BigInteger(), nullable=True))
         batch.add_column(sa.Column("budget_advance_return_id", sa.BigInteger(), nullable=True))
         batch.create_foreign_key(
-            "fk_bank_transaction_matches_budget_advance_id_budget_advances",
+            "fk_bank_txn_match_budget_advance",
             "budget_advances",
             ["budget_advance_id"],
             ["id"],
         )
         batch.create_foreign_key(
-            "fk_bank_transaction_matches_budget_advance_return_id_budget_advance_returns",
+            "fk_bank_txn_match_budget_advance_return",
             "budget_advance_returns",
             ["budget_advance_return_id"],
             ["id"],
@@ -184,8 +184,8 @@ def downgrade() -> None:
         batch.drop_index("ix_bank_transaction_matches_budget_advance_id")
         batch.drop_constraint("uq_bank_txn_match_budget_advance_return", type_="unique")
         batch.drop_constraint("uq_bank_txn_match_budget_advance", type_="unique")
-        batch.drop_constraint("fk_bank_transaction_matches_budget_advance_return_id_budget_advance_returns", type_="foreignkey")
-        batch.drop_constraint("fk_bank_transaction_matches_budget_advance_id_budget_advances", type_="foreignkey")
+        batch.drop_constraint("fk_bank_txn_match_budget_advance_return", type_="foreignkey")
+        batch.drop_constraint("fk_bank_txn_match_budget_advance", type_="foreignkey")
         batch.drop_column("budget_advance_return_id")
         batch.drop_column("budget_advance_id")
 
