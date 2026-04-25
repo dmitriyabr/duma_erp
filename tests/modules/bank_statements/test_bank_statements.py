@@ -290,6 +290,69 @@ class TestBankStatementImportFlow:
         )
         assert match_count == 1
 
+    async def test_auto_match_budget_linked_company_paid_procurement_payment(
+        self, client: AsyncClient, db_session: AsyncSession, storage_tmp_path
+    ):
+        from src.modules.budgets.models import Budget
+
+        token = await _get_admin_token(db_session)
+
+        purpose = PaymentPurpose(name="BudgetLinkedMatch", is_active=True)
+        db_session.add(purpose)
+        await db_session.flush()
+
+        admin_user = await db_session.scalar(
+            select(User).where(User.email == "bank_stmt_admin@test.com")
+        )
+        assert admin_user is not None
+
+        budget = Budget(
+            budget_number="BGT-2026-000010",
+            name="Bank Recon Budget",
+            purpose_id=purpose.id,
+            period_from=date(2026, 1, 1),
+            period_to=date(2026, 1, 31),
+            limit_amount=Decimal("10000.00"),
+            status="active",
+            created_by_id=admin_user.id,
+            approved_by_id=admin_user.id,
+        )
+        db_session.add(budget)
+        await db_session.flush()
+
+        payment = ProcurementPayment(
+            payment_number="PP-2026-000020",
+            purpose_id=purpose.id,
+            payee_name="Budget Vendor",
+            payment_date=date(2026, 1, 10),
+            amount=8000,
+            payment_method=ProcurementPaymentMethod.BANK.value,
+            reference_number="FT26010WS6WVBNK",
+            created_by_id=admin_user.id,
+            company_paid=True,
+            budget_id=budget.id,
+            funding_source="budget",
+        )
+        db_session.add(payment)
+        await db_session.commit()
+
+        resp = await client.post(
+            "/api/v1/bank-statements/imports",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": ("stmt.csv", _sample_csv(), "text/csv")},
+        )
+        assert resp.status_code == 201
+        import_id = resp.json()["data"]["id"]
+
+        m = await client.post(
+            f"/api/v1/bank-statements/imports/{import_id}/auto-match",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert m.status_code == 200
+
+        matches = list((await db_session.execute(select(BankTransactionMatch))).scalars().all())
+        assert any(x.procurement_payment_id == payment.id for x in matches)
+
     async def test_manual_match_allows_amount_tolerance_1(
         self, client: AsyncClient, db_session: AsyncSession, storage_tmp_path
     ):

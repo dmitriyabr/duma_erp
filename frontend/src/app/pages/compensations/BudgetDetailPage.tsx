@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api } from '../../services/api'
+import type { PaginatedResponse } from '../../types/api'
 import type {
   BudgetAdvanceListResponse,
   BudgetAdvanceReturn,
@@ -48,8 +49,18 @@ interface PurposeRow {
   name: string
 }
 
+interface DirectPaymentRow {
+  id: number
+  payment_number: string
+  payment_date: string
+  amount: number
+  payee_name: string | null
+  payment_method: string
+  status: string
+}
+
 const statusColor = (status: string) => {
-  if (status === 'active' || status === 'issued' || status === 'settled' || status === 'closed') return 'success'
+  if (status === 'active' || status === 'issued' || status === 'settled' || status === 'closed' || status === 'posted') return 'success'
   if (status === 'draft' || status === 'closing' || status === 'overdue') return 'warning'
   if (status === 'cancelled') return 'error'
   return 'default'
@@ -77,6 +88,9 @@ export const BudgetDetailPage = () => {
   const { data: transfersData, refetch: refetchTransfers } = useApi<BudgetTransferListResponse>(
     resolvedBudgetId ? `/budgets/transfers?budget_id=${resolvedBudgetId}&page=1&limit=100` : null
   )
+  const { data: directPaymentsData, refetch: refetchDirectPayments } = useApi<PaginatedResponse<DirectPaymentRow>>(
+    resolvedBudgetId ? `/procurement/payments?budget_id=${resolvedBudgetId}&company_paid=true&page=1&limit=100` : null
+  )
   const { data: employeesData } = useApi<{ items: UserRow[] }>(
     canManage ? '/users' : null,
     canManage ? { params: { page: 1, limit: 500, is_active: true } } : undefined,
@@ -95,6 +109,7 @@ export const BudgetDetailPage = () => {
 
   const advances = advancesData?.items || []
   const transfers = transfersData?.items || []
+  const directPayments = directPaymentsData?.items || []
   const employees = employeesData?.items || []
   const transferBudgetOptions = (activeBudgetsData?.items || []).filter((row) => row.id !== resolvedBudgetId)
   const purposes = purposesData || []
@@ -169,7 +184,7 @@ export const BudgetDetailPage = () => {
     transferMutation.error
 
   const reloadAll = async () => {
-    await Promise.all([refetchBudget(), refetchClosure(), refetchAdvances(), refetchTransfers()])
+    await Promise.all([refetchBudget(), refetchClosure(), refetchAdvances(), refetchTransfers(), refetchDirectPayments()])
   }
 
   const openEditBudgetDialog = () => {
@@ -410,6 +425,7 @@ export const BudgetDetailPage = () => {
         ? [
             { label: 'Limit', value: formatMoney(budget.limit_amount) },
             { label: 'Available to issue', value: formatMoney(budget.available_to_issue) },
+            { label: 'Direct company paid', value: formatMoney(budget.direct_company_paid_total) },
             { label: 'On hands', value: formatMoney(budget.open_on_hands_total) },
             { label: 'Available for claims', value: formatMoney(budget.available_unreserved_total) },
             { label: 'Settled', value: formatMoney(budget.settled_total) },
@@ -465,6 +481,11 @@ export const BudgetDetailPage = () => {
           ) : null}
           {canManage && budget.status === 'active' ? (
             <Button onClick={openCreateAdvanceDialog}>New advance</Button>
+          ) : null}
+          {canManage && ['active', 'closing'].includes(budget.status) ? (
+            <Button variant="contained" onClick={() => navigate(`/procurement/payments/new?budget_id=${budget.id}`)}>
+              Record direct payment
+            </Button>
           ) : null}
           {canManage && ['active', 'closing'].includes(budget.status) ? (
             <Button
@@ -535,7 +556,7 @@ export const BudgetDetailPage = () => {
         </Alert>
       ) : null}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-7 gap-4 mb-6">
         {summaryCards.map((card) => (
           <Card key={card.label}>
             <CardContent>
@@ -589,6 +610,51 @@ export const BudgetDetailPage = () => {
           </CardContent>
         </Card>
       ) : null}
+
+      <div className="mb-6">
+        <Typography variant="h6" className="mb-2">Direct company payments</Typography>
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden mb-6">
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Payment</TableHeaderCell>
+                <TableHeaderCell>Date</TableHeaderCell>
+                <TableHeaderCell>Payee</TableHeaderCell>
+                <TableHeaderCell>Method</TableHeaderCell>
+                <TableHeaderCell align="right">Amount</TableHeaderCell>
+                <TableHeaderCell>Status</TableHeaderCell>
+                <TableHeaderCell align="right">Actions</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {directPayments.map((payment) => (
+                <TableRow key={payment.id}>
+                  <TableCell>{payment.payment_number}</TableCell>
+                  <TableCell>{formatDate(payment.payment_date)}</TableCell>
+                  <TableCell>{payment.payee_name ?? '—'}</TableCell>
+                  <TableCell>{payment.payment_method}</TableCell>
+                  <TableCell align="right">{formatMoney(payment.amount)}</TableCell>
+                  <TableCell>
+                    <Chip label={payment.status} color={statusColor(payment.status)} />
+                  </TableCell>
+                  <TableCell align="right">
+                    <Button size="small" onClick={() => navigate(`/procurement/payments/${payment.id}`)}>
+                      View
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!directPayments.length ? (
+                <TableRow>
+                  <td colSpan={7} className="px-4 py-6 text-center text-sm text-slate-500">
+                    No direct company-paid budget payments recorded yet.
+                  </td>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
 
       <div className="mb-6">
         <Typography variant="h6" className="mb-2">Advances</Typography>

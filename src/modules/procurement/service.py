@@ -3,15 +3,17 @@
 import csv
 import io
 from datetime import date, datetime
-
 from decimal import Decimal
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.core.documents.number_generator import get_document_number
 from src.core.auth.models import UserRole
+from src.core.documents.number_generator import get_document_number
 from src.core.exceptions import AuthorizationError, NotFoundError, ValidationError
+from src.modules.compensations.models import FundingSource
+from src.modules.compensations.service import ExpenseClaimService
 from src.modules.inventory.models import MovementType, StockMovement
 from src.modules.inventory.schemas import ReceiveStockRequest
 from src.modules.inventory.service import InventoryService
@@ -20,11 +22,11 @@ from src.modules.procurement.models import (
     GoodsReceivedNote,
     GoodsReceivedStatus,
     PaymentPurpose,
-    PurchaseOrder,
-    PurchaseOrderLine,
     ProcurementPayment,
     ProcurementPaymentMethod,
     ProcurementPaymentStatus,
+    PurchaseOrder,
+    PurchaseOrderLine,
     PurchaseOrderStatus,
 )
 from src.modules.procurement.schemas import (
@@ -32,16 +34,15 @@ from src.modules.procurement.schemas import (
     GoodsReceivedNoteCreate,
     PaymentPurposeCreate,
     PaymentPurposeUpdate,
+    ProcurementPaymentCreate,
+    ProcurementPaymentFilters,
     PurchaseOrderCreate,
     PurchaseOrderFilters,
     PurchaseOrderLineCreate,
     PurchaseOrderLineUpdate,
     PurchaseOrderUpdate,
-    ProcurementPaymentCreate,
-    ProcurementPaymentFilters,
 )
 from src.shared.utils.money import round_money
-from src.modules.compensations.service import ExpenseClaimService
 
 
 class PurchaseOrderService:
@@ -1083,13 +1084,21 @@ class ProcurementPaymentService:
         auto_create_claim: bool = True,
     ) -> ProcurementPayment:
         payment_number = await get_document_number(self.db, "PPAY")
+        amount = round_money(data.amount)
+        normalized_funding_source = (
+            FundingSource.BUDGET.value if data.budget_id is not None else data.funding_source
+        )
 
         if data.employee_paid_id and data.company_paid:
             raise ValidationError("employee_paid_id requires company_paid=false")
-        if data.funding_source == "budget" and not data.employee_paid_id:
-            raise ValidationError("budget-funded payment requires employee_paid_id")
-        if data.funding_source == "budget" and not data.budget_id:
+        if normalized_funding_source == FundingSource.BUDGET.value and not data.budget_id:
             raise ValidationError("budget_id is required when funding_source=budget")
+        if (
+            normalized_funding_source == FundingSource.BUDGET.value
+            and not data.company_paid
+            and not data.employee_paid_id
+        ):
+            raise ValidationError("budget-funded payment requires employee_paid_id")
 
         if data.po_id:
             po = await self.po_service.get_purchase_order_by_id(data.po_id)
@@ -1106,6 +1115,7 @@ class ProcurementPaymentService:
 
         if data.budget_id is not None:
             from src.modules.budgets.models import Budget, BudgetStatus
+            from src.modules.budgets.service import BudgetService
 
             budget = await self.db.scalar(select(Budget).where(Budget.id == data.budget_id))
             if not budget:
@@ -1116,6 +1126,10 @@ class ProcurementPaymentService:
                 raise ValidationError("payment_date must be inside budget period")
             if budget.status not in (BudgetStatus.ACTIVE.value, BudgetStatus.CLOSING.value):
                 raise ValidationError("Budget is not open")
+            if data.company_paid:
+                budget_totals = await BudgetService(self.db)._budget_totals(budget.id)
+                if amount > budget_totals.available_to_issue:
+                    raise ValidationError("Payment exceeds available budget headroom")
 
         payment_method = data.payment_method
         if data.employee_paid_id:
@@ -1127,7 +1141,7 @@ class ProcurementPaymentService:
             purpose_id=purpose_id,
             payee_name=data.payee_name,
             payment_date=data.payment_date,
-            amount=data.amount,
+            amount=amount,
             payment_method=payment_method,
             reference_number=data.reference_number,
             proof_text=data.proof_text,
@@ -1135,14 +1149,14 @@ class ProcurementPaymentService:
             company_paid=data.company_paid,
             employee_paid_id=data.employee_paid_id,
             budget_id=data.budget_id,
-            funding_source=data.funding_source,
+            funding_source=normalized_funding_source,
             status=ProcurementPaymentStatus.POSTED.value,
             created_by_id=created_by_id,
         )
         self.db.add(payment)
 
         if po:
-            po.paid_total += data.amount
+            po.paid_total += amount
             await self.po_service._recalculate_totals(po.id)
 
         if auto_create_claim and payment.employee_paid_id:
@@ -1175,7 +1189,10 @@ class ProcurementPaymentService:
         result = await self.db.execute(
             select(ProcurementPayment)
             .where(ProcurementPayment.id == payment_id)
-            .options(selectinload(ProcurementPayment.purpose))
+            .options(
+                selectinload(ProcurementPayment.purpose),
+                selectinload(ProcurementPayment.budget),
+            )
         )
         payment = result.scalar_one_or_none()
         if not payment:
@@ -1185,11 +1202,18 @@ class ProcurementPaymentService:
     async def list_payments(
         self, filters: ProcurementPaymentFilters
     ) -> tuple[list[ProcurementPayment], int]:
-        query = select(ProcurementPayment).options(selectinload(ProcurementPayment.purpose))
+        query = select(ProcurementPayment).options(
+            selectinload(ProcurementPayment.purpose),
+            selectinload(ProcurementPayment.budget),
+        )
         if filters.po_id:
             query = query.where(ProcurementPayment.po_id == filters.po_id)
         if filters.purpose_id:
             query = query.where(ProcurementPayment.purpose_id == filters.purpose_id)
+        if filters.budget_id:
+            query = query.where(ProcurementPayment.budget_id == filters.budget_id)
+        if filters.company_paid is not None:
+            query = query.where(ProcurementPayment.company_paid.is_(filters.company_paid))
         if filters.status:
             query = query.where(ProcurementPayment.status == filters.status)
         if filters.date_from:

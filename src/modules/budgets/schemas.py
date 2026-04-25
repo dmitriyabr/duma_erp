@@ -56,6 +56,7 @@ class BudgetResponse(BaseSchema):
     approved_by_id: int | None
     created_at: datetime
     updated_at: datetime
+    direct_company_paid_total: Decimal
     direct_issue_total: Decimal
     transfer_in_total: Decimal
     returned_total: Decimal

@@ -17,6 +17,8 @@ interface PaymentResponse {
   payment_number: string
   po_id: number | null
   budget_id: number | null
+  budget_number: string | null
+  budget_name: string | null
   purpose_id: number
   purpose_name: string | null
   payee_name: string | null
@@ -31,6 +33,13 @@ interface PaymentResponse {
   funding_source: 'personal_funds' | 'budget'
   status: string
   cancelled_reason: string | null
+}
+
+const getFundingLabel = (payment: PaymentResponse) => {
+  if (payment.funding_source === 'budget') {
+    return payment.company_paid ? 'Direct budget spend' : 'Budget advance'
+  }
+  return payment.company_paid ? 'Company cash' : 'Personal funds'
 }
 
 export const ProcurementPaymentDetailPage = () => {
@@ -179,6 +188,11 @@ export const ProcurementPaymentDetailPage = () => {
               View PO
             </Button>
           )}
+          {payment.budget_id && (
+            <Button variant="outlined" onClick={() => navigate(`/compensations/budgets/${payment.budget_id}`)}>
+              View budget
+            </Button>
+          )}
         </div>
       </div>
 
@@ -229,13 +243,17 @@ export const ProcurementPaymentDetailPage = () => {
           <Typography variant="subtitle2" color="secondary" className="mb-1">
             Funding
           </Typography>
-          <Typography>{payment.funding_source === 'budget' ? 'Budget advance' : 'Personal funds / company cash'}</Typography>
+          <Typography>{getFundingLabel(payment)}</Typography>
         </div>
         <div>
           <Typography variant="subtitle2" color="secondary" className="mb-1">
-            Budget ID
+            Budget
           </Typography>
-          <Typography>{payment.budget_id ?? '—'}</Typography>
+          <Typography>
+            {payment.budget_id
+              ? `${payment.budget_number ?? payment.budget_id}${payment.budget_name ? ` · ${payment.budget_name}` : ''}`
+              : '—'}
+          </Typography>
         </div>
         <div>
           <Typography variant="subtitle2" color="secondary" className="mb-1">

@@ -14,7 +14,8 @@
 - завести бюджет направления, а не "бюджет сотрудника";
 - выдать часть бюджета конкретному сотруднику под отчёт;
 - видеть, у кого сейчас деньги на руках;
-- фиксировать фактические траты через существующий flow `ExpenseClaim`;
+- фиксировать фактические траты через `ExpenseClaim`, если платил сотрудник;
+- фиксировать фактические траты напрямую через `ProcurementPayment`, если компания сразу платит поставщику сама;
 - автоматически закрывать такие траты из ранее выданных денег, без `CompensationPayout`;
 - видеть остаток по бюджету и по каждой выдаче;
 - не смешивать этот процесс с обычным reimbursement, когда сотрудник тратит свои личные деньги.
@@ -94,6 +95,27 @@
 
 Это критичное разделение. Если не разделять эти сущности, система быстро станет непонятной для бухгалтерии и для менеджмента.
 
+### 3.3. У бюджета должно быть два штатных сценария расходования
+
+Один и тот же budget должен поддерживать два разных operational flow:
+
+- **Advance-funded employee spending**
+  - компания сначала выдаёт деньги сотруднику;
+  - потом сотрудник отчитывается чеком и расходом;
+  - для этого используются `BudgetAdvance`, `ExpenseClaim`, `BudgetClaimAllocation`.
+- **Direct company-paid spending**
+  - компания сразу платит поставщику сама;
+  - сотрудник ничего не claim'ит и не получает reimbursement;
+  - для этого используется прямой `ProcurementPayment(company_paid=true, budget_id!=null)`.
+
+Выбор сценария зависит не от типа расхода, а от того, **кто физически платит поставщику**.
+
+Это важно, потому что:
+
+- продукты для кухни, хозтовары и другие регулярные закупки иногда идут через сотрудника, а иногда напрямую с карты/счёта компании;
+- forcing всех через `ExpenseClaim` усложнит UX там, где claim по смыслу не нужен;
+- forcing всех через `ProcurementPayment` сломает кейс с подотчётными деньгами, где нужно видеть, у кого деньги на руках.
+
 ---
 
 ## 4. Рекомендуемый дизайн
@@ -105,7 +127,8 @@
 То есть:
 
 - бюджетный модуль отвечает за лимит, выдачи и остатки;
-- `ExpenseClaim` остаётся документом фактической траты;
+- `ExpenseClaim` остаётся документом фактической траты, если расход сначала оплатил сотрудник;
+- `ProcurementPayment(company_paid=true, budget_id!=null)` становится прямым документом расхода бюджета, если компания платит поставщику сама;
 - `ProcurementPayment` остаётся канонической записью самого расхода;
 - `CompensationPayout` остаётся только для reimbursement.
 
@@ -276,7 +299,7 @@
 
 #### G. Расширение ProcurementPayment
 
-Текущая идея "любой claim создаёт linked `ProcurementPayment`" должна сохраниться.
+Текущая идея "любой claim создаёт linked `ProcurementPayment`" должна сохраниться, но `ProcurementPayment` должен поддерживать два разных budget-сценария.
 
 Для budget-funded claim:
 
@@ -294,6 +317,31 @@
   обычный out-of-pocket claim;
 - `employee_paid_id != null` и `funding_source=budget`:
   расход из ранее выданного advance.
+
+#### H. Прямой budget-linked ProcurementPayment
+
+Если компания сразу платит поставщику сама, отдельный `ExpenseClaim` не нужен.
+
+Правильная модель:
+
+- `ProcurementPayment(company_paid=true, budget_id!=null)` = прямой расход бюджета;
+- `employee_paid_id` в этом сценарии отсутствует;
+- `BudgetAdvance` не создаётся;
+- `BudgetClaimAllocation` не создаётся;
+- `CompensationPayout` не участвует.
+
+Такой payment:
+
+- сразу уменьшает доступный headroom бюджета;
+- сразу признаётся фактическим расходом бюджета;
+- участвует в обычном procurement / bank reconciliation flow как company-paid payment;
+- не создаёт "денег на руках" у сотрудника и не требует отдельного settlement.
+
+Это особенно полезно для кейсов, когда:
+
+- бухгалтерия или менеджер оплачивает закупку напрямую корпоративной картой;
+- есть PO/GRN и компания платит поставщику по обычному procurement flow;
+- расход относится к budget, но не является employee reimbursement и не требует авансового отчёта.
 
 ---
 
@@ -358,7 +406,34 @@
 - edited после submit: старые reservations снимаются и считаются заново;
 - approved: claim считается закрытым из advances, а не ожидающим payout.
 
-### 5.4. Что происходит, когда месяц закончился
+### 5.4. Budget-linked company-paid ProcurementPayment
+
+Рекомендуемый flow:
+
+1. сотрудник или менеджер создаёт обычный `ProcurementPayment`;
+2. указывает, что компания платит сама (`company_paid=true`);
+3. выбирает `budget`;
+4. backend проверяет:
+   - что purpose payment совпадает с purpose budget;
+   - что дата payment относится к допустимому окну budget;
+   - что budget открыт для прямых расходов;
+   - что в budget ещё хватает headroom;
+5. payment создаётся как `posted`;
+6. сумма сразу уменьшает `available_to_issue` / headroom бюджета;
+7. отдельный claim, payout или advance по этому платежу не создаются.
+
+Если такой payment потом отменяется:
+
+- его сумма должна быть исключена из budget utilization;
+- headroom бюджета должен освобождаться;
+- payment остаётся в procurement-аудите как `cancelled`, но перестаёт считаться расходом бюджета.
+
+Практический смысл:
+
+- если деньги ушли напрямую со счёта компании, это уже не employee expense report;
+- это обычный procurement payment с budget attribution.
+
+### 5.5. Что происходит, когда месяц закончился
 
 Для месячного бюджета конец месяца не означает автоматическое списание или ручную правку старых документов.
 
@@ -373,8 +448,10 @@
    - частично или полностью `returned`;
    - частично или полностью `transferred` в другой budget или сотруднику;
 6. budget можно закрыть только когда у всех его advances `open balance = 0` и не осталось unresolved claims;
-7. невыданная часть месячного лимита не переносится автоматически;
-8. уже выданные, но не закрытые деньги можно перенести в следующий budget только через `BudgetAdvanceTransfer`.
+7. прямые company-paid payments сами по себе не создают open balance и не блокируют закрытие периода;
+8. budget нельзя перегружать новыми company-paid payments после фактического закрытия периода;
+9. невыданная часть месячного лимита не переносится автоматически;
+10. уже выданные, но не закрытые деньги можно перенести в следующий budget только через `BudgetAdvanceTransfer`.
 
 То есть важно разделять:
 
@@ -390,7 +467,7 @@
 - невыданные `12,000` просто не используются для июня;
 - а выданные, но не закрытые `4,000` должны быть либо возвращены, либо перенесены через rollover document, либо закрыты claims.
 
-### 5.5. Rollover в следующий месяц
+### 5.6. Rollover в следующий месяц
 
 Rollover является штатной частью фичи.
 
@@ -412,7 +489,7 @@ Rollover является штатной частью фичи.
 - июнь получает прозрачный carried-forward остаток;
 - история не искажается прямым изменением `budget_id` у старых записей.
 
-### 5.6. Overdue control
+### 5.7. Overdue control
 
 У каждого advance должна быть дата отчётности:
 
@@ -433,8 +510,13 @@ Rollover является штатной частью фичи.
 
 - Бюджет задаёт общий лимит направления.
 - Один budget имеет один `purpose_id`.
+- Один и тот же лимит бюджета расходуется двумя путями:
+  - через issued advances;
+  - через direct company-paid payments.
 - Нельзя issue advance сверх доступного лимита бюджета.
+- Нельзя провести direct company-paid payment сверх доступного лимита бюджета.
 - После перехода бюджета в `closing` новые advances запрещены.
+- В `closing` можно дозаводить прямые company-paid payments только если их `payment_date` относится к периоду budget и budget ещё не `closed`.
 - После перехода бюджета в `closing` claim с `expense_date` позже `period_to` нельзя привязывать к этому бюджету.
 - Бюджет нельзя закрыть, пока по нему есть advances с `open balance > 0` или unresolved claims.
 - Невыданный остаток бюджета не переносится автоматически в следующий период.
@@ -455,14 +537,24 @@ Rollover является штатной частью фичи.
 - При `send-to-edit` или `reject` reserved amount должен освобождаться.
 - При `approve` claim должен быть закрыт из advances автоматически.
 
-### 6.4. Правила возврата
+### 6.4. Правила прямых company-paid payments
+
+- `ProcurementPayment(company_paid=true, budget_id!=null)` является прямым расходом бюджета.
+- Для такого платежа не создаются `BudgetAdvance`, `ExpenseClaim`, `BudgetClaimAllocation`, `CompensationPayout`.
+- Purpose payment должен совпадать с purpose budget.
+- Дата payment должна лежать внутри допустимого окна budget.
+- Прямой payment сразу уменьшает budget headroom.
+- Отмена такого payment должна освобождать budget headroom.
+- Такой payment должен работать и с PO/GRN flow, и как standalone payment без PO.
+
+### 6.5. Правила возврата
 
 - Возврат можно записать только для `issued` или `overdue` advance.
 - Нельзя вернуть больше, чем нераспределённый остаток.
 - После полного распределения суммы между claims, returns и transfers out advance должен перейти в `settled`, а затем в `closed`.
 - Если месяц закончился, но по advance остался остаток, advance не закрывается автоматически: он остаётся open или overdue до возврата, transfer или подтверждённых claims.
 
-### 6.5. Правила transfer / rollover
+### 6.6. Правила transfer / rollover
 
 - Transfer возможен только на `available_unreserved_amount`.
 - Partial transfer допустим.
@@ -473,7 +565,7 @@ Rollover является штатной частью фичи.
 - Transfer в closed или cancelled budget запрещён.
 - Claim следующего периода нельзя "задним числом" закрыть старым budget: сначала нужен transfer, потом claim идёт уже в новый budget.
 
-### 6.6. Правила аудита
+### 6.7. Правила аудита
 
 - Нельзя удалять issued advances, returns и settled allocations.
 - Любые отмены и ручные корректировки требуют reason.
@@ -485,22 +577,28 @@ Rollover является штатной частью фичи.
 
 ### 7.1. Budget totals
 
+- `direct_company_paid_total = sum(ProcurementPayment.amount where company_paid = true and budget_id = budget.id and status = posted)`
 - `direct_issue_total = sum(BudgetAdvance.amount_issued where source_type = cash_issue)`
 - `transfer_in_total = sum(BudgetAdvance.amount_issued where source_type = transfer_in)`
 - `returned_total = sum(BudgetAdvanceReturn.amount)`
 - `transfer_out_total = sum(BudgetAdvanceTransfer.amount from advances in this budget)`
 - `reserved_total = sum(BudgetClaimAllocation.allocated_amount where allocation_status = reserved and claim.budget_id = budget.id)`
-- `settled_total = sum(BudgetClaimAllocation.allocated_amount where allocation_status = settled and claim.budget_id = budget.id)`
-- `committed_total = direct_issue_total + transfer_in_total - returned_total - transfer_out_total`
-- `open_on_hands_total = committed_total - settled_total`
-- `available_unreserved_total = committed_total - settled_total - reserved_total`
+- `settled_from_advances_total = sum(BudgetClaimAllocation.allocated_amount where allocation_status = settled and claim.budget_id = budget.id)`
+- `settled_total = settled_from_advances_total + direct_company_paid_total`
+- `employee_funding_committed_total = direct_issue_total + transfer_in_total - returned_total - transfer_out_total`
+- `committed_total = employee_funding_committed_total + direct_company_paid_total`
+- `open_on_hands_total = employee_funding_committed_total - settled_from_advances_total`
+- `available_unreserved_total = open_on_hands_total - reserved_total`
 - `available_to_issue = limit_amount - committed_total`
 
 Комментарий:
 
-- `committed_total` отражает всё funding, которое уже относится к этому budget: либо ещё на руках, либо уже подтверждено расходами;
+- `committed_total` отражает всю нагрузку на budget:
+  - деньги, уже выданные сотрудникам;
+  - прямые company-paid расходы;
 - transfer in увеличивает нагрузку на budget следующего периода;
 - transfer out и returns освобождают headroom этого budget.
+- direct company-paid payment не создаёт "денег на руках", поэтому влияет на `committed_total` и `settled_total`, но не увеличивает `open_on_hands_total`.
 
 ### 7.2. Advance totals
 
@@ -555,7 +653,24 @@ Rollover является штатной частью фичи.
 - `GET /budgets/transfers`
 - `GET /budgets/transfers/{transfer_id}`
 
-### 8.5. Claims integration
+### 8.5. Procurement payments integration
+
+Расширить существующий API payments:
+
+- `POST /procurement/payments`
+- `GET /procurement/payments`
+- `GET /procurement/payments/{payment_id}`
+
+Новое поведение:
+
+- если `company_paid=true` и `budget_id!=null`:
+  - payment создаётся как direct budget expense;
+  - claim не создаётся;
+  - advance не создаётся;
+  - payment сразу уменьшает budget headroom;
+  - payment участвует в обычном bank reconciliation как company-paid procurement payment.
+
+### 8.6. Claims integration
 
 Расширить существующий API claims:
 
@@ -575,7 +690,12 @@ Rollover является штатной частью фичи.
   - при submit создаются `BudgetClaimAllocation(reserved)`;
   - при approve claim автоматически закрывается из advances.
 
-### 8.6. Employee-side shortcuts
+Важно:
+
+- claims остаются только для employee-paid расходов;
+- company-paid direct budget payments не должны требовать отдельного claim.
+
+### 8.7. Employee-side shortcuts
 
 Полезные endpoints:
 
@@ -611,6 +731,7 @@ Rollover является штатной частью фичи.
 
 - summary карточки;
 - список advances;
+- блок или таб с direct company-paid payments;
 - totals по budget;
 - period closing widget:
   - open advances;
@@ -618,11 +739,27 @@ Rollover является штатной частью фичи.
   - roll over candidates;
   - unresolved claims;
 - recent claims, закрытые этим budget;
+- recent company-paid payments, отнесённые на этот budget;
 - action buttons:
   - `Issue advance`
+  - `Record direct payment`
   - `Run rollover`
   - `Close budget`
   - `Cancel budget`
+
+UX-рекомендация:
+
+- прямой `company-paid` расход бюджета должен заводиться прямо с detail page бюджета;
+- кнопка `Record direct payment` должна открывать quick form / drawer / modal;
+- `budget_id` в такой форме уже предзаполнен и не редактируется по умолчанию;
+- пользователь вводит только payment-specific поля:
+  - supplier / payee;
+  - amount;
+  - payment date;
+  - payment method;
+  - proof / reference;
+  - optional `po_id`;
+- после сохранения пользователь остаётся в контексте бюджета и сразу видит новый payment в списке recent company-paid payments.
 
 ### 9.3. Budget advance detail
 
@@ -662,7 +799,23 @@ Rollover является штатной частью фичи.
 - funding status;
 - allocations by advance.
 
-### 9.5. Payouts page
+### 9.5. Procurement payment form
+
+Если payment создаётся как `company_paid=true`:
+
+- пользователь должен иметь возможность выбрать `budget` напрямую;
+- но primary UX должен идти не из общего списка payments, а из страницы конкретного budget;
+- UI не должен заставлять проходить через `ExpenseClaim`;
+- нужно показывать доступный headroom budget;
+- если форма открыта из budget detail page, `budget` должен быть уже выбран автоматически;
+- если payment budget-linked, detail page должна явно показывать budget attribution.
+
+Если payment создаётся как `company_paid=false` и employee-paid:
+
+- тогда уже используется сценарий с `funding_source`;
+- `funding_source=budget` означает расход из ранее выданного advance.
+
+### 9.6. Payouts page
 
 Ничего не менять по смыслу.
 
@@ -681,6 +834,7 @@ Rollover является штатной частью фичи.
   - budget;
   - limit;
   - committed;
+  - direct company-paid;
   - settled;
   - returned;
   - open on hands;
@@ -704,6 +858,7 @@ Rollover является штатной частью фичи.
   - transfer type.
 - Expense by category:
   - полезно видеть split:
+    - direct company-paid budget payments;
     - out-of-pocket claims;
     - budget-funded claims.
 
@@ -713,6 +868,8 @@ Rollover является штатной частью фичи.
 
 - `BudgetAdvance` как outgoing cash-out документ;
 - `BudgetAdvanceReturn` как incoming return документ.
+
+Прямые budget-linked company-paid payments уже должны матчиться через существующий `ProcurementPayment(company_paid=true)` flow и не требуют отдельной сущности reconciliation.
 
 Рекомендация по модели:
 
@@ -748,6 +905,7 @@ Rollover является штатной частью фичи.
 - в accrual analytics расход признаётся по claim/payment, как и сейчас;
 - в cash analytics `Budget Advances` показываются отдельной строкой cash outflow;
 - `BudgetAdvanceReturn` уменьшает этот cash outflow или показывается отдельной отрицательной строкой;
+- direct company-paid budget payments остаются обычным procurement cash outflow, но должны быть доступны в budget utilization/reporting как отдельный budget-attributed spend;
 - `CompensationPayout` остаётся отдельной строкой employee reimbursements.
 
 ---
@@ -787,6 +945,9 @@ Rollover является штатной частью фичи.
 Полноценная фича в этом плане включает:
 
 - monthly budgets с period closing;
+- два штатных способа расходования budget:
+  - advance-funded employee expense;
+  - direct company-paid procurement payment;
 - несколько advances на сотрудника в одном budget;
 - reserve и settle claims через `BudgetClaimAllocation`;
 - split одного claim по нескольким advances;
@@ -799,7 +960,8 @@ Rollover является штатной частью фичи.
 Если нужна закупка, которая должна пройти через склад:
 
 - использовать существующий procurement flow;
-- budget advances использовать только для мелких операционных трат.
+- budget advances использовать только там, где компания сначала выдаёт деньги сотруднику;
+- если компания платит поставщику сама, использовать прямой budget-linked `ProcurementPayment`.
 
 ---
 
@@ -818,11 +980,13 @@ Rollover является штатной частью фичи.
 - создаёт 2 claims с `funding_source=budget` и `budget_id=Kitchen supplies / May 2026`
 - claims проходят approve
 - система автоматически закрывает их FIFO из двух advances
+- бухгалтерия отдельно оплачивает поставщику бутилированную воду на `1,500` с корпоративного счёта и привязывает payment к тому же budget
 - к концу мая остаётся `5,000` open balance
 - админ делает rollover `3,000` в июньский budget и принимает return `2,000`
 - по майскому budget получаем:
   - direct issues = `7,000`
-  - settled = `2,000`
+  - direct company-paid = `1,500`
+  - settled = `3,500`
   - returned = `2,000`
   - transferred out = `3,000`
   - open on hands = `0`
@@ -842,27 +1006,37 @@ Rollover является штатной частью фичи.
 - `budget_id` в `expense_claims`
 - `budget_id` и `funding_source` в `procurement_payments`
 
-### Этап 2. Claims integration
+### Этап 2. Procurement payments integration
+
+- добавить прямую budget attribution для `ProcurementPayment(company_paid=true)`;
+- валидации по budget / purpose / headroom;
+- корректное отражение direct payments в budget totals;
+- не создавать claim для company-paid budget payment.
+
+### Этап 3. Claims integration
 
 - добавить выбор funding source;
 - валидации по budget и доступному funding;
 - reserve/release logic на submit/edit/reject;
 - auto-settle claim from advances on approve.
 
-### Этап 3. UI
+### Этап 4. UI
 
 - budgets list/detail;
 - advance detail;
+- quick action `Record direct payment` на budget detail;
+- direct budget payments on procurement form/detail;
 - period closing / rollover actions;
 - claims form updates;
 - employee-side "My advances".
 
-### Этап 4. Reporting and reconciliation
+### Этап 5. Reporting and reconciliation
 
 - budget utilization report;
 - outstanding advances report;
 - transfer register;
-- bank reconciliation support for `BudgetAdvance` and `BudgetAdvanceReturn`.
+- bank reconciliation support for `BudgetAdvance` and `BudgetAdvanceReturn`;
+- budget attribution for direct company-paid `ProcurementPayment`.
 
 ---
 
@@ -873,13 +1047,15 @@ Rollover является штатной частью фичи.
 - **Budget** - сущность направления расходов;
 - **BudgetAdvance** - выдача денег сотруднику;
 - **BudgetAdvanceTransfer** - штатный перенос остатка между периодами и/или сотрудниками;
-- **ExpenseClaim** - подтверждение фактической траты с привязкой к budget;
+- **ExpenseClaim** - подтверждение фактической траты, если сначала платил сотрудник;
+- **ProcurementPayment(company_paid=true, budget_id!=null)** - прямой расход бюджета, если компания сразу платит поставщику сама;
 - **BudgetClaimAllocation** - reserve и final settlement claims из ранее выданных денег;
 - **CompensationPayout** - оставить только для reimbursements.
 
 Это самый чистый и расширяемый вариант:
 
 - не ломает текущий модуль compensations;
+- не заставляет company-paid закупки идти через лишний claim;
 - не искажает отчёты и reconciliation;
 - даёт прозрачный контроль "у кого деньги на руках";
 - поддерживает перенос остатка между месяцами без искажения истории;

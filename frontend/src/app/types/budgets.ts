@@ -15,6 +15,7 @@ export interface BudgetSummary {
   approved_by_id: number | null
   created_at: string
   updated_at: string
+  direct_company_paid_total: number | string
   direct_issue_total: number | string
   transfer_in_total: number | string
   returned_total: number | string

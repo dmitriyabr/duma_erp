@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -74,6 +76,38 @@ class TestProcurementPayments:
             },
         )
         return response.json()["data"]
+
+    async def _create_active_budget(
+        self,
+        client: AsyncClient,
+        token: str,
+        *,
+        purpose_id: int,
+        name: str = "Kitchen April",
+        period_from: str = "2026-04-01",
+        period_to: str = "2026-04-30",
+        limit_amount: str = "5000.00",
+    ) -> dict:
+        create_response = await client.post(
+            "/api/v1/budgets",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "name": name,
+                "purpose_id": purpose_id,
+                "period_from": period_from,
+                "period_to": period_to,
+                "limit_amount": limit_amount,
+            },
+        )
+        assert create_response.status_code == 201
+        budget = create_response.json()["data"]
+
+        activate_response = await client.post(
+            f"/api/v1/budgets/{budget['id']}/activate",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert activate_response.status_code == 200
+        return activate_response.json()["data"]
 
     async def test_payment_without_po(self, client: AsyncClient, db_session: AsyncSession):
         token = await self._get_admin_token(client, db_session)
@@ -209,3 +243,130 @@ class TestProcurementPayments:
         )
         assert po_after_cancel.status_code == 200
         assert po_after_cancel.json()["data"]["status"] == "received"
+
+    async def test_company_paid_budget_payment_consumes_budget_headroom_and_creates_no_claims(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await self._get_admin_token(client, db_session)
+        purpose_id = await self._create_payment_purpose(client, token, "Kitchen Ops")
+        budget = await self._create_active_budget(
+            client,
+            token,
+            purpose_id=purpose_id,
+            name="Kitchen April",
+            limit_amount="5000.00",
+        )
+
+        response = await client.post(
+            "/api/v1/procurement/payments",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "purpose_id": purpose_id,
+                "payee_name": "Metro Cash & Carry",
+                "payment_date": "2026-04-25",
+                "amount": "1200.00",
+                "payment_method": "bank",
+                "proof_text": "Bank confirmation",
+                "company_paid": True,
+                "budget_id": budget["id"],
+            },
+        )
+        assert response.status_code == 201
+        data = response.json()["data"]
+        assert data["company_paid"] is True
+        assert data["budget_id"] == budget["id"]
+        assert data["funding_source"] == "budget"
+
+        claims_response = await client.get(
+            "/api/v1/compensations/claims",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert claims_response.status_code == 200
+        assert claims_response.json()["data"]["total"] == 0
+
+        budget_response = await client.get(
+            f"/api/v1/budgets/{budget['id']}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert budget_response.status_code == 200
+        budget_data = budget_response.json()["data"]
+        assert Decimal(budget_data["direct_company_paid_total"]) == Decimal("1200.00")
+        assert Decimal(budget_data["committed_total"]) == Decimal("1200.00")
+        assert Decimal(budget_data["settled_total"]) == Decimal("1200.00")
+        assert Decimal(budget_data["available_to_issue"]) == Decimal("3800.00")
+
+        payments_response = await client.get(
+            f"/api/v1/procurement/payments?budget_id={budget['id']}&company_paid=true",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert payments_response.status_code == 200
+        payments_data = payments_response.json()["data"]
+        assert payments_data["total"] == 1
+        assert payments_data["items"][0]["id"] == data["id"]
+        assert payments_data["items"][0]["budget_number"] == budget["budget_number"]
+
+    async def test_company_paid_budget_payment_cannot_exceed_budget_headroom(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await self._get_admin_token(client, db_session)
+        purpose_id = await self._create_payment_purpose(client, token, "Kitchen Ops Cap")
+        budget = await self._create_active_budget(
+            client,
+            token,
+            purpose_id=purpose_id,
+            name="Kitchen May",
+            limit_amount="1000.00",
+        )
+
+        response = await client.post(
+            "/api/v1/procurement/payments",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "purpose_id": purpose_id,
+                "payee_name": "Kitchen Supplier",
+                "payment_date": "2026-04-25",
+                "amount": "1200.00",
+                "payment_method": "bank",
+                "proof_text": "Bank confirmation",
+                "company_paid": True,
+                "budget_id": budget["id"],
+            },
+        )
+        assert response.status_code == 422
+        assert "headroom" in response.json()["message"].lower()
+
+    async def test_budget_with_direct_company_paid_payment_cannot_be_cancelled(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await self._get_admin_token(client, db_session)
+        purpose_id = await self._create_payment_purpose(client, token, "Kitchen Ops Cancel")
+        budget = await self._create_active_budget(
+            client,
+            token,
+            purpose_id=purpose_id,
+            name="Kitchen June",
+            limit_amount="5000.00",
+        )
+
+        payment_response = await client.post(
+            "/api/v1/procurement/payments",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "purpose_id": purpose_id,
+                "payee_name": "Kitchen Supplier",
+                "payment_date": "2026-04-25",
+                "amount": "800.00",
+                "payment_method": "bank",
+                "proof_text": "Bank confirmation",
+                "company_paid": True,
+                "budget_id": budget["id"],
+            },
+        )
+        assert payment_response.status_code == 201
+
+        cancel_response = await client.post(
+            f"/api/v1/budgets/{budget['id']}/cancel",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert cancel_response.status_code == 422
+        assert "direct payments" in cancel_response.json()["message"].lower()

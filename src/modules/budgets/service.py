@@ -37,12 +37,17 @@ from src.modules.compensations.models import (
     ExpenseClaimStatus,
     FundingSource,
 )
-from src.modules.procurement.models import PaymentPurpose
+from src.modules.procurement.models import (
+    PaymentPurpose,
+    ProcurementPayment,
+    ProcurementPaymentStatus,
+)
 from src.shared.utils.money import round_money
 
 
 @dataclass(slots=True)
 class BudgetTotals:
+    direct_company_paid_total: Decimal
     direct_issue_total: Decimal
     transfer_in_total: Decimal
     returned_total: Decimal
@@ -161,6 +166,15 @@ class BudgetService:
         )
 
     async def _budget_totals(self, budget_id: int) -> BudgetTotals:
+        direct_company_paid_total = self._money(
+            await self.db.scalar(
+                select(func.coalesce(func.sum(ProcurementPayment.amount), 0)).where(
+                    ProcurementPayment.budget_id == budget_id,
+                    ProcurementPayment.company_paid.is_(True),
+                    ProcurementPayment.status == ProcurementPaymentStatus.POSTED.value,
+                )
+            )
+        )
         direct_issue_total = self._money(
             await self.db.scalar(
                 select(func.coalesce(func.sum(BudgetAdvance.amount_issued), 0)).where(
@@ -208,7 +222,7 @@ class BudgetService:
                 )
             )
         )
-        settled_total = self._money(
+        settled_from_advances_total = self._money(
             await self.db.scalar(
                 select(func.coalesce(func.sum(BudgetClaimAllocation.allocated_amount), 0))
                 .select_from(BudgetClaimAllocation)
@@ -229,11 +243,16 @@ class BudgetService:
             or 0
         )
         budget_limit = self._money(await self.db.scalar(select(Budget.limit_amount).where(Budget.id == budget_id)))
-        committed_total = round_money(direct_issue_total + transfer_in_total - returned_total - transfer_out_total)
-        open_on_hands_total = round_money(committed_total - settled_total)
+        employee_funding_committed_total = round_money(
+            direct_issue_total + transfer_in_total - returned_total - transfer_out_total
+        )
+        settled_total = round_money(settled_from_advances_total + direct_company_paid_total)
+        committed_total = round_money(employee_funding_committed_total + direct_company_paid_total)
+        open_on_hands_total = round_money(employee_funding_committed_total - settled_from_advances_total)
         available_unreserved_total = round_money(open_on_hands_total - reserved_total)
         available_to_issue = round_money(budget_limit - committed_total)
         return BudgetTotals(
+            direct_company_paid_total=direct_company_paid_total,
             direct_issue_total=direct_issue_total,
             transfer_in_total=transfer_in_total,
             returned_total=returned_total,
@@ -369,8 +388,18 @@ class BudgetService:
             )
             or 0
         )
-        if advances_count or claims_count:
-            raise ValidationError("Budget with advances or claims cannot be cancelled")
+        direct_payments_count = int(
+            await self.db.scalar(
+                select(func.count(ProcurementPayment.id)).where(
+                    ProcurementPayment.budget_id == budget.id,
+                    ProcurementPayment.company_paid.is_(True),
+                    ProcurementPayment.status == ProcurementPaymentStatus.POSTED.value,
+                )
+            )
+            or 0
+        )
+        if advances_count or claims_count or direct_payments_count:
+            raise ValidationError("Budget with advances, claims, or direct payments cannot be cancelled")
         budget.status = BudgetStatus.CANCELLED.value
         await self.db.commit()
         return await self.get_budget_by_id(budget.id)
@@ -988,6 +1017,7 @@ class BudgetService:
             "approved_by_id": budget.approved_by_id,
             "created_at": budget.created_at,
             "updated_at": budget.updated_at,
+            "direct_company_paid_total": totals.direct_company_paid_total,
             "direct_issue_total": totals.direct_issue_total,
             "transfer_in_total": totals.transfer_in_total,
             "returned_total": totals.returned_total,

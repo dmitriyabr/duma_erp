@@ -242,6 +242,8 @@ class ProcurementPaymentResponse(BaseSchema):
     company_paid: bool
     employee_paid_id: int | None
     budget_id: int | None
+    budget_number: str | None = None
+    budget_name: str | None = None
     funding_source: str
     status: str
     cancelled_reason: str | None
@@ -257,6 +259,8 @@ class ProcurementPaymentFilters(BaseSchema):
 
     po_id: int | None = None
     purpose_id: int | None = None
+    budget_id: int | None = None
+    company_paid: bool | None = None
     status: str | None = None
     date_from: date | None = None
     date_to: date | None = None

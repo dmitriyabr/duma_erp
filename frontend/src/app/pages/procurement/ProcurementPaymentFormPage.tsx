@@ -4,6 +4,7 @@ import axios from 'axios'
 import { USERS_LIST_LIMIT } from '../../constants/pagination'
 import { api } from '../../services/api'
 import type { ApiResponse } from '../../types/api'
+import type { BudgetSummary } from '../../types/budgets'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { formatMoney } from '../../utils/format'
 import {
@@ -48,12 +49,21 @@ const getDefaultPaymentDate = () => {
   return new Date().toISOString().slice(0, 10)
 }
 
+const clampDateToBudgetPeriod = (value: string, periodFrom: string, periodTo: string) => {
+  if (!value) return periodFrom
+  if (value < periodFrom) return periodFrom
+  if (value > periodTo) return periodTo
+  return value
+}
+
 export const ProcurementPaymentFormPage = () => {
   const { paymentId } = useParams()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const isEdit = Boolean(paymentId)
   const resolvedId = paymentId ? Number(paymentId) : null
+  const budgetIdParam = searchParams.get('budget_id')
+  const lockedBudgetId = budgetIdParam ? Number(budgetIdParam) : null
 
   const [poId, setPoId] = useState<number | ''>('')
   const [poOptions, setPoOptions] = useState<PORow[]>([])
@@ -73,6 +83,11 @@ export const ProcurementPaymentFormPage = () => {
   const [fundingSource, setFundingSource] = useState<'personal_funds' | 'budget'>('personal_funds')
   const [budgetId, setBudgetId] = useState<number | ''>('')
   const isEmployeePaid = !companyPaid
+  const hasLockedBudgetContext = lockedBudgetId != null
+
+  const { data: lockedBudget, loading: loadingLockedBudget, error: lockedBudgetError } = useApi<BudgetSummary>(
+    lockedBudgetId ? `/budgets/${lockedBudgetId}` : null
+  )
 
   useEffect(() => {
     if (isEmployeePaid) {
@@ -80,13 +95,26 @@ export const ProcurementPaymentFormPage = () => {
     } else if (paymentMethod === 'employee') {
       queueMicrotask(() => setPaymentMethod('mpesa'))
     }
-    if (!isEmployeePaid) {
+    if (!isEmployeePaid && !hasLockedBudgetContext) {
       queueMicrotask(() => {
         setFundingSource('personal_funds')
         setBudgetId('')
       })
     }
-  }, [isEmployeePaid, paymentMethod])
+  }, [hasLockedBudgetContext, isEmployeePaid, paymentMethod])
+
+  useEffect(() => {
+    if (!lockedBudget) return
+
+    setCompanyPaid(true)
+    setEmployeePaidId('')
+    setFundingSource('budget')
+    setBudgetId(lockedBudget.id)
+    setPurposeId(lockedBudget.purpose_id)
+    setPaymentDate((current) =>
+      clampDateToBudgetPeriod(current || getDefaultPaymentDate(), lockedBudget.period_from, lockedBudget.period_to)
+    )
+  }, [lockedBudget])
 
   const [loadingPOs, setLoadingPOs] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -130,11 +158,14 @@ export const ProcurementPaymentFormPage = () => {
       const response = await api.get<ApiResponse<{ items: PORow[] }>>('/procurement/purchase-orders', {
         params,
       })
-      // Фильтруем только активные закупки (не cancelled, не closed)
       const activePOs = response.data.data.items.filter(
         (po) => po.status !== 'cancelled' && po.status !== 'closed'
       )
-      setPoOptions(activePOs)
+      const filteredPOs =
+        lockedBudget != null
+          ? activePOs.filter((po) => po.purpose_id === lockedBudget.purpose_id)
+          : activePOs
+      setPoOptions(filteredPOs)
     } catch (err) {
       if (axios.isAxiosError(err) && err.response?.status === 401) {
         return
@@ -143,7 +174,7 @@ export const ProcurementPaymentFormPage = () => {
     } finally {
       setLoadingPOs(false)
     }
-  }, [])
+  }, [lockedBudget])
 
   useEffect(() => {
     // Если передан po_id в query параметрах, загружаем его сначала
@@ -156,7 +187,9 @@ export const ProcurementPaymentFormPage = () => {
         .then((response) => {
           const po = response.data.data
           setPoId(po.id)
-          setPurposeId(po.purpose_id)
+          if (!hasLockedBudgetContext) {
+            setPurposeId(po.purpose_id)
+          }
           setSelectedPO(po)
           // Добавляем PO в список опций
           setPoOptions([po])
@@ -172,7 +205,7 @@ export const ProcurementPaymentFormPage = () => {
       loadPOs()
     }
      
-  }, [searchParams, loadPOs])
+  }, [hasLockedBudgetContext, searchParams, loadPOs])
 
   const handlePurposeSelect = (value: number | string) => {
     if (value === 'create') {
@@ -254,8 +287,8 @@ export const ProcurementPaymentFormPage = () => {
       setError('Select employee who paid.')
       return
     }
-    if (isEmployeePaid && fundingSource === 'budget' && !budgetId) {
-      setError('Select budget for budget-funded employee payment.')
+    if (fundingSource === 'budget' && !budgetId) {
+      setError(isEmployeePaid ? 'Select budget for budget-funded employee payment.' : 'Budget is required for direct budget payment.')
       return
     }
     const hasProofText = Boolean(proofText.trim())
@@ -272,6 +305,7 @@ export const ProcurementPaymentFormPage = () => {
     }
 
     setError(null)
+    const shouldAttachBudget = fundingSource === 'budget' && budgetId
     const payload: Record<string, unknown> = {
       po_id: poId ? Number(poId) : null,
       purpose_id: Number(purposeId),
@@ -284,8 +318,8 @@ export const ProcurementPaymentFormPage = () => {
       proof_attachment_id: proofAttachmentId ?? null,
       company_paid: companyPaid,
       employee_paid_id: employeePaidId ? Number(employeePaidId) : null,
-      budget_id: isEmployeePaid && fundingSource === 'budget' && budgetId ? Number(budgetId) : null,
-      funding_source: isEmployeePaid ? fundingSource : 'personal_funds',
+      budget_id: shouldAttachBudget ? Number(budgetId) : null,
+      funding_source: shouldAttachBudget ? 'budget' : 'personal_funds',
     }
 
     const result = await createPayment(() => api.post('/procurement/payments', payload))
@@ -303,9 +337,17 @@ export const ProcurementPaymentFormPage = () => {
         {isEdit ? 'Edit payment' : 'New payment'}
       </Typography>
 
-      {(error || createPurposeError || createPaymentError) && (
+      {(error || lockedBudgetError || createPurposeError || createPaymentError) && (
         <Alert severity="error" className="mb-4" onClose={() => setError(null)}>
-          {error || createPurposeError || createPaymentError}
+          {error || lockedBudgetError || createPurposeError || createPaymentError}
+        </Alert>
+      )}
+
+      {hasLockedBudgetContext && (
+        <Alert severity="info" className="mb-4">
+          {loadingLockedBudget || !lockedBudget
+            ? 'Loading budget context...'
+            : `Direct company payment will be recorded against ${lockedBudget.budget_number} · ${lockedBudget.name}. Available headroom: ${formatMoney(lockedBudget.available_to_issue)}.`}
         </Alert>
       )}
 
@@ -323,7 +365,9 @@ export const ProcurementPaymentFormPage = () => {
                 const response = await api.get<ApiResponse<PORow>>(
                   `/procurement/purchase-orders/${newValue.id}`
                 )
-                setPurposeId(response.data.data.purpose_id)
+                if (!hasLockedBudgetContext) {
+                  setPurposeId(response.data.data.purpose_id)
+                }
                 // Обновляем selectedPO с полными данными
                 setSelectedPO(response.data.data)
               } catch (err) {
@@ -331,11 +375,11 @@ export const ProcurementPaymentFormPage = () => {
                   return
                 }
                 // Если не удалось загрузить, используем purpose_id из списка
-                if (newValue.purpose_id) {
+                if (!hasLockedBudgetContext && newValue.purpose_id) {
                   setPurposeId(newValue.purpose_id)
                 }
               }
-            } else {
+            } else if (!hasLockedBudgetContext) {
               setPurposeId('')
             }
           }}
@@ -357,6 +401,7 @@ export const ProcurementPaymentFormPage = () => {
           onChange={(event) => handlePurposeSelect(event.target.value)}
           label="Category / Purpose"
           required
+          disabled={hasLockedBudgetContext}
         >
           {purposes.map((purpose) => (
             <option key={purpose.id} value={purpose.id}>
@@ -429,6 +474,7 @@ export const ProcurementPaymentFormPage = () => {
           onChange={(event) => setCompanyPaid(event.target.checked)}
           label="Company paid"
           className="rounded-full"
+          disabled={hasLockedBudgetContext}
         />
         {isEmployeePaid && (
           <>

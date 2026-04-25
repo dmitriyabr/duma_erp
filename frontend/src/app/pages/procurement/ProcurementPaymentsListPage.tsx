@@ -22,14 +22,24 @@ interface PaymentRow {
   payment_number: string
   po_id: number | null
   budget_id: number | null
+  budget_number: string | null
   purpose_name: string | null
   payee_name: string | null
   payment_date: string
   amount: number
   payment_method: string
+  company_paid: boolean
   funding_source: 'personal_funds' | 'budget'
   status: string
   proof_attachment_id: number | null
+}
+
+const getFundingLabel = (payment: PaymentRow) => {
+  if (payment.funding_source === 'budget') {
+    const budgetRef = payment.budget_number ?? payment.budget_id ?? '—'
+    return payment.company_paid ? `Budget direct · ${budgetRef}` : `Budget advance · ${budgetRef}`
+  }
+  return payment.company_paid ? 'Company cash' : 'Personal funds'
 }
 
 const statusOptions = [
@@ -152,7 +162,7 @@ export const ProcurementPaymentsListPage = () => {
                 <TableCell>{payment.po_id ?? '—'}</TableCell>
                 <TableCell>{payment.purpose_name ?? '—'}</TableCell>
                 <TableCell>{payment.payee_name ?? '—'}</TableCell>
-                <TableCell>{payment.funding_source === 'budget' ? `Budget · ${payment.budget_id ?? '—'}` : 'Standard'}</TableCell>
+                <TableCell>{getFundingLabel(payment)}</TableCell>
                 <TableCell>{formatDate(payment.payment_date)}</TableCell>
                 <TableCell align="right">{formatMoney(payment.amount)}</TableCell>
                 <TableCell>{payment.payment_method}</TableCell>

@@ -4,35 +4,36 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth.dependencies import require_roles
 from src.core.auth.models import User, UserRole
 from src.core.database.session import get_db
+from src.modules.items.models import Item, ItemType
 from src.modules.procurement.schemas import (
     BulkUploadPOError,
+    CancelProcurementPaymentRequest,
     CancelPurchaseOrderRequest,
-    RollbackPurchaseOrderReceivingRequest,
-    RollbackGRNRequest,
-    ParsePOLinesResponse,
-    ParsedPOLine,
     GoodsReceivedFilters,
     GoodsReceivedNoteCreate,
     GoodsReceivedNoteResponse,
+    ParsedPOLine,
+    ParsePOLinesResponse,
     PaymentPurposeCreate,
     PaymentPurposeResponse,
     PaymentPurposeUpdate,
     ProcurementDashboardResponse,
+    ProcurementPaymentCreate,
+    ProcurementPaymentFilters,
+    ProcurementPaymentResponse,
     PurchaseOrderCreate,
     PurchaseOrderFilters,
     PurchaseOrderResponse,
     PurchaseOrderUpdate,
-    ProcurementPaymentCreate,
-    ProcurementPaymentFilters,
-    ProcurementPaymentResponse,
-    CancelProcurementPaymentRequest,
+    RollbackGRNRequest,
+    RollbackPurchaseOrderReceivingRequest,
 )
-from src.modules.items.models import Item, ItemType
 from src.modules.procurement.service import (
     GoodsReceivedService,
     PaymentPurposeService,
@@ -41,8 +42,6 @@ from src.modules.procurement.service import (
     PurchaseOrderService,
 )
 from src.shared.schemas.base import ApiResponse, PaginatedResponse
-from sqlalchemy import select
-
 
 router = APIRouter(prefix="/procurement", tags=["Procurement"])
 
@@ -107,6 +106,8 @@ def _payment_to_response(payment) -> ProcurementPaymentResponse:
         company_paid=payment.company_paid,
         employee_paid_id=payment.employee_paid_id,
         budget_id=getattr(payment, "budget_id", None),
+        budget_number=getattr(getattr(payment, "budget", None), "budget_number", None),
+        budget_name=getattr(getattr(payment, "budget", None), "name", None),
         funding_source=getattr(payment, "funding_source", "personal_funds"),
         status=payment.status,
         cancelled_reason=payment.cancelled_reason,
@@ -611,6 +612,8 @@ async def create_procurement_payment(
 async def list_procurement_payments(
     po_id: int | None = Query(None),
     purpose_id: int | None = Query(None),
+    budget_id: int | None = Query(None),
+    company_paid: bool | None = Query(None),
     status: str | None = Query(None),
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
@@ -626,6 +629,8 @@ async def list_procurement_payments(
     filters = ProcurementPaymentFilters(
         po_id=po_id,
         purpose_id=purpose_id,
+        budget_id=budget_id,
+        company_paid=company_paid,
         status=status,
         date_from=date_from,
         date_to=date_to,

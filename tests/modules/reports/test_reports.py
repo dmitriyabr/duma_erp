@@ -1989,6 +1989,70 @@ class TestCashFlow:
         assert Decimal(data["total_inflows"]) == Decimal("50.00")
         assert Decimal(data["total_outflows"]) == Decimal("200.00")
 
+    async def test_cash_flow_treats_budget_linked_company_paid_payment_as_supplier_payment(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        from src.modules.budgets.models import Budget
+        from src.modules.procurement.models import PaymentPurpose, ProcurementPayment
+
+        auth = AuthService(db_session)
+        admin = await auth.create_user(
+            email="reports_cf_budget_direct_admin@test.com",
+            password="Pass123",
+            full_name="Budget Direct Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        purpose = PaymentPurpose(name="Cash Flow Direct Budget Spend", is_active=True, purpose_type="expense")
+        db_session.add(purpose)
+        await db_session.flush()
+
+        budget = Budget(
+            budget_number="BGT-2026-000003",
+            name="Kitchen Direct Spend",
+            purpose_id=purpose.id,
+            period_from=date(2026, 1, 1),
+            period_to=date(2026, 1, 31),
+            limit_amount=Decimal("1000.00"),
+            status="active",
+            created_by_id=admin.id,
+            approved_by_id=admin.id,
+        )
+        db_session.add(budget)
+        await db_session.flush()
+
+        db_session.add(
+            ProcurementPayment(
+                payment_number="PP-2026-CFD001",
+                po_id=None,
+                purpose_id=purpose.id,
+                payee_name="Supplier",
+                payment_date=date(2026, 1, 20),
+                amount=Decimal("120.00"),
+                payment_method="bank",
+                company_paid=True,
+                budget_id=budget.id,
+                funding_source="budget",
+                status="posted",
+                created_by_id=admin.id,
+            )
+        )
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate("reports_cf_budget_direct_admin@test.com", "Pass123")
+        response = await client.get(
+            "/api/v1/reports/cash-flow?date_from=2026-01-01&date_to=2026-01-31",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        outflows = {row["label"]: Decimal(row["amount"]) for row in data["outflow_lines"]}
+        assert outflows["Supplier Payments"] == Decimal("120.00")
+        assert outflows["Employee Compensations"] == Decimal("0.00")
+        assert outflows["Budget Advances Issued"] == Decimal("0.00")
+        assert Decimal(data["total_outflows"]) == Decimal("120.00")
+
 
 class TestBalanceSheet:
     """Tests for GET /reports/balance-sheet."""

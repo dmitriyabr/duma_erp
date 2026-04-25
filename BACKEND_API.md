@@ -297,10 +297,11 @@
 - `GET /procurement/payment-purposes` — optional filter: `purpose_type=expense|fee`
 - `PUT /procurement/payment-purposes/{purpose_id}`
 - `POST /procurement/payments`
-- `GET /procurement/payments` — filters: `po_id`, `purpose_id`, `status`, `date_from`, `date_to`, `page`, `limit`
+- `GET /procurement/payments` — filters: `po_id`, `purpose_id`, `budget_id`, `company_paid`, `status`, `date_from`, `date_to`, `page`, `limit`
 - `GET /procurement/payments/{payment_id}`
 - `POST /procurement/payments/{payment_id}/cancel`
 > Note: если `employee_paid_id` указан (то есть платил сотрудник, `company_paid=false`), то `payment_method` канонизируется в `employee` (это не способ оплаты компании, а маркер “paid by employee”).
+> Note: если указан `budget_id`, payment канонизируется в `funding_source=budget`. Для `company_paid=true` это прямой расход бюджета: он сразу уменьшает budget headroom и не создаёт claim.
 
 ### 5.13. Compensations
 - `POST /compensations/claims` — создать out-of-pocket claim (без PO/GRN; для сотрудника возврат денег). Под капотом создаёт `ProcurementPayment` без PO (универсальный журнал расходов) и привязывает его к claim. Опционально поддерживает `fee_amount` (+ отдельный proof): в этом случае создаётся второй linked payment (purpose="Transaction Fees") и fee включается в total claim amount.
@@ -316,26 +317,32 @@
 - `GET /compensations/payouts/{payout_id}`
 - `GET /compensations/payouts/employees/{employee_id}/balance`
 
-> Note: текущая реализация compensations покрывает только reimbursement-кейс (`employee paid with personal funds -> claim -> approve -> payout`). Целевой бюджетный flow, где компания сначала выдаёт деньги сотруднику, а потом claim закрывается из ранее выданных funds, описан ниже как planned API.
+> Note: compensations поддерживает два flow:
+> - reimbursement: `employee paid with personal funds -> claim -> approve -> payout`
+> - budget-funded claim: `budget advance issued earlier -> claim -> reserve allocations -> approve -> paid without payout`
+>
+> Отдельный direct-spend сценарий, когда компания платит поставщику сама, идёт через `POST /procurement/payments` с `company_paid=true` и `budget_id`.
 
-### 5.13.1. Planned: Budgets / Budget Advances (not implemented yet)
+### 5.13.1. Budgets / Budget Advances
 
 Source of truth:
 - `docs/BUDGET_ADVANCES_PLAN.md`
 - `TASKS.md` (секция `6.4 Budget Advances / Предвыданные бюджеты`)
 
-Планируемые endpoints:
+Текущие endpoints:
 
 - `POST /budgets`
-- `GET /budgets`
+- `GET /budgets` — filters: `status`, `purpose_id`, `employee_id`, `page`, `limit`
+- `GET /budgets/my/budgets`
 - `GET /budgets/{budget_id}`
-- `PATCH /budgets/{budget_id}`
+- `PATCH /budgets/{budget_id}` — `SuperAdmin` only
 - `POST /budgets/{budget_id}/activate`
-- `GET /budgets/{budget_id}/closure` — open advances, overdue, unresolved claims, rollover candidates
+- `GET /budgets/{budget_id}/closure` — open advances, overdue, unresolved claims, transferable amount
 - `POST /budgets/{budget_id}/close`
 - `POST /budgets/{budget_id}/cancel`
 - `POST /budgets/advances`
-- `GET /budgets/advances`
+- `GET /budgets/advances` — filters: `budget_id`, `employee_id`, `status`, `page`, `limit`
+- `GET /budgets/my/advances` — filters: `status`, `page`, `limit`
 - `GET /budgets/advances/{advance_id}`
 - `POST /budgets/advances/{advance_id}/issue`
 - `POST /budgets/advances/{advance_id}/transfer`
@@ -343,15 +350,13 @@ Source of truth:
 - `POST /budgets/advances/{advance_id}/cancel`
 - `POST /budgets/advances/{advance_id}/returns`
 - `GET /budgets/advances/{advance_id}/returns`
-- `GET /budgets/transfers`
+- `GET /budgets/transfers` — filters: `budget_id`, `employee_id`, `page`, `limit`
 - `GET /budgets/transfers/{transfer_id}`
-- `GET /my/budgets`
-- `GET /my/budget-advances`
 - `GET /budgets/{budget_id}/my-available-balance`
 
-Planned claim integration:
+Claim integration:
 
-- `POST /compensations/claims` и `PATCH /compensations/claims/{claim_id}` смогут принимать:
+- `POST /compensations/claims` и `PATCH /compensations/claims/{claim_id}` принимают:
   - `funding_source`
   - `budget_id?`
 - если `funding_source=budget`, то:
@@ -528,8 +533,8 @@ Planned extension for budget advances (not implemented yet):
 - `PaymentPurposeCreate`: `name`
 - `PaymentPurposeUpdate`: `name?`, `is_active?`
 - `PaymentPurposeResponse`: `id`, `name`, `is_active`, `created_at`, `updated_at`
-- `ProcurementPaymentCreate`: `po_id?`, `purpose_id?`, `payee_name?`, `payment_date`, `amount`, `payment_method`, `reference_number?`, `proof_text?`, `proof_attachment_id?`, `company_paid`, `employee_paid_id?`
-- `ProcurementPaymentResponse`: `id`, `payment_number`, `po_id?`, `purpose_id`, `payee_name?`, `payment_date`, `amount`, `payment_method`, `reference_number?`, `proof_text?`, `proof_attachment_id?`, `company_paid`, `employee_paid_id?`, `status`, `cancelled_reason?`, `cancelled_by_id?`, `cancelled_at?`, `created_by_id`, `created_at`, `updated_at`
+- `ProcurementPaymentCreate`: `po_id?`, `purpose_id?`, `payee_name?`, `payment_date`, `amount`, `payment_method`, `reference_number?`, `proof_text?`, `proof_attachment_id?`, `company_paid`, `employee_paid_id?`, `budget_id?`, `funding_source` (`personal_funds | budget`)
+- `ProcurementPaymentResponse`: `id`, `payment_number`, `po_id?`, `purpose_id`, `purpose_name?`, `payee_name?`, `payment_date`, `amount`, `payment_method`, `reference_number?`, `proof_text?`, `proof_attachment_id?`, `company_paid`, `employee_paid_id?`, `budget_id?`, `budget_number?`, `budget_name?`, `funding_source`, `status`, `cancelled_reason?`, `cancelled_by_id?`, `cancelled_at?`, `created_by_id`, `created_at`, `updated_at`
 - `CancelProcurementPaymentRequest`: `reason`
 
 ### 6.12. Compensations
@@ -543,22 +548,23 @@ Planned extension for budget advances (not implemented yet):
 - `PayoutAllocationResponse`: `id`, `claim_id`, `allocated_amount`
 - `EmployeeBalanceResponse`: `employee_id`, `total_approved`, `total_paid`, `balance`
 
-### 6.12.1. Planned: Budgets / Budget Advances Schemas (not implemented yet)
+### 6.12.1. Budgets / Budget Advances Schemas
 
-- `BudgetResponse`: `id`, `budget_number`, `name`, `purpose_id`, `period_from`, `period_to`, `limit_amount`, `status`, `created_by_id`, `approved_by_id?`, `created_at`, `updated_at`
-- `BudgetAdvanceResponse`: `id`, `advance_number`, `budget_id`, `employee_id`, `issue_date`, `amount_issued`, `payment_method`, `reference_number?`, `proof_text?`, `proof_attachment_id?`, `source_type` (`cash_issue | transfer_in`), `settlement_due_date`, `status`, `created_by_id`, `created_at`, `updated_at`
-- `BudgetAdvanceReturnResponse`: `id`, `return_number`, `advance_id`, `return_date`, `amount`, `return_method`, `reference_number?`, `proof_text?`, `proof_attachment_id?`, `created_by_id`, `created_at`
-- `BudgetAdvanceTransferResponse`: `id`, `transfer_number`, `from_advance_id`, `to_budget_id`, `to_employee_id`, `transfer_date`, `amount`, `transfer_type` (`rollover | reassignment | reallocation`), `reason`, `created_to_advance_id`, `created_by_id`, `created_at`
-- `BudgetClaimAllocationResponse`: `id`, `advance_id`, `claim_id`, `allocated_amount`, `allocation_status` (`reserved | settled | released`), `released_reason?`, `created_at`, `updated_at`
+- `BudgetResponse`: `id`, `budget_number`, `name`, `purpose_id`, `purpose_name?`, `period_from`, `period_to`, `limit_amount`, `notes?`, `status`, `created_by_id`, `approved_by_id?`, `created_at`, `updated_at`, `direct_company_paid_total`, `direct_issue_total`, `transfer_in_total`, `returned_total`, `transfer_out_total`, `reserved_total`, `settled_total`, `committed_total`, `open_on_hands_total`, `available_unreserved_total`, `available_to_issue`, `overdue_advances_count`
+- `BudgetAdvanceResponse`: `id`, `advance_number`, `budget_id`, `budget_number`, `budget_name`, `employee_id`, `employee_name`, `issue_date`, `amount_issued`, `payment_method`, `reference_number?`, `proof_text?`, `proof_attachment_id?`, `notes?`, `source_type` (`cash_issue | transfer_in`), `settlement_due_date`, `status`, `created_by_id`, `created_at`, `updated_at`, `reserved_amount`, `settled_amount`, `returned_amount`, `transferred_out_amount`, `open_balance`, `available_unreserved_amount`
+- `BudgetAdvanceReturnResponse`: `id`, `return_number`, `advance_id`, `return_date`, `amount`, `return_method`, `reference_number?`, `proof_text?`, `proof_attachment_id?`, `notes?`, `created_by_id`, `created_at`
+- `BudgetAdvanceTransferResponse`: `id`, `transfer_number`, `from_advance_id`, `from_advance_number`, `to_budget_id`, `to_budget_number`, `to_employee_id`, `to_employee_name?`, `transfer_date`, `amount`, `transfer_type` (`rollover | reassignment | reallocation`), `reason`, `created_to_advance_id`, `created_to_advance_number`, `created_by_id`, `created_at`
+- `BudgetClaimAllocationResponse`: `id`, `advance_id`, `advance_number`, `claim_id`, `allocated_amount`, `allocation_status` (`reserved | settled | released`), `released_reason?`, `created_at`, `updated_at`
 
-Planned changes to existing schemas:
+Related schema extensions:
 
 - `ExpenseClaimCreate`: + `funding_source`, `budget_id?`
 - `ExpenseClaimUpdate`: + `funding_source?`, `budget_id?`
-- `ExpenseClaimResponse`: + `budget_id?`, `budget_funding_status?`, `allocations[]?`
-- `ProcurementPaymentCreate` / `ProcurementPaymentResponse`: + `funding_source?`, `budget_id?`
+- `ExpenseClaimResponse`: + `budget_id?`, `budget_funding_status?`, `budget_allocations[]?`
+- `ProcurementPaymentCreate` / `ProcurementPaymentResponse`: + `funding_source`, `budget_id?`, `budget_number?`, `budget_name?`
 
-Planned semantics:
+Semantics:
 
-- `funding_source=personal_funds` — текущий reimbursement flow;
-- `funding_source=budget` — claim закрывается из ранее выданных advances и не участвует в `CompensationPayout`.
+- `funding_source=personal_funds` — reimbursement flow;
+- `funding_source=budget` + `company_paid=false` — claim / payment closes against earlier budget advances;
+- `funding_source=budget` + `company_paid=true` — direct company-paid budget spend through procurement payments.
