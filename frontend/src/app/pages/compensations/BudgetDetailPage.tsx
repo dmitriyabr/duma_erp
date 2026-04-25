@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import axios from 'axios'
 import { useAuth } from '../../auth/AuthContext'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api } from '../../services/api'
-import type { PaginatedResponse } from '../../types/api'
+import type { ApiResponse, PaginatedResponse } from '../../types/api'
 import type {
   BudgetAdvanceListResponse,
   BudgetAdvanceReturn,
@@ -26,6 +27,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FileDropzone,
   Input,
   Select,
   Spinner,
@@ -132,6 +134,9 @@ export const BudgetDetailPage = () => {
   const [createPaymentMethod, setCreatePaymentMethod] = useState('bank')
   const [createReferenceNumber, setCreateReferenceNumber] = useState('')
   const [createProofText, setCreateProofText] = useState('')
+  const [createProofAttachmentId, setCreateProofAttachmentId] = useState<number | null>(null)
+  const [createProofFileName, setCreateProofFileName] = useState<string | null>(null)
+  const [createUploadingProof, setCreateUploadingProof] = useState(false)
   const [createNotes, setCreateNotes] = useState('')
   const [createSettlementDueDate, setCreateSettlementDueDate] = useState('')
   const [createIssueNow, setCreateIssueNow] = useState(true)
@@ -139,6 +144,9 @@ export const BudgetDetailPage = () => {
   const [issueAdvanceTarget, setIssueAdvanceTarget] = useState<BudgetAdvanceSummary | null>(null)
   const [issueReferenceNumber, setIssueReferenceNumber] = useState('')
   const [issueProofText, setIssueProofText] = useState('')
+  const [issueProofAttachmentId, setIssueProofAttachmentId] = useState<number | null>(null)
+  const [issueProofFileName, setIssueProofFileName] = useState<string | null>(null)
+  const [issueUploadingProof, setIssueUploadingProof] = useState(false)
   const [issuePaymentMethod, setIssuePaymentMethod] = useState('')
   const [issueSettlementDueDate, setIssueSettlementDueDate] = useState('')
 
@@ -148,6 +156,9 @@ export const BudgetDetailPage = () => {
   const [returnMethod, setReturnMethod] = useState('bank')
   const [returnReferenceNumber, setReturnReferenceNumber] = useState('')
   const [returnProofText, setReturnProofText] = useState('')
+  const [returnProofAttachmentId, setReturnProofAttachmentId] = useState<number | null>(null)
+  const [returnProofFileName, setReturnProofFileName] = useState<string | null>(null)
+  const [returnUploadingProof, setReturnUploadingProof] = useState(false)
   const [returnNotes, setReturnNotes] = useState('')
 
   const [transferAdvanceTarget, setTransferAdvanceTarget] = useState<BudgetAdvanceSummary | null>(null)
@@ -186,6 +197,44 @@ export const BudgetDetailPage = () => {
   const reloadAll = async () => {
     await Promise.all([refetchBudget(), refetchClosure(), refetchAdvances(), refetchTransfers(), refetchDirectPayments()])
   }
+
+  const uploadAttachment = useCallback(
+    async (
+      file: File,
+      options: {
+        setLoading: (value: boolean) => void
+        setAttachmentId: (value: number | null) => void
+        setFileName: (value: string | null) => void
+      }
+    ) => {
+      const isPdf = file.type === 'application/pdf'
+      const isImage = file.type.startsWith('image/')
+      if (!isPdf && !isImage) {
+        setLocalError('Only images or PDF files are supported.')
+        return
+      }
+
+      options.setLoading(true)
+      setLocalError(null)
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+        const res = await api.post<ApiResponse<{ id: number }>>('/attachments', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
+        options.setAttachmentId(res.data.data.id)
+        options.setFileName(file.name)
+      } catch (err) {
+        if (axios.isAxiosError(err) && err.response?.status === 401) {
+          return
+        }
+        setLocalError('Failed to upload confirmation file.')
+      } finally {
+        options.setLoading(false)
+      }
+    },
+    []
+  )
 
   const openEditBudgetDialog = () => {
     if (!budget) return
@@ -246,6 +295,9 @@ export const BudgetDetailPage = () => {
     setCreatePaymentMethod('bank')
     setCreateReferenceNumber('')
     setCreateProofText('')
+    setCreateProofAttachmentId(null)
+    setCreateProofFileName(null)
+    setCreateUploadingProof(false)
     setCreateNotes('')
     setCreateSettlementDueDate(budget?.period_to ?? '')
     setCreateIssueNow(true)
@@ -282,6 +334,7 @@ export const BudgetDetailPage = () => {
         payment_method: createPaymentMethod,
         reference_number: createReferenceNumber.trim() || null,
         proof_text: createProofText.trim() || null,
+        proof_attachment_id: createProofAttachmentId,
         notes: createNotes.trim() || null,
         settlement_due_date: createSettlementDueDate || null,
         issue_now: createIssueNow,
@@ -299,6 +352,9 @@ export const BudgetDetailPage = () => {
     setIssueAdvanceTarget(advance)
     setIssueReferenceNumber(advance.reference_number ?? '')
     setIssueProofText(advance.proof_text ?? '')
+    setIssueProofAttachmentId(advance.proof_attachment_id ?? null)
+    setIssueProofFileName(null)
+    setIssueUploadingProof(false)
     setIssuePaymentMethod(advance.payment_method ?? '')
     setIssueSettlementDueDate(advance.settlement_due_date ?? '')
   }
@@ -311,6 +367,7 @@ export const BudgetDetailPage = () => {
         payment_method: issuePaymentMethod || null,
         reference_number: issueReferenceNumber.trim() || null,
         proof_text: issueProofText.trim() || null,
+        proof_attachment_id: issueProofAttachmentId,
         settlement_due_date: issueSettlementDueDate || null,
       })
     )
@@ -345,6 +402,9 @@ export const BudgetDetailPage = () => {
     setReturnMethod('bank')
     setReturnReferenceNumber('')
     setReturnProofText('')
+    setReturnProofAttachmentId(null)
+    setReturnProofFileName(null)
+    setReturnUploadingProof(false)
     setReturnNotes('')
   }
 
@@ -367,6 +427,7 @@ export const BudgetDetailPage = () => {
         return_method: returnMethod,
         reference_number: returnReferenceNumber.trim() || null,
         proof_text: returnProofText.trim() || null,
+        proof_attachment_id: returnProofAttachmentId,
         notes: returnNotes.trim() || null,
       })
     )
@@ -815,6 +876,19 @@ export const BudgetDetailPage = () => {
             </Select>
             <Input label="Reference number" value={createReferenceNumber} onChange={(e) => setCreateReferenceNumber(e.target.value)} />
             <Textarea label="Proof / note" value={createProofText} onChange={(e) => setCreateProofText(e.target.value)} rows={3} />
+            <FileDropzone
+              title="Upload proof (image/PDF)"
+              accept="image/*,.pdf,application/pdf"
+              fileName={createProofFileName ?? (createProofAttachmentId ? 'Attachment uploaded' : null)}
+              loading={createUploadingProof}
+              onFileSelected={(file) =>
+                uploadAttachment(file, {
+                  setLoading: setCreateUploadingProof,
+                  setAttachmentId: setCreateProofAttachmentId,
+                  setFileName: setCreateProofFileName,
+                })
+              }
+            />
             <Textarea label="Notes" value={createNotes} onChange={(e) => setCreateNotes(e.target.value)} rows={3} />
             <Checkbox checked={createIssueNow} onChange={(e) => setCreateIssueNow(e.target.checked)} label="Issue immediately" />
           </div>
@@ -835,6 +909,19 @@ export const BudgetDetailPage = () => {
             <Input label="Reference number" value={issueReferenceNumber} onChange={(e) => setIssueReferenceNumber(e.target.value)} />
             <Input label="Settlement due date" type="date" value={issueSettlementDueDate} onChange={(e) => setIssueSettlementDueDate(e.target.value)} />
             <Textarea label="Proof / note" value={issueProofText} onChange={(e) => setIssueProofText(e.target.value)} rows={3} />
+            <FileDropzone
+              title="Upload proof (image/PDF)"
+              accept="image/*,.pdf,application/pdf"
+              fileName={issueProofFileName ?? (issueProofAttachmentId ? 'Attachment uploaded' : null)}
+              loading={issueUploadingProof}
+              onFileSelected={(file) =>
+                uploadAttachment(file, {
+                  setLoading: setIssueUploadingProof,
+                  setAttachmentId: setIssueProofAttachmentId,
+                  setFileName: setIssueProofFileName,
+                })
+              }
+            />
           </div>
         </DialogContent>
         <DialogActions>
@@ -859,6 +946,19 @@ export const BudgetDetailPage = () => {
             </Select>
             <Input label="Reference number" value={returnReferenceNumber} onChange={(e) => setReturnReferenceNumber(e.target.value)} />
             <Textarea label="Proof / note" value={returnProofText} onChange={(e) => setReturnProofText(e.target.value)} rows={3} />
+            <FileDropzone
+              title="Upload proof (image/PDF)"
+              accept="image/*,.pdf,application/pdf"
+              fileName={returnProofFileName ?? (returnProofAttachmentId ? 'Attachment uploaded' : null)}
+              loading={returnUploadingProof}
+              onFileSelected={(file) =>
+                uploadAttachment(file, {
+                  setLoading: setReturnUploadingProof,
+                  setAttachmentId: setReturnProofAttachmentId,
+                  setFileName: setReturnProofFileName,
+                })
+              }
+            />
             <Textarea label="Notes" value={returnNotes} onChange={(e) => setReturnNotes(e.target.value)} rows={3} />
           </div>
         </DialogContent>
