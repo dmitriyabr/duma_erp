@@ -72,7 +72,10 @@ class ItemVariant(Base):
 
     # Relationships (many-to-many through ItemVariantMembership)
     items: Mapped[list["Item"]] = relationship(
-        "Item", secondary="item_variant_memberships", back_populates="variants"
+        "Item",
+        secondary="item_variant_memberships",
+        back_populates="variants",
+        overlaps="item,variant",
     )
 
 
@@ -97,8 +100,14 @@ class ItemVariantMembership(Base):
     )
 
     # Relationships
-    variant: Mapped["ItemVariant"] = relationship("ItemVariant")
-    item: Mapped["Item"] = relationship("Item")
+    variant: Mapped["ItemVariant"] = relationship(
+        "ItemVariant",
+        overlaps="items,variants",
+    )
+    item: Mapped["Item"] = relationship(
+        "Item",
+        overlaps="items,variants",
+    )
 
 
 class Item(Base):
@@ -131,7 +140,10 @@ class Item(Base):
     # Relationships
     category: Mapped["Category"] = relationship("Category", back_populates="items")
     variants: Mapped[list["ItemVariant"]] = relationship(
-        "ItemVariant", secondary="item_variant_memberships", back_populates="items"
+        "ItemVariant",
+        secondary="item_variant_memberships",
+        back_populates="items",
+        overlaps="item,variant",
     )
     price_history: Mapped[list["ItemPriceHistory"]] = relationship(
         "ItemPriceHistory", back_populates="item", order_by="desc(ItemPriceHistory.effective_from)"

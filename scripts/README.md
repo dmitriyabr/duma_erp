@@ -249,6 +249,53 @@ bash scripts/export_active_term_students_invoices_railway.sh
 
 ---
 
+## export_student_uniform_issuances.py
+
+Read-only выгрузка фактически выданной униформы по студентам.
+
+Скрипт читает только `completed` issuances, где:
+
+- `recipient_type = student`
+- category item'а совпадает с `Uniforms` по умолчанию
+- размер берётся из фактического inventory item, поэтому в выгрузке остаются реальные `item_name` / `SKU`
+
+По умолчанию создаёт три CSV в `exports/...`:
+
+- `student_uniforms_by_student.csv` — одна строка на студента с общей сводкой и списком выданной формы
+- `student_uniforms_by_item.csv` — одна строка на студента + конкретный item/size
+- `student_uniform_issue_movements.csv` — сырые движения выдачи
+
+Опционально можно получить и `export.json`.
+
+### Запуск на Railway
+
+```bash
+# Базовая выгрузка по категории Uniforms
+railway run python3 scripts/export_student_uniform_issuances.py
+
+# Только активные студенты
+railway run python3 scripts/export_student_uniform_issuances.py --student-status active
+
+# Другая категория
+railway run python3 scripts/export_student_uniform_issuances.py --category-name Uniforms
+
+# CSV + JSON
+railway run python3 scripts/export_student_uniform_issuances.py --format both
+
+# В конкретную папку
+railway run python3 scripts/export_student_uniform_issuances.py --output-dir exports/uniform-export
+```
+
+### Wrapper
+
+```bash
+bash scripts/export_student_uniform_issuances_railway.sh
+```
+
+Скрипт ничего не меняет в базе. Он только читает issuances, students и items.
+
+---
+
 ## reset_invoices.py
 
 Скрипт для одноразового удаления всех счетов (invoices) из базы данных с сохранением платежей (payments).
