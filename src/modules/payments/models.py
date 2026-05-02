@@ -104,6 +104,12 @@ class Payment(Base):
         "Invoice", foreign_keys=[preferred_invoice_id]
     )
     received_by: Mapped["User"] = relationship("User")
+    refunds: Mapped[list["PaymentRefund"]] = relationship(
+        "PaymentRefund",
+        back_populates="payment",
+        cascade="all, delete-orphan",
+        order_by="PaymentRefund.created_at",
+    )
 
     @property
     def is_completed(self) -> bool:
@@ -142,6 +148,9 @@ class CreditAllocation(Base):
     invoice_line_id: Mapped[int | None] = mapped_column(
         BigIntPK, ForeignKey("invoice_lines.id"), nullable=True
     )
+    source_payment_id: Mapped[int | None] = mapped_column(
+        BigIntPK, ForeignKey("payments.id"), nullable=True, index=True
+    )
 
     amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
 
@@ -161,6 +170,44 @@ class CreditAllocation(Base):
     invoice: Mapped["Invoice"] = relationship("Invoice", back_populates="allocations")
     invoice_line: Mapped["InvoiceLine"] = relationship("InvoiceLine")
     allocated_by: Mapped["User"] = relationship("User")
+    source_payment: Mapped["Payment | None"] = relationship("Payment")
+
+
+class PaymentRefund(Base):
+    """Refund recorded against a completed student payment."""
+
+    __tablename__ = "payment_refunds"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    payment_id: Mapped[int] = mapped_column(
+        BigIntPK, ForeignKey("payments.id"), nullable=False, index=True
+    )
+    billing_account_id: Mapped[int] = mapped_column(
+        BigIntPK, ForeignKey("billing_accounts.id"), nullable=False, index=True
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    refund_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refunded_by_id: Mapped[int] = mapped_column(
+        BigIntPK, ForeignKey("users.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    payment: Mapped["Payment"] = relationship("Payment", back_populates="refunds")
+    billing_account: Mapped["BillingAccount"] = relationship(
+        "BillingAccount",
+        back_populates="refunds",
+    )
+    refunded_by: Mapped["User"] = relationship("User")
 
 
 # Import for type hints

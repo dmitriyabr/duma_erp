@@ -21,6 +21,8 @@ from src.modules.payments.schemas import (
     AutoAllocateResult,
     PaymentCreate,
     PaymentFilters,
+    PaymentRefundCreate,
+    PaymentRefundResponse,
     PaymentResponse,
     PaymentUpdate,
     StatementResponse,
@@ -47,6 +49,16 @@ def _build_student_net_balance(outstanding_debt: Decimal) -> Decimal:
 
 def _payment_to_response(payment) -> PaymentResponse:
     """Convert Payment model to API response."""
+    refunded_amount = round_money(
+        sum((refund.amount for refund in getattr(payment, "refunds", [])), Decimal("0.00"))
+    )
+    refundable_amount = round_money(max(Decimal("0.00"), payment.amount - refunded_amount))
+    if refunded_amount <= 0:
+        refund_status = "none"
+    elif refundable_amount <= 0:
+        refund_status = "full"
+    else:
+        refund_status = "partial"
     return PaymentResponse(
         id=payment.id,
         payment_number=payment.payment_number,
@@ -68,9 +80,27 @@ def _payment_to_response(payment) -> PaymentResponse:
         confirmation_attachment_id=payment.confirmation_attachment_id,
         status=payment.status,
         notes=payment.notes,
+        refunded_amount=refunded_amount,
+        refundable_amount=refundable_amount,
+        refund_status=refund_status,
         received_by_id=payment.received_by_id,
         created_at=payment.created_at,
         updated_at=payment.updated_at,
+    )
+
+
+def _refund_to_response(refund) -> PaymentRefundResponse:
+    return PaymentRefundResponse(
+        id=refund.id,
+        payment_id=refund.payment_id,
+        billing_account_id=refund.billing_account_id,
+        amount=refund.amount,
+        refund_date=refund.refund_date,
+        reason=refund.reason,
+        notes=refund.notes,
+        refunded_by_id=refund.refunded_by_id,
+        created_at=refund.created_at,
+        updated_at=refund.updated_at,
     )
 
 
@@ -269,6 +299,26 @@ async def cancel_payment(
     )
 
 
+@router.post(
+    "/{payment_id}/refunds",
+    response_model=ApiResponse[PaymentRefundResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def refund_payment(
+    payment_id: int,
+    data: PaymentRefundCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+):
+    """Refund a completed payment and reverse its effect on allocations if needed."""
+    service = PaymentService(db)
+    refund = await service.refund_payment(payment_id, data, current_user.id)
+    return ApiResponse(
+        data=_refund_to_response(refund),
+        message="Payment refunded successfully",
+    )
+
+
 # --- Balance & Statement Endpoints ---
 
 
@@ -296,6 +346,7 @@ async def get_student_balances_batch(
             billing_account_number=b.billing_account_number,
             billing_account_name=b.billing_account_name,
             total_payments=b.total_payments,
+            total_refunded=b.total_refunded,
             total_allocated=b.total_allocated,
             available_balance=b.available_balance,
             outstanding_debt=debt_by_student.get(
@@ -334,6 +385,7 @@ async def get_student_balance(
         billing_account_number=balance.billing_account_number,
         billing_account_name=balance.billing_account_name,
         total_payments=balance.total_payments,
+        total_refunded=balance.total_refunded,
         total_allocated=balance.total_allocated,
         available_balance=balance.available_balance,
         outstanding_debt=total_due,

@@ -2,14 +2,14 @@ import { Download, FileText } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { PaginatedResponse } from '../../types/api'
-import { useApi } from '../../hooks/useApi'
+import { useApi, useApiMutation } from '../../hooks/useApi'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { api } from '../../services/api'
 import { downloadAttachment } from '../../utils/attachments'
 import { formatDate, formatMoney } from '../../utils/format'
 import { formatStudentNumberShort } from '../../utils/studentNumber'
 import { useAuth } from '../../auth/AuthContext'
-import { canManageStudents } from '../../utils/permissions'
+import { canCancelPayment, canManageStudents } from '../../utils/permissions'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
@@ -18,6 +18,7 @@ import { Typography } from '../../components/ui/Typography'
 import { Alert } from '../../components/ui/Alert'
 import { Tooltip } from '../../components/ui/Tooltip'
 import { Spinner } from '../../components/ui/Spinner'
+import { Dialog, DialogActions, DialogCloseButton, DialogContent, DialogTitle } from '../../components/ui/Dialog'
 
 interface PaymentRow {
   id: number
@@ -35,6 +36,9 @@ interface PaymentRow {
   reference: string | null
   status: string
   confirmation_attachment_id: number | null
+  refunded_amount?: string | number | null
+  refundable_amount?: string | number | null
+  refund_status?: string | null
 }
 
 const statusOptions = [
@@ -54,6 +58,7 @@ export const PaymentReceiptsPage = () => {
   const navigate = useNavigate()
   const { user } = useAuth()
   const canManage = canManageStudents(user)
+  const canRefund = canCancelPayment(user)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -61,7 +66,15 @@ export const PaymentReceiptsPage = () => {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [search, setSearch] = useState('')
+  const [refundDialogPayment, setRefundDialogPayment] = useState<PaymentRow | null>(null)
+  const [refundForm, setRefundForm] = useState({
+    amount: '',
+    refund_date: new Date().toISOString().slice(0, 10),
+    reason: '',
+    notes: '',
+  })
   const debouncedSearch = useDebouncedValue(search, 300)
+  const refundPaymentMutation = useApiMutation()
 
   const url = useMemo(() => {
     const params: Record<string, string | number> = { page: page + 1, limit }
@@ -75,9 +88,28 @@ export const PaymentReceiptsPage = () => {
     return `/payments?${sp.toString()}`
   }, [page, limit, statusFilter, methodFilter, dateFrom, dateTo, debouncedSearch])
 
-  const { data, loading, error } = useApi<PaginatedResponse<PaymentRow>>(url)
+  const { data, loading, error, refetch } = useApi<PaginatedResponse<PaymentRow>>(url)
   const payments = data?.items ?? []
   const total = data?.total ?? 0
+
+  const getRefundableAmount = (payment: PaymentRow | null | undefined) =>
+    Number(payment?.refundable_amount ?? payment?.amount ?? 0)
+
+  const getPaymentStatusLabel = (payment: PaymentRow) => {
+    if (payment.refund_status === 'full') return 'completed / refunded'
+    if (payment.refund_status === 'partial') return 'completed / partially refunded'
+    return payment.status
+  }
+
+  const openRefundDialog = (payment: PaymentRow) => {
+    setRefundDialogPayment(payment)
+    setRefundForm({
+      amount: String(getRefundableAmount(payment)),
+      refund_date: new Date().toISOString().slice(0, 10),
+      reason: '',
+      notes: '',
+    })
+  }
 
   const downloadReceiptPdf = async (paymentId: number, receiptNumber: string) => {
     try {
@@ -90,6 +122,22 @@ export const PaymentReceiptsPage = () => {
       URL.revokeObjectURL(url)
     } catch {
       // ignore
+    }
+  }
+
+  const submitRefund = async () => {
+    if (!refundDialogPayment) return
+    const result = await refundPaymentMutation.execute(() =>
+      api.post(`/payments/${refundDialogPayment.id}/refunds`, {
+        amount: Number(refundForm.amount),
+        refund_date: refundForm.refund_date,
+        reason: refundForm.reason.trim(),
+        notes: refundForm.notes.trim() || null,
+      })
+    )
+    if (result) {
+      setRefundDialogPayment(null)
+      refetch()
     }
   }
 
@@ -178,9 +226,9 @@ export const PaymentReceiptsPage = () => {
         </div>
       </div>
 
-      {error && (
+      {(error || refundPaymentMutation.error) && (
         <Alert severity="error" className="mb-4">
-          {error}
+          {error || refundPaymentMutation.error}
         </Alert>
       )}
 
@@ -226,7 +274,7 @@ export const PaymentReceiptsPage = () => {
                 <TableCell className="font-mono text-xs">{row.reference || '—'}</TableCell>
                 <TableCell>{row.payment_method}</TableCell>
                 <TableCell align="right">{formatMoney(Number(row.amount))}</TableCell>
-                <TableCell>{row.status}</TableCell>
+                <TableCell>{getPaymentStatusLabel(row)}</TableCell>
                 <TableCell align="center">
                   <div className="flex gap-2 justify-center">
                     {row.status === 'completed' && (
@@ -252,13 +300,25 @@ export const PaymentReceiptsPage = () => {
                   </div>
                 </TableCell>
                 <TableCell align="right">
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => navigate(`/students/${row.student_id}?tab=payments`)}
-                  >
-                    View student
-                  </Button>
+                  <div className="flex gap-2 justify-end">
+                    {canRefund && row.status === 'completed' && getRefundableAmount(row) > 0 && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="error"
+                        onClick={() => openRefundDialog(row)}
+                      >
+                        Refund
+                      </Button>
+                    )}
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => navigate(`/students/${row.student_id}?tab=payments`)}
+                    >
+                      View student
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -290,6 +350,56 @@ export const PaymentReceiptsPage = () => {
           rowsPerPageOptions={[25, 50, 100]}
         />
       </div>
+
+      <Dialog open={Boolean(refundDialogPayment)} onClose={() => setRefundDialogPayment(null)} maxWidth="sm">
+        <DialogCloseButton onClose={() => setRefundDialogPayment(null)} />
+        <DialogTitle>Refund payment</DialogTitle>
+        <DialogContent>
+          <div className="space-y-4 mt-4">
+            <Typography variant="body2">
+              Payment: {refundDialogPayment?.payment_number ?? '—'}
+            </Typography>
+            <Typography variant="body2">
+              Refundable amount: {formatMoney(getRefundableAmount(refundDialogPayment))}
+            </Typography>
+            <Input
+              label="Amount"
+              type="number"
+              value={refundForm.amount}
+              onChange={(e) => setRefundForm((current) => ({ ...current, amount: e.target.value }))}
+            />
+            <Input
+              label="Refund date"
+              type="date"
+              value={refundForm.refund_date}
+              onChange={(e) => setRefundForm((current) => ({ ...current, refund_date: e.target.value }))}
+            />
+            <Input
+              label="Reason"
+              value={refundForm.reason}
+              onChange={(e) => setRefundForm((current) => ({ ...current, reason: e.target.value }))}
+            />
+            <Input
+              label="Notes"
+              value={refundForm.notes}
+              onChange={(e) => setRefundForm((current) => ({ ...current, notes: e.target.value }))}
+            />
+          </div>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="outlined" onClick={() => setRefundDialogPayment(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={submitRefund}
+            disabled={refundPaymentMutation.loading}
+          >
+            {refundPaymentMutation.loading ? <Spinner size="small" /> : 'Refund'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </div>
   )
 }

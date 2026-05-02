@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, model_validator
 
 from src.shared.schemas.base import BaseSchema
 from src.modules.payments.models import PaymentMethod, PaymentStatus
@@ -66,7 +66,34 @@ class PaymentResponse(BaseSchema):
     confirmation_attachment_id: int | None = None
     status: str
     notes: str | None
+    refunded_amount: Decimal = Decimal("0.00")
+    refundable_amount: Decimal = Decimal("0.00")
+    refund_status: str = "none"
     received_by_id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class PaymentRefundCreate(BaseSchema):
+    """Schema for refunding a completed payment."""
+
+    amount: Decimal = Field(gt=0, description="Refund amount")
+    refund_date: date
+    reason: str = Field(..., min_length=3)
+    notes: str | None = None
+
+
+class PaymentRefundResponse(BaseSchema):
+    """Schema for a payment refund response."""
+
+    id: int
+    payment_id: int
+    billing_account_id: int
+    amount: Decimal
+    refund_date: date
+    reason: str
+    notes: str | None
+    refunded_by_id: int
     created_at: datetime
     updated_at: datetime
 
@@ -160,6 +187,7 @@ class StudentBalance(BaseSchema):
     billing_account_number: str | None = None
     billing_account_name: str | None = None
     total_payments: Decimal
+    total_refunded: Decimal = Decimal("0")
     total_allocated: Decimal
     available_balance: Decimal
     outstanding_debt: Decimal = Decimal("0")
@@ -186,6 +214,7 @@ class StatementEntry(BaseSchema):
     description: str
     reference: str | None  # payment_number or invoice_number
     payment_id: int | None = None
+    refund_id: int | None = None
     allocation_id: int | None = None
     invoice_id: int | None = None
     credit: Decimal | None  # payment (positive)

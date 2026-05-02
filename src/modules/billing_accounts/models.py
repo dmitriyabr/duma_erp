@@ -43,9 +43,13 @@ class BillingAccount(BaseModel):
         "CreditAllocation",
         back_populates="billing_account",
     )
+    refunds: Mapped[list["PaymentRefund"]] = relationship(
+        "PaymentRefund",
+        back_populates="billing_account",
+    )
 
 
 from src.core.auth.models import User
 from src.modules.invoices.models import Invoice
-from src.modules.payments.models import CreditAllocation, Payment
+from src.modules.payments.models import CreditAllocation, Payment, PaymentRefund
 from src.modules.students.models import Student

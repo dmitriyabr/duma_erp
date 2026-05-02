@@ -21,7 +21,7 @@ from src.modules.billing_accounts.schemas import (
     BillingAccountUpdate,
 )
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus
-from src.modules.payments.models import CreditAllocation, Payment
+from src.modules.payments.models import CreditAllocation, Payment, PaymentRefund
 from src.modules.students.models import Student
 from src.modules.students.schemas import StudentCreate
 from src.shared.utils.money import round_money
@@ -463,6 +463,13 @@ class BillingAccountService:
         )
         total_payments = Decimal(str(payments_result.scalar() or 0))
 
+        refunds_result = await self.db.execute(
+            select(func.coalesce(func.sum(PaymentRefund.amount), 0)).where(
+                PaymentRefund.billing_account_id == account_id
+            )
+        )
+        total_refunded = Decimal(str(refunds_result.scalar() or 0))
+
         allocations_result = await self.db.execute(
             select(func.coalesce(func.sum(CreditAllocation.amount), 0)).where(
                 CreditAllocation.billing_account_id == account_id
@@ -473,7 +480,11 @@ class BillingAccountService:
         await self.db.execute(
             update(BillingAccount)
             .where(BillingAccount.id == account_id)
-            .values(cached_credit_balance=round_money(total_payments - total_allocated))
+            .values(
+                cached_credit_balance=round_money(
+                    total_payments - total_refunded - total_allocated
+                )
+            )
         )
 
     async def _allocate_account_credit(self, account_id: int, user_id: int) -> None:

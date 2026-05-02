@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api } from '../../services/api'
-import { canInvoiceTerm, canManageBillingAccounts } from '../../utils/permissions'
+import { canCancelPayment, canInvoiceTerm, canManageBillingAccounts } from '../../utils/permissions'
 import { formatDate, formatDateTime, formatMoney } from '../../utils/format'
 import { formatStudentNumberShort } from '../../utils/studentNumber'
 import type { ApiResponse, PaginatedResponse } from '../../types/api'
@@ -86,6 +86,9 @@ interface PaymentRow {
   payment_date: string
   reference?: string | null
   status: string
+  refunded_amount?: number
+  refundable_amount?: number
+  refund_status?: string
 }
 
 interface StatementEntry {
@@ -94,6 +97,7 @@ interface StatementEntry {
   description: string
   reference?: string | null
   payment_id?: number | null
+  refund_id?: number | null
   allocation_id?: number | null
   invoice_id?: number | null
   credit?: number | null
@@ -122,6 +126,7 @@ export const BillingAccountDetailPage = () => {
   const { user } = useAuth()
   const { grades, transportZones, error: referencedError } = useReferencedData()
   const canManage = canManageBillingAccounts(user)
+  const canRefund = canCancelPayment(user)
   const resolvedId = Number(accountId)
 
   const { data: account, error: accountError, loading: accountLoading, refetch } = useApi<BillingAccountDetail>(
@@ -158,6 +163,7 @@ export const BillingAccountDetailPage = () => {
   }>()
   const deleteAllocationMutation = useApiMutation<boolean>()
   const manualAllocationMutation = useApiMutation<unknown>()
+  const refundPaymentMutation = useApiMutation<unknown>()
 
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [addChildDialogOpen, setAddChildDialogOpen] = useState(false)
@@ -183,6 +189,13 @@ export const BillingAccountDetailPage = () => {
     }
   })
   const [statement, setStatement] = useState<StatementResponse | null>(null)
+  const [refundDialogPayment, setRefundDialogPayment] = useState<PaymentRow | null>(null)
+  const [refundForm, setRefundForm] = useState({
+    amount: '',
+    refund_date: new Date().toISOString().slice(0, 10),
+    reason: '',
+    notes: '',
+  })
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const invoiceDetailApi = useApi<InvoiceDetail>(
@@ -213,6 +226,25 @@ export const BillingAccountDetailPage = () => {
     setChildDraft(createEmptyBillingChildDraft())
     setChildErrors({})
     setAddChildDialogOpen(true)
+  }
+
+  const getRefundableAmount = (payment: PaymentRow | null | undefined) =>
+    Number(payment?.refundable_amount ?? payment?.amount ?? 0)
+
+  const getPaymentStatusLabel = (payment: PaymentRow) => {
+    if (payment.refund_status === 'full') return 'completed / refunded'
+    if (payment.refund_status === 'partial') return 'completed / partially refunded'
+    return payment.status
+  }
+
+  const openRefundDialog = (payment: PaymentRow) => {
+    setRefundDialogPayment(payment)
+    setRefundForm({
+      amount: String(getRefundableAmount(payment)),
+      refund_date: new Date().toISOString().slice(0, 10),
+      reason: '',
+      notes: '',
+    })
   }
 
   const openManualAllocation = () => {
@@ -258,6 +290,31 @@ export const BillingAccountDetailPage = () => {
       setSuccessMessage('Credit allocated.')
     } else if (manualAllocationMutation.error) {
       setError(manualAllocationMutation.error)
+    }
+  }
+
+  const submitRefund = async () => {
+    if (!refundDialogPayment) return
+    setError(null)
+    setSuccessMessage(null)
+    refundPaymentMutation.reset()
+    const result = await refundPaymentMutation.execute(() =>
+      api.post(`/payments/${refundDialogPayment.id}/refunds`, {
+        amount: Number(refundForm.amount),
+        refund_date: refundForm.refund_date,
+        reason: refundForm.reason.trim(),
+        notes: refundForm.notes.trim() || null,
+      })
+    )
+    if (result != null) {
+      setRefundDialogPayment(null)
+      refetch()
+      invoicesApi.refetch()
+      paymentsApi.refetch()
+      if (statement) await loadStatement()
+      setSuccessMessage('Payment refunded.')
+    } else if (refundPaymentMutation.error) {
+      setError(refundPaymentMutation.error)
     }
   }
 
@@ -728,6 +785,7 @@ export const BillingAccountDetailPage = () => {
                 <TableHeaderCell>Reference</TableHeaderCell>
                 <TableHeaderCell>Status</TableHeaderCell>
                 <TableHeaderCell align="right">Amount</TableHeaderCell>
+                {canRefund && <TableHeaderCell align="right">Actions</TableHeaderCell>}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -737,13 +795,29 @@ export const BillingAccountDetailPage = () => {
                   <TableCell>{payment.payment_number}</TableCell>
                   <TableCell>{payment.student_name ?? '—'}</TableCell>
                   <TableCell>{payment.reference ?? '—'}</TableCell>
-                  <TableCell>{payment.status}</TableCell>
+                  <TableCell>{getPaymentStatusLabel(payment)}</TableCell>
                   <TableCell align="right">{formatMoney(payment.amount)}</TableCell>
+                  {canRefund && (
+                    <TableCell align="right">
+                      {payment.status === 'completed' && getRefundableAmount(payment) > 0 ? (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="error"
+                          onClick={() => openRefundDialog(payment)}
+                        >
+                          Refund
+                        </Button>
+                      ) : (
+                        '—'
+                      )}
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
               {paymentsApi.loading && (
                 <TableRow>
-                  <td colSpan={6} className="px-4 py-8 text-center">
+                  <td colSpan={canRefund ? 7 : 6} className="px-4 py-8 text-center">
                     <Spinner size="medium" />
                   </td>
                 </TableRow>
@@ -840,6 +914,64 @@ export const BillingAccountDetailPage = () => {
           </>
         )}
       </section>
+
+      <Dialog open={Boolean(refundDialogPayment)} onClose={() => setRefundDialogPayment(null)} maxWidth="sm">
+        <DialogCloseButton onClose={() => setRefundDialogPayment(null)} />
+        <DialogTitle>Refund payment</DialogTitle>
+        <DialogContent>
+          <div className="space-y-4 mt-4">
+            <Typography variant="body2">
+              Payment: {refundDialogPayment?.payment_number ?? '—'}
+            </Typography>
+            <Typography variant="body2">
+              Refundable amount: {formatMoney(getRefundableAmount(refundDialogPayment))}
+            </Typography>
+            <Input
+              label="Amount"
+              type="number"
+              value={refundForm.amount}
+              onChange={(event) =>
+                setRefundForm((current) => ({ ...current, amount: event.target.value }))
+              }
+            />
+            <Input
+              label="Refund date"
+              type="date"
+              value={refundForm.refund_date}
+              onChange={(event) =>
+                setRefundForm((current) => ({ ...current, refund_date: event.target.value }))
+              }
+            />
+            <Input
+              label="Reason"
+              value={refundForm.reason}
+              onChange={(event) =>
+                setRefundForm((current) => ({ ...current, reason: event.target.value }))
+              }
+            />
+            <Input
+              label="Notes"
+              value={refundForm.notes}
+              onChange={(event) =>
+                setRefundForm((current) => ({ ...current, notes: event.target.value }))
+              }
+            />
+          </div>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="outlined" onClick={() => setRefundDialogPayment(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={submitRefund}
+            disabled={refundPaymentMutation.loading}
+          >
+            {refundPaymentMutation.loading ? <Spinner size="small" /> : 'Refund'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={Boolean(selectedInvoiceId)} onClose={() => setSelectedInvoiceId(null)} maxWidth="lg">
         <DialogCloseButton onClose={() => setSelectedInvoiceId(null)} />

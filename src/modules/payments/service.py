@@ -18,6 +18,7 @@ from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.payments.models import (
     CreditAllocation,
     Payment,
+    PaymentRefund,
     PaymentStatus,
 )
 from src.modules.payments.schemas import (
@@ -27,6 +28,7 @@ from src.modules.payments.schemas import (
     AutoAllocateResult,
     PaymentCreate,
     PaymentFilters,
+    PaymentRefundCreate,
     PaymentUpdate,
     StatementEntry,
     StatementResponse,
@@ -194,12 +196,14 @@ class PaymentService:
         """Get payment by ID with student (grade) and received_by loaded."""
         result = await self.db.execute(
             select(Payment)
+            .execution_options(populate_existing=True)
             .where(Payment.id == payment_id)
             .options(
                 selectinload(Payment.student).selectinload(Student.grade),
                 selectinload(Payment.billing_account).selectinload(BillingAccount.students),
                 selectinload(Payment.preferred_invoice),
                 selectinload(Payment.received_by),
+                selectinload(Payment.refunds),
             )
         )
         payment = result.scalar_one_or_none()
@@ -213,11 +217,13 @@ class PaymentService:
         """List payments with filters."""
         query = (
             select(Payment)
+            .execution_options(populate_existing=True)
             .options(
                 selectinload(Payment.student),
                 selectinload(Payment.billing_account).selectinload(BillingAccount.students),
                 selectinload(Payment.preferred_invoice),
                 selectinload(Payment.received_by),
+                selectinload(Payment.refunds),
             )
         )
 
@@ -272,6 +278,21 @@ class PaymentService:
         payments = list(result.scalars().all())
 
         return payments, total
+
+    async def get_payment_refund_by_id(self, refund_id: int) -> PaymentRefund:
+        result = await self.db.execute(
+            select(PaymentRefund)
+            .where(PaymentRefund.id == refund_id)
+            .options(
+                selectinload(PaymentRefund.payment),
+                selectinload(PaymentRefund.billing_account),
+                selectinload(PaymentRefund.refunded_by),
+            )
+        )
+        refund = result.scalar_one_or_none()
+        if not refund:
+            raise NotFoundError(f"Payment refund with id {refund_id} not found")
+        return refund
 
     async def update_payment(
         self, payment_id: int, data: PaymentUpdate, updated_by_id: int
@@ -379,17 +400,19 @@ class PaymentService:
                         amount=targeted_amount,
                     ),
                     completed_by_id,
+                    source_payment_id=payment.id,
                 )
 
         remaining_to_auto_allocate = round_money(payment.amount - targeted_amount)
         if remaining_to_auto_allocate > 0:
-            await self.allocate_auto(
-                AutoAllocateRequest(
-                    billing_account_id=payment.billing_account_id,
-                    max_amount=remaining_to_auto_allocate,
-                ),
-                completed_by_id,
-            )
+                await self.allocate_auto(
+                    AutoAllocateRequest(
+                        billing_account_id=payment.billing_account_id,
+                        max_amount=remaining_to_auto_allocate,
+                    ),
+                    completed_by_id,
+                    source_payment_id=payment.id,
+                )
         return await self.get_payment_by_id(payment_id)
 
     async def cancel_payment(
@@ -416,6 +439,96 @@ class PaymentService:
         await self.db.commit()
         return await self.get_payment_by_id(payment_id)
 
+    async def refund_payment(
+        self,
+        payment_id: int,
+        data: PaymentRefundCreate,
+        refunded_by_id: int,
+    ) -> PaymentRefund:
+        """Refund a completed payment, reversing allocations when required."""
+        payment = await self.get_payment_by_id(payment_id)
+        if not payment.is_completed:
+            raise ValidationError("Can only refund completed payments")
+
+        refunded_amount = round_money(
+            sum((refund.amount for refund in payment.refunds), Decimal("0.00"))
+        )
+        requested_amount = round_money(data.amount)
+        reason = data.reason.strip()
+        if len(reason) < 3:
+            raise ValidationError("Refund reason must be at least 3 characters")
+        refundable_amount = round_money(payment.amount - refunded_amount)
+        if refundable_amount <= 0:
+            raise ValidationError("Payment is already fully refunded")
+        if requested_amount > refundable_amount:
+            raise ValidationError(
+                f"Refund exceeds remaining refundable amount. Available: {refundable_amount}"
+            )
+
+        balance = await self.get_student_balance(payment.student_id)
+        free_balance = round_money(balance.available_balance)
+        allocated_result = await self.db.execute(
+            select(func.coalesce(func.sum(CreditAllocation.amount), 0)).where(
+                CreditAllocation.billing_account_id == payment.billing_account_id
+            )
+        )
+        total_current_allocated = round_money(
+            Decimal(str(allocated_result.scalar() or 0))
+        )
+        if requested_amount > round_money(free_balance + total_current_allocated):
+            raise ValidationError("Refund exceeds current recoverable credit on the billing account")
+        amount_to_release = round_money(max(Decimal("0.00"), requested_amount - free_balance))
+
+        refund = PaymentRefund(
+            payment_id=payment.id,
+            billing_account_id=payment.billing_account_id,
+            amount=requested_amount,
+            refund_date=data.refund_date,
+            reason=reason,
+            notes=data.notes.strip() if isinstance(data.notes, str) and data.notes.strip() else None,
+            refunded_by_id=refunded_by_id,
+        )
+        self.db.add(refund)
+        await self.db.flush()
+
+        released_amount = Decimal("0.00")
+        if amount_to_release > 0:
+            released_amount = await self._release_account_allocations_for_refund(
+                billing_account_id=payment.billing_account_id,
+                amount_to_release=amount_to_release,
+                user_id=refunded_by_id,
+                reason=(
+                    f"Refund {refund.id} for payment {payment.payment_number}"
+                    f" ({requested_amount})"
+                ),
+                preferred_source_payment_id=payment.id,
+            )
+            if released_amount < amount_to_release:
+                await self.db.rollback()
+                raise ValidationError(
+                    "Unable to release enough allocated credit to complete the refund"
+                )
+
+        await self.audit.log(
+            action="payment.refund",
+            entity_type="PaymentRefund",
+            entity_id=refund.id,
+            entity_identifier=payment.payment_number,
+            user_id=refunded_by_id,
+            new_values={
+                "payment_id": payment.id,
+                "billing_account_id": payment.billing_account_id,
+                "amount": str(requested_amount),
+                "refund_date": str(data.refund_date),
+                "released_from_allocations": str(released_amount),
+            },
+            comment=reason,
+        )
+
+        await self._update_billing_account_balance_cache(payment.billing_account_id)
+        await self.db.commit()
+        return await self.get_payment_refund_by_id(refund.id)
+
     # --- Credit Balance Methods ---
 
     async def get_student_balance(self, student_id: int) -> StudentBalance:
@@ -437,6 +550,13 @@ class PaymentService:
         )
         total_payments = Decimal(str(payments_result.scalar() or 0))
 
+        refunds_result = await self.db.execute(
+            select(func.coalesce(func.sum(PaymentRefund.amount), 0)).where(
+                PaymentRefund.billing_account_id == account.id
+            )
+        )
+        total_refunded = Decimal(str(refunds_result.scalar() or 0))
+
         allocations_result = await self.db.execute(
             select(func.coalesce(func.sum(CreditAllocation.amount), 0)).where(
                 CreditAllocation.billing_account_id == account.id
@@ -450,6 +570,7 @@ class PaymentService:
             billing_account_number=account.account_number,
             billing_account_name=account.display_name,
             total_payments=round_money(total_payments),
+            total_refunded=round_money(total_refunded),
             total_allocated=round_money(total_allocated),
             available_balance=available_balance,
         )
@@ -485,6 +606,16 @@ class PaymentService:
         )
         payments_by_account = {row[0]: Decimal(str(row[1])) for row in payments_result.all()}
 
+        refunds_result = await self.db.execute(
+            select(
+                PaymentRefund.billing_account_id,
+                func.coalesce(func.sum(PaymentRefund.amount), 0),
+            )
+            .where(PaymentRefund.billing_account_id.in_(account_ids))
+            .group_by(PaymentRefund.billing_account_id)
+        )
+        refunds_by_account = {row[0]: Decimal(str(row[1])) for row in refunds_result.all()}
+
         allocations_result = await self.db.execute(
             select(
                 CreditAllocation.billing_account_id,
@@ -511,6 +642,12 @@ class PaymentService:
                         Decimal("0"),
                     )
                 ),
+                total_refunded=round_money(
+                    refunds_by_account.get(
+                        students[sid].billing_account_id if sid in students else None,
+                        Decimal("0"),
+                    )
+                ),
                 total_allocated=round_money(
                     allocations_by_account.get(
                         students[sid].billing_account_id if sid in students else None,
@@ -529,7 +666,11 @@ class PaymentService:
     # --- Allocation Methods ---
 
     async def allocate_manual(
-        self, data: AllocationCreate, allocated_by_id: int
+        self,
+        data: AllocationCreate,
+        allocated_by_id: int,
+        *,
+        source_payment_id: int | None = None,
     ) -> CreditAllocation:
         """Manually allocate credit to an invoice."""
         account, _ = await self._resolve_billing_context(
@@ -580,6 +721,7 @@ class PaymentService:
             billing_account_id=account.id,
             invoice_id=data.invoice_id,
             invoice_line_id=data.invoice_line_id,
+            source_payment_id=source_payment_id,
             amount=round_money(data.amount),
             allocated_by_id=allocated_by_id,
         )
@@ -614,6 +756,7 @@ class PaymentService:
         allocated_by_id: int,
         *,
         allocation_created_at: datetime | None = None,
+        source_payment_id: int | None = None,
         commit: bool = True,
     ) -> AutoAllocateResult:
         """
@@ -678,6 +821,7 @@ class PaymentService:
                 "billing_account_id": account.id,
                 "invoice_id": invoice.id,
                 "invoice_line_id": None,
+                "source_payment_id": source_payment_id,
                 "amount": round_money(amount),
                 "allocated_by_id": allocated_by_id,
             }
@@ -894,6 +1038,7 @@ class PaymentService:
 
         billing_account_id = allocation.billing_account_id
         allocation_created_at = allocation.created_at
+        source_payment_id = allocation.source_payment_id
 
         await self.delete_allocation(
             allocation_id,
@@ -905,6 +1050,7 @@ class PaymentService:
             AutoAllocateRequest(billing_account_id=billing_account_id),
             allocated_by_id=allocated_by_id,
             allocation_created_at=allocation_created_at,
+            source_payment_id=source_payment_id,
             commit=False,
         )
         await self.db.commit()
@@ -955,6 +1101,14 @@ class PaymentService:
         )
         opening_credits = Decimal(str(opening_payments.scalar() or 0))
 
+        opening_refunds = await self.db.execute(
+            select(func.coalesce(func.sum(PaymentRefund.amount), 0)).where(
+                PaymentRefund.billing_account_id == billing_account_id,
+                PaymentRefund.refund_date < date_from,
+            )
+        )
+        opening_refund_debits = Decimal(str(opening_refunds.scalar() or 0))
+
         opening_allocations = await self.db.execute(
             select(func.coalesce(func.sum(CreditAllocation.amount), 0)).where(
                 CreditAllocation.billing_account_id == billing_account_id,
@@ -963,7 +1117,7 @@ class PaymentService:
         )
         opening_debits = Decimal(str(opening_allocations.scalar() or 0))
 
-        opening_balance = round_money(opening_credits - opening_debits)
+        opening_balance = round_money(opening_credits - opening_refund_debits - opening_debits)
 
         # Get payments in period
         payments_result = await self.db.execute(
@@ -977,6 +1131,18 @@ class PaymentService:
             .order_by(Payment.payment_date, Payment.created_at)
         )
         payments = list(payments_result.scalars().all())
+
+        refunds_result = await self.db.execute(
+            select(PaymentRefund)
+            .where(
+                PaymentRefund.billing_account_id == billing_account_id,
+                PaymentRefund.refund_date >= date_from,
+                PaymentRefund.refund_date <= date_to,
+            )
+            .options(selectinload(PaymentRefund.payment))
+            .order_by(PaymentRefund.refund_date, PaymentRefund.created_at)
+        )
+        refunds = list(refunds_result.scalars().all())
 
         # Get allocations in period
         allocations_result = await self.db.execute(
@@ -1005,13 +1171,24 @@ class PaymentService:
             return dt.astimezone(timezone.utc)
 
         # Convert to entries with unified datetime for sorting
-        all_items: list[tuple[datetime, str, Payment | CreditAllocation]] = []
+        all_items: list[tuple[datetime, str, Payment | PaymentRefund | CreditAllocation]] = []
 
         for payment in payments:
             dt = datetime.combine(
                 payment.payment_date, datetime.min.time(), tzinfo=timezone.utc
             )
             all_items.append((dt, "payment", payment))
+
+        for refund in refunds:
+            refund_time = (
+                refund.created_at.timetz()
+                if refund.created_at.tzinfo is not None
+                else refund.created_at.time()
+            )
+            dt = datetime.combine(refund.refund_date, refund_time)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            all_items.append((dt, "refund", refund))
 
         for allocation in allocations:
             all_items.append((_to_utc(allocation.created_at), "allocation", allocation))
@@ -1033,6 +1210,24 @@ class PaymentService:
                         payment_id=payment.id,
                         credit=payment.amount,
                         debit=None,
+                        balance=round_money(running_balance),
+                    )
+                )
+            elif item_type == "refund":
+                refund = item
+                running_balance -= refund.amount
+                total_debits += refund.amount
+                payment = refund.payment
+                entries.append(
+                    StatementEntry(
+                        date=dt,
+                        entry_type="refund",
+                        description=f"Refund for {payment.receipt_number or payment.payment_number}",
+                        reference=payment.receipt_number or payment.payment_number,
+                        payment_id=payment.id,
+                        refund_id=refund.id,
+                        credit=None,
+                        debit=refund.amount,
                         balance=round_money(running_balance),
                     )
                 )
@@ -1136,6 +1331,82 @@ class PaymentService:
         if not line:
             raise NotFoundError(f"Invoice line with id {line_id} not found")
         return line
+
+    async def _release_account_allocations_for_refund(
+        self,
+        billing_account_id: int,
+        amount_to_release: Decimal,
+        user_id: int,
+        reason: str,
+        *,
+        preferred_source_payment_id: int | None = None,
+    ) -> Decimal:
+        """Release current allocations back into credit before a refund is recorded."""
+        if amount_to_release <= 0:
+            return Decimal("0.00")
+
+        result = await self.db.execute(
+            select(CreditAllocation)
+            .where(CreditAllocation.billing_account_id == billing_account_id)
+            .order_by(CreditAllocation.created_at.desc(), CreditAllocation.id.desc())
+        )
+        allocations = list(result.scalars().all())
+        if not allocations:
+            return Decimal("0.00")
+
+        # Prefer allocations created directly from this payment when available.
+        allocations.sort(
+            key=lambda allocation: (
+                0
+                if preferred_source_payment_id is not None
+                and allocation.source_payment_id == preferred_source_payment_id
+                else 1,
+                -allocation.created_at.timestamp(),
+                -allocation.id,
+            ),
+        )
+
+        remaining = round_money(amount_to_release)
+        released = Decimal("0.00")
+        touched_invoice_ids: set[int] = set()
+
+        for allocation in allocations:
+            if remaining <= 0:
+                break
+
+            release_amount = min(remaining, round_money(allocation.amount))
+            if release_amount <= 0:
+                continue
+
+            old_amount = round_money(allocation.amount)
+            new_amount = round_money(old_amount - release_amount)
+            await self.audit.log(
+                action="allocation.refund_release",
+                entity_type="CreditAllocation",
+                entity_id=allocation.id,
+                user_id=user_id,
+                old_values={"amount": str(old_amount)},
+                new_values={"amount": str(new_amount)},
+                comment=reason,
+            )
+
+            if new_amount <= 0:
+                await self.db.delete(allocation)
+            else:
+                allocation.amount = new_amount
+
+            touched_invoice_ids.add(allocation.invoice_id)
+            released = round_money(released + release_amount)
+            remaining = round_money(remaining - release_amount)
+
+        await self.db.flush()
+
+        for invoice_id in touched_invoice_ids:
+            invoice = await self._get_invoice(invoice_id)
+            await self._update_invoice_paid_amounts(invoice)
+            await self._sync_reservations_for_invoice(invoice.id, user_id)
+
+        return round_money(released)
 
     async def _sum_invoice_allocations(self, invoice_id: int) -> Decimal:
         result = await self.db.execute(
@@ -1385,6 +1656,13 @@ class PaymentService:
         )
         total_payments = Decimal(str(payments_result.scalar() or 0))
 
+        refunds_result = await self.db.execute(
+            select(func.coalesce(func.sum(PaymentRefund.amount), 0)).where(
+                PaymentRefund.billing_account_id == billing_account_id
+            )
+        )
+        total_refunded = Decimal(str(refunds_result.scalar() or 0))
+
         allocations_result = await self.db.execute(
             select(func.coalesce(func.sum(CreditAllocation.amount), 0)).where(
                 CreditAllocation.billing_account_id == billing_account_id
@@ -1392,7 +1670,7 @@ class PaymentService:
         )
         total_allocated = Decimal(str(allocations_result.scalar() or 0))
 
-        new_balance = round_money(total_payments - total_allocated)
+        new_balance = round_money(total_payments - total_refunded - total_allocated)
         await self.db.execute(
             update(BillingAccount)
             .where(BillingAccount.id == billing_account_id)

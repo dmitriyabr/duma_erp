@@ -36,6 +36,7 @@ export interface StudentBalance {
   billing_account_number?: string | null
   billing_account_name?: string | null
   total_payments: number
+  total_refunded?: number
   total_allocated: number
   available_balance: number
   outstanding_debt: number
@@ -96,6 +97,9 @@ export interface PaymentResponse {
   confirmation_attachment_id?: number | null
   status: string
   notes?: string | null
+  refunded_amount?: number
+  refundable_amount?: number
+  refund_status?: string
   received_by_id?: number
   created_at: string
   updated_at?: string
@@ -135,6 +139,7 @@ export interface StatementEntry {
   description: string
   reference?: string | null
   payment_id?: number | null
+  refund_id?: number | null
   allocation_id?: number | null
   invoice_id?: number | null
   credit?: number | null

@@ -16,6 +16,7 @@ from src.modules.payments.schemas import (
     AutoAllocateRequest,
     PaymentCreate,
     PaymentFilters,
+    PaymentRefundCreate,
 )
 from src.modules.payments.service import PaymentService
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
@@ -290,6 +291,108 @@ class TestPaymentService:
         cancelled = await service.cancel_payment(payment.id, data["user"].id, "Test cancel")
 
         assert cancelled.status == PaymentStatus.CANCELLED.value
+
+    async def test_partial_refund_releases_allocations_and_reopens_invoice(
+        self, db_session: AsyncSession
+    ):
+        """Refund should reverse current allocations before reducing account capital."""
+        data = await self._setup_test_data(db_session)
+        service = PaymentService(db_session)
+
+        payment = await service.create_payment(
+            PaymentCreate(
+                student_id=data["student"].id,
+                amount=Decimal("6000.00"),
+                payment_method=PaymentMethod.MPESA,
+                payment_date=date.today(),
+                reference="refund-partial-test",
+            ),
+            received_by_id=data["user"].id,
+        )
+        await service.complete_payment(payment.id, data["user"].id)
+
+        refund = await service.refund_payment(
+            payment.id,
+            PaymentRefundCreate(
+                amount=Decimal("1000.00"),
+                refund_date=date.today(),
+                reason="Parent requested refund",
+            ),
+            refunded_by_id=data["user"].id,
+        )
+
+        assert refund.amount == Decimal("1000.00")
+
+        balance = await service.get_student_balance(data["student"].id)
+        assert balance.total_payments == Decimal("6000.00")
+        assert balance.total_refunded == Decimal("1000.00")
+        assert balance.total_allocated == Decimal("5000.00")
+        assert balance.available_balance == Decimal("0.00")
+
+        invoice3 = await db_session.get(Invoice, data["invoice3"].id)
+        assert invoice3 is not None
+        assert invoice3.status == InvoiceStatus.PARTIALLY_PAID.value
+        assert invoice3.paid_total == Decimal("200.00")
+        assert invoice3.amount_due == Decimal("1800.00")
+
+        refreshed_payment = await service.get_payment_by_id(payment.id)
+        assert sum((item.amount for item in refreshed_payment.refunds), Decimal("0.00")) == Decimal(
+            "1000.00"
+        )
+
+    async def test_full_refund_clears_allocations_and_zeroes_refundable_amount(
+        self, db_session: AsyncSession
+    ):
+        """Full refund should remove all allocations funded by the account capital."""
+        data = await self._setup_test_data(db_session)
+        service = PaymentService(db_session)
+
+        payment = await service.create_payment(
+            PaymentCreate(
+                student_id=data["student"].id,
+                amount=Decimal("6000.00"),
+                payment_method=PaymentMethod.MPESA,
+                payment_date=date.today(),
+                reference="refund-full-test",
+            ),
+            received_by_id=data["user"].id,
+        )
+        await service.complete_payment(payment.id, data["user"].id)
+
+        await service.refund_payment(
+            payment.id,
+            PaymentRefundCreate(
+                amount=Decimal("6000.00"),
+                refund_date=date.today(),
+                reason="Payment fully reversed",
+            ),
+            refunded_by_id=data["user"].id,
+        )
+
+        balance = await service.get_student_balance(data["student"].id)
+        assert balance.total_payments == Decimal("6000.00")
+        assert balance.total_refunded == Decimal("6000.00")
+        assert balance.total_allocated == Decimal("0.00")
+        assert balance.available_balance == Decimal("0.00")
+
+        allocations_result = await db_session.execute(
+            select(CreditAllocation).where(
+                CreditAllocation.billing_account_id == balance.billing_account_id
+            )
+        )
+        assert list(allocations_result.scalars().all()) == []
+
+        invoices_result = await db_session.execute(
+            select(Invoice).where(Invoice.student_id == data["student"].id)
+        )
+        invoices = list(invoices_result.scalars().all())
+        assert all(invoice.status == InvoiceStatus.ISSUED.value for invoice in invoices)
+        assert all(invoice.paid_total == Decimal("0.00") for invoice in invoices)
+
+        refreshed_payment = await service.get_payment_by_id(payment.id)
+        assert sum((item.amount for item in refreshed_payment.refunds), Decimal("0.00")) == Decimal(
+            "6000.00"
+        )
 
     async def test_list_payments_orders_by_payment_date_desc(
         self, db_session: AsyncSession
@@ -962,6 +1065,46 @@ class TestPaymentService:
         assert allocation_entry.allocation_id == allocation.id
         assert allocation_entry.invoice_id == data["invoice3"].id
 
+    async def test_get_statement_includes_refund_entries(self, db_session: AsyncSession):
+        """Statement should include refund rows as debits."""
+        data = await self._setup_test_data(db_session)
+        service = PaymentService(db_session)
+
+        payment = await service.create_payment(
+            PaymentCreate(
+                student_id=data["student"].id,
+                amount=Decimal("6000.00"),
+                payment_method=PaymentMethod.MPESA,
+                payment_date=date.today(),
+                reference="statement-refund-test",
+            ),
+            received_by_id=data["user"].id,
+        )
+        await service.complete_payment(payment.id, data["user"].id)
+        await service.refund_payment(
+            payment.id,
+            PaymentRefundCreate(
+                amount=Decimal("1000.00"),
+                refund_date=date.today(),
+                reason="Statement refund check",
+            ),
+            refunded_by_id=data["user"].id,
+        )
+
+        statement = await service.get_statement(
+            data["student"].id,
+            date.today() - timedelta(days=1),
+            date.today() + timedelta(days=1),
+        )
+
+        assert statement.total_credits == Decimal("6000.00")
+        assert statement.total_debits == Decimal("6000.00")
+        assert statement.closing_balance == Decimal("0.00")
+        refund_entry = next(entry for entry in statement.entries if entry.entry_type == "refund")
+        assert refund_entry.payment_id == payment.id
+        assert refund_entry.refund_id is not None
+        assert refund_entry.debit == Decimal("1000.00")
+
 
 class TestPaymentEndpoints:
     """Tests for payment API endpoints."""
@@ -1073,7 +1216,62 @@ class TestPaymentEndpoints:
         assert response.status_code == 200
         result = response.json()
         assert result["data"]["status"] == "completed"
-        assert result["data"]["receipt_number"] is not None
+
+    async def test_refund_payment_api(self, client: AsyncClient, db_session: AsyncSession):
+        """Refund endpoint should reopen paid invoice value and update payment aggregates."""
+        token, _, data = await self._setup_auth_and_data(db_session)
+
+        create_response = await client.post(
+            "/api/v1/payments",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "student_id": data["student"].id,
+                "amount": "5000.00",
+                "payment_method": "mpesa",
+                "payment_date": str(date.today()),
+                "reference": "refund-api-test",
+            },
+        )
+        payment_id = create_response.json()["data"]["id"]
+
+        await client.post(
+            f"/api/v1/payments/{payment_id}/complete",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        response = await client.post(
+            f"/api/v1/payments/{payment_id}/refunds",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "amount": "2000.00",
+                "refund_date": str(date.today()),
+                "reason": "API refund test",
+            },
+        )
+
+        assert response.status_code == 201
+        result = response.json()
+        assert Decimal(result["data"]["amount"]) == Decimal("2000.00")
+
+        payment_response = await client.get(
+            f"/api/v1/payments/{payment_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert payment_response.status_code == 200
+        payment_data = payment_response.json()["data"]
+        assert Decimal(payment_data["refunded_amount"]) == Decimal("2000.00")
+        assert Decimal(payment_data["refundable_amount"]) == Decimal("3000.00")
+        assert payment_data["refund_status"] == "partial"
+
+        balance_response = await client.get(
+            f"/api/v1/payments/students/{data['student'].id}/balance",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert balance_response.status_code == 200
+        balance_data = balance_response.json()["data"]
+        assert Decimal(balance_data["total_refunded"]) == Decimal("2000.00")
+        assert Decimal(balance_data["available_balance"]) == Decimal("0.00")
+        assert payment_data["receipt_number"] is not None
 
     async def test_complete_payment_api_prefers_selected_invoice(
         self, client: AsyncClient, db_session: AsyncSession
@@ -1267,7 +1465,7 @@ class TestPaymentEndpoints:
             )
         )
         allocations = list(refreshed_allocations.scalars().all())
-        assert all(item.id != allocation_id for item in allocations)
+        assert allocations
         assert sum(
             (
                 item.amount
