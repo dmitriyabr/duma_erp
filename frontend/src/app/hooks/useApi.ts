@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import axios from 'axios'
+import { formatApiErrorMessage } from '../utils/apiErrors'
 
 interface UseApiState<T> {
   data: T | null
@@ -58,11 +59,7 @@ export function useApi<T>(
         return
       }
 
-      const message = axios.isAxiosError(err)
-        ? err.response?.data?.message || err.message
-        : 'An unexpected error occurred'
-
-      setState({ data: null, loading: false, error: message })
+      setState({ data: null, loading: false, error: formatApiErrorMessage(err) })
     }
   }, [url, JSON.stringify(options)])
 
@@ -114,11 +111,7 @@ export function useApiMutation<T>() {
           return null
         }
 
-        const message = axios.isAxiosError(err)
-          ? err.response?.data?.message || err.message
-          : 'An unexpected error occurred'
-
-        setState({ data: null, loading: false, error: message })
+        setState({ data: null, loading: false, error: formatApiErrorMessage(err) })
         return null
       }
     },

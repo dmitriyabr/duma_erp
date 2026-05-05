@@ -171,6 +171,37 @@ class CreditAllocation(Base):
     invoice_line: Mapped["InvoiceLine"] = relationship("InvoiceLine")
     allocated_by: Mapped["User"] = relationship("User")
     source_payment: Mapped["Payment | None"] = relationship("Payment")
+    reversals: Mapped[list["CreditAllocationReversal"]] = relationship(
+        "CreditAllocationReversal",
+        back_populates="allocation",
+        cascade="all, delete-orphan",
+        order_by="CreditAllocationReversal.reversed_at",
+    )
+
+
+class CreditAllocationReversal(Base):
+    """Historical reduction recorded against a credit allocation."""
+
+    __tablename__ = "credit_allocation_reversals"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    credit_allocation_id: Mapped[int] = mapped_column(
+        BigIntPK, ForeignKey("credit_allocations.id"), nullable=False, index=True
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reversed_by_id: Mapped[int | None] = mapped_column(
+        BigIntPK, ForeignKey("users.id"), nullable=True
+    )
+    reversed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+    allocation: Mapped["CreditAllocation"] = relationship(
+        "CreditAllocation",
+        back_populates="reversals",
+    )
+    reversed_by: Mapped["User | None"] = relationship("User")
 
 
 class PaymentRefund(Base):
@@ -187,6 +218,12 @@ class PaymentRefund(Base):
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
     refund_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    refund_method: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    reference_number: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    proof_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    proof_attachment_id: Mapped[int | None] = mapped_column(
+        BigIntPK, ForeignKey("attachments.id"), nullable=True, index=True
+    )
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     refunded_by_id: Mapped[int] = mapped_column(

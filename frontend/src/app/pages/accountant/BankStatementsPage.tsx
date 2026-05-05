@@ -28,6 +28,7 @@ type MatchedEntityType =
   | 'compensation_payout'
   | 'budget_advance'
   | 'budget_advance_return'
+  | 'payment_refund'
 
 interface BankTransactionMatchInfo {
   id: number
@@ -154,6 +155,7 @@ export const BankStatementsPage = () => {
           <option value="compensation_payout">Compensation payouts</option>
           <option value="budget_advance">Budget advances</option>
           <option value="budget_advance_return">Budget advance returns</option>
+          <option value="payment_refund">Payment refunds</option>
         </Select>
         <Select
           value={txnType}
@@ -226,6 +228,10 @@ export const BankStatementsPage = () => {
                             {m.entity_number}
                           </Button>
                         </RouterLink>
+                      ) : m.entity_type === 'payment_refund' ? (
+                        <Button size="small" variant="outlined">
+                          {m.entity_number}
+                        </Button>
                       ) : (
                         <RouterLink to="/compensations/advances">
                           <Button size="small" variant="outlined">

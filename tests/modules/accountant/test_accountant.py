@@ -123,6 +123,87 @@ class TestAccountantExportStudentPayments:
         assert "Reference" in text
         assert "Amount" in text
 
+    async def test_export_student_payments_includes_refund_columns(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        from src.modules.payments.models import PaymentRefund
+
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="accountant_refund_payments@test.com",
+            password="Pass123",
+            full_name="Accountant User",
+            role=UserRole.ACCOUNTANT,
+        )
+        await db_session.flush()
+
+        grade = Grade(code="APR", name="Accountant Refund", display_order=1, is_active=True)
+        account = BillingAccount(
+            account_number="FAM-2026-APR001",
+            display_name="Accountant Refund Account",
+            primary_guardian_name="Refund Contact",
+            primary_guardian_phone="+254700000118",
+            created_by_id=user.id,
+        )
+        db_session.add_all([grade, account])
+        await db_session.flush()
+
+        student = Student(
+            student_number="STU-2026-APR001",
+            first_name="Refund",
+            last_name="Export",
+            gender=Gender.MALE.value,
+            billing_account_id=account.id,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Refund Contact",
+            guardian_phone="+254700000118",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add(student)
+        await db_session.flush()
+
+        payment = Payment(
+            payment_number="PAY-2026-APR001",
+            receipt_number="RCP-2026-APR001",
+            student_id=student.id,
+            billing_account_id=account.id,
+            amount=Decimal("120.00"),
+            payment_method="mpesa",
+            payment_date=date(2026, 1, 10),
+            reference="MPESA-APR001",
+            status="completed",
+            received_by_id=user.id,
+        )
+        db_session.add(payment)
+        await db_session.flush()
+        db_session.add(
+            PaymentRefund(
+                payment_id=payment.id,
+                billing_account_id=account.id,
+                amount=Decimal("20.00"),
+                refund_date=date(2026, 1, 20),
+                reason="Accountant export refund",
+                refunded_by_id=user.id,
+            )
+        )
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate("accountant_refund_payments@test.com", "Pass123")
+        response = await client.get(
+            "/api/v1/accountant/export/student-payments"
+            "?start_date=2026-01-01&end_date=2026-01-31&format=csv",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        text = response.text
+        assert "Refunded Amount" in text
+        assert "Net Received" in text
+        assert "partial" in text
+        assert "20.00" in text
+        assert "100.00" in text
+
     async def test_export_student_payments_includes_billing_account_roster(
         self, client: AsyncClient, db_session: AsyncSession
     ):

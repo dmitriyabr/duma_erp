@@ -1668,6 +1668,89 @@ class TestCashFlow:
         )
         assert response.status_code == 403
 
+    async def test_cash_flow_includes_student_refunds_as_outflow(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        from src.modules.billing_accounts.models import BillingAccount
+        from src.modules.payments.models import Payment, PaymentRefund
+
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_cf_refund_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        grade = Grade(code="CFR", name="CashFlow Refund", display_order=1, is_active=True)
+        account = BillingAccount(
+            account_number="FAM-2026-CFR001",
+            display_name="CashFlow Refund Family",
+            primary_guardian_name="Refund Parent",
+            primary_guardian_phone="+254700000111",
+            created_by_id=user.id,
+        )
+        db_session.add_all([grade, account])
+        await db_session.flush()
+
+        student = Student(
+            student_number="STU-2026-CFR001",
+            first_name="CashFlow",
+            last_name="Refund",
+            gender=Gender.MALE.value,
+            billing_account_id=account.id,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Refund Parent",
+            guardian_phone="+254700000111",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add(student)
+        await db_session.flush()
+
+        payment = Payment(
+            payment_number="PAY-2026-CFR001",
+            receipt_number="RCP-2026-CFR001",
+            student_id=student.id,
+            billing_account_id=account.id,
+            amount=Decimal("100.00"),
+            payment_method="mpesa",
+            payment_date=date(2026, 1, 10),
+            status="completed",
+            received_by_id=user.id,
+        )
+        db_session.add(payment)
+        await db_session.flush()
+        db_session.add(
+            PaymentRefund(
+                payment_id=payment.id,
+                billing_account_id=account.id,
+                amount=Decimal("30.00"),
+                refund_date=date(2026, 1, 15),
+                reason="Cash flow refund",
+                refunded_by_id=user.id,
+            )
+        )
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate("reports_cf_refund_admin@test.com", "Pass123")
+        response = await client.get(
+            "/api/v1/reports/cash-flow?date_from=2026-01-01&date_to=2026-01-31",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        inflows = {row["label"]: Decimal(row["amount"]) for row in data["inflow_lines"]}
+        outflows = {row["label"]: Decimal(row["amount"]) for row in data["outflow_lines"]}
+        assert inflows["Unallocated / Credit"] == Decimal("100.00")
+        assert outflows["Student Refunds"] == Decimal("30.00")
+        assert Decimal(data["total_inflows"]) == Decimal("100.00")
+        assert Decimal(data["total_outflows"]) == Decimal("30.00")
+        assert Decimal(data["net_cash_flow"]) == Decimal("70.00")
+        assert Decimal(data["closing_balance"]) == Decimal("70.00")
+
     async def test_cash_flow_inflows_breakdown_by_invoice_type_and_credit(
         self, client: AsyncClient, db_session: AsyncSession
     ):
@@ -2256,6 +2339,115 @@ class TestBalanceSheet:
         }
         assert liabilities["Billing Account Credit Balances"] == Decimal("20.00")
 
+    async def test_balance_sheet_reflects_refunds_in_cash_and_credit_balances(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        from datetime import datetime, timezone
+
+        from src.modules.billing_accounts.models import BillingAccount
+        from src.modules.payments.models import CreditAllocation, Payment, PaymentRefund
+
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_bs_refund_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        grade = Grade(code="BSR", name="Balance Sheet Refund", display_order=1, is_active=True)
+        account = BillingAccount(
+            account_number="FAM-2026-BSR001",
+            display_name="Balance Sheet Refund Family",
+            primary_guardian_name="Refund Parent",
+            primary_guardian_phone="+254700000112",
+            created_by_id=user.id,
+        )
+        db_session.add_all([grade, account])
+        await db_session.flush()
+
+        student = Student(
+            student_number="STU-2026-BSR001",
+            first_name="Balance",
+            last_name="Refund",
+            gender=Gender.MALE.value,
+            billing_account_id=account.id,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Refund Parent",
+            guardian_phone="+254700000112",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add(student)
+        await db_session.flush()
+
+        invoice = Invoice(
+            invoice_number="INV-2026-BSR001",
+            student_id=student.id,
+            billing_account_id=account.id,
+            term_id=None,
+            invoice_type="school_fee",
+            status=InvoiceStatus.PAID.value,
+            issue_date=date(2026, 1, 1),
+            due_date=date(2026, 1, 31),
+            subtotal=Decimal("80.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("80.00"),
+            paid_total=Decimal("80.00"),
+            amount_due=Decimal("0.00"),
+            created_by_id=user.id,
+        )
+        payment = Payment(
+            payment_number="PAY-2026-BSR001",
+            receipt_number="RCP-2026-BSR001",
+            student_id=student.id,
+            billing_account_id=account.id,
+            amount=Decimal("100.00"),
+            payment_method="mpesa",
+            payment_date=date(2026, 1, 5),
+            status="completed",
+            received_by_id=user.id,
+        )
+        db_session.add_all([invoice, payment])
+        await db_session.flush()
+
+        db_session.add(
+            CreditAllocation(
+                student_id=student.id,
+                billing_account_id=account.id,
+                invoice_id=invoice.id,
+                invoice_line_id=None,
+                amount=Decimal("80.00"),
+                allocated_by_id=user.id,
+                created_at=datetime(2026, 1, 5, 12, 0, tzinfo=timezone.utc),
+            )
+        )
+        db_session.add(
+            PaymentRefund(
+                payment_id=payment.id,
+                billing_account_id=account.id,
+                amount=Decimal("10.00"),
+                refund_date=date(2026, 1, 20),
+                reason="Balance sheet refund",
+                refunded_by_id=user.id,
+            )
+        )
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate("reports_bs_refund_admin@test.com", "Pass123")
+        response = await client.get(
+            "/api/v1/reports/balance-sheet?as_at_date=2026-01-31",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assets = {row["label"]: Decimal(row["amount"]) for row in data["asset_lines"]}
+        liabilities = {row["label"]: Decimal(row["amount"]) for row in data["liability_lines"]}
+        assert assets["Cash"] == Decimal("90.00")
+        assert liabilities["Billing Account Credit Balances"] == Decimal("10.00")
+
     async def test_balance_sheet_user_forbidden(
         self, client: AsyncClient, db_session: AsyncSession
     ):
@@ -2398,6 +2590,108 @@ class TestCollectionRate:
         assert "total_invoiced" in d["rows"][0]
         assert "total_paid" in d["rows"][0]
         assert "rate_percent" in d["rows"][0]
+
+    async def test_collection_rate_nets_refunds(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        from src.modules.billing_accounts.models import BillingAccount
+        from src.modules.payments.models import Payment, PaymentRefund
+
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_collection_refund_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        today = date.today()
+        month_start = date(today.year, today.month, 1)
+
+        grade = Grade(code="CLR", name="Collection Refund", display_order=1, is_active=True)
+        account = BillingAccount(
+            account_number="FAM-COLLECTION-001",
+            display_name="Collection Refund Family",
+            primary_guardian_name="Collection Parent",
+            primary_guardian_phone="+254700000113",
+            created_by_id=user.id,
+        )
+        db_session.add_all([grade, account])
+        await db_session.flush()
+
+        student = Student(
+            student_number="STU-COLLECTION-001",
+            first_name="Collection",
+            last_name="Refund",
+            gender=Gender.MALE.value,
+            billing_account_id=account.id,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Collection Parent",
+            guardian_phone="+254700000113",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add(student)
+        await db_session.flush()
+
+        db_session.add(
+            Invoice(
+                invoice_number="INV-COLLECTION-001",
+                student_id=student.id,
+                billing_account_id=account.id,
+                term_id=None,
+                invoice_type="school_fee",
+                status=InvoiceStatus.ISSUED.value,
+                issue_date=month_start,
+                due_date=month_start,
+                subtotal=Decimal("100.00"),
+                discount_total=Decimal("0.00"),
+                total=Decimal("100.00"),
+                paid_total=Decimal("0.00"),
+                amount_due=Decimal("100.00"),
+                created_by_id=user.id,
+            )
+        )
+        payment = Payment(
+            payment_number="PAY-COLLECTION-001",
+            receipt_number="RCP-COLLECTION-001",
+            student_id=student.id,
+            billing_account_id=account.id,
+            amount=Decimal("100.00"),
+            payment_method="mpesa",
+            payment_date=month_start,
+            status="completed",
+            received_by_id=user.id,
+        )
+        db_session.add(payment)
+        await db_session.flush()
+        db_session.add(
+            PaymentRefund(
+                payment_id=payment.id,
+                billing_account_id=account.id,
+                amount=Decimal("40.00"),
+                refund_date=month_start,
+                reason="Collection refund",
+                refunded_by_id=user.id,
+            )
+        )
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate(
+            "reports_collection_refund_admin@test.com",
+            "Pass123",
+        )
+        response = await client.get(
+            "/api/v1/reports/collection-rate?months=1",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        row = response.json()["data"]["rows"][0]
+        assert Decimal(row["total_invoiced"]) == Decimal("100.00")
+        assert Decimal(row["total_paid"]) == Decimal("60.00")
+        assert row["rate_percent"] == 60.0
 
     async def test_collection_rate_user_forbidden(
         self, client: AsyncClient, db_session: AsyncSession
@@ -2872,6 +3166,133 @@ class TestRevenueTrend:
         assert row["students_count"] == 2
         assert Decimal(row["avg_revenue_per_student"]) == Decimal("100.00")
 
+    async def test_revenue_trend_excludes_fully_refunded_accounts(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        from src.modules.billing_accounts.models import BillingAccount
+        from src.modules.payments.models import Payment, PaymentRefund
+
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_revenue_refund_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        grade = Grade(code="RVR", name="Revenue Refund", display_order=1, is_active=True)
+        refunded_account = BillingAccount(
+            account_number="FAM-2026-RVR001",
+            display_name="Refunded Revenue Family",
+            primary_guardian_name="Refund Parent",
+            primary_guardian_phone="+254700000114",
+            created_by_id=user.id,
+        )
+        net_account = BillingAccount(
+            account_number="FAM-2026-RVR002",
+            display_name="Net Revenue Family",
+            primary_guardian_name="Net Parent",
+            primary_guardian_phone="+254700000115",
+            created_by_id=user.id,
+        )
+        db_session.add_all([grade, refunded_account, net_account])
+        await db_session.flush()
+
+        refunded_students = [
+            Student(
+                student_number="STU-2026-RVR001",
+                first_name="Refunded",
+                last_name="One",
+                gender=Gender.MALE.value,
+                billing_account_id=refunded_account.id,
+                grade_id=grade.id,
+                transport_zone_id=None,
+                guardian_name="Refund Parent",
+                guardian_phone="+254700000114",
+                status=StudentStatus.ACTIVE.value,
+                created_by_id=user.id,
+            ),
+            Student(
+                student_number="STU-2026-RVR002",
+                first_name="Refunded",
+                last_name="Two",
+                gender=Gender.FEMALE.value,
+                billing_account_id=refunded_account.id,
+                grade_id=grade.id,
+                transport_zone_id=None,
+                guardian_name="Refund Parent",
+                guardian_phone="+254700000114",
+                status=StudentStatus.ACTIVE.value,
+                created_by_id=user.id,
+            ),
+        ]
+        net_student = Student(
+            student_number="STU-2026-RVR003",
+            first_name="Net",
+            last_name="Revenue",
+            gender=Gender.MALE.value,
+            billing_account_id=net_account.id,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Net Parent",
+            guardian_phone="+254700000115",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add_all(refunded_students + [net_student])
+        await db_session.flush()
+
+        refunded_payment = Payment(
+            payment_number="PAY-2026-RVR001",
+            receipt_number="RCP-2026-RVR001",
+            student_id=refunded_students[0].id,
+            billing_account_id=refunded_account.id,
+            amount=Decimal("200.00"),
+            payment_method="mpesa",
+            payment_date=date(2026, 1, 10),
+            status="completed",
+            received_by_id=user.id,
+        )
+        net_payment = Payment(
+            payment_number="PAY-2026-RVR002",
+            receipt_number="RCP-2026-RVR002",
+            student_id=net_student.id,
+            billing_account_id=net_account.id,
+            amount=Decimal("90.00"),
+            payment_method="mpesa",
+            payment_date=date(2026, 1, 10),
+            status="completed",
+            received_by_id=user.id,
+        )
+        db_session.add_all([refunded_payment, net_payment])
+        await db_session.flush()
+        db_session.add(
+            PaymentRefund(
+                payment_id=refunded_payment.id,
+                billing_account_id=refunded_account.id,
+                amount=Decimal("200.00"),
+                refund_date=date(2026, 1, 20),
+                reason="Revenue trend refund",
+                refunded_by_id=user.id,
+            )
+        )
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate(
+            "reports_revenue_refund_admin@test.com",
+            "Pass123",
+        )
+        response = await client.get(
+            "/api/v1/reports/revenue-trend?years=1",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        row = response.json()["data"]["rows"][0]
+        assert Decimal(row["total_revenue"]) == Decimal("90.00")
+        assert row["students_count"] == 1
+        assert Decimal(row["avg_revenue_per_student"]) == Decimal("90.00")
+
     async def test_revenue_trend_user_forbidden(
         self, client: AsyncClient, db_session: AsyncSession
     ):
@@ -2906,6 +3327,99 @@ class TestPaymentMethodDistribution:
         assert d["date_to"] == "2026-01-31"
         assert "rows" in d
         assert "total_amount" in d
+
+    async def test_payment_method_distribution_nets_refunds(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        from src.modules.billing_accounts.models import BillingAccount
+        from src.modules.payments.models import Payment, PaymentRefund
+
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_method_refund_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        grade = Grade(code="PMR", name="Payment Method Refund", display_order=1, is_active=True)
+        account = BillingAccount(
+            account_number="FAM-2026-PMR001",
+            display_name="Payment Method Family",
+            primary_guardian_name="Method Parent",
+            primary_guardian_phone="+254700000116",
+            created_by_id=user.id,
+        )
+        db_session.add_all([grade, account])
+        await db_session.flush()
+
+        student = Student(
+            student_number="STU-2026-PMR001",
+            first_name="Method",
+            last_name="Refund",
+            gender=Gender.MALE.value,
+            billing_account_id=account.id,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="Method Parent",
+            guardian_phone="+254700000116",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add(student)
+        await db_session.flush()
+
+        mpesa_payment = Payment(
+            payment_number="PAY-2026-PMR001",
+            receipt_number="RCP-2026-PMR001",
+            student_id=student.id,
+            billing_account_id=account.id,
+            amount=Decimal("100.00"),
+            payment_method="mpesa",
+            payment_date=date(2026, 1, 10),
+            status="completed",
+            received_by_id=user.id,
+        )
+        bank_payment = Payment(
+            payment_number="PAY-2026-PMR002",
+            receipt_number="RCP-2026-PMR002",
+            student_id=student.id,
+            billing_account_id=account.id,
+            amount=Decimal("50.00"),
+            payment_method="bank_transfer",
+            payment_date=date(2026, 1, 11),
+            status="completed",
+            received_by_id=user.id,
+        )
+        db_session.add_all([mpesa_payment, bank_payment])
+        await db_session.flush()
+        db_session.add(
+            PaymentRefund(
+                payment_id=mpesa_payment.id,
+                billing_account_id=account.id,
+                amount=Decimal("40.00"),
+                refund_date=date(2026, 1, 20),
+                reason="Method refund",
+                refunded_by_id=user.id,
+            )
+        )
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate(
+            "reports_method_refund_admin@test.com",
+            "Pass123",
+        )
+        response = await client.get(
+            "/api/v1/reports/payment-method-distribution?date_from=2026-01-01&date_to=2026-01-31",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        rows = {row["payment_method"]: Decimal(row["amount"]) for row in data["rows"]}
+        assert rows["mpesa"] == Decimal("60.00")
+        assert rows["bank_transfer"] == Decimal("50.00")
+        assert Decimal(data["total_amount"]) == Decimal("110.00")
 
     async def test_payment_method_distribution_400_if_date_from_after_date_to(
         self, client: AsyncClient, db_session: AsyncSession
@@ -3025,6 +3539,81 @@ class TestKpis:
         assert "total_expenses" in d
         assert "student_debt" in d
         assert "supplier_debt" in d
+
+    async def test_kpis_total_revenue_is_net_of_refunds(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        from src.modules.billing_accounts.models import BillingAccount
+        from src.modules.payments.models import Payment, PaymentRefund
+
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_kpis_refund_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        grade = Grade(code="KPR", name="KPI Refund", display_order=1, is_active=True)
+        account = BillingAccount(
+            account_number="FAM-2026-KPR001",
+            display_name="KPI Refund Family",
+            primary_guardian_name="KPI Parent",
+            primary_guardian_phone="+254700000117",
+            created_by_id=user.id,
+        )
+        db_session.add_all([grade, account])
+        await db_session.flush()
+
+        student = Student(
+            student_number="STU-2026-KPR001",
+            first_name="KPI",
+            last_name="Refund",
+            gender=Gender.MALE.value,
+            billing_account_id=account.id,
+            grade_id=grade.id,
+            transport_zone_id=None,
+            guardian_name="KPI Parent",
+            guardian_phone="+254700000117",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add(student)
+        await db_session.flush()
+
+        payment = Payment(
+            payment_number="PAY-2026-KPR001",
+            receipt_number="RCP-2026-KPR001",
+            student_id=student.id,
+            billing_account_id=account.id,
+            amount=Decimal("100.00"),
+            payment_method="mpesa",
+            payment_date=date(2026, 1, 10),
+            status="completed",
+            received_by_id=user.id,
+        )
+        db_session.add(payment)
+        await db_session.flush()
+        db_session.add(
+            PaymentRefund(
+                payment_id=payment.id,
+                billing_account_id=account.id,
+                amount=Decimal("25.00"),
+                refund_date=date(2026, 1, 20),
+                reason="KPI refund",
+                refunded_by_id=user.id,
+            )
+        )
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate("reports_kpis_refund_admin@test.com", "Pass123")
+        response = await client.get(
+            "/api/v1/reports/kpis?year=2026",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert Decimal(response.json()["data"]["total_revenue"]) == Decimal("75.00")
 
     async def test_kpis_user_forbidden(
         self, client: AsyncClient, db_session: AsyncSession

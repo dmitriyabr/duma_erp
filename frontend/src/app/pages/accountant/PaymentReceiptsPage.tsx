@@ -1,7 +1,7 @@
 import { Download, FileText } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { PaginatedResponse } from '../../types/api'
+import type { ApiResponse, PaginatedResponse } from '../../types/api'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { api } from '../../services/api'
@@ -11,8 +11,10 @@ import { formatStudentNumberShort } from '../../utils/studentNumber'
 import { useAuth } from '../../auth/AuthContext'
 import { canCancelPayment, canManageStudents } from '../../utils/permissions'
 import { Button } from '../../components/ui/Button'
+import { FileDropzone } from '../../components/ui/FileDropzone'
 import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
+import { Textarea } from '../../components/ui/Textarea'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell, TablePagination } from '../../components/ui/Table'
 import { Typography } from '../../components/ui/Typography'
 import { Alert } from '../../components/ui/Alert'
@@ -70,9 +72,16 @@ export const PaymentReceiptsPage = () => {
   const [refundForm, setRefundForm] = useState({
     amount: '',
     refund_date: new Date().toISOString().slice(0, 10),
+    refund_method: 'mpesa',
+    reference_number: '',
+    proof_text: '',
+    proof_attachment_id: null as number | null,
+    proof_file_name: null as string | null,
     reason: '',
     notes: '',
   })
+  const [uploadingRefundProof, setUploadingRefundProof] = useState(false)
+  const [refundValidationError, setRefundValidationError] = useState<string | null>(null)
   const debouncedSearch = useDebouncedValue(search, 300)
   const refundPaymentMutation = useApiMutation()
 
@@ -106,10 +115,43 @@ export const PaymentReceiptsPage = () => {
     setRefundForm({
       amount: String(getRefundableAmount(payment)),
       refund_date: new Date().toISOString().slice(0, 10),
+      refund_method: 'mpesa',
+      reference_number: '',
+      proof_text: '',
+      proof_attachment_id: null,
+      proof_file_name: null,
       reason: '',
       notes: '',
     })
+    setUploadingRefundProof(false)
+    setRefundValidationError(null)
   }
+
+  const uploadRefundProofFile = useCallback(async (file: File) => {
+    setUploadingRefundProof(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const response = await api.post<ApiResponse<{ id: number }>>('/attachments', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setRefundForm((current) => ({
+        ...current,
+        proof_attachment_id: response.data.data.id,
+        proof_file_name: file.name,
+      }))
+      setRefundValidationError(null)
+    } catch {
+      setRefundForm((current) => ({
+        ...current,
+        proof_attachment_id: null,
+        proof_file_name: null,
+      }))
+      setRefundValidationError('Failed to upload refund proof file.')
+    } finally {
+      setUploadingRefundProof(false)
+    }
+  }, [])
 
   const downloadReceiptPdf = async (paymentId: number, receiptNumber: string) => {
     try {
@@ -127,10 +169,23 @@ export const PaymentReceiptsPage = () => {
 
   const submitRefund = async () => {
     if (!refundDialogPayment) return
+    const hasRefundProof =
+      Boolean(refundForm.reference_number.trim()) ||
+      Boolean(refundForm.proof_text.trim()) ||
+      refundForm.proof_attachment_id != null
+    if (!hasRefundProof) {
+      setRefundValidationError('Reference, proof text or confirmation file is required.')
+      return
+    }
+    setRefundValidationError(null)
     const result = await refundPaymentMutation.execute(() =>
       api.post(`/payments/${refundDialogPayment.id}/refunds`, {
         amount: Number(refundForm.amount),
         refund_date: refundForm.refund_date,
+        refund_method: refundForm.refund_method || null,
+        reference_number: refundForm.reference_number.trim() || null,
+        proof_text: refundForm.proof_text.trim() || null,
+        proof_attachment_id: refundForm.proof_attachment_id,
         reason: refundForm.reason.trim(),
         notes: refundForm.notes.trim() || null,
       })
@@ -356,6 +411,11 @@ export const PaymentReceiptsPage = () => {
         <DialogTitle>Refund payment</DialogTitle>
         <DialogContent>
           <div className="space-y-4 mt-4">
+            {(refundValidationError || refundPaymentMutation.error) && (
+              <Alert severity="error">
+                {refundValidationError || refundPaymentMutation.error}
+              </Alert>
+            )}
             <Typography variant="body2">
               Payment: {refundDialogPayment?.payment_number ?? '—'}
             </Typography>
@@ -373,6 +433,42 @@ export const PaymentReceiptsPage = () => {
               type="date"
               value={refundForm.refund_date}
               onChange={(e) => setRefundForm((current) => ({ ...current, refund_date: e.target.value }))}
+            />
+            <Select
+              label="Refund method"
+              value={refundForm.refund_method}
+              onChange={(e) => setRefundForm((current) => ({ ...current, refund_method: e.target.value }))}
+            >
+              <option value="mpesa">M-Pesa</option>
+              <option value="bank_transfer">Bank Transfer</option>
+              <option value="cash">Cash</option>
+              <option value="other">Other</option>
+            </Select>
+            <Input
+              label="Reference number"
+              value={refundForm.reference_number}
+              onChange={(e) => {
+                setRefundValidationError(null)
+                setRefundForm((current) => ({ ...current, reference_number: e.target.value }))
+              }}
+            />
+            <Textarea
+              label="Reference / proof"
+              value={refundForm.proof_text}
+              onChange={(e) => {
+                setRefundValidationError(null)
+                setRefundForm((current) => ({ ...current, proof_text: e.target.value }))
+              }}
+              rows={3}
+              helperText="Reference, proof text or confirmation file is required"
+            />
+            <FileDropzone
+              title="Upload refund confirmation (image/PDF)"
+              accept="image/*,.pdf,application/pdf"
+              fileName={refundForm.proof_file_name}
+              disabled={uploadingRefundProof}
+              loading={uploadingRefundProof}
+              onFileSelected={uploadRefundProofFile}
             />
             <Input
               label="Reason"
@@ -394,7 +490,15 @@ export const PaymentReceiptsPage = () => {
             variant="contained"
             color="error"
             onClick={submitRefund}
-            disabled={refundPaymentMutation.loading}
+            disabled={
+              refundPaymentMutation.loading ||
+              uploadingRefundProof ||
+              (
+                !refundForm.reference_number.trim() &&
+                !refundForm.proof_text.trim() &&
+                refundForm.proof_attachment_id == null
+              )
+            }
           >
             {refundPaymentMutation.loading ? <Spinner size="small" /> : 'Refund'}
           </Button>

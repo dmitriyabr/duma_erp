@@ -31,7 +31,24 @@ from src.modules.discounts.models import Discount, DiscountReason
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus
 from src.modules.inventory.models import Issuance, Stock, StockMovement
 from src.modules.items.models import Category, Item, Kit
-from src.modules.payments.models import CreditAllocation, Payment, PaymentStatus
+from src.modules.payments.models import (
+    CreditAllocation,
+    CreditAllocationReversal,
+    Payment,
+    PaymentStatus,
+)
+from src.modules.payments.reporting import (
+    build_allocation_reversal_totals_subquery,
+    build_future_allocation_reversal_totals_subquery,
+    get_net_student_cash_total,
+    get_student_payment_totals_by_account,
+    get_student_payment_totals_by_account_day,
+    get_student_payment_totals_by_method,
+    get_student_refund_total,
+    get_student_refund_totals_by_account,
+    get_student_refund_totals_by_account_day,
+    get_student_refund_totals_by_method,
+)
 from src.modules.procurement.models import (
     GoodsReceivedNote,
     GoodsReceivedLine,
@@ -441,7 +458,7 @@ class ReportsService:
             InvoiceStatus.VOID.value,
         )
 
-        invoice_ids_q = (
+        allocation_invoice_ids_q = (
             select(CreditAllocation.invoice_id)
             .join(Invoice, CreditAllocation.invoice_id == Invoice.id)
             .where(
@@ -452,9 +469,42 @@ class ReportsService:
             .distinct()
         )
         if term_id is not None:
-            invoice_ids_q = invoice_ids_q.where(Invoice.term_id == term_id)
+            allocation_invoice_ids_q = allocation_invoice_ids_q.where(
+                Invoice.term_id == term_id
+            )
 
-        invoice_ids = [row[0] for row in (await self.db.execute(invoice_ids_q)).all()]
+        reversal_date_expr = func.date(CreditAllocationReversal.reversed_at)
+        reversal_invoice_ids_q = (
+            select(CreditAllocation.invoice_id)
+            .join(
+                CreditAllocationReversal,
+                CreditAllocationReversal.credit_allocation_id == CreditAllocation.id,
+            )
+            .join(Invoice, CreditAllocation.invoice_id == Invoice.id)
+            .where(
+                reversal_date_expr >= alloc_from,
+                reversal_date_expr <= alloc_to,
+                Invoice.status.notin_(excluded_statuses),
+            )
+            .distinct()
+        )
+        if term_id is not None:
+            reversal_invoice_ids_q = reversal_invoice_ids_q.where(
+                Invoice.term_id == term_id
+            )
+
+        invoice_ids = sorted(
+            {
+                row[0]
+                for row in (await self.db.execute(allocation_invoice_ids_q)).all()
+                if row[0] is not None
+            }
+            | {
+                row[0]
+                for row in (await self.db.execute(reversal_invoice_ids_q)).all()
+                if row[0] is not None
+            }
+        )
         if not invoice_ids:
             expense_lines, total_expenses = await self._profit_loss_expenses_cash(date_from, date_to)
             net_profit = round_money(Decimal("0.00") - total_expenses)
@@ -478,8 +528,21 @@ class ReportsService:
             )
         )
         invoices = {invoice.id: invoice for invoice in invoices_result.scalars().unique().all()}
+        allocation_reversals = build_allocation_reversal_totals_subquery(
+            "profit_loss_allocation_reversals"
+        )
         allocations_result = await self.db.execute(
-            select(CreditAllocation)
+            select(
+                CreditAllocation,
+                (
+                    CreditAllocation.amount
+                    + func.coalesce(allocation_reversals.c.reversed_total, 0)
+                ).label("original_amount"),
+            )
+            .outerjoin(
+                allocation_reversals,
+                CreditAllocation.id == allocation_reversals.c.allocation_id,
+            )
             .where(
                 CreditAllocation.invoice_id.in_(invoice_ids),
                 alloc_date_expr <= alloc_to,
@@ -490,9 +553,32 @@ class ReportsService:
                 CreditAllocation.id.asc(),
             )
         )
-        allocations_by_invoice: dict[int, list[CreditAllocation]] = defaultdict(list)
-        for allocation in allocations_result.scalars().all():
-            allocations_by_invoice[allocation.invoice_id].append(allocation)
+        allocations_by_invoice: dict[int, list[tuple[CreditAllocation, Decimal]]] = defaultdict(list)
+        for allocation, original_amount in allocations_result.all():
+            allocations_by_invoice[allocation.invoice_id].append(
+                (allocation, round_money(Decimal(str(original_amount or 0))))
+            )
+        reversals_result = await self.db.execute(
+            select(CreditAllocationReversal)
+            .join(
+                CreditAllocation,
+                CreditAllocation.id == CreditAllocationReversal.credit_allocation_id,
+            )
+            .where(
+                CreditAllocation.invoice_id.in_(invoice_ids),
+                reversal_date_expr >= alloc_from,
+                reversal_date_expr <= alloc_to,
+            )
+            .options(selectinload(CreditAllocationReversal.allocation))
+            .order_by(
+                CreditAllocation.invoice_id.asc(),
+                CreditAllocationReversal.reversed_at.asc(),
+                CreditAllocationReversal.id.asc(),
+            )
+        )
+        reversals_by_invoice: dict[int, list[CreditAllocationReversal]] = defaultdict(list)
+        for reversal in reversals_result.scalars().all():
+            reversals_by_invoice[reversal.allocation.invoice_id].append(reversal)
 
         bucket_gross: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
         net_revenue_raw = Decimal("0.00")
@@ -507,9 +593,10 @@ class ReportsService:
                 for line in invoice.lines
             }
             line_period_net: dict[int, Decimal] = defaultdict(lambda: Decimal("0.00"))
+            allocation_distribution_by_id: dict[int, dict[int, Decimal]] = {}
 
-            for allocation in allocations_by_invoice.get(invoice_id, []):
-                allocation_amount = round_money(Decimal(str(allocation.amount or 0)))
+            for allocation, original_amount in allocations_by_invoice.get(invoice_id, []):
+                allocation_amount = round_money(original_amount)
                 if allocation_amount <= 0:
                     continue
                 allocation_date = allocation.created_at.date()
@@ -520,12 +607,18 @@ class ReportsService:
                     applied = round_money(min(remaining_capacity[line_id], allocation_amount))
                     if applied <= 0:
                         continue
+                    allocation_distribution_by_id[allocation.id] = {line_id: applied}
                     remaining_capacity[line_id] = round_money(remaining_capacity[line_id] - applied)
                     if in_period:
                         line_period_net[line_id] += applied
                     continue
 
                 distributed, _ = self._allocate_proportionally(allocation_amount, remaining_capacity)
+                allocation_distribution_by_id[allocation.id] = {
+                    line_id: applied
+                    for line_id, applied in distributed.items()
+                    if applied > 0
+                }
                 for line_id, applied in distributed.items():
                     if applied <= 0:
                         continue
@@ -533,9 +626,26 @@ class ReportsService:
                     if in_period:
                         line_period_net[line_id] += applied
 
+            for reversal in reversals_by_invoice.get(invoice_id, []):
+                distribution = allocation_distribution_by_id.get(
+                    reversal.allocation.id, {}
+                )
+                if not distribution:
+                    continue
+                reversed_distribution, _ = self._allocate_proportionally(
+                    round_money(reversal.amount),
+                    distribution,
+                )
+                for line_id, applied in reversed_distribution.items():
+                    if applied <= 0:
+                        continue
+                    line_period_net[line_id] = round_money(
+                        line_period_net.get(line_id, Decimal("0.00")) - applied
+                    )
+
             for line in invoice.lines:
                 allocated_net = round_money(line_period_net.get(line.id, Decimal("0.00")))
-                if allocated_net <= 0 or line.net_amount <= 0:
+                if allocated_net == 0 or line.net_amount <= 0:
                     continue
                 bucket = self._profit_loss_revenue_bucket(
                     invoice.invoice_type,
@@ -585,10 +695,27 @@ class ReportsService:
             InvoiceStatus.CANCELLED.value,
             InvoiceStatus.VOID.value,
         )
+        future_allocation_reversals = build_future_allocation_reversal_totals_subquery(
+            as_at,
+            alias_name="aged_receivables_future_reversals",
+        )
         allocation_totals_as_at = (
             select(
                 CreditAllocation.invoice_id,
-                func.coalesce(func.sum(CreditAllocation.amount), 0).label("allocated"),
+                func.coalesce(
+                    func.sum(
+                        CreditAllocation.amount
+                        + func.coalesce(
+                            future_allocation_reversals.c.reversed_total,
+                            0,
+                        )
+                    ),
+                    0,
+                ).label("allocated"),
+            )
+            .outerjoin(
+                future_allocation_reversals,
+                CreditAllocation.id == future_allocation_reversals.c.allocation_id,
             )
             .where(func.date(CreditAllocation.created_at) <= as_at)
             .group_by(CreditAllocation.invoice_id)
@@ -953,28 +1080,18 @@ class ReportsService:
 
         # Payments received per billing account per day. Payment.student_id is only
         # a compatibility/reference student and is not the owner of family credit.
-        pay_q = (
-            select(
-                Payment.billing_account_id,
-                Payment.payment_date,
-                func.coalesce(func.sum(Payment.amount), 0).label("paid"),
-            )
-            .where(
-                Payment.status == PaymentStatus.COMPLETED.value,
-                Payment.payment_date >= date_from,
-                Payment.payment_date <= date_to,
-                Payment.billing_account_id.isnot(None),
-            )
-            .group_by(Payment.billing_account_id, Payment.payment_date)
+        payments_by_key = await get_student_payment_totals_by_account_day(
+            self.db,
+            date_from=date_from,
+            date_to=date_to,
+            payment_method=payment_method,
         )
-        if payment_method:
-            pay_q = pay_q.where(Payment.payment_method == payment_method)
-        pay_rows = (await self.db.execute(pay_q)).all()
-        payments_by_key: dict[tuple[int, date], Decimal] = {
-            (int(account_id), pdate): Decimal(str(paid or 0))
-            for account_id, pdate, paid in pay_rows
-            if account_id is not None
-        }
+        refunds_by_key = await get_student_refund_totals_by_account_day(
+            self.db,
+            date_from=date_from,
+            date_to=date_to,
+            payment_method=payment_method,
+        )
 
         # Allocations created per billing account per day, grouped by invoice_type
         # Cross-database date extraction:
@@ -988,14 +1105,27 @@ class ReportsService:
         # Postgres returns DATE; comparing to python date keeps correct typing.
         alloc_from = date_from.isoformat() if dialect_name == "sqlite" else date_from
         alloc_to = date_to.isoformat() if dialect_name == "sqlite" else date_to
+        allocation_reversals = build_allocation_reversal_totals_subquery(
+            "cash_flow_allocation_reversals"
+        )
         alloc_q = (
             select(
                 CreditAllocation.billing_account_id,
                 alloc_date,
                 Invoice.invoice_type,
-                func.coalesce(func.sum(CreditAllocation.amount), 0).label("allocated"),
+                func.coalesce(
+                    func.sum(
+                        CreditAllocation.amount
+                        + func.coalesce(allocation_reversals.c.reversed_total, 0)
+                    ),
+                    0,
+                ).label("allocated"),
             )
             .select_from(CreditAllocation)
+            .outerjoin(
+                allocation_reversals,
+                CreditAllocation.id == allocation_reversals.c.allocation_id,
+            )
             .join(Invoice, CreditAllocation.invoice_id == Invoice.id)
             .where(
                 alloc_date_expr >= alloc_from,
@@ -1029,6 +1159,9 @@ class ReportsService:
         totals_by_type: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
         unallocated_total = Decimal("0")
         payments_total = Decimal("0")
+        refunds_total = round_money(
+            sum(refunds_by_key.values(), start=Decimal("0"))
+        )
 
         # Cap allocations to cash received per billing account/day; remainder goes to credit.
         for key, paid_total in payments_by_key.items():
@@ -1111,13 +1244,16 @@ class ReportsService:
         if advance_return_amt > 0:
             inflow_rows.append(("Budget Advance Returns", advance_return_amt))
         total_inflows = round_money(total_inflows + advance_return_amt)
-        total_outflows = round_money(proc_amt + comp_amt + advance_issue_amt)
+        total_outflows = round_money(
+            proc_amt + comp_amt + advance_issue_amt + refunds_total
+        )
         return {
             "inflow_rows": inflow_rows,
             "total_inflows": total_inflows,
             "proc_amt": proc_amt,
             "comp_amt": comp_amt,
             "advance_issue_amt": advance_issue_amt,
+            "refunds_amt": refunds_total,
             "total_outflows": total_outflows,
         }
 
@@ -1135,13 +1271,11 @@ class ReportsService:
         payment_method: optional filter for student payments (mpesa, bank_transfer, or None for all).
         If breakdown_monthly=True, adds months list and monthly amounts per line and closing_balance_monthly.
         """
-        pay_in = await self.db.execute(
-            select(func.coalesce(func.sum(Payment.amount), 0)).where(
-                Payment.status == PaymentStatus.COMPLETED.value,
-                Payment.payment_date < date_from,
-            )
+        pay_in_val = await get_net_student_cash_total(
+            self.db,
+            date_lt=date_from,
+            payment_method=payment_method,
         )
-        pay_in_val = Decimal(str(pay_in.scalar() or 0))
         proc_before = await self.db.execute(
             select(func.coalesce(func.sum(ProcurementPayment.amount), 0)).where(
                 ProcurementPayment.status == ProcurementPaymentStatus.POSTED.value,
@@ -1187,6 +1321,7 @@ class ReportsService:
             CashFlowOutflowLine(label="Supplier Payments", amount=full["proc_amt"]),
             CashFlowOutflowLine(label="Employee Compensations", amount=full["comp_amt"]),
             CashFlowOutflowLine(label="Budget Advances Issued", amount=full["advance_issue_amt"]),
+            CashFlowOutflowLine(label="Student Refunds", amount=full["refunds_amt"]),
         ]
         total_outflows = full["total_outflows"]
         net_cash_flow = round_money(total_inflows - total_outflows)
@@ -1210,6 +1345,7 @@ class ReportsService:
         proc_monthly: dict[str, Decimal] = {}
         comp_monthly: dict[str, Decimal] = {}
         advances_monthly: dict[str, Decimal] = {}
+        refunds_monthly: dict[str, Decimal] = {}
         total_outflows_monthly: dict[str, Decimal] = {}
         closing_balance_monthly: dict[str, Decimal] = {}
         cum = opening_balance
@@ -1222,6 +1358,7 @@ class ReportsService:
             proc_monthly[mo] = period["proc_amt"]
             comp_monthly[mo] = period["comp_amt"]
             advances_monthly[mo] = period["advance_issue_amt"]
+            refunds_monthly[mo] = period["refunds_amt"]
             total_outflows_monthly[mo] = period["total_outflows"]
             for lbl, amt in period["inflow_rows"]:
                 inflow_by_label[str(lbl)][mo] = amt
@@ -1232,6 +1369,7 @@ class ReportsService:
         outflow_lines[0].monthly = dict(proc_monthly)
         outflow_lines[1].monthly = dict(comp_monthly)
         outflow_lines[2].monthly = dict(advances_monthly)
+        outflow_lines[3].monthly = dict(refunds_monthly)
         out["months"] = months
         out["total_inflows_monthly"] = total_inflows_monthly
         out["total_outflows_monthly"] = total_outflows_monthly
@@ -1240,11 +1378,9 @@ class ReportsService:
 
     async def _balance_sheet_as_at(self, as_at_date: date) -> dict:
         """Compute balance sheet as at a single date; returns raw dict (no monthly)."""
-        pay = await self.db.execute(
-            select(func.coalesce(func.sum(Payment.amount), 0)).where(
-                Payment.status == PaymentStatus.COMPLETED.value,
-                Payment.payment_date <= as_at_date,
-            )
+        pay_in = await get_net_student_cash_total(
+            self.db,
+            date_lte=as_at_date,
         )
         proc = await self.db.execute(
             select(func.coalesce(func.sum(ProcurementPayment.amount), 0)).where(
@@ -1272,7 +1408,7 @@ class ReportsService:
             )
         )
         cash = round_money(
-            Decimal(str(pay.scalar() or 0))
+            pay_in
             - Decimal(str(proc.scalar() or 0))
             - Decimal(str(comp.scalar() or 0))
             - Decimal(str(advances.scalar() or 0))
@@ -1281,10 +1417,27 @@ class ReportsService:
         # Receivables as at date: invoices issued by as_at_date; amount due = total - allocations created by as_at_date.
         # Do not filter by PAID: historically the invoice may have been unpaid as at that date; we use allocation history.
         excluded = (InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value)
+        future_allocation_reversals = build_future_allocation_reversal_totals_subquery(
+            as_at_date,
+            alias_name="balance_sheet_future_reversals",
+        )
         alloc_subq = (
             select(
                 CreditAllocation.invoice_id,
-                func.coalesce(func.sum(CreditAllocation.amount), 0).label("allocated"),
+                func.coalesce(
+                    func.sum(
+                        CreditAllocation.amount
+                        + func.coalesce(
+                            future_allocation_reversals.c.reversed_total,
+                            0,
+                        )
+                    ),
+                    0,
+                ).label("allocated"),
+            )
+            .outerjoin(
+                future_allocation_reversals,
+                CreditAllocation.id == future_allocation_reversals.c.allocation_id,
             )
             .where(cast(CreditAllocation.created_at, SqlDate) <= as_at_date)
             .group_by(CreditAllocation.invoice_id)
@@ -1418,21 +1571,35 @@ class ReportsService:
                 for pid in all_po_ids
             )
         )
-        pay_tot = await self.db.execute(
-            select(
-                Payment.billing_account_id,
-                func.coalesce(func.sum(Payment.amount), 0).label("s"),
-            )
-            .where(Payment.status == PaymentStatus.COMPLETED.value)
-            .where(Payment.payment_date <= as_at_date)
-            .where(Payment.billing_account_id.isnot(None))
-            .group_by(Payment.billing_account_id)
+        payments_by_account = await get_student_payment_totals_by_account(
+            self.db,
+            date_lte=as_at_date,
         )
-        payments_by_account = {r[0]: Decimal(str(r[1])) for r in pay_tot.all()}
+        refunds_by_account = await get_student_refund_totals_by_account(
+            self.db,
+            date_lte=as_at_date,
+        )
+        future_credit_reversals = build_future_allocation_reversal_totals_subquery(
+            as_at_date,
+            alias_name="balance_sheet_credit_future_reversals",
+        )
         alloc_tot = await self.db.execute(
             select(
                 CreditAllocation.billing_account_id,
-                func.coalesce(func.sum(CreditAllocation.amount), 0).label("s"),
+                func.coalesce(
+                    func.sum(
+                        CreditAllocation.amount
+                        + func.coalesce(
+                            future_credit_reversals.c.reversed_total,
+                            0,
+                        )
+                    ),
+                    0,
+                ).label("s"),
+            )
+            .outerjoin(
+                future_credit_reversals,
+                CreditAllocation.id == future_credit_reversals.c.allocation_id,
             )
             .where(cast(CreditAllocation.created_at, SqlDate) <= as_at_date)
             .where(CreditAllocation.billing_account_id.isnot(None))
@@ -1440,9 +1607,14 @@ class ReportsService:
         )
         allocated_by_account = {r[0]: Decimal(str(r[1])) for r in alloc_tot.all()}
         credit_total = Decimal("0")
-        for account_id in set(payments_by_account) | set(allocated_by_account):
+        for account_id in (
+            set(payments_by_account)
+            | set(refunds_by_account)
+            | set(allocated_by_account)
+        ):
             account_credit = round_money(
                 payments_by_account.get(account_id, Decimal("0"))
+                - refunds_by_account.get(account_id, Decimal("0"))
                 - allocated_by_account.get(account_id, Decimal("0"))
             )
             if account_credit > 0:
@@ -1625,15 +1797,12 @@ class ReportsService:
             inv_res = await self.db.execute(inv_q)
             invoiced = round_money(Decimal(str(inv_res.scalar() or 0)))
 
-            pay_q = (
-                select(func.coalesce(func.sum(Payment.amount), 0)).where(
-                    Payment.status == PaymentStatus.COMPLETED.value,
-                    Payment.payment_date >= start,
-                    Payment.payment_date <= end,
-                )
+            paid = await get_net_student_cash_total(
+                self.db,
+                date_from=start,
+                date_to=end,
             )
-            pay_res = await self.db.execute(pay_q)
-            paid = round_money(Decimal(str(pay_res.scalar() or 0)))
+            paid = round_money(paid)
 
             rate = (
                 round(float(paid / invoiced * 100), 2) if invoiced and invoiced > 0 else None
@@ -1770,10 +1939,27 @@ class ReportsService:
         # Get grade_name and oldest_due_date per student using the same as-at
         # allocation snapshot as aged_receivables.
         student_ids = [r.student_id for r in sorted_rows]
+        future_allocation_reversals = build_future_allocation_reversal_totals_subquery(
+            as_at,
+            alias_name="top_debtors_future_reversals",
+        )
         allocation_totals_as_at = (
             select(
                 CreditAllocation.invoice_id,
-                func.coalesce(func.sum(CreditAllocation.amount), 0).label("allocated"),
+                func.coalesce(
+                    func.sum(
+                        CreditAllocation.amount
+                        + func.coalesce(
+                            future_allocation_reversals.c.reversed_total,
+                            0,
+                        )
+                    ),
+                    0,
+                ).label("allocated"),
+            )
+            .outerjoin(
+                future_allocation_reversals,
+                CreditAllocation.id == future_allocation_reversals.c.allocation_id,
             )
             .where(cast(CreditAllocation.created_at, SqlDate) <= as_at)
             .group_by(CreditAllocation.invoice_id)
@@ -2379,30 +2565,37 @@ class ReportsService:
             y = current_year - i
             start = date(y, 1, 1)
             end = date(y, 12, 31)
-            rev_q = (
-                select(func.coalesce(func.sum(Payment.amount), 0)).where(
-                    Payment.status == PaymentStatus.COMPLETED.value,
-                    Payment.payment_date >= start,
-                    Payment.payment_date <= end,
-                )
+            total_rev = await get_net_student_cash_total(
+                self.db,
+                date_from=start,
+                date_to=end,
             )
-            rev_res = await self.db.execute(rev_q)
-            total_rev = round_money(Decimal(str(rev_res.scalar() or 0)))
-            paid_accounts = (
-                select(Payment.billing_account_id)
-                .where(
-                    Payment.status == PaymentStatus.COMPLETED.value,
-                    Payment.payment_date >= start,
-                    Payment.payment_date <= end,
-                    Payment.billing_account_id.isnot(None),
-                )
-                .distinct()
-            ).subquery()
-            cnt_q = select(func.count(func.distinct(Student.id))).where(
-                Student.billing_account_id.in_(select(paid_accounts.c.billing_account_id))
+            payments_by_account = await get_student_payment_totals_by_account(
+                self.db,
+                date_from=start,
+                date_to=end,
             )
-            cnt_res = await self.db.execute(cnt_q)
-            students_count = int(cnt_res.scalar() or 0)
+            refunds_by_account = await get_student_refund_totals_by_account(
+                self.db,
+                date_from=start,
+                date_to=end,
+            )
+            positive_account_ids = [
+                account_id
+                for account_id in (set(payments_by_account) | set(refunds_by_account))
+                if round_money(
+                    payments_by_account.get(account_id, Decimal("0.00"))
+                    - refunds_by_account.get(account_id, Decimal("0.00"))
+                )
+                > 0
+            ]
+            students_count = 0
+            if positive_account_ids:
+                cnt_q = select(func.count(func.distinct(Student.id))).where(
+                    Student.billing_account_id.in_(positive_account_ids)
+                )
+                cnt_res = await self.db.execute(cnt_q)
+                students_count = int(cnt_res.scalar() or 0)
             avg_per = round_money(total_rev / students_count) if students_count else None
             if avg_per is not None:
                 if first_avg is None:
@@ -2437,25 +2630,28 @@ class ReportsService:
         """
         if date_from > date_to:
             raise ValueError("date_from must be <= date_to")
-        q = (
-            select(
-                Payment.payment_method,
-                func.coalesce(func.sum(Payment.amount), 0).label("amount"),
-            )
-            .where(
-                Payment.status == PaymentStatus.COMPLETED.value,
-                Payment.payment_date >= date_from,
-                Payment.payment_date <= date_to,
-            )
-            .group_by(Payment.payment_method)
+        payments_by_method = await get_student_payment_totals_by_method(
+            self.db,
+            date_from=date_from,
+            date_to=date_to,
         )
-        result = await self.db.execute(q)
-        raw = result.all()
-        total = sum(round_money(Decimal(str(r[1]))) for r in raw)
+        refunds_by_method = await get_student_refund_totals_by_method(
+            self.db,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        method_totals: dict[str | None, Decimal] = {}
+        for method in set(payments_by_method) | set(refunds_by_method):
+            net_amount = round_money(
+                payments_by_method.get(method, Decimal("0.00"))
+                - refunds_by_method.get(method, Decimal("0.00"))
+            )
+            if net_amount != 0:
+                method_totals[method] = net_amount
+        total = round_money(sum(method_totals.values(), start=Decimal("0.00")))
         method_labels = {"mpesa": "M-Pesa", "bank_transfer": "Bank Transfer", "cash": "Cash", "cheque": "Cheque"}
         rows = []
-        for method, amt in raw:
-            amt = round_money(Decimal(str(amt)))
+        for method, amt in method_totals.items():
             pct = round(float(amt / total * 100), 2) if total and total > 0 else None
             rows.append(
                 PaymentMethodDistributionRow(
@@ -2618,14 +2814,12 @@ class ReportsService:
         )
         active_students_count = int(active_students.scalar() or 0)
 
-        rev_q = (
-            select(func.coalesce(func.sum(Payment.amount), 0)).where(
-                Payment.status == PaymentStatus.COMPLETED.value,
-                Payment.payment_date >= date_from,
-                Payment.payment_date <= date_to,
-            )
+        total_revenue = await get_net_student_cash_total(
+            self.db,
+            date_from=date_from,
+            date_to=date_to,
         )
-        total_revenue = round_money(Decimal(str((await self.db.execute(rev_q)).scalar() or 0)))
+        total_revenue = round_money(total_revenue)
 
         inv_q = (
             select(func.coalesce(func.sum(Invoice.total), 0)).where(

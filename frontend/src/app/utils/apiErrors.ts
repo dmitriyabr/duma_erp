@@ -46,3 +46,21 @@ export function parseApiError(error: unknown): ParsedApiError {
     errors: details,
   }
 }
+
+export function formatApiErrorMessage(error: unknown): string {
+  const parsed = parseApiError(error)
+  if (!parsed.errors.length) return parsed.message
+
+  const detailMessages = parsed.errors
+    .map((detail) => {
+      const field = detail.field?.trim()
+      return field ? `${field}: ${detail.message}` : detail.message
+    })
+    .filter((message, index, all) => message && all.indexOf(message) === index)
+
+  if (!detailMessages.length) return parsed.message
+  if (parsed.message === 'Validation error') {
+    return detailMessages.join('; ')
+  }
+  return `${parsed.message}: ${detailMessages.join('; ')}`
+}

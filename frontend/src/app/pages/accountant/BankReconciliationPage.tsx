@@ -30,6 +30,7 @@ type MatchedEntityType =
   | 'compensation_payout'
   | 'budget_advance'
   | 'budget_advance_return'
+  | 'payment_refund'
 
 interface BankStatementImportListItem {
   id: number
@@ -152,6 +153,17 @@ interface UnmatchedBudgetAdvanceReturn {
   reference_number: string | null
 }
 
+interface UnmatchedPaymentRefund {
+  id: number
+  payment_id: number
+  payment_number: string | null
+  refund_date: string
+  amount: string
+  refund_method: string | null
+  reference_number: string | null
+  billing_account_name: string | null
+}
+
 interface ImportReconciliationSummary {
   import_id: number
   range_from: string | null
@@ -161,6 +173,7 @@ interface ImportReconciliationSummary {
   unmatched_compensation_payouts: UnmatchedCompensationPayout[]
   unmatched_budget_advances: UnmatchedBudgetAdvance[]
   unmatched_budget_advance_returns: UnmatchedBudgetAdvanceReturn[]
+  unmatched_payment_refunds: UnmatchedPaymentRefund[]
 }
 
 export const BankReconciliationPage = () => {
@@ -330,6 +343,7 @@ export const BankReconciliationPage = () => {
         payouts: [] as UnmatchedCompensationPayout[],
         advances: [] as UnmatchedBudgetAdvance[],
         returns: [] as UnmatchedBudgetAdvanceReturn[],
+        refunds: [] as UnmatchedPaymentRefund[],
       }
     }
     const row = importDetail?.rows.items.find((r) => r.transaction.id === manualMatchTxnId)
@@ -339,6 +353,7 @@ export const BankReconciliationPage = () => {
         payouts: [] as UnmatchedCompensationPayout[],
         advances: [] as UnmatchedBudgetAdvance[],
         returns: [] as UnmatchedBudgetAdvanceReturn[],
+        refunds: [] as UnmatchedPaymentRefund[],
       }
     }
     const target = absMoney(row.transaction.amount)
@@ -354,7 +369,10 @@ export const BankReconciliationPage = () => {
     const returns = (reconciliation?.unmatched_budget_advance_returns || []).filter((p) =>
       withinOne(normMoney(p.amount), target)
     )
-    return { procurement, payouts, advances, returns }
+    const refunds = (reconciliation?.unmatched_payment_refunds || []).filter((p) =>
+      withinOne(normMoney(p.amount), target)
+    )
+    return { procurement, payouts, advances, returns, refunds }
   }, [manualMatchTxnId, importDetail, reconciliation])
 
   const openManualMatch = (txnId: number) => {
@@ -394,7 +412,9 @@ export const BankReconciliationPage = () => {
           ? (reconciliation?.unmatched_compensation_payouts || []).find((p) => p.id === manualMatchEntity.id)
           : manualMatchEntity.type === 'budget_advance'
             ? (reconciliation?.unmatched_budget_advances || []).find((p) => p.id === manualMatchEntity.id)
-            : (reconciliation?.unmatched_budget_advance_returns || []).find((p) => p.id === manualMatchEntity.id)
+            : manualMatchEntity.type === 'budget_advance_return'
+              ? (reconciliation?.unmatched_budget_advance_returns || []).find((p) => p.id === manualMatchEntity.id)
+              : (reconciliation?.unmatched_payment_refunds || []).find((p) => p.id === manualMatchEntity.id)
 
     if (!entity) return []
 
@@ -468,7 +488,15 @@ export const BankReconciliationPage = () => {
     await refetchReconciliation()
   }
 
-  const effectiveError = error || importsError || detailError || reconciliationError
+  const effectiveError =
+    error ||
+    importsError ||
+    detailError ||
+    reconciliationError ||
+    uploadMutation.error ||
+    autoMatchMutation.error ||
+    manualMatchMutation.error ||
+    unmatchMutation.error
 
   if (accessDenied) {
     return <Navigate to="/access-denied" replace />
@@ -647,6 +675,9 @@ export const BankReconciliationPage = () => {
               <Typography>
                 Unmatched budget returns: {reconciliation.unmatched_budget_advance_returns.length}
               </Typography>
+              <Typography>
+                Unmatched payment refunds: {reconciliation.unmatched_payment_refunds.length}
+              </Typography>
             </div>
           ) : (
             <Typography variant="body2" color="secondary">
@@ -708,6 +739,14 @@ export const BankReconciliationPage = () => {
                               {m.entity_number}
                             </Button>
                           </RouterLink>
+                        ) : m.entity_type === 'payment_refund' ? (
+                          <Button
+                            size="small"
+                            variant="text"
+                            className="px-0 py-0 rounded-none hover:bg-transparent focus:bg-transparent"
+                          >
+                            {m.entity_number}
+                          </Button>
                         ) : (
                           <RouterLink to="/compensations/advances">
                             <Button
@@ -810,6 +849,48 @@ export const BankReconciliationPage = () => {
                 <TableRow>
                   <td colSpan={5} className="px-4 py-3">
                     No unmatched payments
+                  </td>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+        </div>
+
+        <div>
+          <Typography variant="h6" className="mb-2">
+            Unmatched payment refunds
+          </Typography>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Date</TableHeaderCell>
+                <TableHeaderCell>Payment</TableHeaderCell>
+                <TableHeaderCell>Billing account</TableHeaderCell>
+                <TableHeaderCell align="right">Amount</TableHeaderCell>
+                <TableHeaderCell align="right">Actions</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {(reconciliation?.unmatched_payment_refunds || []).slice(0, 50).map((p) => (
+                <TableRow key={p.id}>
+                  <TableCell>{p.refund_date}</TableCell>
+                  <TableCell>{p.payment_number || `Payment #${p.payment_id}`}</TableCell>
+                  <TableCell>{p.billing_account_name || '—'}</TableCell>
+                  <TableCell align="right">{p.amount}</TableCell>
+                  <TableCell align="right">
+                    <Button
+                      size="small"
+                      onClick={() => openManualMatchForEntity('payment_refund', p.id)}
+                    >
+                      Manual match
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!reconciliation?.unmatched_payment_refunds?.length ? (
+                <TableRow>
+                  <td colSpan={5} className="px-4 py-3">
+                    No unmatched refunds
                   </td>
                 </TableRow>
               ) : null}
@@ -955,6 +1036,11 @@ export const BankReconciliationPage = () => {
           <Typography variant="body2" color="secondary" className="mb-4">
             Pick an unmatched internal document by amount (± 1.00). This is a read-write operation (Admin/SuperAdmin).
           </Typography>
+          {(error || manualMatchMutation.error) ? (
+            <Alert severity="error" className="mb-4">
+              {error || manualMatchMutation.error}
+            </Alert>
+          ) : null}
           <div className="grid gap-4">
             <div>
               <Typography variant="body2" className="mb-1">
@@ -972,6 +1058,7 @@ export const BankReconciliationPage = () => {
                 <option value="compensation_payout">Compensation payout</option>
                 <option value="budget_advance">Budget advance</option>
                 <option value="budget_advance_return">Budget advance return</option>
+                <option value="payment_refund">Payment refund</option>
               </Select>
             </div>
             <div>
@@ -998,10 +1085,15 @@ export const BankReconciliationPage = () => {
                           id: p.id,
                           label: `${p.issue_date} • ${p.advance_number} • ${p.amount}${p.employee_name ? ` • ${p.employee_name}` : ''}`,
                         }))
-                      : manualCandidates.returns.map((p) => ({
-                          id: p.id,
-                          label: `${p.return_date} • ${p.return_number} • ${p.amount}`,
-                        }))
+                      : manualMatchType === 'budget_advance_return'
+                        ? manualCandidates.returns.map((p) => ({
+                            id: p.id,
+                            label: `${p.return_date} • ${p.return_number} • ${p.amount}`,
+                          }))
+                        : manualCandidates.refunds.map((p) => ({
+                            id: p.id,
+                            label: `${p.refund_date} • ${p.payment_number || `Payment #${p.payment_id}`} • ${p.amount}${p.billing_account_name ? ` • ${p.billing_account_name}` : ''}`,
+                          }))
                 ).map((opt) => (
                   <option key={opt.id} value={opt.id}>
                     {opt.label}
@@ -1028,6 +1120,11 @@ export const BankReconciliationPage = () => {
           <Typography variant="body2" color="secondary" className="mb-4">
             Pick an unmatched bank transaction to match to this document (amount tolerance: ± 1.00).
           </Typography>
+          {(error || manualMatchMutation.error) ? (
+            <Alert severity="error" className="mb-4">
+              {error || manualMatchMutation.error}
+            </Alert>
+          ) : null}
           <div className="grid gap-4">
             <div>
               <Typography variant="body2" className="mb-1">

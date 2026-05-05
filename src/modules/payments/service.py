@@ -17,9 +17,14 @@ from src.modules.billing_accounts.models import BillingAccount
 from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.payments.models import (
     CreditAllocation,
+    CreditAllocationReversal,
     Payment,
     PaymentRefund,
     PaymentStatus,
+)
+from src.modules.payments.reporting import (
+    build_allocation_reversal_totals_subquery,
+    build_future_allocation_reversal_totals_subquery,
 )
 from src.modules.payments.schemas import (
     AllocationCreate,
@@ -54,6 +59,11 @@ class PaymentService:
     @staticmethod
     def _cents_to_money(value: int) -> Decimal:
         return round_money(Decimal(value) / Decimal("100"))
+
+    @staticmethod
+    def _dated_event_datetime(event_date: date) -> datetime:
+        now = datetime.now(timezone.utc)
+        return datetime.combine(event_date, now.timetz())
 
     def _allocate_proportionally(
         self,
@@ -455,8 +465,25 @@ class PaymentService:
         )
         requested_amount = round_money(data.amount)
         reason = data.reason.strip()
+        refund_method = (
+            data.refund_method.strip()
+            if isinstance(data.refund_method, str) and data.refund_method.strip()
+            else None
+        )
+        reference_number = (
+            data.reference_number.strip()
+            if isinstance(data.reference_number, str) and data.reference_number.strip()
+            else None
+        )
+        proof_text = (
+            data.proof_text.strip()
+            if isinstance(data.proof_text, str) and data.proof_text.strip()
+            else None
+        )
         if len(reason) < 3:
             raise ValidationError("Refund reason must be at least 3 characters")
+        if not reference_number and not proof_text and data.proof_attachment_id is None:
+            raise ValidationError("Reference, proof text or confirmation file is required")
         refundable_amount = round_money(payment.amount - refunded_amount)
         if refundable_amount <= 0:
             raise ValidationError("Payment is already fully refunded")
@@ -484,6 +511,10 @@ class PaymentService:
             billing_account_id=payment.billing_account_id,
             amount=requested_amount,
             refund_date=data.refund_date,
+            refund_method=refund_method,
+            reference_number=reference_number,
+            proof_text=proof_text,
+            proof_attachment_id=data.proof_attachment_id,
             reason=reason,
             notes=data.notes.strip() if isinstance(data.notes, str) and data.notes.strip() else None,
             refunded_by_id=refunded_by_id,
@@ -502,6 +533,7 @@ class PaymentService:
                     f" ({requested_amount})"
                 ),
                 preferred_source_payment_id=payment.id,
+                effective_at=self._dated_event_datetime(data.refund_date),
             )
             if released_amount < amount_to_release:
                 await self.db.rollback()
@@ -520,6 +552,9 @@ class PaymentService:
                 "billing_account_id": payment.billing_account_id,
                 "amount": str(requested_amount),
                 "refund_date": str(data.refund_date),
+                "refund_method": refund_method,
+                "reference_number": reference_number,
+                "proof_attachment_id": data.proof_attachment_id,
                 "released_from_allocations": str(released_amount),
             },
             comment=reason,
@@ -1109,8 +1144,31 @@ class PaymentService:
         )
         opening_refund_debits = Decimal(str(opening_refunds.scalar() or 0))
 
+        opening_future_reversals = (
+            build_future_allocation_reversal_totals_subquery(
+                date_from,
+                inclusive=True,
+                alias_name="statement_opening_future_reversals",
+            )
+        )
         opening_allocations = await self.db.execute(
-            select(func.coalesce(func.sum(CreditAllocation.amount), 0)).where(
+            select(
+                func.coalesce(
+                    func.sum(
+                        CreditAllocation.amount
+                        + func.coalesce(
+                            opening_future_reversals.c.reversed_total,
+                            0,
+                        )
+                    ),
+                    0,
+                )
+            )
+            .outerjoin(
+                opening_future_reversals,
+                CreditAllocation.id == opening_future_reversals.c.allocation_id,
+            )
+            .where(
                 CreditAllocation.billing_account_id == billing_account_id,
                 func.date(CreditAllocation.created_at) < date_from,
             )
@@ -1144,9 +1202,42 @@ class PaymentService:
         )
         refunds = list(refunds_result.scalars().all())
 
+        reversals_result = await self.db.execute(
+            select(CreditAllocationReversal)
+            .join(
+                CreditAllocation,
+                CreditAllocation.id == CreditAllocationReversal.credit_allocation_id,
+            )
+            .where(
+                CreditAllocation.billing_account_id == billing_account_id,
+                func.date(CreditAllocationReversal.reversed_at) >= date_from,
+                func.date(CreditAllocationReversal.reversed_at) <= date_to,
+            )
+            .options(
+                selectinload(CreditAllocationReversal.allocation)
+                .selectinload(CreditAllocation.invoice)
+                .selectinload(Invoice.student)
+            )
+            .order_by(CreditAllocationReversal.reversed_at, CreditAllocationReversal.id)
+        )
+        reversals = list(reversals_result.scalars().all())
+
         # Get allocations in period
+        allocation_reversals = build_allocation_reversal_totals_subquery(
+            "statement_allocation_reversals"
+        )
         allocations_result = await self.db.execute(
-            select(CreditAllocation)
+            select(
+                CreditAllocation,
+                (
+                    CreditAllocation.amount
+                    + func.coalesce(allocation_reversals.c.reversed_total, 0)
+                ).label("original_amount"),
+            )
+            .outerjoin(
+                allocation_reversals,
+                CreditAllocation.id == allocation_reversals.c.allocation_id,
+            )
             .where(
                 CreditAllocation.billing_account_id == billing_account_id,
                 func.date(CreditAllocation.created_at) >= date_from,
@@ -1157,7 +1248,13 @@ class PaymentService:
             )
             .order_by(CreditAllocation.created_at)
         )
-        allocations = list(allocations_result.scalars().all())
+        allocations = [
+            (
+                allocation,
+                round_money(Decimal(str(original_amount or 0))),
+            )
+            for allocation, original_amount in allocations_result.all()
+        ]
 
         # Merge and sort by date
         entries: list[StatementEntry] = []
@@ -1171,7 +1268,7 @@ class PaymentService:
             return dt.astimezone(timezone.utc)
 
         # Convert to entries with unified datetime for sorting
-        all_items: list[tuple[datetime, str, Payment | PaymentRefund | CreditAllocation]] = []
+        all_items: list[tuple[datetime, str, object]] = []
 
         for payment in payments:
             dt = datetime.combine(
@@ -1190,8 +1287,19 @@ class PaymentService:
                 dt = dt.replace(tzinfo=timezone.utc)
             all_items.append((dt, "refund", refund))
 
-        for allocation in allocations:
-            all_items.append((_to_utc(allocation.created_at), "allocation", allocation))
+        for reversal in reversals:
+            all_items.append(
+                (_to_utc(reversal.reversed_at), "allocation_reversal", reversal)
+            )
+
+        for allocation, original_amount in allocations:
+            all_items.append(
+                (
+                    _to_utc(allocation.created_at),
+                    "allocation",
+                    (allocation, original_amount),
+                )
+            )
 
         # Sort by datetime
         all_items.sort(key=lambda x: x[0])
@@ -1231,10 +1339,32 @@ class PaymentService:
                         balance=round_money(running_balance),
                     )
                 )
+            elif item_type == "allocation_reversal":
+                reversal = item
+                allocation = reversal.allocation
+                invoice = allocation.invoice
+                running_balance += reversal.amount
+                total_credits += reversal.amount
+                entries.append(
+                    StatementEntry(
+                        date=dt,
+                        entry_type="allocation_reversal",
+                        description=(
+                            f"Allocation reversed from {invoice.invoice_number}"
+                            f" ({invoice.student.full_name})"
+                        ),
+                        reference=invoice.invoice_number,
+                        allocation_id=allocation.id,
+                        invoice_id=invoice.id,
+                        credit=reversal.amount,
+                        debit=None,
+                        balance=round_money(running_balance),
+                    )
+                )
             else:
-                allocation = item
-                running_balance -= allocation.amount
-                total_debits += allocation.amount
+                allocation, original_amount = item
+                running_balance -= original_amount
+                total_debits += original_amount
                 invoice = allocation.invoice
                 entries.append(
                     StatementEntry(
@@ -1245,7 +1375,7 @@ class PaymentService:
                         allocation_id=allocation.id,
                         invoice_id=invoice.id,
                         credit=None,
-                        debit=allocation.amount,
+                        debit=original_amount,
                         balance=round_money(running_balance),
                     )
                 )
@@ -1340,6 +1470,7 @@ class PaymentService:
         reason: str,
         *,
         preferred_source_payment_id: int | None = None,
+        effective_at: datetime | None = None,
     ) -> Decimal:
         """Release current allocations back into credit before a refund is recorded."""
         if amount_to_release <= 0:
@@ -1347,7 +1478,10 @@ class PaymentService:
 
         result = await self.db.execute(
             select(CreditAllocation)
-            .where(CreditAllocation.billing_account_id == billing_account_id)
+            .where(
+                CreditAllocation.billing_account_id == billing_account_id,
+                CreditAllocation.amount > 0,
+            )
             .order_by(CreditAllocation.created_at.desc(), CreditAllocation.id.desc())
         )
         allocations = list(result.scalars().all())
@@ -1390,10 +1524,16 @@ class PaymentService:
                 comment=reason,
             )
 
-            if new_amount <= 0:
-                await self.db.delete(allocation)
-            else:
-                allocation.amount = new_amount
+            self.db.add(
+                CreditAllocationReversal(
+                    credit_allocation_id=allocation.id,
+                    amount=release_amount,
+                    reason=reason,
+                    reversed_by_id=user_id,
+                    reversed_at=effective_at or datetime.now(timezone.utc),
+                )
+            )
+            allocation.amount = new_amount
 
             touched_invoice_ids.add(allocation.invoice_id)
             released = round_money(released + release_amount)

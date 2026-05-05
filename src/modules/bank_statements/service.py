@@ -23,6 +23,7 @@ from src.modules.bank_statements.models import (
 )
 from src.modules.budgets.models import BudgetAdvance, BudgetAdvanceReturn, BudgetAdvanceStatus
 from src.modules.compensations.models import CompensationPayout
+from src.modules.payments.models import PaymentRefund
 from src.modules.procurement.models import ProcurementPayment, ProcurementPaymentStatus
 
 
@@ -339,6 +340,8 @@ class BankStatementService:
             where.append(BankTransactionMatch.budget_advance_id.is_not(None))
         elif entity_type == "budget_advance_return":
             where.append(BankTransactionMatch.budget_advance_return_id.is_not(None))
+        elif entity_type == "payment_refund":
+            where.append(BankTransactionMatch.payment_refund_id.is_not(None))
 
         if search and search.strip():
             s = f"%{search.strip().lower()}%"
@@ -367,6 +370,9 @@ class BankStatementService:
                 ),
                 selectinload(BankTransaction.match).selectinload(
                     BankTransactionMatch.budget_advance_return
+                ),
+                selectinload(BankTransaction.match).selectinload(
+                    BankTransactionMatch.payment_refund
                 ),
             )
             .where(and_(*where))
@@ -469,6 +475,9 @@ class BankStatementService:
                 selectinload(BankStatementImportTransaction.bank_transaction)
                 .selectinload(BankTransaction.match)
                 .selectinload(BankTransactionMatch.budget_advance_return),
+                selectinload(BankStatementImportTransaction.bank_transaction)
+                .selectinload(BankTransaction.match)
+                .selectinload(BankTransactionMatch.payment_refund),
             )
             .where(and_(*where))
             .order_by(
@@ -581,6 +590,24 @@ class BankStatementService:
                 break
         return score
 
+    async def _score_payment_refund(self, txn: BankTransaction, refund: PaymentRefund) -> int:
+        score = 0
+        days = abs((refund.refund_date - txn.value_date).days)
+        if days == 0:
+            score += 3
+        elif days == 1:
+            score += 2
+        elif days <= DEFAULT_MATCH_WINDOW_DAYS:
+            score += 1
+
+        haystack = f"{txn.description} {txn.account_owner_reference or ''}".lower()
+        for needle in [refund.reference_number, refund.proof_text, f"REFUND-{refund.id}"]:
+            n = (needle or "").strip()
+            if n and n.lower() in haystack:
+                score += 2
+                break
+        return score
+
     async def auto_match_import(
         self,
         db: AsyncSession,
@@ -605,6 +632,9 @@ class BankStatementService:
         )
         matched_budget_return_subq = select(BankTransactionMatch.budget_advance_return_id).where(
             BankTransactionMatch.budget_advance_return_id.is_not(None)
+        )
+        matched_refund_subq = select(BankTransactionMatch.payment_refund_id).where(
+            BankTransactionMatch.payment_refund_id.is_not(None)
         )
 
         txns = list(
@@ -635,6 +665,7 @@ class BankStatementService:
         used_compensation_payout_ids: set[int] = set()
         used_budget_advance_ids: set[int] = set()
         used_budget_return_ids: set[int] = set()
+        used_refund_ids: set[int] = set()
 
         for txn in txns:
             amount_abs = (txn.amount.copy_abs()).quantize(Decimal("0.01"))
@@ -675,9 +706,19 @@ class BankStatementService:
                 if used_budget_advance_ids:
                     advance_stmt = advance_stmt.where(~BudgetAdvance.id.in_(used_budget_advance_ids))
 
+                refund_stmt = (
+                    select(PaymentRefund)
+                    .where(PaymentRefund.amount == amount_abs)
+                    .where(PaymentRefund.refund_date.between(date_min, date_max))
+                    .where(~PaymentRefund.id.in_(matched_refund_subq))
+                )
+                if used_refund_ids:
+                    refund_stmt = refund_stmt.where(~PaymentRefund.id.in_(used_refund_ids))
+
                 procurement_candidates = list((await db.execute(procurement_stmt)).scalars().all())
                 payout_candidates = list((await db.execute(payout_stmt)).scalars().all())
                 advance_candidates = list((await db.execute(advance_stmt)).scalars().all())
+                refund_candidates = list((await db.execute(refund_stmt)).scalars().all())
 
                 for candidate in procurement_candidates:
                     scored.append((await self._score_procurement_payment(txn, candidate), "procurement", candidate.id))
@@ -685,6 +726,8 @@ class BankStatementService:
                     scored.append((await self._score_payout(txn, candidate), "payout", candidate.id))
                 for candidate in advance_candidates:
                     scored.append((await self._score_budget_advance(txn, candidate), "budget_advance", candidate.id))
+                for candidate in refund_candidates:
+                    scored.append((await self._score_payment_refund(txn, candidate), "payment_refund", candidate.id))
             else:
                 return_stmt = (
                     select(BudgetAdvanceReturn)
@@ -727,8 +770,10 @@ class BankStatementService:
                 used_compensation_payout_ids.add(best[2])
             elif best[1] == "budget_advance":
                 used_budget_advance_ids.add(best[2])
-            else:
+            elif best[1] == "budget_advance_return":
                 used_budget_return_ids.add(best[2])
+            else:
+                used_refund_ids.add(best[2])
 
             match = BankTransactionMatch(
                 bank_transaction_id=txn.id,
@@ -736,6 +781,7 @@ class BankStatementService:
                 compensation_payout_id=best[2] if best[1] == "payout" else None,
                 budget_advance_id=best[2] if best[1] == "budget_advance" else None,
                 budget_advance_return_id=best[2] if best[1] == "budget_advance_return" else None,
+                payment_refund_id=best[2] if best[1] == "payment_refund" else None,
                 match_method="auto",
                 confidence=Decimal(str(best[0])),
                 matched_by_id=matched_by_id,
@@ -859,6 +905,28 @@ class BankStatementService:
                 confidence=Decimal("10.00"),
                 matched_by_id=matched_by_id,
             )
+        elif entity_type == "payment_refund":
+            refund = await db.scalar(select(PaymentRefund).where(PaymentRefund.id == entity_id))
+            if not refund:
+                raise NotFoundError("Payment refund not found")
+            if txn.amount >= 0:
+                raise ValidationError("Payment refund can only match outgoing bank transactions")
+            if not self._amount_close_enough(
+                expected_abs_amount=refund.amount,
+                actual_abs_amount=txn.amount.copy_abs(),
+            ):
+                raise ValidationError("Amount mismatch (tolerance: 1.00)")
+            match = BankTransactionMatch(
+                bank_transaction_id=bank_transaction_id,
+                procurement_payment_id=None,
+                compensation_payout_id=None,
+                budget_advance_id=None,
+                budget_advance_return_id=None,
+                payment_refund_id=refund.id,
+                match_method="manual",
+                confidence=Decimal("10.00"),
+                matched_by_id=matched_by_id,
+            )
         else:
             raise ValidationError("Invalid entity_type")
 
@@ -887,6 +955,7 @@ class BankStatementService:
         list[CompensationPayout],
         list[BudgetAdvance],
         list[BudgetAdvanceReturn],
+        list[PaymentRefund],
     ]:
         statement_import = await self.get_import(db, import_id)
 
@@ -960,12 +1029,20 @@ class BankStatementService:
                 )
             )
         ]
+        refund_where = [
+            ~PaymentRefund.id.in_(
+                select(BankTransactionMatch.payment_refund_id).where(
+                    BankTransactionMatch.payment_refund_id.is_not(None)
+                )
+            )
+        ]
 
         if not ignore_range and date_from and date_to:
             proc_where.append(ProcurementPayment.payment_date.between(date_from, date_to))
             payout_where.append(CompensationPayout.payout_date.between(date_from, date_to))
             advance_where.append(BudgetAdvance.issue_date.between(date_from, date_to))
             return_where.append(BudgetAdvanceReturn.return_date.between(date_from, date_to))
+            refund_where.append(PaymentRefund.refund_date.between(date_from, date_to))
 
         unmatched_proc = list((await db.execute(select(ProcurementPayment).where(and_(*proc_where)).order_by(ProcurementPayment.payment_date.desc()))).scalars().all())
         unmatched_payouts = list((await db.execute(select(CompensationPayout).where(and_(*payout_where)).order_by(CompensationPayout.payout_date.desc()))).scalars().all())
@@ -992,6 +1069,21 @@ class BankStatementService:
             .scalars()
             .all()
         )
+        unmatched_refunds = list(
+            (
+                await db.execute(
+                    select(PaymentRefund)
+                    .options(
+                        selectinload(PaymentRefund.payment),
+                        selectinload(PaymentRefund.billing_account),
+                    )
+                    .where(and_(*refund_where))
+                    .order_by(PaymentRefund.refund_date.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
 
         return (
             date_from,
@@ -1001,4 +1093,5 @@ class BankStatementService:
             unmatched_payouts,
             unmatched_advances,
             unmatched_returns,
+            unmatched_refunds,
         )

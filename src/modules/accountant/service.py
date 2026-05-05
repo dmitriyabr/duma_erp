@@ -11,7 +11,16 @@ from sqlalchemy.orm import selectinload
 
 from src.modules.billing_accounts.models import BillingAccount
 from src.modules.invoices.models import Invoice, InvoiceStatus
-from src.modules.payments.models import CreditAllocation, Payment, PaymentStatus
+from src.modules.payments.models import (
+    CreditAllocation,
+    CreditAllocationReversal,
+    Payment,
+    PaymentStatus,
+)
+from src.modules.payments.reporting import (
+    build_allocation_reversal_totals_subquery,
+    build_future_allocation_reversal_totals_subquery,
+)
 from src.modules.procurement.models import ProcurementPayment, ProcurementPaymentStatus
 from src.modules.students.models import Student
 from src.shared.utils.money import round_money
@@ -40,6 +49,7 @@ async def list_student_payments_for_export(
             .selectinload(BillingAccount.students)
             .selectinload(Student.grade),
             selectinload(Payment.received_by),
+            selectinload(Payment.refunds),
         )
         .order_by(Payment.payment_date, Payment.id)
         .limit(limit)
@@ -135,7 +145,10 @@ def build_student_payments_csv(
         "Billing Contact",
         "Payment Method",
         "Reference",
-        "Amount",
+        "Gross Amount",
+        "Refunded Amount",
+        "Net Received",
+        "Refund Status",
         "Received By",
         "Receipt PDF link",
         "Attachment link",
@@ -158,6 +171,16 @@ def build_student_payments_csv(
             billing_contact = p.student.guardian_name
         receipt_link = f"{app_base_url}/payment/{p.id}/receipt" if app_base_url else ""
         att_link = f"{app_base_url}/attachment/{p.confirmation_attachment_id}/download" if app_base_url and p.confirmation_attachment_id else ""
+        refunded_amount = round_money(
+            sum((refund.amount for refund in getattr(p, "refunds", [])), Decimal("0.00"))
+        )
+        net_received = round_money(p.amount - refunded_amount)
+        if refunded_amount <= 0:
+            refund_status = "none"
+        elif net_received <= 0:
+            refund_status = "full"
+        else:
+            refund_status = "partial"
         writer.writerow([
             p.payment_date.isoformat(),
             p.receipt_number or p.payment_number,
@@ -170,6 +193,9 @@ def build_student_payments_csv(
             p.payment_method,
             p.reference or "",
             str(p.amount),
+            str(refunded_amount),
+            str(net_received),
+            refund_status,
             received_by_name,
             receipt_link,
             att_link,
@@ -196,6 +222,7 @@ async def list_bank_transfers_for_export(
         .options(
             selectinload(BankTransaction.match).selectinload(BankTransactionMatch.procurement_payment),
             selectinload(BankTransaction.match).selectinload(BankTransactionMatch.compensation_payout),
+            selectinload(BankTransaction.match).selectinload(BankTransactionMatch.payment_refund),
         )
         .order_by(BankTransaction.value_date, BankTransaction.id)
         .limit(limit)
@@ -237,6 +264,11 @@ def build_bank_transfers_csv(
             entity_number = match.compensation_payout.payout_number
             if app_base_url and match.compensation_payout.proof_attachment_id:
                 proof_link = f"{app_base_url}/attachment/{match.compensation_payout.proof_attachment_id}/download"
+        elif match and match.payment_refund_id and match.payment_refund:
+            entity_type = "payment_refund"
+            entity_number = f"REFUND-{match.payment_refund_id}"
+            if app_base_url and match.payment_refund.proof_attachment_id:
+                proof_link = f"{app_base_url}/attachment/{match.payment_refund.proof_attachment_id}/download"
 
         writer.writerow(
             [
@@ -353,14 +385,34 @@ async def list_student_balance_changes_for_export(
     # Batch queries for opening balances (avoid N+1)
     student_ids_list = list(student_ids)
 
+    opening_future_reversals = build_future_allocation_reversal_totals_subquery(
+        date_from,
+        inclusive=True,
+        alias_name="accountant_opening_future_reversals",
+    )
     opening_allocations_result = await db.execute(
         select(
             CreditAllocation.student_id,
-            func.coalesce(func.sum(CreditAllocation.amount), 0)
-        ).where(
+            func.coalesce(
+                func.sum(
+                    CreditAllocation.amount
+                    + func.coalesce(
+                        opening_future_reversals.c.reversed_total,
+                        0,
+                    )
+                ),
+                0,
+            ),
+        )
+        .outerjoin(
+            opening_future_reversals,
+            CreditAllocation.id == opening_future_reversals.c.allocation_id,
+        )
+        .where(
             CreditAllocation.student_id.in_(student_ids_list),
             func.date(CreditAllocation.created_at) < date_from,
-        ).group_by(CreditAllocation.student_id)
+        )
+        .group_by(CreditAllocation.student_id)
     )
     opening_allocations_map = {
         row[0]: Decimal(str(row[1])) for row in opening_allocations_result.all()
@@ -398,8 +450,21 @@ async def list_student_balance_changes_for_export(
     invoice_result = await db.execute(invoice_q)
     invoices = list(invoice_result.scalars().unique().all())
 
+    allocation_reversals = build_allocation_reversal_totals_subquery(
+        "accountant_allocation_reversals"
+    )
     allocation_q = (
-        select(CreditAllocation)
+        select(
+            CreditAllocation,
+            (
+                CreditAllocation.amount
+                + func.coalesce(allocation_reversals.c.reversed_total, 0)
+            ).label("original_amount"),
+        )
+        .outerjoin(
+            allocation_reversals,
+            CreditAllocation.id == allocation_reversals.c.allocation_id,
+        )
         .where(func.date(CreditAllocation.created_at) >= date_from)
         .where(func.date(CreditAllocation.created_at) <= date_to)
         .where(CreditAllocation.student_id.in_(student_ids_list))
@@ -408,7 +473,29 @@ async def list_student_balance_changes_for_export(
         .limit(limit)
     )
     allocation_result = await db.execute(allocation_q)
-    allocations = list(allocation_result.scalars().unique().all())
+    allocations = [
+        (
+            allocation,
+            round_money(Decimal(str(original_amount or 0))),
+        )
+        for allocation, original_amount in allocation_result.unique().all()
+    ]
+
+    reversals_q = (
+        select(CreditAllocationReversal)
+        .join(
+            CreditAllocation,
+            CreditAllocation.id == CreditAllocationReversal.credit_allocation_id,
+        )
+        .where(func.date(CreditAllocationReversal.reversed_at) >= date_from)
+        .where(func.date(CreditAllocationReversal.reversed_at) <= date_to)
+        .where(CreditAllocation.student_id.in_(student_ids_list))
+        .options(selectinload(CreditAllocationReversal.allocation).selectinload(CreditAllocation.invoice))
+        .order_by(CreditAllocationReversal.reversed_at, CreditAllocationReversal.id)
+        .limit(limit)
+    )
+    reversals_result = await db.execute(reversals_q)
+    reversals = list(reversals_result.scalars().unique().all())
 
     students_data: dict[int, dict] = {}
 
@@ -455,7 +542,7 @@ async def list_student_balance_changes_for_export(
         })
         students_data[inv.student_id]["total_debits"] += inv.total
 
-    for allocation in allocations:
+    for allocation, original_amount in allocations:
         if allocation.student_id not in students_data:
             continue
         allocation_dt = (
@@ -473,10 +560,34 @@ async def list_student_balance_changes_for_export(
             "type": "Allocation",
             "description": f"Payment allocated - {invoice_type}",
             "reference": invoice.invoice_number if invoice else "",
-            "credit": allocation.amount,
+            "credit": original_amount,
             "debit": None,
         })
-        students_data[allocation.student_id]["total_credits"] += allocation.amount
+        students_data[allocation.student_id]["total_credits"] += original_amount
+
+    for reversal in reversals:
+        allocation = reversal.allocation
+        if allocation.student_id not in students_data:
+            continue
+        reversal_dt = (
+            reversal.reversed_at
+            if reversal.reversed_at.tzinfo
+            else reversal.reversed_at.replace(tzinfo=timezone.utc)
+        )
+        invoice = allocation.invoice
+        invoice_type = (
+            invoice.invoice_type.replace("_", " ").title() if invoice else "Invoice"
+        )
+        students_data[allocation.student_id]["transactions"].append({
+            "date": reversal_dt,
+            "sort_date": reversal_dt,
+            "type": "Allocation Reversal",
+            "description": f"Allocation reversed - {invoice_type}",
+            "reference": invoice.invoice_number if invoice else "",
+            "credit": None,
+            "debit": reversal.amount,
+        })
+        students_data[allocation.student_id]["total_debits"] += reversal.amount
 
     result = []
     for student_id, data in students_data.items():

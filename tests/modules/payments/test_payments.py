@@ -316,12 +316,18 @@ class TestPaymentService:
             PaymentRefundCreate(
                 amount=Decimal("1000.00"),
                 refund_date=date.today(),
+                refund_method="mpesa",
+                reference_number="RFND-PARTIAL-001",
+                proof_text="M-Pesa refund confirmation",
                 reason="Parent requested refund",
             ),
             refunded_by_id=data["user"].id,
         )
 
         assert refund.amount == Decimal("1000.00")
+        assert refund.refund_method == "mpesa"
+        assert refund.reference_number == "RFND-PARTIAL-001"
+        assert refund.proof_text == "M-Pesa refund confirmation"
 
         balance = await service.get_student_balance(data["student"].id)
         assert balance.total_payments == Decimal("6000.00")
@@ -364,6 +370,7 @@ class TestPaymentService:
             PaymentRefundCreate(
                 amount=Decimal("6000.00"),
                 refund_date=date.today(),
+                reference_number="RFND-FULL-001",
                 reason="Payment fully reversed",
             ),
             refunded_by_id=data["user"].id,
@@ -380,7 +387,9 @@ class TestPaymentService:
                 CreditAllocation.billing_account_id == balance.billing_account_id
             )
         )
-        assert list(allocations_result.scalars().all()) == []
+        allocations = list(allocations_result.scalars().all())
+        assert allocations
+        assert all(allocation.amount == Decimal("0.00") for allocation in allocations)
 
         invoices_result = await db_session.execute(
             select(Invoice).where(Invoice.student_id == data["student"].id)
@@ -1086,6 +1095,7 @@ class TestPaymentService:
             PaymentRefundCreate(
                 amount=Decimal("1000.00"),
                 refund_date=date.today(),
+                reference_number="RFND-STATEMENT-001",
                 reason="Statement refund check",
             ),
             refunded_by_id=data["user"].id,
@@ -1097,13 +1107,65 @@ class TestPaymentService:
             date.today() + timedelta(days=1),
         )
 
-        assert statement.total_credits == Decimal("6000.00")
-        assert statement.total_debits == Decimal("6000.00")
+        assert statement.total_credits == Decimal("7000.00")
+        assert statement.total_debits == Decimal("7000.00")
         assert statement.closing_balance == Decimal("0.00")
         refund_entry = next(entry for entry in statement.entries if entry.entry_type == "refund")
+        reversal_entry = next(
+            entry
+            for entry in statement.entries
+            if entry.entry_type == "allocation_reversal"
+        )
         assert refund_entry.payment_id == payment.id
         assert refund_entry.refund_id is not None
         assert refund_entry.debit == Decimal("1000.00")
+        assert reversal_entry.credit == Decimal("1000.00")
+
+    async def test_get_statement_preserves_original_allocation_before_refund(
+        self, db_session: AsyncSession
+    ):
+        """Historical statement should keep the original allocation amount before a later refund."""
+        data = await self._setup_test_data(db_session)
+        service = PaymentService(db_session)
+        payment_date = date.today()
+        refund_date = date.today() + timedelta(days=1)
+
+        payment = await service.create_payment(
+            PaymentCreate(
+                student_id=data["student"].id,
+                amount=Decimal("5000.00"),
+                payment_method=PaymentMethod.MPESA,
+                payment_date=payment_date,
+                reference="statement-historical-refund",
+            ),
+            received_by_id=data["user"].id,
+        )
+        await service.complete_payment(payment.id, data["user"].id)
+        await service.refund_payment(
+            payment.id,
+            PaymentRefundCreate(
+                amount=Decimal("1000.00"),
+                refund_date=refund_date,
+                reference_number="RFND-STATEMENT-002",
+                reason="Historical statement refund",
+            ),
+            refunded_by_id=data["user"].id,
+        )
+
+        statement = await service.get_statement(
+            data["student"].id,
+            payment_date,
+            payment_date,
+        )
+
+        allocation_entries = [
+            entry for entry in statement.entries if entry.entry_type == "allocation"
+        ]
+        assert allocation_entries
+        assert sum((entry.debit or Decimal("0.00") for entry in allocation_entries), Decimal("0.00")) == Decimal("5000.00")
+        assert statement.total_credits == Decimal("5000.00")
+        assert statement.total_debits == Decimal("5000.00")
+        assert statement.closing_balance == Decimal("0.00")
 
 
 class TestPaymentEndpoints:
@@ -1245,6 +1307,8 @@ class TestPaymentEndpoints:
             json={
                 "amount": "2000.00",
                 "refund_date": str(date.today()),
+                "refund_method": "mpesa",
+                "reference_number": "RFND-API-001",
                 "reason": "API refund test",
             },
         )
@@ -1252,6 +1316,8 @@ class TestPaymentEndpoints:
         assert response.status_code == 201
         result = response.json()
         assert Decimal(result["data"]["amount"]) == Decimal("2000.00")
+        assert result["data"]["refund_method"] == "mpesa"
+        assert result["data"]["reference_number"] == "RFND-API-001"
 
         payment_response = await client.get(
             f"/api/v1/payments/{payment_id}",

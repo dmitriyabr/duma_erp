@@ -14,9 +14,12 @@ from src.core.auth.models import User
 from src.core.config import settings
 from src.modules.bank_statements.models import BankTransactionMatch
 from src.modules.bank_statements.service import parse_stanbic_csv
+from src.modules.billing_accounts.models import BillingAccount
 from src.modules.compensations.models import CompensationPayout
+from src.modules.payments.models import Payment, PaymentMethod, PaymentRefund, PaymentStatus
 from src.modules.procurement.models import PaymentPurpose, ProcurementPayment, ProcurementPaymentMethod
 from src.modules.procurement.models import ProcurementPaymentStatus
+from src.modules.students.models import Gender, Grade, Student, StudentStatus
 
 
 @pytest.fixture
@@ -64,6 +67,80 @@ def _sample_csv_duplicate_amount() -> bytes:
         "10/01/2026,VENDOR PAYMENT FT26010WS6WVBNK,10/01/2026,\"-8000\",,MARKETING TEAM,TRF\n"
         "10/01/2026,VENDOR PAYMENT SECOND FT26010WS6WVBNK,10/01/2026,\"-8000\",,MARKETING TEAM,TRF\n"
     ).encode("utf-8")
+
+
+async def _create_payment_refund(
+    db_session: AsyncSession,
+    admin_user: User,
+    *,
+    suffix: str,
+    amount: Decimal = Decimal("8000.00"),
+    refund_date: date = date(2026, 1, 10),
+    reference_number: str = "FT26010WS6WVBNK",
+) -> PaymentRefund:
+    account = BillingAccount(
+        account_number=f"BA-REFUND-{suffix}",
+        display_name=f"Refund Account {suffix}",
+        primary_guardian_name="Refund Guardian",
+        primary_guardian_phone="+254700000001",
+        created_by_id=admin_user.id,
+    )
+    db_session.add(account)
+    await db_session.flush()
+
+    grade = Grade(
+        code=f"REF{suffix}",
+        name=f"Refund Grade {suffix}",
+        display_order=1,
+        is_active=True,
+    )
+    db_session.add(grade)
+    await db_session.flush()
+
+    student = Student(
+        student_number=f"STU-REFUND-{suffix}",
+        first_name="Refund",
+        last_name=suffix,
+        gender=Gender.MALE.value,
+        billing_account_id=account.id,
+        grade_id=grade.id,
+        guardian_name="Refund Guardian",
+        guardian_phone="+254700000001",
+        status=StudentStatus.ACTIVE.value,
+        created_by_id=admin_user.id,
+    )
+    db_session.add(student)
+    await db_session.flush()
+
+    payment = Payment(
+        payment_number=f"PAY-REFUND-{suffix}",
+        receipt_number=f"RCP-REFUND-{suffix}",
+        student_id=student.id,
+        billing_account_id=account.id,
+        amount=amount,
+        payment_method=PaymentMethod.MPESA.value,
+        payment_date=date(2026, 1, 1),
+        reference=f"ORIG-{suffix}",
+        status=PaymentStatus.COMPLETED.value,
+        received_by_id=admin_user.id,
+    )
+    db_session.add(payment)
+    await db_session.flush()
+
+    refund = PaymentRefund(
+        payment_id=payment.id,
+        billing_account_id=account.id,
+        amount=amount,
+        refund_date=refund_date,
+        refund_method="mpesa",
+        reference_number=reference_number,
+        proof_text=f"Refund proof {reference_number}",
+        reason="Parent refund",
+        refunded_by_id=admin_user.id,
+    )
+    db_session.add(refund)
+    await db_session.flush()
+    return refund
 
 
 class TestStanbicParser:
@@ -233,6 +310,112 @@ class TestBankStatementImportFlow:
         matches = list((await db_session.execute(select(BankTransactionMatch))).scalars().all())
         assert any(x.procurement_payment_id == payment.id for x in matches)
         assert any(x.compensation_payout_id == payout.id for x in matches)
+
+    async def test_auto_match_payment_refund(
+        self, client: AsyncClient, db_session: AsyncSession, storage_tmp_path
+    ):
+        token = await _get_admin_token(db_session)
+
+        admin_user = await db_session.scalar(
+            select(User).where(User.email == "bank_stmt_admin@test.com")
+        )
+        assert admin_user is not None
+        refund = await _create_payment_refund(
+            db_session,
+            admin_user,
+            suffix="AUTO",
+            amount=Decimal("8000.00"),
+            refund_date=date(2026, 1, 10),
+            reference_number="FT26010WS6WVBNK",
+        )
+        await db_session.commit()
+
+        resp = await client.post(
+            "/api/v1/bank-statements/imports",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": ("stmt.csv", _sample_csv(), "text/csv")},
+        )
+        assert resp.status_code == 201
+        import_id = resp.json()["data"]["id"]
+
+        m = await client.post(
+            f"/api/v1/bank-statements/imports/{import_id}/auto-match",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert m.status_code == 200
+        assert m.json()["data"]["matched"] >= 1
+
+        matches = list((await db_session.execute(select(BankTransactionMatch))).scalars().all())
+        assert any(x.payment_refund_id == refund.id for x in matches)
+
+    async def test_reconciliation_and_manual_match_payment_refund(
+        self, client: AsyncClient, db_session: AsyncSession, storage_tmp_path
+    ):
+        token = await _get_admin_token(db_session)
+
+        admin_user = await db_session.scalar(
+            select(User).where(User.email == "bank_stmt_admin@test.com")
+        )
+        assert admin_user is not None
+        refund = await _create_payment_refund(
+            db_session,
+            admin_user,
+            suffix="MANUAL",
+            amount=Decimal("8000.00"),
+            refund_date=date(2026, 1, 10),
+            reference_number="RFND-MANUAL",
+        )
+        await db_session.commit()
+
+        resp = await client.post(
+            "/api/v1/bank-statements/imports",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": ("stmt.csv", _sample_csv(), "text/csv")},
+        )
+        assert resp.status_code == 201
+        import_id = resp.json()["data"]["id"]
+
+        summary = await client.get(
+            f"/api/v1/bank-statements/imports/{import_id}/reconciliation",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert summary.status_code == 200
+        assert any(
+            p["id"] == refund.id
+            for p in summary.json()["data"]["unmatched_payment_refunds"]
+        )
+
+        detail = await client.get(
+            f"/api/v1/bank-statements/imports/{import_id}?page=1&limit=50&only_unmatched=true",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert detail.status_code == 200
+        rows = detail.json()["data"]["rows"]["items"]
+        txn_id = next(
+            r["transaction"]["id"]
+            for r in rows
+            if r["transaction"]["amount"].replace(",", "").strip().startswith("-8000")
+        )
+
+        match_response = await client.post(
+            f"/api/v1/bank-statements/transactions/{txn_id}/match",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"entity_type": "payment_refund", "entity_id": refund.id},
+        )
+        assert match_response.status_code == 200
+        match_data = match_response.json()["data"]
+        assert match_data["entity_type"] == "payment_refund"
+        assert match_data["entity_id"] == refund.id
+
+        summary_after = await client.get(
+            f"/api/v1/bank-statements/imports/{import_id}/reconciliation",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert summary_after.status_code == 200
+        assert all(
+            p["id"] != refund.id
+            for p in summary_after.json()["data"]["unmatched_payment_refunds"]
+        )
 
     async def test_auto_match_skips_already_used_procurement_payment(
         self, client: AsyncClient, db_session: AsyncSession, storage_tmp_path

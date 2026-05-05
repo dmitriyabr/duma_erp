@@ -25,6 +25,7 @@ from src.modules.bank_statements.schemas import (
     UnmatchedBudgetAdvance,
     UnmatchedBudgetAdvanceReturn,
     UnmatchedCompensationPayout,
+    UnmatchedPaymentRefund,
     UnmatchedProcurementPayment,
 )
 from src.modules.bank_statements.service import BankStatementService
@@ -32,6 +33,7 @@ from src.modules.bank_statements.models import BankTransactionMatch
 from src.modules.budgets.models import BudgetAdvance, BudgetAdvanceReturn
 from src.modules.procurement.models import ProcurementPayment
 from src.modules.compensations.models import CompensationPayout
+from src.modules.payments.models import PaymentRefund
 from src.shared.schemas.base import ApiResponse, PaginatedResponse
 
 
@@ -82,6 +84,18 @@ def _match_to_response(match: BankTransactionMatch | None) -> BankTransactionMat
             confidence=match.confidence,
             matched_at=match.matched_at,
             proof_attachment_id=advance.proof_attachment_id if advance else None,
+        )
+    if match.payment_refund_id:
+        refund: PaymentRefund | None = match.payment_refund
+        return BankTransactionMatchInfo(
+            id=match.id,
+            entity_type="payment_refund",
+            entity_id=match.payment_refund_id,
+            entity_number=f"REFUND-{match.payment_refund_id}",
+            match_method=match.match_method,
+            confidence=match.confidence,
+            matched_at=match.matched_at,
+            proof_attachment_id=refund.proof_attachment_id if refund else None,
         )
     advance_return: BudgetAdvanceReturn | None = match.budget_advance_return
     return BankTransactionMatchInfo(
@@ -235,7 +249,11 @@ async def list_bank_transactions(
     txn_type: str | None = Query(None, description="Transaction type code from statement (e.g. TRF/CHG/TAX)"),
     matched: bool | None = Query(None, description="Filter by matched status"),
     entity_type: str | None = Query(
-        None, description="procurement_payment | compensation_payout | budget_advance | budget_advance_return"
+        None,
+        description=(
+            "procurement_payment | compensation_payout | budget_advance | "
+            "budget_advance_return | payment_refund"
+        ),
     ),
     search: str | None = Query(None, description="Search in description/reference"),
     page: int = Query(1, ge=1),
@@ -340,6 +358,7 @@ async def manual_match_transaction(
             selectinload(BankTransactionMatch.compensation_payout),
             selectinload(BankTransactionMatch.budget_advance),
             selectinload(BankTransactionMatch.budget_advance_return),
+            selectinload(BankTransactionMatch.payment_refund),
         )
     )
     assert match is not None
@@ -369,8 +388,19 @@ async def get_import_reconciliation_summary(
     current_user: User = BankReadRole,
 ):
     service = BankStatementService()
-    date_from, date_to, unmatched_txns, unmatched_proc, unmatched_payouts, unmatched_advances, unmatched_returns = (
-        await service.reconciliation_summary_for_import(db, import_id, ignore_range=ignore_range)
+    (
+        date_from,
+        date_to,
+        unmatched_txns,
+        unmatched_proc,
+        unmatched_payouts,
+        unmatched_advances,
+        unmatched_returns,
+        unmatched_refunds,
+    ) = (
+        await service.reconciliation_summary_for_import(
+            db, import_id, ignore_range=ignore_range
+        )
     )
 
     return ApiResponse(
@@ -420,6 +450,19 @@ async def get_import_reconciliation_summary(
                     reference_number=p.reference_number,
                 )
                 for p in unmatched_returns
+            ],
+            unmatched_payment_refunds=[
+                UnmatchedPaymentRefund(
+                    id=p.id,
+                    payment_id=p.payment_id,
+                    payment_number=getattr(p.payment, "payment_number", None),
+                    refund_date=p.refund_date,
+                    amount=p.amount,
+                    refund_method=p.refund_method,
+                    reference_number=p.reference_number,
+                    billing_account_name=getattr(p.billing_account, "display_name", None),
+                )
+                for p in unmatched_refunds
             ],
         )
     )

@@ -16,6 +16,7 @@ MatchedEntityType = Literal[
     "compensation_payout",
     "budget_advance",
     "budget_advance_return",
+    "payment_refund",
 ]
 
 
@@ -132,6 +133,17 @@ class UnmatchedBudgetAdvanceReturn(BaseSchema):
     reference_number: str | None = None
 
 
+class UnmatchedPaymentRefund(BaseSchema):
+    id: int
+    payment_id: int
+    payment_number: str | None = None
+    refund_date: date
+    amount: Decimal
+    refund_method: str | None = None
+    reference_number: str | None = None
+    billing_account_name: str | None = None
+
+
 class ImportReconciliationSummary(BaseSchema):
     import_id: int
     range_from: date | None = None
@@ -141,3 +153,4 @@ class ImportReconciliationSummary(BaseSchema):
     unmatched_compensation_payouts: list[UnmatchedCompensationPayout]
     unmatched_budget_advances: list[UnmatchedBudgetAdvance]
     unmatched_budget_advance_returns: list[UnmatchedBudgetAdvanceReturn]
+    unmatched_payment_refunds: list[UnmatchedPaymentRefund]

@@ -79,8 +79,20 @@ class PaymentRefundCreate(BaseSchema):
 
     amount: Decimal = Field(gt=0, description="Refund amount")
     refund_date: date
+    refund_method: str | None = Field(None, max_length=20)
+    reference_number: str | None = Field(None, max_length=200)
+    proof_text: str | None = None
+    proof_attachment_id: int | None = None
     reason: str = Field(..., min_length=3)
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def require_refund_proof(self):
+        has_reference = bool((self.reference_number or "").strip())
+        has_proof_text = bool((self.proof_text or "").strip())
+        if not has_reference and not has_proof_text and self.proof_attachment_id is None:
+            raise ValueError("Reference, proof text or confirmation file is required")
+        return self
 
 
 class PaymentRefundResponse(BaseSchema):
@@ -91,6 +103,10 @@ class PaymentRefundResponse(BaseSchema):
     billing_account_id: int
     amount: Decimal
     refund_date: date
+    refund_method: str | None = None
+    reference_number: str | None = None
+    proof_text: str | None = None
+    proof_attachment_id: int | None = None
     reason: str
     notes: str | None
     refunded_by_id: int

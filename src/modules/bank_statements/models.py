@@ -156,6 +156,7 @@ class BankTransactionMatch(Base):
         UniqueConstraint(
             "budget_advance_return_id", name="uq_bank_txn_match_budget_advance_return"
         ),
+        UniqueConstraint("payment_refund_id", name="uq_bank_txn_match_payment_refund"),
     )
 
     id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
@@ -174,6 +175,9 @@ class BankTransactionMatch(Base):
     )
     budget_advance_return_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("budget_advance_returns.id"), nullable=True, index=True
+    )
+    payment_refund_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("payment_refunds.id"), nullable=True, index=True
     )
 
     match_method: Mapped[str] = mapped_column(String(20), nullable=False, default="auto")
@@ -203,4 +207,7 @@ class BankTransactionMatch(Base):
     )
     budget_advance_return: Mapped["BudgetAdvanceReturn | None"] = relationship(
         "BudgetAdvanceReturn", foreign_keys=[budget_advance_return_id]
+    )
+    payment_refund: Mapped["PaymentRefund | None"] = relationship(
+        "PaymentRefund", foreign_keys=[payment_refund_id]
     )

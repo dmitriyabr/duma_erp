@@ -14,7 +14,7 @@ from src.modules.compensations.models import (
 )
 from src.modules.billing_accounts.models import BillingAccount
 from src.modules.invoices.models import Invoice, InvoiceStatus
-from src.modules.payments.models import Payment, PaymentStatus
+from src.modules.payments.reporting import get_net_student_cash_total
 from src.modules.procurement.models import (
     GoodsReceivedNote,
     GoodsReceivedStatus,
@@ -179,14 +179,12 @@ class DashboardService:
         self, year_start: date, year_end: date
     ) -> Decimal:
         """Get total revenue for the year (using date range for index)."""
-        result = await self.db.execute(
-            select(func.coalesce(func.sum(Payment.amount), 0)).where(
-                Payment.status == PaymentStatus.COMPLETED.value,
-                Payment.payment_date >= year_start,
-                Payment.payment_date <= year_end,
-            )
+        result = await get_net_student_cash_total(
+            self.db,
+            date_from=year_start,
+            date_to=year_end,
         )
-        return round_money(Decimal(str(result.scalar() or 0)))
+        return round_money(result)
 
     async def _get_expenses_year(
         self, year_start: date, year_end: date
@@ -224,12 +222,10 @@ class DashboardService:
     ) -> tuple[Decimal, Decimal, Decimal]:
         """Get term-specific revenue and invoice metrics."""
         # Execute revenue and invoice queries in parallel
-        revenue_task = self.db.execute(
-            select(func.coalesce(func.sum(Payment.amount), 0)).where(
-                Payment.status == PaymentStatus.COMPLETED.value,
-                Payment.payment_date >= term_start,
-                Payment.payment_date <= term_end,
-            )
+        revenue_task = get_net_student_cash_total(
+            self.db,
+            date_from=term_start,
+            date_to=term_end,
         )
 
         invoice_task = self.db.execute(
@@ -252,7 +248,7 @@ class DashboardService:
             revenue_task, invoice_task
         )
 
-        revenue = round_money(Decimal(str(revenue_result.scalar() or 0)))
+        revenue = round_money(revenue_result)
         invoice_row = invoice_result.one()
         invoiced = round_money(Decimal(str(invoice_row[0] or 0)))
         paid = round_money(Decimal(str(invoice_row[1] or 0)))
