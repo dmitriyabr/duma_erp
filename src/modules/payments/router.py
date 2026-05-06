@@ -19,6 +19,7 @@ from src.modules.payments.schemas import (
     AllocationResponse,
     AutoAllocateRequest,
     AutoAllocateResult,
+    BillingAccountRefundResponse,
     PaymentCreate,
     PaymentFilters,
     PaymentRefundCreate,
@@ -29,6 +30,8 @@ from src.modules.payments.schemas import (
     StudentBalance,
     StudentBalancesBatchRequest,
     StudentBalancesBatchResponse,
+    PaymentRefundSourceResponse,
+    RefundAllocationImpact,
 )
 from src.modules.invoices.service import InvoiceService
 from src.modules.payments.service import PaymentService
@@ -49,9 +52,19 @@ def _build_student_net_balance(outstanding_debt: Decimal) -> Decimal:
 
 def _payment_to_response(payment) -> PaymentResponse:
     """Convert Payment model to API response."""
-    refunded_amount = round_money(
-        sum((refund.amount for refund in getattr(payment, "refunds", [])), Decimal("0.00"))
+    source_refunded = sum(
+        (source.amount for source in getattr(payment, "refund_sources", [])),
+        Decimal("0.00"),
     )
+    legacy_refunded = (
+        Decimal("0.00")
+        if source_refunded > 0
+        else sum(
+            (refund.amount for refund in getattr(payment, "refunds", [])),
+            Decimal("0.00"),
+        )
+    )
+    refunded_amount = round_money(source_refunded + legacy_refunded)
     refundable_amount = round_money(max(Decimal("0.00"), payment.amount - refunded_amount))
     if refunded_amount <= 0:
         refund_status = "none"
@@ -92,6 +105,7 @@ def _payment_to_response(payment) -> PaymentResponse:
 def _refund_to_response(refund) -> PaymentRefundResponse:
     return PaymentRefundResponse(
         id=refund.id,
+        refund_number=refund.refund_number,
         payment_id=refund.payment_id,
         billing_account_id=refund.billing_account_id,
         amount=refund.amount,
@@ -105,6 +119,52 @@ def _refund_to_response(refund) -> PaymentRefundResponse:
         refunded_by_id=refund.refunded_by_id,
         created_at=refund.created_at,
         updated_at=refund.updated_at,
+    )
+
+
+def _refund_allocation_impact_to_response(reversal) -> RefundAllocationImpact:
+    allocation = reversal.allocation
+    invoice = allocation.invoice
+    paid_after = round_money(invoice.paid_total)
+    due_after = round_money(invoice.amount_due)
+    paid_before = round_money(paid_after + reversal.amount)
+    due_before = round_money(max(Decimal("0.00"), due_after - reversal.amount))
+    return RefundAllocationImpact(
+        allocation_id=allocation.id,
+        invoice_id=invoice.id,
+        invoice_number=invoice.invoice_number,
+        student_id=invoice.student_id,
+        student_name=invoice.student.full_name if invoice.student else None,
+        current_allocation_amount=allocation.amount,
+        reversal_amount=reversal.amount,
+        invoice_paid_total_before=paid_before,
+        invoice_amount_due_before=due_before,
+        invoice_paid_total_after=paid_after,
+        invoice_amount_due_after=due_after,
+    )
+
+
+def _billing_account_refund_to_response(refund) -> BillingAccountRefundResponse:
+    base = _refund_to_response(refund).model_dump()
+    return BillingAccountRefundResponse(
+        **base,
+        payment_sources=[
+            PaymentRefundSourceResponse(
+                id=source.id,
+                refund_id=source.refund_id,
+                payment_id=source.payment_id,
+                payment_number=source.payment.payment_number if source.payment else None,
+                receipt_number=source.payment.receipt_number if source.payment else None,
+                amount=source.amount,
+                created_at=source.created_at,
+            )
+            for source in getattr(refund, "sources", [])
+        ],
+        allocation_reversals=[
+            _refund_allocation_impact_to_response(reversal)
+            for reversal in getattr(refund, "allocation_reversals", [])
+            if reversal.allocation and reversal.allocation.invoice
+        ],
     )
 
 
@@ -312,7 +372,7 @@ async def refund_payment(
     payment_id: int,
     data: PaymentRefundCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
 ):
     """Refund a completed payment and reverse its effect on allocations if needed."""
     service = PaymentService(db)

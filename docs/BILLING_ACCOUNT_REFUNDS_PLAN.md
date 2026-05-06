@@ -1,8 +1,8 @@
-# Billing Account Refunds Plan
+# Billing Account Refunds
 
 ## 1. Decision
 
-Refunds should become billing-account-level financial documents.
+Refunds are implemented as billing-account-level financial documents.
 
 The main business question is not "which original payment are we refunding?".
 The main question is:
@@ -18,22 +18,32 @@ Target hierarchy:
 3. Payment source attribution - internal/audit detail that prevents refunding more received cash than exists.
 
 
-## 2. Current State
+## 2. Implemented State
 
-Current implementation is payment-level:
+Current implementation is account-level:
 
-- UI refunds from a concrete payment row.
-- API: `POST /payments/{payment_id}/refunds`.
-- DB: `payment_refunds.payment_id` is required.
-- Bank reconciliation matches outgoing transactions to `payment_refunds`.
-- `credit_allocation_reversals` records allocation reductions, but the refund relationship is not first-class enough for account-level preview/history.
+- primary UI action: `Refund account credit` on `BillingAccountDetailPage`;
+- API:
+  - `POST /billing-accounts/{account_id}/refunds/preview`;
+  - `POST /billing-accounts/{account_id}/refunds`;
+  - `GET /billing-accounts/{account_id}/refunds`;
+  - `GET /billing-accounts/refunds/{refund_id}`;
+  - `POST /payments/{payment_id}/refunds` remains as compatibility shortcut;
+- DB:
+  - `payment_refunds` is the refund header table;
+  - `payment_refunds.refund_number` stores document numbers;
+  - `payment_refunds.payment_id` is nullable legacy context for shortcut/old rows;
+  - `payment_refund_sources` stores internal payment source attribution;
+  - `credit_allocation_reversals.refund_id` links invoice impact to refund headers;
+- bank reconciliation matches outgoing transactions to refund headers through existing `bank_transaction_matches.payment_refund_id`;
+- reports/statements/accountant exports read refund header amount and payment source attribution.
 
-This works for simple cases but is awkward when:
+This supports:
 
-- a parent requests one refund covering several payments;
-- one outgoing bank transfer should reconcile to one refund document;
-- a payment was already allocated across several invoices;
-- accountant needs to understand which invoices were reopened.
+- one refund covering several payments;
+- one outgoing bank transfer reconciled to one refund document;
+- refunds where the original payments were already allocated across invoices;
+- clear visibility into which invoices were reopened.
 
 
 ## 3. Product Goal
@@ -88,15 +98,15 @@ The refund detail can expand into:
 
 Use the domain name `BillingAccountRefund`.
 
-For migration safety, the physical table can initially remain `payment_refunds` and be reinterpreted as the refund header. A later cleanup may rename it to `billing_account_refunds`, but that rename is not required for the first account-level implementation.
+For migration safety, the physical table remains `payment_refunds` and is interpreted as the refund header. A later cleanup may rename it to `billing_account_refunds`, but that rename is not required for the account-level implementation.
 
-Pragmatic v1:
+Implemented v1:
 
 - keep table `payment_refunds`;
-- add `refund_number`;
-- make `payment_id` nullable/deprecated;
-- add refund line/source table;
-- update code to treat `payment_refunds` as account-level refund headers.
+- `refund_number`;
+- nullable/deprecated `payment_id`;
+- `payment_refund_sources`;
+- code treats `payment_refunds` as account-level refund headers.
 
 Clean long-term v2:
 
@@ -125,7 +135,7 @@ Target header fields:
 | refunded_by_id | User |
 | created_at / updated_at | Audit timestamps |
 
-Existing `payment_refunds.payment_id` should become legacy context only:
+Existing `payment_refunds.payment_id` is legacy context only:
 
 - nullable;
 - not used as owner of the refund;
@@ -407,7 +417,7 @@ If `allocation_reversals` is omitted, backend uses the automatic strategy and re
 
 ```text
 GET /billing-accounts/{account_id}/refunds
-GET /billing-account-refunds/{refund_id}
+GET /billing-accounts/refunds/{refund_id}
 ```
 
 The detail response should include:
@@ -511,11 +521,11 @@ Invoice outstanding should be derived from current allocations after reversal.
 Allocation-based reports must account for reversals so historical periods remain explainable.
 
 
-## 10. Migration Plan
+## 10. Migration Status
 
 ### Phase 1. Schema
 
-Add:
+Implemented by Alembic revision `049_account_level_payment_refunds`:
 
 - `payment_refunds.refund_number`;
 - nullable/deprecated `payment_refunds.payment_id`;
@@ -531,7 +541,7 @@ Backfill:
 
 ### Phase 2. Service layer
 
-Add account-level refund service:
+Implemented account-level refund service:
 
 - preview;
 - create;
@@ -540,11 +550,11 @@ Add account-level refund service:
 - invoice recalculation;
 - audit.
 
-Refactor old payment-level refund endpoint to call the account-level service.
+Old payment-level refund endpoint calls the account-level service.
 
 ### Phase 3. API and UI
 
-Add:
+Implemented:
 
 - account refund preview endpoint;
 - account refund create endpoint;
@@ -555,7 +565,7 @@ Add:
 
 ### Phase 4. Reconciliation and reporting
 
-Ensure:
+Implemented:
 
 - reconciliation matches header refund;
 - exports use refund header;
@@ -573,12 +583,11 @@ Optional:
 
 ## 11. Test Plan
 
-Backend tests:
+Backend tests implemented:
 
 - refund fully covered by free account credit;
 - refund requiring one allocation reversal;
 - refund requiring multiple allocation reversals across invoices/students;
-- manual reversal selection validation;
 - refund amount exceeds refundable total;
 - refund source attribution across multiple payments;
 - old `POST /payments/{payment_id}/refunds` compatibility path;
@@ -586,11 +595,10 @@ Backend tests:
 - statement shows one refund debit row;
 - payment rows show derived refunded/refundable amounts.
 
-Frontend tests/manual QA:
+Manual/follow-up QA:
 
 - billing account refund dialog preview;
 - validation messages for missing proof/reference;
-- manual allocation impact mode;
 - refund history table;
 - reconciliation unmatched refund candidate;
 - payment-level shortcut still works.
@@ -598,11 +606,11 @@ Frontend tests/manual QA:
 
 ## 12. Open Decisions
 
-1. Should automatic allocation reversal be newest-first or oldest-first?
-   Recommendation: newest-first for v1.
+1. Should manual impact override be exposed in UI?
+   Current state: backend schema accepts manual allocation reversal requests; UI uses automatic newest-first preview/create.
 
 2. Should manual impact override be available to Admin only or also Accountant?
-   Recommendation: SuperAdmin/Admin can create refunds; Accountant can reconcile and inspect.
+   Current state: SuperAdmin/Admin can create refunds; Accountant can reconcile and inspect.
 
 3. Should refund documents be voidable?
    Recommendation: not in v1; add a separate void/reversal flow later if needed.

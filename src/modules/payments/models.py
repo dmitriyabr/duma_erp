@@ -5,7 +5,6 @@ from decimal import Decimal
 from enum import StrEnum
 
 from sqlalchemy import (
-    BigInteger,
     Date,
     DateTime,
     ForeignKey,
@@ -107,8 +106,12 @@ class Payment(Base):
     refunds: Mapped[list["PaymentRefund"]] = relationship(
         "PaymentRefund",
         back_populates="payment",
-        cascade="all, delete-orphan",
         order_by="PaymentRefund.created_at",
+    )
+    refund_sources: Mapped[list["PaymentRefundSource"]] = relationship(
+        "PaymentRefundSource",
+        back_populates="payment",
+        order_by="PaymentRefundSource.created_at",
     )
 
     @property
@@ -188,6 +191,9 @@ class CreditAllocationReversal(Base):
     credit_allocation_id: Mapped[int] = mapped_column(
         BigIntPK, ForeignKey("credit_allocations.id"), nullable=False, index=True
     )
+    refund_id: Mapped[int | None] = mapped_column(
+        BigIntPK, ForeignKey("payment_refunds.id"), nullable=True, index=True
+    )
     amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     reversed_by_id: Mapped[int | None] = mapped_column(
@@ -202,16 +208,23 @@ class CreditAllocationReversal(Base):
         back_populates="reversals",
     )
     reversed_by: Mapped["User | None"] = relationship("User")
+    refund: Mapped["PaymentRefund | None"] = relationship(
+        "PaymentRefund",
+        back_populates="allocation_reversals",
+    )
 
 
 class PaymentRefund(Base):
-    """Refund recorded against a completed student payment."""
+    """Refund header for outgoing cash from a billing account."""
 
     __tablename__ = "payment_refunds"
 
     id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
-    payment_id: Mapped[int] = mapped_column(
-        BigIntPK, ForeignKey("payments.id"), nullable=False, index=True
+    refund_number: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, unique=True, index=True
+    )
+    payment_id: Mapped[int | None] = mapped_column(
+        BigIntPK, ForeignKey("payments.id"), nullable=True, index=True
     )
     billing_account_id: Mapped[int] = mapped_column(
         BigIntPK, ForeignKey("billing_accounts.id"), nullable=False, index=True
@@ -239,12 +252,50 @@ class PaymentRefund(Base):
         nullable=False,
     )
 
-    payment: Mapped["Payment"] = relationship("Payment", back_populates="refunds")
+    payment: Mapped["Payment | None"] = relationship("Payment", back_populates="refunds")
     billing_account: Mapped["BillingAccount"] = relationship(
         "BillingAccount",
         back_populates="refunds",
     )
     refunded_by: Mapped["User"] = relationship("User")
+    sources: Mapped[list["PaymentRefundSource"]] = relationship(
+        "PaymentRefundSource",
+        back_populates="refund",
+        cascade="all, delete-orphan",
+        order_by="PaymentRefundSource.id",
+    )
+    allocation_reversals: Mapped[list["CreditAllocationReversal"]] = relationship(
+        "CreditAllocationReversal",
+        back_populates="refund",
+        order_by="CreditAllocationReversal.reversed_at",
+    )
+
+
+class PaymentRefundSource(Base):
+    """Internal attribution of an account-level refund to completed payments."""
+
+    __tablename__ = "payment_refund_sources"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    refund_id: Mapped[int] = mapped_column(
+        BigIntPK, ForeignKey("payment_refunds.id"), nullable=False, index=True
+    )
+    payment_id: Mapped[int] = mapped_column(
+        BigIntPK, ForeignKey("payments.id"), nullable=False, index=True
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    refund: Mapped["PaymentRefund"] = relationship(
+        "PaymentRefund",
+        back_populates="sources",
+    )
+    payment: Mapped["Payment"] = relationship(
+        "Payment",
+        back_populates="refund_sources",
+    )
 
 
 # Import for type hints

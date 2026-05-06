@@ -239,7 +239,11 @@
 - `PATCH /payments/{payment_id}`
 - `POST /payments/{payment_id}/complete`
 - `POST /payments/{payment_id}/cancel`
-- `POST /payments/{payment_id}/refunds` — текущий payment-level refund shortcut: refund создаётся от конкретного completed payment, требует proof/reference и при нехватке free billing-account credit откатывает allocations. Целевая модель для следующей итерации: account-level refund document с allocation impact preview, см. `docs/BILLING_ACCOUNT_REFUNDS_PLAN.md`.
+- `POST /payments/{payment_id}/refunds` — compatibility shortcut для refund от конкретного completed payment. Внутри создаёт account-level refund document, пишет source attribution на этот payment и при нехватке free billing-account credit откатывает allocations на уровне billing account.
+- `POST /billing-accounts/{account_id}/refunds/preview` — preview account-level refund: refundable total, free credit, amount to reopen, affected allocations/invoices and payment source attribution.
+- `POST /billing-accounts/{account_id}/refunds` — создать account-level refund document. Требует amount, refund_date, reason и proof: `reference_number`, `proof_text` или `proof_attachment_id`. По умолчанию free credit используется первым, затем allocation reversals newest-first.
+- `GET /billing-accounts/{account_id}/refunds` — refund history по billing account, включая payment sources и allocation reversals.
+- `GET /billing-accounts/refunds/{refund_id}` — detail конкретного refund document.
 - `POST /payments/students/balances-batch` — body: `{ student_ids: number[] }`. Ответ: `{ balances: StudentBalance[] }` — по каждому ученику: shared `available_balance` billing account, student-specific `outstanding_debt` и student-facing `balance`; общий credit не размазывается как личный баланс каждого ребёнка.
 - `GET /payments/students/{student_id}/balance` — response возвращает billing account metadata, `available_balance` как shared credit account, а `outstanding_debt` / `balance` как student-specific position; общий credit не атрибутируется одному ребёнку, поэтому `balance` не включает долги siblings и не дублирует shared credit как личный баланс ученика
 - `GET /payments/students/{student_id}/statement` — `date_from`, `date_to`; statement строится по linked billing account wallet; entries содержат `entry_type`, `payment_id`, `allocation_id`, `invoice_id`, чтобы allocation можно было откатить

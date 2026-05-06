@@ -1,6 +1,5 @@
 """Tests for Payments module."""
 
-import pytest
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from httpx import AsyncClient
@@ -10,10 +9,18 @@ from sqlalchemy.orm import selectinload
 
 from src.core.auth.models import UserRole
 from src.core.auth.service import AuthService
-from src.modules.payments.models import Payment, PaymentMethod, PaymentStatus, CreditAllocation
+from src.modules.payments.models import (
+    CreditAllocation,
+    CreditAllocationReversal,
+    PaymentMethod,
+    PaymentRefundSource,
+    PaymentStatus,
+)
 from src.modules.payments.schemas import (
     AllocationCreate,
     AutoAllocateRequest,
+    BillingAccountRefundCreate,
+    BillingAccountRefundPreviewRequest,
     PaymentCreate,
     PaymentFilters,
     PaymentRefundCreate,
@@ -402,6 +409,147 @@ class TestPaymentService:
         assert sum((item.amount for item in refreshed_payment.refunds), Decimal("0.00")) == Decimal(
             "6000.00"
         )
+
+    async def test_account_refund_uses_free_credit_without_reopening_invoices(
+        self, db_session: AsyncSession
+    ):
+        """Account-level refund should consume free account credit before allocations."""
+        data = await self._setup_test_data(db_session)
+        service = PaymentService(db_session)
+
+        payment = await service.create_payment(
+            PaymentCreate(
+                student_id=data["student"].id,
+                amount=Decimal("12000.00"),
+                payment_method=PaymentMethod.MPESA,
+                payment_date=date.today(),
+                reference="account-refund-free-credit",
+            ),
+            received_by_id=data["user"].id,
+        )
+        await service.complete_payment(payment.id, data["user"].id)
+        balance_before = await service.get_student_balance(data["student"].id)
+        assert balance_before.available_balance == Decimal("2000.00")
+
+        preview = await service.preview_billing_account_refund(
+            balance_before.billing_account_id,
+            BillingAccountRefundPreviewRequest(
+                amount=Decimal("1500.00"),
+                refund_date=date.today(),
+            ),
+        )
+        assert preview.amount_to_reopen == Decimal("0.00")
+        assert preview.allocation_reversals == []
+        assert preview.payment_sources[0].source_amount == Decimal("1500.00")
+
+        refund = await service.create_billing_account_refund(
+            balance_before.billing_account_id,
+            BillingAccountRefundCreate(
+                amount=Decimal("1500.00"),
+                refund_date=date.today(),
+                refund_method="mpesa",
+                reference_number="RFND-ACCOUNT-FREE",
+                reason="Parent requested account refund",
+            ),
+            refunded_by_id=data["user"].id,
+        )
+
+        assert refund.payment_id is None
+        assert refund.refund_number.startswith("RFND-")
+        assert refund.sources[0].payment_id == payment.id
+        assert refund.sources[0].amount == Decimal("1500.00")
+        assert refund.allocation_reversals == []
+
+        balance_after = await service.get_student_balance(data["student"].id)
+        assert balance_after.total_refunded == Decimal("1500.00")
+        assert balance_after.available_balance == Decimal("500.00")
+        assert balance_after.total_allocated == Decimal("10000.00")
+
+    async def test_account_refund_can_span_payments_and_link_reversals(
+        self, db_session: AsyncSession
+    ):
+        """One account refund can consume several payment sources and reopen allocations."""
+        data = await self._setup_test_data(db_session)
+        service = PaymentService(db_session)
+
+        older = await service.create_payment(
+            PaymentCreate(
+                student_id=data["student"].id,
+                amount=Decimal("4000.00"),
+                payment_method=PaymentMethod.MPESA,
+                payment_date=date.today() - timedelta(days=1),
+                reference="account-refund-source-older",
+            ),
+            received_by_id=data["user"].id,
+        )
+        newer = await service.create_payment(
+            PaymentCreate(
+                student_id=data["student"].id,
+                amount=Decimal("3000.00"),
+                payment_method=PaymentMethod.BANK_TRANSFER,
+                payment_date=date.today(),
+                reference="account-refund-source-newer",
+            ),
+            received_by_id=data["user"].id,
+        )
+        await service.complete_payment(older.id, data["user"].id)
+        await service.complete_payment(newer.id, data["user"].id)
+
+        balance = await service.get_student_balance(data["student"].id)
+        preview = await service.preview_billing_account_refund(
+            balance.billing_account_id,
+            BillingAccountRefundPreviewRequest(
+                amount=Decimal("5500.00"),
+                refund_date=date.today(),
+            ),
+        )
+
+        assert preview.amount_to_reopen == Decimal("5500.00")
+        assert [source.payment_id for source in preview.payment_sources] == [newer.id, older.id]
+        assert [source.source_amount for source in preview.payment_sources] == [
+            Decimal("3000.00"),
+            Decimal("2500.00"),
+        ]
+        assert sum(
+            (impact.reversal_amount for impact in preview.allocation_reversals),
+            Decimal("0.00"),
+        ) == Decimal("5500.00")
+
+        refund = await service.create_billing_account_refund(
+            balance.billing_account_id,
+            BillingAccountRefundCreate(
+                amount=Decimal("5500.00"),
+                refund_date=date.today(),
+                refund_method="bank_transfer",
+                reference_number="RFND-ACCOUNT-SPAN",
+                reason="Parent requested one account refund",
+            ),
+            refunded_by_id=data["user"].id,
+        )
+
+        sources_result = await db_session.execute(
+            select(PaymentRefundSource).where(PaymentRefundSource.refund_id == refund.id)
+        )
+        sources = list(sources_result.scalars().all())
+        assert [(source.payment_id, source.amount) for source in sources] == [
+            (newer.id, Decimal("3000.00")),
+            (older.id, Decimal("2500.00")),
+        ]
+
+        reversals_result = await db_session.execute(
+            select(CreditAllocationReversal).where(
+                CreditAllocationReversal.refund_id == refund.id
+            )
+        )
+        reversals = list(reversals_result.scalars().all())
+        assert sum((reversal.amount for reversal in reversals), Decimal("0.00")) == Decimal(
+            "5500.00"
+        )
+
+        balance_after = await service.get_student_balance(data["student"].id)
+        assert balance_after.total_refunded == Decimal("5500.00")
+        assert balance_after.total_allocated == Decimal("1500.00")
+        assert balance_after.available_balance == Decimal("0.00")
 
     async def test_list_payments_orders_by_payment_date_desc(
         self, db_session: AsyncSession
@@ -1338,6 +1486,75 @@ class TestPaymentEndpoints:
         assert Decimal(balance_data["total_refunded"]) == Decimal("2000.00")
         assert Decimal(balance_data["available_balance"]) == Decimal("0.00")
         assert payment_data["receipt_number"] is not None
+
+    async def test_account_refund_api_preview_create_and_list(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Billing account refund endpoints should preview, create and list one refund document."""
+        token, _, data = await self._setup_auth_and_data(db_session)
+
+        create_response = await client.post(
+            "/api/v1/payments",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "student_id": data["student"].id,
+                "amount": "7000.00",
+                "payment_method": "mpesa",
+                "payment_date": str(date.today()),
+                "reference": "account-refund-api-payment",
+            },
+        )
+        payment_id = create_response.json()["data"]["id"]
+        await client.post(
+            f"/api/v1/payments/{payment_id}/complete",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        balance_response = await client.get(
+            f"/api/v1/payments/students/{data['student'].id}/balance",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        account_id = balance_response.json()["data"]["billing_account_id"]
+
+        preview_response = await client.post(
+            f"/api/v1/billing-accounts/{account_id}/refunds/preview",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "amount": "2500.00",
+                "refund_date": str(date.today()),
+            },
+        )
+        assert preview_response.status_code == 200
+        preview = preview_response.json()["data"]
+        assert Decimal(preview["amount_to_reopen"]) == Decimal("500.00")
+        assert Decimal(preview["payment_sources"][0]["source_amount"]) == Decimal("2500.00")
+
+        create_refund_response = await client.post(
+            f"/api/v1/billing-accounts/{account_id}/refunds",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "amount": "2500.00",
+                "refund_date": str(date.today()),
+                "refund_method": "mpesa",
+                "reference_number": "RFND-ACCOUNT-API",
+                "reason": "Account refund API test",
+            },
+        )
+        assert create_refund_response.status_code == 201
+        refund = create_refund_response.json()["data"]
+        assert refund["refund_number"].startswith("RFND-")
+        assert refund["payment_id"] is None
+        assert Decimal(refund["amount"]) == Decimal("2500.00")
+        assert Decimal(refund["payment_sources"][0]["amount"]) == Decimal("2500.00")
+        assert Decimal(refund["allocation_reversals"][0]["reversal_amount"]) == Decimal("500.00")
+
+        list_response = await client.get(
+            f"/api/v1/billing-accounts/{account_id}/refunds",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert list_response.status_code == 200
+        rows = list_response.json()["data"]
+        assert len(rows) == 1
+        assert rows[0]["refund_number"] == refund["refund_number"]
 
     async def test_complete_payment_api_prefers_selected_invoice(
         self, client: AsyncClient, db_session: AsyncSession

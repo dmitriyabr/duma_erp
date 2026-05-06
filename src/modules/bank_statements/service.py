@@ -601,7 +601,12 @@ class BankStatementService:
             score += 1
 
         haystack = f"{txn.description} {txn.account_owner_reference or ''}".lower()
-        for needle in [refund.reference_number, refund.proof_text, f"REFUND-{refund.id}"]:
+        for needle in [
+            refund.refund_number,
+            refund.reference_number,
+            refund.proof_text,
+            f"REFUND-{refund.id}",
+        ]:
             n = (needle or "").strip()
             if n and n.lower() in haystack:
                 score += 2

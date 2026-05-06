@@ -19,7 +19,7 @@ from src.modules.billing_accounts.schemas import (
 from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
 from src.modules.items.models import Category, ItemType, Kit, PriceType
-from src.modules.payments.models import PaymentMethod
+from src.modules.payments.models import CreditAllocation, PaymentMethod
 from src.modules.payments.schemas import AutoAllocateRequest, PaymentCreate
 from src.modules.payments.service import PaymentService
 from src.modules.students.models import Gender, Grade, Student, StudentStatus

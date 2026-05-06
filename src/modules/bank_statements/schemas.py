@@ -135,7 +135,8 @@ class UnmatchedBudgetAdvanceReturn(BaseSchema):
 
 class UnmatchedPaymentRefund(BaseSchema):
     id: int
-    payment_id: int
+    refund_number: str | None = None
+    payment_id: int | None = None
     payment_number: str | None = None
     refund_date: date
     amount: Decimal

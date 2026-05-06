@@ -20,6 +20,7 @@ from src.modules.payments.models import (
     CreditAllocationReversal,
     Payment,
     PaymentRefund,
+    PaymentRefundSource,
     PaymentStatus,
 )
 from src.modules.payments.reporting import (
@@ -31,9 +32,15 @@ from src.modules.payments.schemas import (
     AllocationResponse,
     AutoAllocateRequest,
     AutoAllocateResult,
+    BillingAccountRefundCreate,
+    BillingAccountRefundPreview,
+    BillingAccountRefundPreviewRequest,
     PaymentCreate,
     PaymentFilters,
     PaymentRefundCreate,
+    RefundAllocationImpact,
+    RefundAllocationReversalRequest,
+    RefundPaymentSourceImpact,
     PaymentUpdate,
     StatementEntry,
     StatementResponse,
@@ -214,6 +221,7 @@ class PaymentService:
                 selectinload(Payment.preferred_invoice),
                 selectinload(Payment.received_by),
                 selectinload(Payment.refunds),
+                selectinload(Payment.refund_sources),
             )
         )
         payment = result.scalar_one_or_none()
@@ -234,6 +242,7 @@ class PaymentService:
                 selectinload(Payment.preferred_invoice),
                 selectinload(Payment.received_by),
                 selectinload(Payment.refunds),
+                selectinload(Payment.refund_sources),
             )
         )
 
@@ -297,6 +306,11 @@ class PaymentService:
                 selectinload(PaymentRefund.payment),
                 selectinload(PaymentRefund.billing_account),
                 selectinload(PaymentRefund.refunded_by),
+                selectinload(PaymentRefund.sources).selectinload(PaymentRefundSource.payment),
+                selectinload(PaymentRefund.allocation_reversals)
+                .selectinload(CreditAllocationReversal.allocation)
+                .selectinload(CreditAllocation.invoice)
+                .selectinload(Invoice.student),
             )
         )
         refund = result.scalar_one_or_none()
@@ -455,60 +469,131 @@ class PaymentService:
         data: PaymentRefundCreate,
         refunded_by_id: int,
     ) -> PaymentRefund:
-        """Refund a completed payment, reversing allocations when required."""
+        """Compatibility shortcut: refund a single completed payment."""
         payment = await self.get_payment_by_id(payment_id)
         if not payment.is_completed:
             raise ValidationError("Can only refund completed payments")
 
-        refunded_amount = round_money(
-            sum((refund.amount for refund in payment.refunds), Decimal("0.00"))
-        )
-        requested_amount = round_money(data.amount)
-        reason = data.reason.strip()
-        refund_method = (
-            data.refund_method.strip()
-            if isinstance(data.refund_method, str) and data.refund_method.strip()
-            else None
-        )
-        reference_number = (
-            data.reference_number.strip()
-            if isinstance(data.reference_number, str) and data.reference_number.strip()
-            else None
-        )
-        proof_text = (
-            data.proof_text.strip()
-            if isinstance(data.proof_text, str) and data.proof_text.strip()
-            else None
-        )
-        if len(reason) < 3:
-            raise ValidationError("Refund reason must be at least 3 characters")
-        if not reference_number and not proof_text and data.proof_attachment_id is None:
-            raise ValidationError("Reference, proof text or confirmation file is required")
-        refundable_amount = round_money(payment.amount - refunded_amount)
+        refundable_amount = await self._get_payment_refundable_amount(payment.id)
         if refundable_amount <= 0:
             raise ValidationError("Payment is already fully refunded")
+        requested_amount = round_money(data.amount)
         if requested_amount > refundable_amount:
             raise ValidationError(
                 f"Refund exceeds remaining refundable amount. Available: {refundable_amount}"
             )
 
-        balance = await self.get_student_balance(payment.student_id)
-        free_balance = round_money(balance.available_balance)
-        allocated_result = await self.db.execute(
-            select(func.coalesce(func.sum(CreditAllocation.amount), 0)).where(
-                CreditAllocation.billing_account_id == payment.billing_account_id
+        account_data = BillingAccountRefundCreate(
+            amount=data.amount,
+            refund_date=data.refund_date,
+            refund_method=data.refund_method,
+            reference_number=data.reference_number,
+            proof_text=data.proof_text,
+            proof_attachment_id=data.proof_attachment_id,
+            reason=data.reason,
+            notes=data.notes,
+        )
+        return await self.create_billing_account_refund(
+            payment.billing_account_id,
+            account_data,
+            refunded_by_id,
+            legacy_payment_id=payment.id,
+            forced_source_payment_id=payment.id,
+        )
+
+    async def preview_billing_account_refund(
+        self,
+        billing_account_id: int,
+        data: BillingAccountRefundPreviewRequest,
+    ) -> BillingAccountRefundPreview:
+        """Preview account-level refund capacity and invoice allocation impact."""
+        await self._get_billing_account(billing_account_id)
+        requested_amount = round_money(data.amount)
+        completed_total = await self._get_completed_payments_total(billing_account_id)
+        posted_refunds_total = await self._get_posted_refunds_total(billing_account_id)
+        current_allocated_total = await self._get_current_allocated_total(billing_account_id)
+        available_credit = round_money(
+            completed_total - posted_refunds_total - current_allocated_total
+        )
+        refundable_total = round_money(completed_total - posted_refunds_total)
+        if requested_amount > refundable_total:
+            raise ValidationError(
+                f"Refund exceeds billing account refundable amount. Available: {refundable_total}"
+            )
+        amount_to_reopen = round_money(max(Decimal("0.00"), requested_amount - available_credit))
+        if amount_to_reopen > current_allocated_total:
+            raise ValidationError("Refund exceeds current recoverable credit on the billing account")
+
+        allocation_reversals = await self._build_refund_allocation_impacts(
+            billing_account_id=billing_account_id,
+            amount_to_reopen=amount_to_reopen,
+            manual_reversals=data.allocation_reversals,
+        )
+        payment_sources = await self._build_refund_payment_sources(
+            billing_account_id=billing_account_id,
+            amount=requested_amount,
+        )
+        source_total = round_money(
+            sum((source.source_amount for source in payment_sources), Decimal("0.00"))
+        )
+        if source_total < requested_amount:
+            raise ValidationError("Unable to attribute refund to enough completed payments")
+
+        return BillingAccountRefundPreview(
+            billing_account_id=billing_account_id,
+            amount=requested_amount,
+            completed_payments_total=completed_total,
+            posted_refunds_total=posted_refunds_total,
+            current_allocated_total=current_allocated_total,
+            available_credit=available_credit,
+            refundable_total=refundable_total,
+            amount_to_reopen=amount_to_reopen,
+            allocation_reversals=allocation_reversals,
+            payment_sources=payment_sources,
+        )
+
+    async def create_billing_account_refund(
+        self,
+        billing_account_id: int,
+        data: BillingAccountRefundCreate,
+        refunded_by_id: int,
+        *,
+        legacy_payment_id: int | None = None,
+        forced_source_payment_id: int | None = None,
+    ) -> PaymentRefund:
+        """Create one outgoing refund document for a billing account."""
+        reason, refund_method, reference_number, proof_text, notes = self._sanitize_refund_data(data)
+        requested_amount = round_money(data.amount)
+
+        preview = await self.preview_billing_account_refund(
+            billing_account_id,
+            BillingAccountRefundPreviewRequest(
+                amount=requested_amount,
+                refund_date=data.refund_date,
+                allocation_reversals=data.allocation_reversals,
+            ),
+        )
+
+        payment_sources = (
+            await self._build_refund_payment_sources(
+                billing_account_id=billing_account_id,
+                amount=requested_amount,
+                forced_payment_id=forced_source_payment_id,
             )
         )
-        total_current_allocated = round_money(
-            Decimal(str(allocated_result.scalar() or 0))
+        source_total = round_money(
+            sum((source.source_amount for source in payment_sources), Decimal("0.00"))
         )
-        if requested_amount > round_money(free_balance + total_current_allocated):
-            raise ValidationError("Refund exceeds current recoverable credit on the billing account")
-        amount_to_release = round_money(max(Decimal("0.00"), requested_amount - free_balance))
+        if source_total < requested_amount:
+            raise ValidationError("Unable to attribute refund to enough completed payments")
+
+        number_gen = DocumentNumberGenerator(self.db)
+        refund_number = await number_gen.generate("RFND")
 
         refund = PaymentRefund(
-            payment_id=payment.id,
-            billing_account_id=payment.billing_account_id,
+            refund_number=refund_number,
+            payment_id=legacy_payment_id,
+            billing_account_id=billing_account_id,
             amount=requested_amount,
             refund_date=data.refund_date,
             refund_method=refund_method,
@@ -516,26 +601,36 @@ class PaymentService:
             proof_text=proof_text,
             proof_attachment_id=data.proof_attachment_id,
             reason=reason,
-            notes=data.notes.strip() if isinstance(data.notes, str) and data.notes.strip() else None,
+            notes=notes,
             refunded_by_id=refunded_by_id,
         )
         self.db.add(refund)
         await self.db.flush()
 
+        for source in payment_sources:
+            self.db.add(
+                PaymentRefundSource(
+                    refund_id=refund.id,
+                    payment_id=source.payment_id,
+                    amount=source.source_amount,
+                )
+            )
+
         released_amount = Decimal("0.00")
-        if amount_to_release > 0:
+        if preview.amount_to_reopen > 0:
             released_amount = await self._release_account_allocations_for_refund(
-                billing_account_id=payment.billing_account_id,
-                amount_to_release=amount_to_release,
+                billing_account_id=billing_account_id,
+                amount_to_release=preview.amount_to_reopen,
                 user_id=refunded_by_id,
                 reason=(
-                    f"Refund {refund.id} for payment {payment.payment_number}"
+                    f"Refund {refund.refund_number or refund.id}"
                     f" ({requested_amount})"
                 ),
-                preferred_source_payment_id=payment.id,
+                manual_reversals=data.allocation_reversals,
+                refund_id=refund.id,
                 effective_at=self._dated_event_datetime(data.refund_date),
             )
-            if released_amount < amount_to_release:
+            if released_amount < preview.amount_to_reopen:
                 await self.db.rollback()
                 raise ValidationError(
                     "Unable to release enough allocated credit to complete the refund"
@@ -545,24 +640,48 @@ class PaymentService:
             action="payment.refund",
             entity_type="PaymentRefund",
             entity_id=refund.id,
-            entity_identifier=payment.payment_number,
+            entity_identifier=refund.refund_number,
             user_id=refunded_by_id,
             new_values={
-                "payment_id": payment.id,
-                "billing_account_id": payment.billing_account_id,
+                "payment_id": legacy_payment_id,
+                "billing_account_id": billing_account_id,
                 "amount": str(requested_amount),
                 "refund_date": str(data.refund_date),
                 "refund_method": refund_method,
                 "reference_number": reference_number,
                 "proof_attachment_id": data.proof_attachment_id,
                 "released_from_allocations": str(released_amount),
+                "payment_sources": [
+                    {
+                        "payment_id": source.payment_id,
+                        "amount": str(source.source_amount),
+                    }
+                    for source in payment_sources
+                ],
             },
             comment=reason,
         )
 
-        await self._update_billing_account_balance_cache(payment.billing_account_id)
+        await self._update_billing_account_balance_cache(billing_account_id)
         await self.db.commit()
         return await self.get_payment_refund_by_id(refund.id)
+
+    async def list_billing_account_refunds(self, billing_account_id: int) -> list[PaymentRefund]:
+        await self._get_billing_account(billing_account_id)
+        result = await self.db.execute(
+            select(PaymentRefund)
+            .where(PaymentRefund.billing_account_id == billing_account_id)
+            .options(
+                selectinload(PaymentRefund.payment),
+                selectinload(PaymentRefund.sources).selectinload(PaymentRefundSource.payment),
+                selectinload(PaymentRefund.allocation_reversals)
+                .selectinload(CreditAllocationReversal.allocation)
+                .selectinload(CreditAllocation.invoice)
+                .selectinload(Invoice.student),
+            )
+            .order_by(PaymentRefund.refund_date.desc(), PaymentRefund.created_at.desc())
+        )
+        return list(result.scalars().unique().all())
 
     # --- Credit Balance Methods ---
 
@@ -1326,13 +1445,19 @@ class PaymentService:
                 running_balance -= refund.amount
                 total_debits += refund.amount
                 payment = refund.payment
+                refund_reference = (
+                    refund.refund_number
+                    or refund.reference_number
+                    or (payment.receipt_number or payment.payment_number if payment else None)
+                    or f"Refund #{refund.id}"
+                )
                 entries.append(
                     StatementEntry(
                         date=dt,
                         entry_type="refund",
-                        description=f"Refund for {payment.receipt_number or payment.payment_number}",
-                        reference=payment.receipt_number or payment.payment_number,
-                        payment_id=payment.id,
+                        description=f"Refund - {refund_reference}",
+                        reference=refund_reference,
+                        payment_id=payment.id if payment else None,
                         refund_id=refund.id,
                         credit=None,
                         debit=refund.amount,
@@ -1462,19 +1587,184 @@ class PaymentService:
             raise NotFoundError(f"Invoice line with id {line_id} not found")
         return line
 
-    async def _release_account_allocations_for_refund(
+    def _sanitize_refund_data(
+        self,
+        data: PaymentRefundCreate,
+    ) -> tuple[str, str | None, str | None, str | None, str | None]:
+        reason = data.reason.strip()
+        refund_method = (
+            data.refund_method.strip()
+            if isinstance(data.refund_method, str) and data.refund_method.strip()
+            else None
+        )
+        reference_number = (
+            data.reference_number.strip()
+            if isinstance(data.reference_number, str) and data.reference_number.strip()
+            else None
+        )
+        proof_text = (
+            data.proof_text.strip()
+            if isinstance(data.proof_text, str) and data.proof_text.strip()
+            else None
+        )
+        notes = (
+            data.notes.strip()
+            if isinstance(data.notes, str) and data.notes.strip()
+            else None
+        )
+        if len(reason) < 3:
+            raise ValidationError("Refund reason must be at least 3 characters")
+        if not reference_number and not proof_text and data.proof_attachment_id is None:
+            raise ValidationError("Reference, proof text or confirmation file is required")
+        return reason, refund_method, reference_number, proof_text, notes
+
+    async def _get_completed_payments_total(self, billing_account_id: int) -> Decimal:
+        result = await self.db.execute(
+            select(func.coalesce(func.sum(Payment.amount), 0)).where(
+                Payment.billing_account_id == billing_account_id,
+                Payment.status == PaymentStatus.COMPLETED.value,
+            )
+        )
+        return round_money(Decimal(str(result.scalar() or 0)))
+
+    async def _get_posted_refunds_total(self, billing_account_id: int) -> Decimal:
+        result = await self.db.execute(
+            select(func.coalesce(func.sum(PaymentRefund.amount), 0)).where(
+                PaymentRefund.billing_account_id == billing_account_id
+            )
+        )
+        return round_money(Decimal(str(result.scalar() or 0)))
+
+    async def _get_current_allocated_total(self, billing_account_id: int) -> Decimal:
+        result = await self.db.execute(
+            select(func.coalesce(func.sum(CreditAllocation.amount), 0)).where(
+                CreditAllocation.billing_account_id == billing_account_id
+            )
+        )
+        return round_money(Decimal(str(result.scalar() or 0)))
+
+    async def _get_payment_refunded_amount(self, payment_id: int) -> Decimal:
+        source_result = await self.db.execute(
+            select(func.coalesce(func.sum(PaymentRefundSource.amount), 0)).where(
+                PaymentRefundSource.payment_id == payment_id
+            )
+        )
+        source_amount = Decimal(str(source_result.scalar() or 0))
+
+        legacy_result = await self.db.execute(
+            select(func.coalesce(func.sum(PaymentRefund.amount), 0)).where(
+                PaymentRefund.payment_id == payment_id,
+                ~exists().where(PaymentRefundSource.refund_id == PaymentRefund.id),
+            )
+        )
+        legacy_amount = Decimal(str(legacy_result.scalar() or 0))
+        return round_money(source_amount + legacy_amount)
+
+    async def _get_payment_refundable_amount(self, payment_id: int) -> Decimal:
+        payment = await self.get_payment_by_id(payment_id)
+        return round_money(payment.amount - await self._get_payment_refunded_amount(payment_id))
+
+    async def _payment_refunded_amounts_by_account(
         self,
         billing_account_id: int,
-        amount_to_release: Decimal,
-        user_id: int,
-        reason: str,
+    ) -> dict[int, Decimal]:
+        source_result = await self.db.execute(
+            select(
+                PaymentRefundSource.payment_id,
+                func.coalesce(func.sum(PaymentRefundSource.amount), 0),
+            )
+            .join(PaymentRefund, PaymentRefund.id == PaymentRefundSource.refund_id)
+            .where(PaymentRefund.billing_account_id == billing_account_id)
+            .group_by(PaymentRefundSource.payment_id)
+        )
+        amounts = {
+            int(payment_id): Decimal(str(amount or 0))
+            for payment_id, amount in source_result.all()
+        }
+
+        legacy_result = await self.db.execute(
+            select(
+                PaymentRefund.payment_id,
+                func.coalesce(func.sum(PaymentRefund.amount), 0),
+            )
+            .where(
+                PaymentRefund.billing_account_id == billing_account_id,
+                PaymentRefund.payment_id.isnot(None),
+                ~exists().where(PaymentRefundSource.refund_id == PaymentRefund.id),
+            )
+            .group_by(PaymentRefund.payment_id)
+        )
+        for payment_id, amount in legacy_result.all():
+            if payment_id is None:
+                continue
+            amounts[int(payment_id)] = round_money(
+                amounts.get(int(payment_id), Decimal("0.00")) + Decimal(str(amount or 0))
+            )
+        return {key: round_money(value) for key, value in amounts.items()}
+
+    async def _build_refund_payment_sources(
+        self,
         *,
-        preferred_source_payment_id: int | None = None,
-        effective_at: datetime | None = None,
-    ) -> Decimal:
-        """Release current allocations back into credit before a refund is recorded."""
-        if amount_to_release <= 0:
-            return Decimal("0.00")
+        billing_account_id: int,
+        amount: Decimal,
+        forced_payment_id: int | None = None,
+    ) -> list[RefundPaymentSourceImpact]:
+        refunded_by_payment = await self._payment_refunded_amounts_by_account(
+            billing_account_id
+        )
+        query = select(Payment).where(
+            Payment.billing_account_id == billing_account_id,
+            Payment.status == PaymentStatus.COMPLETED.value,
+        )
+        if forced_payment_id is not None:
+            query = query.where(Payment.id == forced_payment_id)
+        query = query.order_by(Payment.payment_date.desc(), Payment.created_at.desc(), Payment.id.desc())
+        result = await self.db.execute(query)
+        payments = list(result.scalars().all())
+
+        remaining = round_money(amount)
+        sources: list[RefundPaymentSourceImpact] = []
+        for payment in payments:
+            if remaining <= 0:
+                break
+            already_refunded = round_money(
+                refunded_by_payment.get(payment.id, Decimal("0.00"))
+            )
+            capacity = round_money(payment.amount - already_refunded)
+            if capacity <= 0:
+                continue
+            source_amount = min(remaining, capacity)
+            sources.append(
+                RefundPaymentSourceImpact(
+                    payment_id=payment.id,
+                    payment_number=payment.payment_number,
+                    receipt_number=payment.receipt_number,
+                    payment_date=payment.payment_date,
+                    payment_amount=payment.amount,
+                    already_refunded_amount=already_refunded,
+                    source_amount=round_money(source_amount),
+                )
+            )
+            remaining = round_money(remaining - source_amount)
+        return sources
+
+    async def _build_refund_allocation_impacts(
+        self,
+        *,
+        billing_account_id: int,
+        amount_to_reopen: Decimal,
+        manual_reversals: list[RefundAllocationReversalRequest] | None = None,
+    ) -> list[RefundAllocationImpact]:
+        amount_to_reopen = round_money(amount_to_reopen)
+        if amount_to_reopen <= 0:
+            return []
+
+        if manual_reversals is not None:
+            return await self._build_manual_refund_allocation_impacts(
+                billing_account_id=billing_account_id,
+                amount_to_reopen=amount_to_reopen,
+                manual_reversals=manual_reversals,
+            )
 
         result = await self.db.execute(
             select(CreditAllocation)
@@ -1482,23 +1772,129 @@ class PaymentService:
                 CreditAllocation.billing_account_id == billing_account_id,
                 CreditAllocation.amount > 0,
             )
+            .options(selectinload(CreditAllocation.invoice).selectinload(Invoice.student))
             .order_by(CreditAllocation.created_at.desc(), CreditAllocation.id.desc())
         )
-        allocations = list(result.scalars().all())
-        if not allocations:
+        allocations = list(result.scalars().unique().all())
+        remaining = amount_to_reopen
+        impacts: list[RefundAllocationImpact] = []
+        for allocation in allocations:
+            if remaining <= 0:
+                break
+            reversal_amount = min(remaining, round_money(allocation.amount))
+            impacts.append(self._allocation_impact(allocation, reversal_amount))
+            remaining = round_money(remaining - reversal_amount)
+        if remaining > 0:
+            raise ValidationError("Unable to find enough allocations to reverse")
+        return impacts
+
+    async def _build_manual_refund_allocation_impacts(
+        self,
+        *,
+        billing_account_id: int,
+        amount_to_reopen: Decimal,
+        manual_reversals: list[RefundAllocationReversalRequest],
+    ) -> list[RefundAllocationImpact]:
+        if not manual_reversals:
+            raise ValidationError("Allocation reversals are required for this refund amount")
+        reversal_by_allocation: dict[int, Decimal] = {}
+        for item in manual_reversals:
+            reversal_by_allocation[item.allocation_id] = round_money(
+                reversal_by_allocation.get(item.allocation_id, Decimal("0.00")) + item.amount
+            )
+        requested_total = round_money(
+            sum(reversal_by_allocation.values(), Decimal("0.00"))
+        )
+        if requested_total != amount_to_reopen:
+            raise ValidationError(
+                f"Allocation reversal total must equal {amount_to_reopen}"
+            )
+
+        result = await self.db.execute(
+            select(CreditAllocation)
+            .where(CreditAllocation.id.in_(list(reversal_by_allocation)))
+            .options(selectinload(CreditAllocation.invoice).selectinload(Invoice.student))
+        )
+        allocations = {allocation.id: allocation for allocation in result.scalars().unique().all()}
+        impacts: list[RefundAllocationImpact] = []
+        for allocation_id, reversal_amount in reversal_by_allocation.items():
+            allocation = allocations.get(allocation_id)
+            if allocation is None:
+                raise NotFoundError(f"Allocation with id {allocation_id} not found")
+            if allocation.billing_account_id != billing_account_id:
+                raise ValidationError("Selected allocation does not belong to this billing account")
+            if reversal_amount > round_money(allocation.amount):
+                raise ValidationError("Selected reversal exceeds current allocation amount")
+            impacts.append(self._allocation_impact(allocation, reversal_amount))
+        return impacts
+
+    def _allocation_impact(
+        self,
+        allocation: CreditAllocation,
+        reversal_amount: Decimal,
+    ) -> RefundAllocationImpact:
+        invoice = allocation.invoice
+        paid_before = round_money(invoice.paid_total)
+        due_before = round_money(invoice.amount_due)
+        paid_after = round_money(max(Decimal("0.00"), paid_before - reversal_amount))
+        due_after = round_money(due_before + reversal_amount)
+        return RefundAllocationImpact(
+            allocation_id=allocation.id,
+            invoice_id=invoice.id,
+            invoice_number=invoice.invoice_number,
+            student_id=invoice.student_id,
+            student_name=invoice.student.full_name if invoice.student else None,
+            current_allocation_amount=round_money(allocation.amount),
+            reversal_amount=round_money(reversal_amount),
+            invoice_paid_total_before=paid_before,
+            invoice_amount_due_before=due_before,
+            invoice_paid_total_after=paid_after,
+            invoice_amount_due_after=due_after,
+        )
+
+    async def _release_account_allocations_for_refund(
+        self,
+        billing_account_id: int,
+        amount_to_release: Decimal,
+        user_id: int,
+        reason: str,
+        *,
+        manual_reversals: list[RefundAllocationReversalRequest] | None = None,
+        refund_id: int | None = None,
+        effective_at: datetime | None = None,
+    ) -> Decimal:
+        """Release current allocations back into credit before a refund is recorded."""
+        if amount_to_release <= 0:
             return Decimal("0.00")
 
-        # Prefer allocations created directly from this payment when available.
-        allocations.sort(
-            key=lambda allocation: (
-                0
-                if preferred_source_payment_id is not None
-                and allocation.source_payment_id == preferred_source_payment_id
-                else 1,
-                -allocation.created_at.timestamp(),
-                -allocation.id,
-            ),
-        )
+        if manual_reversals is not None:
+            reversal_by_allocation: dict[int, Decimal] = {}
+            for item in manual_reversals:
+                reversal_by_allocation[item.allocation_id] = round_money(
+                    reversal_by_allocation.get(item.allocation_id, Decimal("0.00")) + item.amount
+                )
+            result = await self.db.execute(
+                select(CreditAllocation)
+                .where(CreditAllocation.id.in_(list(reversal_by_allocation)))
+                .order_by(CreditAllocation.created_at.desc(), CreditAllocation.id.desc())
+            )
+            allocations = list(result.scalars().all())
+            allocations.sort(
+                key=lambda allocation: list(reversal_by_allocation).index(allocation.id)
+            )
+        else:
+            reversal_by_allocation = {}
+            result = await self.db.execute(
+                select(CreditAllocation)
+                .where(
+                    CreditAllocation.billing_account_id == billing_account_id,
+                    CreditAllocation.amount > 0,
+                )
+                .order_by(CreditAllocation.created_at.desc(), CreditAllocation.id.desc())
+            )
+            allocations = list(result.scalars().all())
+        if not allocations:
+            return Decimal("0.00")
 
         remaining = round_money(amount_to_release)
         released = Decimal("0.00")
@@ -1508,7 +1904,8 @@ class PaymentService:
             if remaining <= 0:
                 break
 
-            release_amount = min(remaining, round_money(allocation.amount))
+            max_release = reversal_by_allocation.get(allocation.id, remaining)
+            release_amount = min(remaining, round_money(allocation.amount), max_release)
             if release_amount <= 0:
                 continue
 
@@ -1527,6 +1924,7 @@ class PaymentService:
             self.db.add(
                 CreditAllocationReversal(
                     credit_allocation_id=allocation.id,
+                    refund_id=refund_id,
                     amount=release_amount,
                     reason=reason,
                     reversed_by_id=user_id,

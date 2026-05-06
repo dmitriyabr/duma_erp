@@ -50,6 +50,7 @@ async def list_student_payments_for_export(
             .selectinload(Student.grade),
             selectinload(Payment.received_by),
             selectinload(Payment.refunds),
+            selectinload(Payment.refund_sources),
         )
         .order_by(Payment.payment_date, Payment.id)
         .limit(limit)
@@ -171,9 +172,19 @@ def build_student_payments_csv(
             billing_contact = p.student.guardian_name
         receipt_link = f"{app_base_url}/payment/{p.id}/receipt" if app_base_url else ""
         att_link = f"{app_base_url}/attachment/{p.confirmation_attachment_id}/download" if app_base_url and p.confirmation_attachment_id else ""
-        refunded_amount = round_money(
-            sum((refund.amount for refund in getattr(p, "refunds", [])), Decimal("0.00"))
+        source_refunded = sum(
+            (source.amount for source in getattr(p, "refund_sources", [])),
+            Decimal("0.00"),
         )
+        legacy_refunded = (
+            Decimal("0.00")
+            if source_refunded > 0
+            else sum(
+                (refund.amount for refund in getattr(p, "refunds", [])),
+                Decimal("0.00"),
+            )
+        )
+        refunded_amount = round_money(source_refunded + legacy_refunded)
         net_received = round_money(p.amount - refunded_amount)
         if refunded_amount <= 0:
             refund_status = "none"
@@ -266,7 +277,11 @@ def build_bank_transfers_csv(
                 proof_link = f"{app_base_url}/attachment/{match.compensation_payout.proof_attachment_id}/download"
         elif match and match.payment_refund_id and match.payment_refund:
             entity_type = "payment_refund"
-            entity_number = f"REFUND-{match.payment_refund_id}"
+            entity_number = (
+                match.payment_refund.refund_number
+                or match.payment_refund.reference_number
+                or f"REFUND-{match.payment_refund_id}"
+            )
             if app_base_url and match.payment_refund.proof_attachment_id:
                 proof_link = f"{app_base_url}/attachment/{match.payment_refund.proof_attachment_id}/download"
 

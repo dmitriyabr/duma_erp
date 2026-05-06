@@ -115,6 +115,65 @@ interface StatementResponse {
   entries: StatementEntry[]
 }
 
+interface RefundPaymentSourceImpact {
+  payment_id: number
+  payment_number: string
+  receipt_number?: string | null
+  payment_date: string
+  payment_amount: number
+  already_refunded_amount: number
+  source_amount: number
+}
+
+interface RefundAllocationImpact {
+  allocation_id: number
+  invoice_id: number
+  invoice_number: string
+  student_id: number
+  student_name?: string | null
+  current_allocation_amount: number
+  reversal_amount: number
+  invoice_paid_total_before: number
+  invoice_amount_due_before: number
+  invoice_paid_total_after: number
+  invoice_amount_due_after: number
+}
+
+interface BillingAccountRefundPreview {
+  billing_account_id: number
+  amount: number
+  completed_payments_total: number
+  posted_refunds_total: number
+  current_allocated_total: number
+  available_credit: number
+  refundable_total: number
+  amount_to_reopen: number
+  allocation_reversals: RefundAllocationImpact[]
+  payment_sources: RefundPaymentSourceImpact[]
+}
+
+interface BillingAccountRefund {
+  id: number
+  refund_number?: string | null
+  payment_id?: number | null
+  billing_account_id: number
+  amount: number
+  refund_date: string
+  refund_method?: string | null
+  reference_number?: string | null
+  proof_attachment_id?: number | null
+  reason: string
+  notes?: string | null
+  payment_sources: Array<{
+    id: number
+    payment_id: number
+    payment_number?: string | null
+    receipt_number?: string | null
+    amount: number
+  }>
+  allocation_reversals: RefundAllocationImpact[]
+}
+
 interface GenerationResult {
   school_fee_invoices_created: number
   transport_invoices_created: number
@@ -148,6 +207,11 @@ export const BillingAccountDetailPage = () => {
     },
     [resolvedId]
   )
+  const refundsApi = useApi<BillingAccountRefund[]>(
+    resolvedId ? `/billing-accounts/${resolvedId}/refunds` : null,
+    undefined,
+    [resolvedId]
+  )
   const studentsApi = useApi<PaginatedResponse<BillingStudent>>('/students', {
     params: { status: 'active', page: 1, limit: 500 },
   }, [])
@@ -166,6 +230,8 @@ export const BillingAccountDetailPage = () => {
   const deleteAllocationMutation = useApiMutation<boolean>()
   const manualAllocationMutation = useApiMutation<unknown>()
   const refundPaymentMutation = useApiMutation<unknown>()
+  const accountRefundPreviewMutation = useApiMutation<BillingAccountRefundPreview>()
+  const accountRefundMutation = useApiMutation<BillingAccountRefund>()
 
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [addChildDialogOpen, setAddChildDialogOpen] = useState(false)
@@ -192,6 +258,9 @@ export const BillingAccountDetailPage = () => {
   })
   const [statement, setStatement] = useState<StatementResponse | null>(null)
   const [refundDialogPayment, setRefundDialogPayment] = useState<PaymentRow | null>(null)
+  const [accountRefundDialogOpen, setAccountRefundDialogOpen] = useState(false)
+  const [accountRefundPreview, setAccountRefundPreview] = useState<BillingAccountRefundPreview | null>(null)
+  const [accountRefundValidationErrors, setAccountRefundValidationErrors] = useState<Record<string, string>>({})
   const [refundForm, setRefundForm] = useState({
     amount: '',
     refund_date: new Date().toISOString().slice(0, 10),
@@ -263,6 +332,100 @@ export const BillingAccountDetailPage = () => {
     setRefundValidationError(null)
   }
 
+  const openAccountRefundDialog = () => {
+    setRefundDialogPayment(null)
+    setAccountRefundDialogOpen(true)
+    setAccountRefundPreview(null)
+    setAccountRefundValidationErrors({})
+    setRefundForm({
+      amount: String(Math.max(Number(account?.available_balance ?? 0), 0)),
+      refund_date: new Date().toISOString().slice(0, 10),
+      refund_method: 'mpesa',
+      reference_number: '',
+      proof_text: '',
+      proof_attachment_id: null,
+      proof_file_name: null,
+      reason: '',
+      notes: '',
+    })
+    setUploadingRefundProof(false)
+    setRefundValidationError(null)
+  }
+
+  const validateAccountRefundForm = (mode: 'preview' | 'submit' = 'submit') => {
+    const nextErrors: Record<string, string> = {}
+    const amount = Number(refundForm.amount)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      nextErrors.amount = 'Amount must be greater than zero.'
+    }
+    if (!refundForm.refund_date) {
+      nextErrors.refund_date = 'Refund date is required.'
+    }
+    if (mode === 'submit' && (!refundForm.reason.trim() || refundForm.reason.trim().length < 3)) {
+      nextErrors.reason = 'Reason must be at least 3 characters.'
+    }
+    const hasRefundProof =
+      Boolean(refundForm.reference_number.trim()) ||
+      Boolean(refundForm.proof_text.trim()) ||
+      refundForm.proof_attachment_id != null
+    if (mode === 'submit' && !hasRefundProof) {
+      nextErrors.proof = 'Reference, proof text or confirmation file is required.'
+    }
+    setAccountRefundValidationErrors(nextErrors)
+    return Object.keys(nextErrors).length === 0
+  }
+
+  const buildAccountRefundPayload = () => ({
+    amount: Number(refundForm.amount),
+    refund_date: refundForm.refund_date,
+    refund_method: refundForm.refund_method || null,
+    reference_number: refundForm.reference_number.trim() || null,
+    proof_text: refundForm.proof_text.trim() || null,
+    proof_attachment_id: refundForm.proof_attachment_id,
+    reason: refundForm.reason.trim(),
+    notes: refundForm.notes.trim() || null,
+  })
+
+  const previewAccountRefund = async () => {
+    if (!validateAccountRefundForm('preview')) return
+    setError(null)
+    setSuccessMessage(null)
+    accountRefundPreviewMutation.reset()
+    const result = await accountRefundPreviewMutation.execute(() =>
+      api.post(`/billing-accounts/${resolvedId}/refunds/preview`, {
+        amount: Number(refundForm.amount),
+        refund_date: refundForm.refund_date,
+      })
+    )
+    if (result != null) {
+      setAccountRefundPreview(result)
+    } else if (accountRefundPreviewMutation.error) {
+      setError(accountRefundPreviewMutation.error)
+    }
+  }
+
+  const submitAccountRefund = async () => {
+    if (!validateAccountRefundForm()) return
+    setError(null)
+    setSuccessMessage(null)
+    accountRefundMutation.reset()
+    const result = await accountRefundMutation.execute(() =>
+      api.post(`/billing-accounts/${resolvedId}/refunds`, buildAccountRefundPayload())
+    )
+    if (result != null) {
+      setAccountRefundDialogOpen(false)
+      setAccountRefundPreview(null)
+      refetch()
+      invoicesApi.refetch()
+      paymentsApi.refetch()
+      refundsApi.refetch()
+      if (statement) await loadStatement()
+      setSuccessMessage('Billing account refund created.')
+    } else if (accountRefundMutation.error) {
+      setError(accountRefundMutation.error)
+    }
+  }
+
   const uploadRefundProofFile = useCallback(async (file: File) => {
     setUploadingRefundProof(true)
     try {
@@ -277,6 +440,11 @@ export const BillingAccountDetailPage = () => {
         proof_file_name: file.name,
       }))
       setRefundValidationError(null)
+      setAccountRefundValidationErrors((current) => {
+        const { proof, ...rest } = current
+        void proof
+        return rest
+      })
     } catch {
       setRefundForm((current) => ({
         ...current,
@@ -284,6 +452,10 @@ export const BillingAccountDetailPage = () => {
         proof_file_name: null,
       }))
       setRefundValidationError('Failed to upload refund proof file.')
+      setAccountRefundValidationErrors((current) => ({
+        ...current,
+        proof: 'Failed to upload refund proof file.',
+      }))
     } finally {
       setUploadingRefundProof(false)
     }
@@ -328,6 +500,7 @@ export const BillingAccountDetailPage = () => {
       refetch()
       invoicesApi.refetch()
       paymentsApi.refetch()
+      refundsApi.refetch()
       if (statement) await loadStatement()
       setSuccessMessage('Credit allocated.')
     } else if (manualAllocationMutation.error) {
@@ -591,6 +764,7 @@ export const BillingAccountDetailPage = () => {
         accountError ||
         invoicesApi.error ||
         paymentsApi.error ||
+        refundsApi.error ||
         studentsApi.error ||
         activeTermApi.error ||
         referencedError ||
@@ -601,6 +775,7 @@ export const BillingAccountDetailPage = () => {
             accountError ??
             invoicesApi.error ??
             paymentsApi.error ??
+            refundsApi.error ??
             studentsApi.error ??
             activeTermApi.error ??
             referencedError ??
@@ -671,6 +846,16 @@ export const BillingAccountDetailPage = () => {
               >
                 {autoAllocateMutation.loading ? <Spinner size="small" /> : 'Auto-allocate credit'}
               </Button>
+              {canRefund && (
+                <Button
+                  variant="outlined"
+                  color="error"
+                  onClick={openAccountRefundDialog}
+                  disabled={accountRefundMutation.loading}
+                >
+                  Refund account credit
+                </Button>
+              )}
               <Button
                 variant="outlined"
                 onClick={openManualAllocation}
@@ -829,6 +1014,71 @@ export const BillingAccountDetailPage = () => {
       </section>
 
       <section>
+        <div className="flex justify-between items-center mb-3 flex-wrap gap-3">
+          <Typography variant="h6">Refunds</Typography>
+          {canRefund && (
+            <Button size="small" variant="outlined" color="error" onClick={openAccountRefundDialog}>
+              Refund account credit
+            </Button>
+          )}
+        </div>
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Date</TableHeaderCell>
+                <TableHeaderCell>Refund #</TableHeaderCell>
+                <TableHeaderCell>Method</TableHeaderCell>
+                <TableHeaderCell>Reference</TableHeaderCell>
+                <TableHeaderCell>Sources</TableHeaderCell>
+                <TableHeaderCell>Allocation impact</TableHeaderCell>
+                <TableHeaderCell align="right">Amount</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {(refundsApi.data ?? []).map((refund) => (
+                <TableRow key={refund.id}>
+                  <TableCell>{formatDate(refund.refund_date)}</TableCell>
+                  <TableCell>{refund.refund_number ?? `Refund #${refund.id}`}</TableCell>
+                  <TableCell>{refund.refund_method ?? '—'}</TableCell>
+                  <TableCell>{refund.reference_number ?? '—'}</TableCell>
+                  <TableCell>
+                    {refund.payment_sources.length
+                      ? refund.payment_sources
+                          .map((source) => `${source.payment_number ?? `Payment #${source.payment_id}`}: ${formatMoney(source.amount)}`)
+                          .join(', ')
+                      : '—'}
+                  </TableCell>
+                  <TableCell>
+                    {refund.allocation_reversals.length
+                      ? refund.allocation_reversals
+                          .map((impact) => `${impact.invoice_number}: ${formatMoney(impact.reversal_amount)}`)
+                          .join(', ')
+                      : 'No invoice reopened'}
+                  </TableCell>
+                  <TableCell align="right">{formatMoney(refund.amount)}</TableCell>
+                </TableRow>
+              ))}
+              {refundsApi.loading && (
+                <TableRow>
+                  <td colSpan={7} className="px-4 py-8 text-center">
+                    <Spinner size="medium" />
+                  </td>
+                </TableRow>
+              )}
+              {!refundsApi.loading && !(refundsApi.data ?? []).length && (
+                <TableRow>
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                    No refunds recorded
+                  </td>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </section>
+
+      <section>
         <Typography variant="h6" className="mb-3">Payments</Typography>
         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
           <Table>
@@ -969,6 +1219,215 @@ export const BillingAccountDetailPage = () => {
           </>
         )}
       </section>
+
+      <Dialog open={accountRefundDialogOpen} onClose={() => setAccountRefundDialogOpen(false)} maxWidth="lg" fullWidth>
+        <DialogCloseButton onClose={() => setAccountRefundDialogOpen(false)} />
+        <DialogTitle>Refund account credit</DialogTitle>
+        <DialogContent>
+          <div className="space-y-4 mt-4">
+            {(accountRefundValidationErrors.proof ||
+              accountRefundPreviewMutation.error ||
+              accountRefundMutation.error) && (
+              <Alert severity="error">
+                {accountRefundValidationErrors.proof ||
+                  accountRefundPreviewMutation.error ||
+                  accountRefundMutation.error}
+              </Alert>
+            )}
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-slate-200 p-3">
+                <Typography variant="body2" color="secondary">Available credit</Typography>
+                <Typography variant="body2" className="font-semibold">{formatMoney(account.available_balance)}</Typography>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3">
+                <Typography variant="body2" color="secondary">Outstanding debt</Typography>
+                <Typography variant="body2" className="font-semibold">{formatMoney(account.outstanding_debt)}</Typography>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3">
+                <Typography variant="body2" color="secondary">Refundable after preview</Typography>
+                <Typography variant="body2" className="font-semibold">
+                  {accountRefundPreview ? formatMoney(accountRefundPreview.refundable_total) : '—'}
+                </Typography>
+              </div>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Input
+                label="Amount"
+                type="number"
+                value={refundForm.amount}
+                error={accountRefundValidationErrors.amount}
+                onChange={(event) => {
+                  setAccountRefundPreview(null)
+                  setAccountRefundValidationErrors((current) => ({ ...current, amount: '' }))
+                  setRefundForm((current) => ({ ...current, amount: event.target.value }))
+                }}
+              />
+              <Input
+                label="Refund date"
+                type="date"
+                value={refundForm.refund_date}
+                error={accountRefundValidationErrors.refund_date}
+                onChange={(event) => {
+                  setAccountRefundPreview(null)
+                  setAccountRefundValidationErrors((current) => ({ ...current, refund_date: '' }))
+                  setRefundForm((current) => ({ ...current, refund_date: event.target.value }))
+                }}
+              />
+              <Select
+                label="Refund method"
+                value={refundForm.refund_method}
+                onChange={(event) =>
+                  setRefundForm((current) => ({ ...current, refund_method: event.target.value }))
+                }
+              >
+                <option value="mpesa">M-Pesa</option>
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="cash">Cash</option>
+                <option value="other">Other</option>
+              </Select>
+              <Input
+                label="Reference number"
+                value={refundForm.reference_number}
+                onChange={(event) => {
+                  setAccountRefundValidationErrors((current) => ({ ...current, proof: '' }))
+                  setRefundForm((current) => ({ ...current, reference_number: event.target.value }))
+                }}
+              />
+            </div>
+            <Textarea
+              label="Reference / proof"
+              value={refundForm.proof_text}
+              onChange={(event) => {
+                setAccountRefundValidationErrors((current) => ({ ...current, proof: '' }))
+                setRefundForm((current) => ({ ...current, proof_text: event.target.value }))
+              }}
+              rows={3}
+              helperText="Reference, proof text or confirmation file is required"
+            />
+            <FileDropzone
+              title="Upload refund confirmation (image/PDF)"
+              accept="image/*,.pdf,application/pdf"
+              fileName={refundForm.proof_file_name}
+              disabled={uploadingRefundProof}
+              loading={uploadingRefundProof}
+              onFileSelected={uploadRefundProofFile}
+            />
+            <Input
+              label="Reason"
+              value={refundForm.reason}
+              error={accountRefundValidationErrors.reason}
+              onChange={(event) => {
+                setAccountRefundValidationErrors((current) => ({ ...current, reason: '' }))
+                setRefundForm((current) => ({ ...current, reason: event.target.value }))
+              }}
+            />
+            <Input
+              label="Notes"
+              value={refundForm.notes}
+              onChange={(event) =>
+                setRefundForm((current) => ({ ...current, notes: event.target.value }))
+              }
+            />
+
+            {accountRefundPreview && (
+              <div className="space-y-4 rounded-lg border border-slate-200 p-4">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div>
+                    <Typography variant="body2" color="secondary">Amount to reopen</Typography>
+                    <Typography variant="body2" className="font-semibold">
+                      {formatMoney(accountRefundPreview.amount_to_reopen)}
+                    </Typography>
+                  </div>
+                  <div>
+                    <Typography variant="body2" color="secondary">Free credit used first</Typography>
+                    <Typography variant="body2" className="font-semibold">
+                      {formatMoney(Math.min(accountRefundPreview.amount, Math.max(accountRefundPreview.available_credit, 0)))}
+                    </Typography>
+                  </div>
+                  <div>
+                    <Typography variant="body2" color="secondary">Current allocated credit</Typography>
+                    <Typography variant="body2" className="font-semibold">
+                      {formatMoney(accountRefundPreview.current_allocated_total)}
+                    </Typography>
+                  </div>
+                </div>
+                <div>
+                  <Typography variant="body2" className="font-semibold mb-2">Invoice impact</Typography>
+                  {accountRefundPreview.allocation_reversals.length ? (
+                    <div className="overflow-hidden rounded-lg border border-slate-200">
+                      <Table>
+                        <TableHead>
+                          <TableRow>
+                            <TableHeaderCell>Invoice</TableHeaderCell>
+                            <TableHeaderCell>Student</TableHeaderCell>
+                            <TableHeaderCell align="right">Reopen</TableHeaderCell>
+                            <TableHeaderCell align="right">Due after</TableHeaderCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {accountRefundPreview.allocation_reversals.map((impact) => (
+                            <TableRow key={impact.allocation_id}>
+                              <TableCell>{impact.invoice_number}</TableCell>
+                              <TableCell>{impact.student_name ?? '—'}</TableCell>
+                              <TableCell align="right">{formatMoney(impact.reversal_amount)}</TableCell>
+                              <TableCell align="right">{formatMoney(impact.invoice_amount_due_after)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <Typography variant="body2" color="secondary">No invoice allocations will be reopened.</Typography>
+                  )}
+                </div>
+                <div>
+                  <Typography variant="body2" className="font-semibold mb-2">Payment source attribution</Typography>
+                  <div className="overflow-hidden rounded-lg border border-slate-200">
+                    <Table>
+                      <TableHead>
+                        <TableRow>
+                          <TableHeaderCell>Payment</TableHeaderCell>
+                          <TableHeaderCell>Date</TableHeaderCell>
+                          <TableHeaderCell align="right">Source amount</TableHeaderCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {accountRefundPreview.payment_sources.map((source) => (
+                          <TableRow key={source.payment_id}>
+                            <TableCell>{source.payment_number}</TableCell>
+                            <TableCell>{formatDate(source.payment_date)}</TableCell>
+                            <TableCell align="right">{formatMoney(source.source_amount)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="outlined" onClick={() => setAccountRefundDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="outlined"
+            onClick={previewAccountRefund}
+            disabled={accountRefundPreviewMutation.loading || accountRefundMutation.loading || uploadingRefundProof}
+          >
+            {accountRefundPreviewMutation.loading ? <Spinner size="small" /> : 'Preview impact'}
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={submitAccountRefund}
+            disabled={accountRefundMutation.loading || uploadingRefundProof}
+          >
+            {accountRefundMutation.loading ? <Spinner size="small" /> : 'Create refund'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={Boolean(refundDialogPayment)} onClose={() => setRefundDialogPayment(null)} maxWidth="sm">
         <DialogCloseButton onClose={() => setRefundDialogPayment(null)} />

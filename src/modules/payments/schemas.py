@@ -75,7 +75,7 @@ class PaymentResponse(BaseSchema):
 
 
 class PaymentRefundCreate(BaseSchema):
-    """Schema for refunding a completed payment."""
+    """Schema for creating a refund."""
 
     amount: Decimal = Field(gt=0, description="Refund amount")
     refund_date: date
@@ -96,10 +96,11 @@ class PaymentRefundCreate(BaseSchema):
 
 
 class PaymentRefundResponse(BaseSchema):
-    """Schema for a payment refund response."""
+    """Schema for a refund response."""
 
     id: int
-    payment_id: int
+    refund_number: str | None = None
+    payment_id: int | None = None
     billing_account_id: int
     amount: Decimal
     refund_date: date
@@ -112,6 +113,89 @@ class PaymentRefundResponse(BaseSchema):
     refunded_by_id: int
     created_at: datetime
     updated_at: datetime
+
+
+class PaymentRefundSourceResponse(BaseSchema):
+    """Payment source attribution for an account-level refund."""
+
+    id: int
+    refund_id: int
+    payment_id: int
+    payment_number: str | None = None
+    receipt_number: str | None = None
+    amount: Decimal
+    created_at: datetime
+
+
+class RefundAllocationReversalRequest(BaseSchema):
+    """Manual allocation impact override for an account-level refund."""
+
+    allocation_id: int
+    amount: Decimal = Field(gt=0)
+
+
+class BillingAccountRefundCreate(PaymentRefundCreate):
+    """Schema for creating a billing-account-level refund."""
+
+    allocation_reversals: list[RefundAllocationReversalRequest] | None = None
+
+
+class BillingAccountRefundPreviewRequest(BaseSchema):
+    """Schema for previewing account-level refund impact."""
+
+    amount: Decimal = Field(gt=0, description="Refund amount")
+    refund_date: date | None = None
+    allocation_reversals: list[RefundAllocationReversalRequest] | None = None
+
+
+class RefundAllocationImpact(BaseSchema):
+    """Invoice allocation impact caused by a refund."""
+
+    allocation_id: int
+    invoice_id: int
+    invoice_number: str
+    student_id: int
+    student_name: str | None = None
+    current_allocation_amount: Decimal
+    reversal_amount: Decimal
+    invoice_paid_total_before: Decimal
+    invoice_amount_due_before: Decimal
+    invoice_paid_total_after: Decimal
+    invoice_amount_due_after: Decimal
+
+
+class RefundPaymentSourceImpact(BaseSchema):
+    """Payment source attribution preview."""
+
+    payment_id: int
+    payment_number: str
+    receipt_number: str | None = None
+    payment_date: date
+    payment_amount: Decimal
+    already_refunded_amount: Decimal
+    source_amount: Decimal
+
+
+class BillingAccountRefundPreview(BaseSchema):
+    """Account-level refund preview response."""
+
+    billing_account_id: int
+    amount: Decimal
+    completed_payments_total: Decimal
+    posted_refunds_total: Decimal
+    current_allocated_total: Decimal
+    available_credit: Decimal
+    refundable_total: Decimal
+    amount_to_reopen: Decimal
+    allocation_reversals: list[RefundAllocationImpact]
+    payment_sources: list[RefundPaymentSourceImpact]
+
+
+class BillingAccountRefundResponse(PaymentRefundResponse):
+    """Detailed account-level refund response."""
+
+    payment_sources: list[PaymentRefundSourceResponse] = Field(default_factory=list)
+    allocation_reversals: list[RefundAllocationImpact] = Field(default_factory=list)
 
 
 class PaymentFilters(BaseSchema):

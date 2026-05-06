@@ -91,7 +91,15 @@ def _match_to_response(match: BankTransactionMatch | None) -> BankTransactionMat
             id=match.id,
             entity_type="payment_refund",
             entity_id=match.payment_refund_id,
-            entity_number=f"REFUND-{match.payment_refund_id}",
+            entity_number=(
+                (
+                    refund.refund_number
+                    or refund.reference_number
+                    or f"REFUND-{match.payment_refund_id}"
+                )
+                if refund
+                else f"REFUND-{match.payment_refund_id}"
+            ),
             match_method=match.match_method,
             confidence=match.confidence,
             matched_at=match.matched_at,
@@ -454,6 +462,7 @@ async def get_import_reconciliation_summary(
             unmatched_payment_refunds=[
                 UnmatchedPaymentRefund(
                     id=p.id,
+                    refund_number=p.refund_number,
                     payment_id=p.payment_id,
                     payment_number=getattr(p.payment, "payment_number", None),
                     refund_date=p.refund_date,

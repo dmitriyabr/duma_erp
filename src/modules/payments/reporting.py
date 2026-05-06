@@ -8,10 +8,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.payments.models import (
-    CreditAllocation,
     CreditAllocationReversal,
     Payment,
     PaymentRefund,
+    PaymentRefundSource,
     PaymentStatus,
 )
 from src.shared.utils.money import round_money
@@ -68,8 +68,27 @@ def _refund_total_query(
         PaymentRefund
     )
     if payment_method is not None:
-        query = query.join(Payment, Payment.id == PaymentRefund.payment_id)
-        query = query.where(Payment.payment_method == payment_method)
+        source_match = (
+            select(PaymentRefundSource.id)
+            .join(Payment, Payment.id == PaymentRefundSource.payment_id)
+            .where(
+                PaymentRefundSource.refund_id == PaymentRefund.id,
+                Payment.payment_method == payment_method,
+            )
+            .exists()
+        )
+        legacy_match = (
+            PaymentRefund.refund_method == payment_method
+        ) | (
+            PaymentRefund.payment_id.isnot(None)
+            & select(Payment.id)
+            .where(
+                Payment.id == PaymentRefund.payment_id,
+                Payment.payment_method == payment_method,
+            )
+            .exists()
+        )
+        query = query.where(source_match | legacy_match)
     if date_from is not None:
         query = query.where(PaymentRefund.refund_date >= date_from)
     if date_to is not None:
@@ -119,6 +138,53 @@ async def get_student_refund_total(
     payment_method: str | None = None,
     billing_account_ids: Iterable[int] | None = None,
 ) -> Decimal:
+    if payment_method is not None:
+        account_ids = _normalize_ids(billing_account_ids)
+        if account_ids is not None and not account_ids:
+            return Decimal("0.00")
+
+        source_query = (
+            select(func.coalesce(func.sum(PaymentRefundSource.amount), 0))
+            .select_from(PaymentRefundSource)
+            .join(PaymentRefund, PaymentRefund.id == PaymentRefundSource.refund_id)
+            .join(Payment, Payment.id == PaymentRefundSource.payment_id)
+            .where(Payment.payment_method == payment_method)
+        )
+        legacy_query = (
+            select(func.coalesce(func.sum(PaymentRefund.amount), 0))
+            .select_from(PaymentRefund)
+            .outerjoin(Payment, Payment.id == PaymentRefund.payment_id)
+            .where(
+                func.coalesce(PaymentRefund.refund_method, Payment.payment_method)
+                == payment_method,
+                ~select(PaymentRefundSource.id)
+                .where(PaymentRefundSource.refund_id == PaymentRefund.id)
+                .exists(),
+            )
+        )
+        for query_date_attr in (PaymentRefund.refund_date,):
+            if date_from is not None:
+                source_query = source_query.where(query_date_attr >= date_from)
+                legacy_query = legacy_query.where(query_date_attr >= date_from)
+            if date_to is not None:
+                source_query = source_query.where(query_date_attr <= date_to)
+                legacy_query = legacy_query.where(query_date_attr <= date_to)
+            if date_lt is not None:
+                source_query = source_query.where(query_date_attr < date_lt)
+                legacy_query = legacy_query.where(query_date_attr < date_lt)
+            if date_lte is not None:
+                source_query = source_query.where(query_date_attr <= date_lte)
+                legacy_query = legacy_query.where(query_date_attr <= date_lte)
+        if account_ids is not None:
+            source_query = source_query.where(PaymentRefund.billing_account_id.in_(account_ids))
+            legacy_query = legacy_query.where(PaymentRefund.billing_account_id.in_(account_ids))
+
+        source_result = await db.execute(source_query)
+        legacy_result = await db.execute(legacy_query)
+        return Decimal(str(source_result.scalar() or 0)) + Decimal(
+            str(legacy_result.scalar() or 0)
+        )
+
     query = _refund_total_query(
         date_from=date_from,
         date_to=date_to,
@@ -314,21 +380,46 @@ async def get_student_refund_totals_by_method(
     date_from: date,
     date_to: date,
 ) -> dict[str | None, Decimal]:
-    query = (
+    source_query = (
         select(
             Payment.payment_method,
-            func.coalesce(func.sum(PaymentRefund.amount), 0).label("total"),
+            func.coalesce(func.sum(PaymentRefundSource.amount), 0).label("total"),
         )
-        .select_from(PaymentRefund)
-        .join(Payment, Payment.id == PaymentRefund.payment_id)
+        .select_from(PaymentRefundSource)
+        .join(PaymentRefund, PaymentRefund.id == PaymentRefundSource.refund_id)
+        .join(Payment, Payment.id == PaymentRefundSource.payment_id)
         .where(
             PaymentRefund.refund_date >= date_from,
             PaymentRefund.refund_date <= date_to,
         )
         .group_by(Payment.payment_method)
     )
-    result = await db.execute(query)
-    return {row[0]: Decimal(str(row[1] or 0)) for row in result.all()}
+    source_result = await db.execute(source_query)
+    totals = {
+        row[0]: Decimal(str(row[1] or 0))
+        for row in source_result.all()
+    }
+
+    legacy_query = (
+        select(
+            func.coalesce(PaymentRefund.refund_method, Payment.payment_method).label("method"),
+            func.coalesce(func.sum(PaymentRefund.amount), 0).label("total"),
+        )
+        .select_from(PaymentRefund)
+        .outerjoin(Payment, Payment.id == PaymentRefund.payment_id)
+        .where(
+            PaymentRefund.refund_date >= date_from,
+            PaymentRefund.refund_date <= date_to,
+            ~select(PaymentRefundSource.id)
+            .where(PaymentRefundSource.refund_id == PaymentRefund.id)
+            .exists(),
+        )
+        .group_by("method")
+    )
+    legacy_result = await db.execute(legacy_query)
+    for method, amount in legacy_result.all():
+        totals[method] = totals.get(method, Decimal("0.00")) + Decimal(str(amount or 0))
+    return totals
 
 
 async def get_student_refund_totals_by_payment_id(
