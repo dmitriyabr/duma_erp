@@ -6,7 +6,8 @@ Create Date: 2026-05-06 00:00:00.000000
 
 This is intentionally idempotent. Revision 046 was expanded during feature
 iteration, so environments that had already applied the earlier 046 need this
-forward migration to add the columns and match FK that the current code uses.
+forward migration to add the allocation reversal table, refund proof columns,
+and match FK that the current code uses.
 """
 
 from collections.abc import Sequence
@@ -58,6 +59,111 @@ def _unique_constraint_names(bind, table_name: str) -> set[str]:
 
 def upgrade() -> None:
     bind = op.get_bind()
+
+    if _has_table(bind, "credit_allocations"):
+        columns = _column_names(bind, "credit_allocations")
+        indexes = _index_names(bind, "credit_allocations")
+        has_source_payment_fk = _has_foreign_key(
+            bind,
+            "credit_allocations",
+            ["source_payment_id"],
+            "payments",
+        )
+
+        with op.batch_alter_table("credit_allocations") as batch:
+            if "source_payment_id" not in columns:
+                batch.add_column(sa.Column("source_payment_id", sa.BigInteger(), nullable=True))
+            if "ix_credit_allocations_source_payment_id" not in indexes:
+                batch.create_index(
+                    "ix_credit_allocations_source_payment_id",
+                    ["source_payment_id"],
+                    unique=False,
+                )
+            if not has_source_payment_fk and "source_payment_id" not in columns:
+                batch.create_foreign_key(
+                    "fk_credit_allocations_source_payment_id_payments",
+                    "payments",
+                    ["source_payment_id"],
+                    ["id"],
+                )
+
+        if not _has_foreign_key(
+            bind,
+            "credit_allocations",
+            ["source_payment_id"],
+            "payments",
+        ):
+            with op.batch_alter_table("credit_allocations") as batch:
+                batch.create_foreign_key(
+                    "fk_credit_allocations_source_payment_id_payments",
+                    "payments",
+                    ["source_payment_id"],
+                    ["id"],
+                )
+
+    if not _has_table(bind, "credit_allocation_reversals"):
+        op.create_table(
+            "credit_allocation_reversals",
+            sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+            sa.Column("credit_allocation_id", sa.BigInteger(), nullable=False),
+            sa.Column("amount", sa.Numeric(15, 2), nullable=False),
+            sa.Column("reason", sa.Text(), nullable=True),
+            sa.Column("reversed_by_id", sa.BigInteger(), nullable=True),
+            sa.Column(
+                "reversed_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.text("now()"),
+            ),
+            sa.ForeignKeyConstraint(
+                ["credit_allocation_id"],
+                ["credit_allocations.id"],
+            ),
+            sa.ForeignKeyConstraint(["reversed_by_id"], ["users.id"]),
+        )
+
+    if _has_table(bind, "credit_allocation_reversals"):
+        indexes = _index_names(bind, "credit_allocation_reversals")
+        has_allocation_fk = _has_foreign_key(
+            bind,
+            "credit_allocation_reversals",
+            ["credit_allocation_id"],
+            "credit_allocations",
+        )
+        has_reversed_by_fk = _has_foreign_key(
+            bind,
+            "credit_allocation_reversals",
+            ["reversed_by_id"],
+            "users",
+        )
+
+        with op.batch_alter_table("credit_allocation_reversals") as batch:
+            if "ix_credit_allocation_reversals_credit_allocation_id" not in indexes:
+                batch.create_index(
+                    "ix_credit_allocation_reversals_credit_allocation_id",
+                    ["credit_allocation_id"],
+                    unique=False,
+                )
+            if "ix_credit_allocation_reversals_reversed_at" not in indexes:
+                batch.create_index(
+                    "ix_credit_allocation_reversals_reversed_at",
+                    ["reversed_at"],
+                    unique=False,
+                )
+            if not has_allocation_fk:
+                batch.create_foreign_key(
+                    "fk_credit_allocation_reversals_credit_allocation_id_credit_allocations",
+                    "credit_allocations",
+                    ["credit_allocation_id"],
+                    ["id"],
+                )
+            if not has_reversed_by_fk:
+                batch.create_foreign_key(
+                    "fk_credit_allocation_reversals_reversed_by_id_users",
+                    "users",
+                    ["reversed_by_id"],
+                    ["id"],
+                )
 
     if _has_table(bind, "payment_refunds"):
         columns = _column_names(bind, "payment_refunds")
