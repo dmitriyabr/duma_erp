@@ -239,6 +239,7 @@
 - `PATCH /payments/{payment_id}`
 - `POST /payments/{payment_id}/complete`
 - `POST /payments/{payment_id}/cancel`
+- `POST /payments/{payment_id}/refunds` — текущий payment-level refund shortcut: refund создаётся от конкретного completed payment, требует proof/reference и при нехватке free billing-account credit откатывает allocations. Целевая модель для следующей итерации: account-level refund document с allocation impact preview, см. `docs/BILLING_ACCOUNT_REFUNDS_PLAN.md`.
 - `POST /payments/students/balances-batch` — body: `{ student_ids: number[] }`. Ответ: `{ balances: StudentBalance[] }` — по каждому ученику: shared `available_balance` billing account, student-specific `outstanding_debt` и student-facing `balance`; общий credit не размазывается как личный баланс каждого ребёнка.
 - `GET /payments/students/{student_id}/balance` — response возвращает billing account metadata, `available_balance` как shared credit account, а `outstanding_debt` / `balance` как student-specific position; общий credit не атрибутируется одному ребёнку, поэтому `balance` не включает долги siblings и не дублирует shared credit как личный баланс ученика
 - `GET /payments/students/{student_id}/statement` — `date_from`, `date_to`; statement строится по linked billing account wallet; entries содержат `entry_type`, `payment_id`, `allocation_id`, `invoice_id`, чтобы allocation можно было откатить
