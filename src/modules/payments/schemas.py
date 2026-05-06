@@ -156,12 +156,34 @@ class RefundAllocationImpact(BaseSchema):
     invoice_number: str
     student_id: int
     student_name: str | None = None
+    invoice_type: str | None = None
+    invoice_status: str | None = None
+    issue_date: date | None = None
+    due_date: date | None = None
     current_allocation_amount: Decimal
     reversal_amount: Decimal
     invoice_paid_total_before: Decimal
     invoice_amount_due_before: Decimal
     invoice_paid_total_after: Decimal
     invoice_amount_due_after: Decimal
+
+
+class RefundAllocationOption(BaseSchema):
+    """Current invoice allocation that can be reversed by an account-level refund."""
+
+    allocation_id: int
+    invoice_id: int
+    invoice_number: str
+    student_id: int
+    student_name: str | None = None
+    invoice_type: str
+    invoice_status: str
+    issue_date: date | None = None
+    due_date: date | None = None
+    current_allocation_amount: Decimal
+    invoice_paid_total: Decimal
+    invoice_amount_due: Decimal
+    invoice_total: Decimal
 
 
 class RefundPaymentSourceImpact(BaseSchema):

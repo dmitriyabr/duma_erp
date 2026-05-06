@@ -18,6 +18,7 @@ import { Select } from '../../components/ui/Select'
 import { Spinner } from '../../components/ui/Spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '../../components/ui/Table'
 import { Textarea } from '../../components/ui/Textarea'
+import { ToggleButton, ToggleButtonGroup } from '../../components/ui/ToggleButton'
 import { Typography } from '../../components/ui/Typography'
 import type { InvoiceDetail, InvoiceLine } from '../students/types'
 import { BillingAccountChildEditor } from './components/BillingAccountChildEditor'
@@ -131,12 +132,32 @@ interface RefundAllocationImpact {
   invoice_number: string
   student_id: number
   student_name?: string | null
+  invoice_type?: string | null
+  invoice_status?: string | null
+  issue_date?: string | null
+  due_date?: string | null
   current_allocation_amount: number
   reversal_amount: number
   invoice_paid_total_before: number
   invoice_amount_due_before: number
   invoice_paid_total_after: number
   invoice_amount_due_after: number
+}
+
+interface RefundAllocationOption {
+  allocation_id: number
+  invoice_id: number
+  invoice_number: string
+  student_id: number
+  student_name?: string | null
+  invoice_type: string
+  invoice_status: string
+  issue_date?: string | null
+  due_date?: string | null
+  current_allocation_amount: number
+  invoice_paid_total: number
+  invoice_amount_due: number
+  invoice_total: number
 }
 
 interface BillingAccountRefundPreview {
@@ -212,6 +233,11 @@ export const BillingAccountDetailPage = () => {
     undefined,
     [resolvedId]
   )
+  const refundAllocationOptionsApi = useApi<RefundAllocationOption[]>(
+    resolvedId ? `/billing-accounts/${resolvedId}/refunds/allocation-options` : null,
+    undefined,
+    [resolvedId]
+  )
   const studentsApi = useApi<PaginatedResponse<BillingStudent>>('/students', {
     params: { status: 'active', page: 1, limit: 500 },
   }, [])
@@ -261,6 +287,8 @@ export const BillingAccountDetailPage = () => {
   const [accountRefundDialogOpen, setAccountRefundDialogOpen] = useState(false)
   const [accountRefundPreview, setAccountRefundPreview] = useState<BillingAccountRefundPreview | null>(null)
   const [accountRefundValidationErrors, setAccountRefundValidationErrors] = useState<Record<string, string>>({})
+  const [refundAllocationMode, setRefundAllocationMode] = useState<'auto' | 'manual'>('auto')
+  const [manualRefundReversals, setManualRefundReversals] = useState<Record<number, string>>({})
   const [refundForm, setRefundForm] = useState({
     amount: '',
     refund_date: new Date().toISOString().slice(0, 10),
@@ -315,6 +343,33 @@ export const BillingAccountDetailPage = () => {
     return payment.status
   }
 
+  const formatInvoiceTypeLabel = (value?: string | null) =>
+    value ? value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()) : 'Invoice'
+
+  const formatInvoiceStatusLabel = (value?: string | null) =>
+    value ? value.replace(/_/g, ' ') : 'unknown'
+
+  const getRefundAmountToReopen = () =>
+    Math.max(0, Number(refundForm.amount || 0) - Math.max(Number(account?.available_balance ?? 0), 0))
+
+  const getManualReversalTotal = () =>
+    Object.values(manualRefundReversals).reduce((sum, value) => {
+      const amount = Number(value)
+      return sum + (Number.isFinite(amount) && amount > 0 ? amount : 0)
+    }, 0)
+
+  const buildManualAllocationReversals = () =>
+    Object.entries(manualRefundReversals)
+      .map(([allocationId, amountValue]) => ({
+        allocation_id: Number(allocationId),
+        amount: Number(amountValue),
+      }))
+      .filter((item) => Number.isFinite(item.amount) && item.amount > 0)
+
+  const getAllocationInvoiceLabel = (
+    allocation: RefundAllocationOption | RefundAllocationImpact
+  ) => `${allocation.invoice_number} · ${formatInvoiceTypeLabel(allocation.invoice_type)}`
+
   const openRefundDialog = (payment: PaymentRow) => {
     setRefundDialogPayment(payment)
     setRefundForm({
@@ -337,6 +392,8 @@ export const BillingAccountDetailPage = () => {
     setAccountRefundDialogOpen(true)
     setAccountRefundPreview(null)
     setAccountRefundValidationErrors({})
+    setRefundAllocationMode('auto')
+    setManualRefundReversals({})
     setRefundForm({
       amount: String(Math.max(Number(account?.available_balance ?? 0), 0)),
       refund_date: new Date().toISOString().slice(0, 10),
@@ -371,20 +428,46 @@ export const BillingAccountDetailPage = () => {
     if (mode === 'submit' && !hasRefundProof) {
       nextErrors.proof = 'Reference, proof text or confirmation file is required.'
     }
+    if (refundAllocationMode === 'manual' && Number.isFinite(amount) && amount > 0) {
+      const amountToReopen = getRefundAmountToReopen()
+      const selectedTotal = getManualReversalTotal()
+      const selectedTotalCents = Math.round(selectedTotal * 100)
+      const amountToReopenCents = Math.round(amountToReopen * 100)
+      const optionsById = new Map(
+        (refundAllocationOptionsApi.data ?? []).map((option) => [option.allocation_id, option])
+      )
+      const hasInvalidAmount = buildManualAllocationReversals().some((item) => {
+        const option = optionsById.get(item.allocation_id)
+        return !option || Math.round(item.amount * 100) > Math.round(option.current_allocation_amount * 100)
+      })
+      if (hasInvalidAmount) {
+        nextErrors.allocation_reversals = 'Selected reversal exceeds the current invoice allocation.'
+      } else if (amountToReopenCents > 0 && selectedTotalCents !== amountToReopenCents) {
+        nextErrors.allocation_reversals = `Manual reversals must total ${formatMoney(amountToReopen)}.`
+      } else if (amountToReopenCents === 0 && selectedTotalCents > 0) {
+        nextErrors.allocation_reversals = 'This refund uses free credit only; no invoice allocation should be selected.'
+      }
+    }
     setAccountRefundValidationErrors(nextErrors)
     return Object.keys(nextErrors).length === 0
   }
 
-  const buildAccountRefundPayload = () => ({
-    amount: Number(refundForm.amount),
-    refund_date: refundForm.refund_date,
-    refund_method: refundForm.refund_method || null,
-    reference_number: refundForm.reference_number.trim() || null,
-    proof_text: refundForm.proof_text.trim() || null,
-    proof_attachment_id: refundForm.proof_attachment_id,
-    reason: refundForm.reason.trim(),
-    notes: refundForm.notes.trim() || null,
-  })
+  const buildAccountRefundPayload = () => {
+    const payload: Record<string, unknown> = {
+      amount: Number(refundForm.amount),
+      refund_date: refundForm.refund_date,
+      refund_method: refundForm.refund_method || null,
+      reference_number: refundForm.reference_number.trim() || null,
+      proof_text: refundForm.proof_text.trim() || null,
+      proof_attachment_id: refundForm.proof_attachment_id,
+      reason: refundForm.reason.trim(),
+      notes: refundForm.notes.trim() || null,
+    }
+    if (refundAllocationMode === 'manual' && getRefundAmountToReopen() > 0) {
+      payload.allocation_reversals = buildManualAllocationReversals()
+    }
+    return payload
+  }
 
   const previewAccountRefund = async () => {
     if (!validateAccountRefundForm('preview')) return
@@ -395,6 +478,9 @@ export const BillingAccountDetailPage = () => {
       api.post(`/billing-accounts/${resolvedId}/refunds/preview`, {
         amount: Number(refundForm.amount),
         refund_date: refundForm.refund_date,
+        ...(refundAllocationMode === 'manual' && getRefundAmountToReopen() > 0
+          ? { allocation_reversals: buildManualAllocationReversals() }
+          : {}),
       })
     )
     if (result != null) {
@@ -1052,7 +1138,9 @@ export const BillingAccountDetailPage = () => {
                   <TableCell>
                     {refund.allocation_reversals.length
                       ? refund.allocation_reversals
-                          .map((impact) => `${impact.invoice_number}: ${formatMoney(impact.reversal_amount)}`)
+                          .map((impact) =>
+                            `${getAllocationInvoiceLabel(impact)} (${impact.student_name ?? `Student #${impact.student_id}`}): ${formatMoney(impact.reversal_amount)}`
+                          )
                           .join(', ')
                       : 'No invoice reopened'}
                   </TableCell>
@@ -1226,10 +1314,14 @@ export const BillingAccountDetailPage = () => {
         <DialogContent>
           <div className="space-y-4 mt-4">
             {(accountRefundValidationErrors.proof ||
+              accountRefundValidationErrors.allocation_reversals ||
+              refundAllocationOptionsApi.error ||
               accountRefundPreviewMutation.error ||
               accountRefundMutation.error) && (
               <Alert severity="error">
                 {accountRefundValidationErrors.proof ||
+                  accountRefundValidationErrors.allocation_reversals ||
+                  refundAllocationOptionsApi.error ||
                   accountRefundPreviewMutation.error ||
                   accountRefundMutation.error}
               </Alert>
@@ -1258,7 +1350,11 @@ export const BillingAccountDetailPage = () => {
                 error={accountRefundValidationErrors.amount}
                 onChange={(event) => {
                   setAccountRefundPreview(null)
-                  setAccountRefundValidationErrors((current) => ({ ...current, amount: '' }))
+                  setAccountRefundValidationErrors((current) => ({
+                    ...current,
+                    amount: '',
+                    allocation_reversals: '',
+                  }))
                   setRefundForm((current) => ({ ...current, amount: event.target.value }))
                 }}
               />
@@ -1329,6 +1425,111 @@ export const BillingAccountDetailPage = () => {
               }
             />
 
+            <div className="space-y-3 rounded-lg border border-slate-200 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <Typography variant="body2" className="font-semibold">Invoice allocation impact</Typography>
+                  <Typography variant="body2" color="secondary">
+                    Amount to reopen: {formatMoney(getRefundAmountToReopen())}
+                  </Typography>
+                </div>
+                <ToggleButtonGroup
+                  value={refundAllocationMode}
+                  size="small"
+                  onChange={(_, value) => {
+                    if (value !== 'auto' && value !== 'manual') return
+                    setAccountRefundPreview(null)
+                    setAccountRefundValidationErrors((current) => ({ ...current, allocation_reversals: '' }))
+                    setRefundAllocationMode(value)
+                  }}
+                >
+                  <ToggleButton value="auto">Auto</ToggleButton>
+                  <ToggleButton value="manual">Manual</ToggleButton>
+                </ToggleButtonGroup>
+              </div>
+
+              {refundAllocationMode === 'manual' && (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Typography variant="body2" color="secondary">
+                      Selected: {formatMoney(getManualReversalTotal())}
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => {
+                        setAccountRefundPreview(null)
+                        setManualRefundReversals({})
+                        setAccountRefundValidationErrors((current) => ({ ...current, allocation_reversals: '' }))
+                      }}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                  {refundAllocationOptionsApi.loading ? (
+                    <div className="py-4">
+                      <Spinner size="small" />
+                    </div>
+                  ) : (refundAllocationOptionsApi.data ?? []).length ? (
+                    <div className="overflow-hidden rounded-lg border border-slate-200">
+                      <Table>
+                        <TableHead>
+                          <TableRow>
+                            <TableHeaderCell>Invoice</TableHeaderCell>
+                            <TableHeaderCell>Student</TableHeaderCell>
+                            <TableHeaderCell>Status</TableHeaderCell>
+                            <TableHeaderCell align="right">Allocated</TableHeaderCell>
+                            <TableHeaderCell align="right">Due now</TableHeaderCell>
+                            <TableHeaderCell align="right">Reverse</TableHeaderCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {(refundAllocationOptionsApi.data ?? []).map((option) => (
+                            <TableRow key={option.allocation_id}>
+                              <TableCell>
+                                <div className="font-medium">{option.invoice_number}</div>
+                                <div className="text-xs text-slate-500">
+                                  {formatInvoiceTypeLabel(option.invoice_type)}
+                                  {option.due_date ? ` · due ${formatDate(option.due_date)}` : ''}
+                                </div>
+                              </TableCell>
+                              <TableCell>{option.student_name ?? `Student #${option.student_id}`}</TableCell>
+                              <TableCell>{formatInvoiceStatusLabel(option.invoice_status)}</TableCell>
+                              <TableCell align="right">{formatMoney(option.current_allocation_amount)}</TableCell>
+                              <TableCell align="right">{formatMoney(option.invoice_amount_due)}</TableCell>
+                              <TableCell align="right">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={manualRefundReversals[option.allocation_id] ?? ''}
+                                  containerClassName="min-w-32"
+                                  aria-label={`Reverse ${option.invoice_number}`}
+                                  onChange={(event) => {
+                                    setAccountRefundPreview(null)
+                                    setAccountRefundValidationErrors((current) => ({
+                                      ...current,
+                                      allocation_reversals: '',
+                                    }))
+                                    setManualRefundReversals((current) => ({
+                                      ...current,
+                                      [option.allocation_id]: event.target.value,
+                                    }))
+                                  }}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <Typography variant="body2" color="secondary">No current invoice allocations can be reopened.</Typography>
+                  )}
+                </div>
+              )}
+            </div>
+
             {accountRefundPreview && (
               <div className="space-y-4 rounded-lg border border-slate-200 p-4">
                 <div className="grid gap-3 md:grid-cols-3">
@@ -1367,8 +1568,14 @@ export const BillingAccountDetailPage = () => {
                         <TableBody>
                           {accountRefundPreview.allocation_reversals.map((impact) => (
                             <TableRow key={impact.allocation_id}>
-                              <TableCell>{impact.invoice_number}</TableCell>
-                              <TableCell>{impact.student_name ?? '—'}</TableCell>
+                              <TableCell>
+                                <div className="font-medium">{impact.invoice_number}</div>
+                                <div className="text-xs text-slate-500">
+                                  {formatInvoiceTypeLabel(impact.invoice_type)}
+                                  {impact.due_date ? ` · due ${formatDate(impact.due_date)}` : ''}
+                                </div>
+                              </TableCell>
+                              <TableCell>{impact.student_name ?? `Student #${impact.student_id}`}</TableCell>
                               <TableCell align="right">{formatMoney(impact.reversal_amount)}</TableCell>
                               <TableCell align="right">{formatMoney(impact.invoice_amount_due_after)}</TableCell>
                             </TableRow>

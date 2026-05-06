@@ -25,6 +25,7 @@ Current implementation is account-level:
 - primary UI action: `Refund account credit` on `BillingAccountDetailPage`;
 - API:
   - `POST /billing-accounts/{account_id}/refunds/preview`;
+  - `GET /billing-accounts/{account_id}/refunds/allocation-options`;
   - `POST /billing-accounts/{account_id}/refunds`;
   - `GET /billing-accounts/{account_id}/refunds`;
   - `GET /billing-accounts/refunds/{refund_id}`;
@@ -43,7 +44,8 @@ This supports:
 - one refund covering several payments;
 - one outgoing bank transfer reconciled to one refund document;
 - refunds where the original payments were already allocated across invoices;
-- clear visibility into which invoices were reopened.
+- clear visibility into which invoices were reopened;
+- manual UI selection of invoice allocations when the automatic newest-first impact is not the desired accounting treatment.
 
 
 ## 3. Product Goal
@@ -298,13 +300,28 @@ Reasoning:
 
 ### 6.2. Manual impact override
 
-The preview should allow an advanced/manual mode.
+The preview now supports an advanced/manual mode.
 
 Admin/accountant can choose:
 
 - invoice;
 - allocation;
 - reversal amount.
+
+The UI loads selectable rows from:
+
+```text
+GET /billing-accounts/{account_id}/refunds/allocation-options
+```
+
+Each option includes business context, not just ids:
+
+- invoice number;
+- invoice type/status;
+- issue/due dates;
+- student name;
+- current allocation amount;
+- current invoice paid/due totals.
 
 Backend validation:
 
@@ -342,8 +359,7 @@ Payload:
 {
   "amount": "7000.00",
   "refund_date": "2026-05-06",
-  "strategy": "newest_allocations_first",
-  "manual_reversals": [
+  "allocation_reversals": [
     {
       "allocation_id": 123,
       "amount": "2500.00"
@@ -366,8 +382,11 @@ Response:
       "allocation_id": 123,
       "invoice_id": 55,
       "invoice_number": "INV-2026-000055",
+      "invoice_type": "school_fee",
+      "invoice_status": "paid",
+      "due_date": "2026-05-31",
       "student_name": "Jane Doe",
-      "current_allocated_amount": "5000.00",
+      "current_allocation_amount": "5000.00",
       "reversal_amount": "4000.00",
       "invoice_amount_due_before": "0.00",
       "invoice_amount_due_after": "4000.00"
@@ -377,14 +396,39 @@ Response:
     {
       "payment_id": 77,
       "payment_number": "PAY-2026-000077",
-      "amount": "7000.00"
+      "source_amount": "7000.00"
     }
-  ],
-  "warnings": []
+  ]
 }
 ```
 
-### 7.2. Create account-level refund
+### 7.2. Manual allocation options
+
+```text
+GET /billing-accounts/{account_id}/refunds/allocation-options
+```
+
+Response rows:
+
+```json
+{
+  "allocation_id": 123,
+  "invoice_id": 55,
+  "invoice_number": "INV-2026-000055",
+  "student_id": 10,
+  "student_name": "Jane Doe",
+  "invoice_type": "school_fee",
+  "invoice_status": "paid",
+  "issue_date": "2026-05-01",
+  "due_date": "2026-05-31",
+  "current_allocation_amount": "5000.00",
+  "invoice_paid_total": "5000.00",
+  "invoice_amount_due": "0.00",
+  "invoice_total": "5000.00"
+}
+```
+
+### 7.3. Create account-level refund
 
 ```text
 POST /billing-accounts/{account_id}/refunds
@@ -413,7 +457,7 @@ Payload:
 
 If `allocation_reversals` is omitted, backend uses the automatic strategy and returns the applied impact.
 
-### 7.3. History and detail
+### 7.4. History and detail
 
 ```text
 GET /billing-accounts/{account_id}/refunds

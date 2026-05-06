@@ -38,6 +38,7 @@ from src.modules.payments.schemas import (
     PaymentCreate,
     PaymentFilters,
     PaymentRefundCreate,
+    RefundAllocationOption,
     RefundAllocationImpact,
     RefundAllocationReversalRequest,
     RefundPaymentSourceImpact,
@@ -551,6 +552,44 @@ class PaymentService:
             allocation_reversals=allocation_reversals,
             payment_sources=payment_sources,
         )
+
+    async def list_refundable_allocations(
+        self, billing_account_id: int
+    ) -> list[RefundAllocationOption]:
+        """List current account allocations that can be manually reversed for a refund."""
+        await self._get_billing_account(billing_account_id)
+        result = await self.db.execute(
+            select(CreditAllocation)
+            .where(
+                CreditAllocation.billing_account_id == billing_account_id,
+                CreditAllocation.amount > 0,
+            )
+            .options(selectinload(CreditAllocation.invoice).selectinload(Invoice.student))
+            .order_by(CreditAllocation.created_at.desc(), CreditAllocation.id.desc())
+        )
+        options: list[RefundAllocationOption] = []
+        for allocation in result.scalars().unique().all():
+            invoice = allocation.invoice
+            if invoice is None:
+                continue
+            options.append(
+                RefundAllocationOption(
+                    allocation_id=allocation.id,
+                    invoice_id=invoice.id,
+                    invoice_number=invoice.invoice_number,
+                    student_id=invoice.student_id,
+                    student_name=invoice.student.full_name if invoice.student else None,
+                    invoice_type=invoice.invoice_type,
+                    invoice_status=invoice.status,
+                    issue_date=invoice.issue_date,
+                    due_date=invoice.due_date,
+                    current_allocation_amount=round_money(allocation.amount),
+                    invoice_paid_total=round_money(invoice.paid_total),
+                    invoice_amount_due=round_money(invoice.amount_due),
+                    invoice_total=round_money(invoice.total),
+                )
+            )
+        return options
 
     async def create_billing_account_refund(
         self,
@@ -1844,6 +1883,10 @@ class PaymentService:
             invoice_number=invoice.invoice_number,
             student_id=invoice.student_id,
             student_name=invoice.student.full_name if invoice.student else None,
+            invoice_type=invoice.invoice_type,
+            invoice_status=invoice.status,
+            issue_date=invoice.issue_date,
+            due_date=invoice.due_date,
             current_allocation_amount=round_money(allocation.amount),
             reversal_amount=round_money(reversal_amount),
             invoice_paid_total_before=paid_before,

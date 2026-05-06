@@ -30,6 +30,7 @@ from src.modules.payments.schemas import (
     BillingAccountRefundResponse,
     PaymentRefundSourceResponse,
     RefundAllocationImpact,
+    RefundAllocationOption,
     StatementResponse,
 )
 from src.modules.payments.service import PaymentService
@@ -52,6 +53,10 @@ def _refund_allocation_impact_to_response(reversal) -> RefundAllocationImpact:
         invoice_number=invoice.invoice_number,
         student_id=invoice.student_id,
         student_name=invoice.student.full_name if invoice.student else None,
+        invoice_type=invoice.invoice_type,
+        invoice_status=invoice.status,
+        issue_date=invoice.issue_date,
+        due_date=invoice.due_date,
         current_allocation_amount=allocation.amount,
         reversal_amount=reversal.amount,
         invoice_paid_total_before=paid_before,
@@ -251,6 +256,22 @@ async def preview_billing_account_refund(
     service = PaymentService(db)
     preview = await service.preview_billing_account_refund(account_id, data)
     return ApiResponse(data=preview)
+
+
+@router.get(
+    "/{account_id}/refunds/allocation-options",
+    response_model=ApiResponse[list[RefundAllocationOption]],
+)
+async def list_refund_allocation_options(
+    account_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
+):
+    service = PaymentService(db)
+    options = await service.list_refundable_allocations(account_id)
+    return ApiResponse(data=options)
 
 
 @router.post(

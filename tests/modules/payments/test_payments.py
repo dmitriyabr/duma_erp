@@ -1556,6 +1556,101 @@ class TestPaymentEndpoints:
         assert len(rows) == 1
         assert rows[0]["refund_number"] == refund["refund_number"]
 
+    async def test_account_refund_api_allows_manual_invoice_allocation_selection(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Manual account refunds should let users choose which invoice allocation is reopened."""
+        token, user_id, data = await self._setup_auth_and_data(db_session)
+
+        second_invoice = Invoice(
+            invoice_number="INV-PAYAPI-002",
+            student_id=data["student"].id,
+            invoice_type=InvoiceType.TRANSPORT.value,
+            status=InvoiceStatus.ISSUED.value,
+            issue_date=date.today(),
+            due_date=date.today() + timedelta(days=15),
+            subtotal=Decimal("3000.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("3000.00"),
+            paid_total=Decimal("0.00"),
+            amount_due=Decimal("3000.00"),
+            created_by_id=user_id,
+        )
+        db_session.add(second_invoice)
+        await db_session.commit()
+
+        create_response = await client.post(
+            "/api/v1/payments",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "student_id": data["student"].id,
+                "amount": "9000.00",
+                "payment_method": "mpesa",
+                "payment_date": str(date.today()),
+                "reference": "account-refund-manual-payment",
+            },
+        )
+        payment_id = create_response.json()["data"]["id"]
+        await client.post(
+            f"/api/v1/payments/{payment_id}/complete",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        balance_response = await client.get(
+            f"/api/v1/payments/students/{data['student'].id}/balance",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        account_id = balance_response.json()["data"]["billing_account_id"]
+
+        options_response = await client.get(
+            f"/api/v1/billing-accounts/{account_id}/refunds/allocation-options",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert options_response.status_code == 200
+        options = options_response.json()["data"]
+        selected_option = next(
+            option for option in options if option["invoice_number"] == "INV-PAYAPI-002"
+        )
+        assert selected_option["student_name"] == data["student"].full_name
+        assert selected_option["invoice_type"] == InvoiceType.TRANSPORT.value
+
+        manual_reversals = [
+            {
+                "allocation_id": selected_option["allocation_id"],
+                "amount": "1000.00",
+            }
+        ]
+        preview_response = await client.post(
+            f"/api/v1/billing-accounts/{account_id}/refunds/preview",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "amount": "2000.00",
+                "refund_date": str(date.today()),
+                "allocation_reversals": manual_reversals,
+            },
+        )
+        assert preview_response.status_code == 200
+        preview = preview_response.json()["data"]
+        assert Decimal(preview["amount_to_reopen"]) == Decimal("1000.00")
+        assert preview["allocation_reversals"][0]["invoice_number"] == "INV-PAYAPI-002"
+        assert preview["allocation_reversals"][0]["invoice_type"] == InvoiceType.TRANSPORT.value
+
+        create_refund_response = await client.post(
+            f"/api/v1/billing-accounts/{account_id}/refunds",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "amount": "2000.00",
+                "refund_date": str(date.today()),
+                "refund_method": "bank_transfer",
+                "reference_number": "RFND-MANUAL-API",
+                "reason": "Manual invoice allocation refund",
+                "allocation_reversals": manual_reversals,
+            },
+        )
+        assert create_refund_response.status_code == 201
+        refund = create_refund_response.json()["data"]
+        assert refund["allocation_reversals"][0]["invoice_number"] == "INV-PAYAPI-002"
+        assert Decimal(refund["allocation_reversals"][0]["reversal_amount"]) == Decimal("1000.00")
+
     async def test_complete_payment_api_prefers_selected_invoice(
         self, client: AsyncClient, db_session: AsyncSession
     ):
