@@ -136,7 +136,10 @@ class InvoiceService:
         """Recalculate line totals."""
         line.line_total = round_money(line.unit_price * line.quantity)
         line.net_amount = round_money(line.line_total - line.discount_amount)
-        line.remaining_amount = round_money(line.net_amount - line.paid_amount)
+        adjustment_amount = round_money(
+            getattr(line, "adjustment_amount", None) or Decimal("0.00")
+        )
+        line.remaining_amount = round_money(line.net_amount - line.paid_amount - adjustment_amount)
 
     def _recalculate_invoice(self, invoice: Invoice) -> None:
         """Recalculate invoice totals from lines."""
@@ -146,7 +149,16 @@ class InvoiceService:
         )
         invoice.total = round_money(invoice.subtotal - invoice.discount_total)
         invoice.paid_total = round_money(sum(line.paid_amount for line in invoice.lines))
-        invoice.amount_due = round_money(invoice.total - invoice.paid_total)
+        invoice.adjustment_total = round_money(
+            sum(
+                (
+                    getattr(line, "adjustment_amount", None) or Decimal("0.00")
+                    for line in invoice.lines
+                ),
+                Decimal("0.00"),
+            )
+        )
+        invoice.amount_due = round_money(invoice.total - invoice.paid_total - invoice.adjustment_total)
 
         # Update status based on payment
         if invoice.status not in (InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value, InvoiceStatus.DRAFT.value):

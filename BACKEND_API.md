@@ -179,6 +179,10 @@
 - `PATCH /students/{student_id}`
 - `POST /students/{student_id}/activate`
 - `POST /students/{student_id}/deactivate` — только меняет статус student. Existing invoices не закрываются автоматически; withdrawal/write-off/refund settlement design описан в `docs/WITHDRAWAL_SETTLEMENT_PLAN.md`.
+- `POST /students/{student_id}/withdrawal-settlements/preview` — manual withdrawal settlement preview. Показывает refund/write-off/cancel impacts и remaining collectible debt.
+- `POST /students/{student_id}/withdrawal-settlements` — post settlement atomically: optional account-level refund, invoice write-offs/cancellations, student deactivation.
+- `GET /students/{student_id}/withdrawal-settlements` — settlement history for student.
+- `GET /withdrawal-settlements/{settlement_id}` — settlement detail.
 
 ### 5.5.1. Billing Accounts
 - `GET /billing-accounts` — filters: `search`, `page`, `limit`; возвращает все billing accounts, независимо от количества linked students
@@ -210,6 +214,7 @@
 - `PATCH /invoices/{invoice_id}/lines/{line_id}/discount`
 - `POST /invoices/{invoice_id}/issue`
 - `POST /invoices/{invoice_id}/cancel`
+- Withdrawal settlement write-offs create `invoice_adjustments` and update invoice/line `adjustment_total` / `adjustment_amount`, reducing collectible `amount_due` without cash movement.
 - `POST /invoices/generate-term-invoices` — roles: `SUPER_ADMIN`, `ADMIN` (создаёт отдельный invoice с admission+interview, если их ещё не было)
 - `POST /invoices/generate-term-invoices/student` — roles: `SUPER_ADMIN`, `ADMIN` (аналогично для одного студента)
   - При отсутствии price settings для grade/zone запись пропускается (bulk).

@@ -1,6 +1,5 @@
 """API endpoints for Invoices module."""
 
-from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query, status
@@ -58,6 +57,7 @@ def _invoice_to_response(invoice) -> InvoiceResponse:
         discount_total=float(invoice.discount_total),
         total=float(invoice.total),
         paid_total=float(invoice.paid_total),
+        adjustment_total=float(getattr(invoice, "adjustment_total", 0)),
         amount_due=float(invoice.amount_due),
         notes=invoice.notes,
         created_by_id=invoice.created_by_id,
@@ -73,6 +73,7 @@ def _invoice_to_response(invoice) -> InvoiceResponse:
                 "discount_amount": float(line.discount_amount),
                 "net_amount": float(line.net_amount),
                 "paid_amount": float(line.paid_amount),
+                "adjustment_amount": float(getattr(line, "adjustment_amount", 0)),
                 "remaining_amount": float(line.remaining_amount),
             }
             for line in invoice.lines
@@ -105,6 +106,15 @@ def _invoice_to_summary(invoice) -> InvoiceSummary:
     # Derive net total from lines to avoid showing stale/gross header totals in tables.
     net_total = round_money(sum((line.net_amount for line in invoice.lines), Decimal("0.00")))
     paid_total = round_money(sum((line.paid_amount for line in invoice.lines), Decimal("0.00")))
+    adjustment_total = round_money(
+        sum(
+            (
+                getattr(line, "adjustment_amount", None) or Decimal("0.00")
+                for line in invoice.lines
+            ),
+            Decimal("0.00"),
+        )
+    )
     amount_due = round_money(
         sum((line.remaining_amount for line in invoice.lines), Decimal("0.00"))
     )
@@ -121,6 +131,7 @@ def _invoice_to_summary(invoice) -> InvoiceSummary:
         status=invoice.status,
         total=float(net_total),
         paid_total=float(paid_total),
+        adjustment_total=float(adjustment_total),
         amount_due=float(amount_due),
         issue_date=invoice.issue_date,
         due_date=invoice.due_date,

@@ -599,6 +599,7 @@ class PaymentService:
         *,
         legacy_payment_id: int | None = None,
         forced_source_payment_id: int | None = None,
+        commit: bool = True,
     ) -> PaymentRefund:
         """Create one outgoing refund document for a billing account."""
         reason, refund_method, reference_number, proof_text, notes = self._sanitize_refund_data(data)
@@ -702,8 +703,11 @@ class PaymentService:
         )
 
         await self._update_billing_account_balance_cache(billing_account_id)
-        await self.db.commit()
-        return await self.get_payment_refund_by_id(refund.id)
+        if commit:
+            await self.db.commit()
+            return await self.get_payment_refund_by_id(refund.id)
+        await self.db.flush()
+        return refund
 
     async def list_billing_account_refunds(self, billing_account_id: int) -> list[PaymentRefund]:
         await self._get_billing_account(billing_account_id)
@@ -2155,7 +2159,16 @@ class PaymentService:
         total_paid = Decimal(str(result.scalar() or 0))
 
         invoice.paid_total = round_money(total_paid)
-        invoice.amount_due = round_money(invoice.total - total_paid)
+        invoice.adjustment_total = round_money(
+            sum(
+                (
+                    getattr(line, "adjustment_amount", None) or Decimal("0.00")
+                    for line in invoice.lines
+                ),
+                Decimal("0.00"),
+            )
+        )
+        invoice.amount_due = round_money(invoice.total - total_paid - invoice.adjustment_total)
 
         # Update status
         if invoice.status not in (
@@ -2202,7 +2215,9 @@ class PaymentService:
                 line.id: round_money(
                     max(
                         Decimal("0.00"),
-                        line.net_amount - line_paid_map.get(line.id, Decimal("0.00")),
+                        line.net_amount
+                        - line_paid_map.get(line.id, Decimal("0.00"))
+                        - (getattr(line, "adjustment_amount", None) or Decimal("0.00")),
                     )
                 )
                 for line in invoice.lines
@@ -2220,7 +2235,11 @@ class PaymentService:
                 )
 
                 line.paid_amount = round_money(line_paid)
-                line.remaining_amount = round_money(line.net_amount - line_paid)
+                line.remaining_amount = round_money(
+                    line.net_amount
+                    - line_paid
+                    - (getattr(line, "adjustment_amount", None) or Decimal("0.00"))
+                )
 
     async def _sync_reservations_for_invoice(self, invoice_id: int, user_id: int) -> None:
         """Create/cancel reservations based on paid status of invoice lines."""

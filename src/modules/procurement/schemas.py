@@ -290,6 +290,18 @@ class GoodsReceivedNoteCreate(BaseSchema):
     lines: list[GoodsReceivedLineCreate] = Field(..., min_length=1)
 
 
+class GoodsReceivedNoteUpdate(BaseSchema):
+    """Schema for editing a GRN.
+
+    Approved GRNs require a reason because the edit changes stock and PO history.
+    """
+
+    received_date: date | None = None
+    notes: str | None = None
+    reason: str | None = Field(None, min_length=1)
+    lines: list[GoodsReceivedLineCreate] = Field(..., min_length=1)
+
+
 class GoodsReceivedLineResponse(BaseSchema):
     """Schema for GRN line response."""
 

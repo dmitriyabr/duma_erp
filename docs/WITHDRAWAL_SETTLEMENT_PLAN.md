@@ -403,8 +403,9 @@ Retained/deduction amounts:
    - MVP recommendation: post immediately for SuperAdmin/Admin, allow Accountant only if business approves.
 
 2. Should write-off reduce invoice `total` or store adjustments separately and compute net due?
-   - Recommendation: store adjustments separately and compute net due from invoice total minus allocations minus adjustments. This preserves the original invoice.
-   - Shortcut MVP can mutate invoice/line remaining values only if we accept less auditability.
+   - Current implementation: adjustments are stored separately in `invoice_adjustments`.
+   - Invoice/line rows also store `adjustment_total` / `adjustment_amount` so existing debt reports can keep using `remaining_amount` and `amount_due`.
+   - Original line totals and discounts are preserved.
 
 3. Should issued inventory returns be part of withdrawal?
    - MVP recommendation: no automatic return calculation. Use existing issuance cancellation/return workflow if items are physically returned.
@@ -422,19 +423,21 @@ Retained/deduction amounts:
 
 ### Phase 2 - Minimal Backend
 
-- `withdrawal_settlements`;
-- `withdrawal_settlement_lines`;
-- `invoice_adjustments`;
-- preview/create/list/detail endpoints;
-- service posts settlement atomically.
+- Implemented: `withdrawal_settlements`;
+- Implemented: `withdrawal_settlement_lines`;
+- Implemented: `invoice_adjustments`;
+- Implemented: invoice/line `adjustment_total` / `adjustment_amount`;
+- Implemented: preview/create/list/detail endpoints;
+- Implemented: service posts settlement atomically.
 
 ### Phase 3 - UI
 
-- withdrawal page/dialog;
-- invoice action table;
-- manual totals;
-- reuse refund allocation selector;
-- preview and submit.
+- Implemented: `Withdraw` action on student detail header;
+- Implemented: invoice action table;
+- Implemented: manual retained/deduction/refund inputs;
+- Implemented: manual refund allocation selector;
+- Implemented: preview and submit;
+- Implemented: settlement history table on student detail.
 
 ### Phase 4 - Reporting
 

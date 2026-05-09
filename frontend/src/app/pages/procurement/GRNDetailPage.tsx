@@ -13,6 +13,8 @@ import { Typography } from '../../components/ui/Typography'
 import { Alert } from '../../components/ui/Alert'
 import { Spinner } from '../../components/ui/Spinner'
 import { Dialog, DialogTitle, DialogContent, DialogActions } from '../../components/ui/Dialog'
+import { Input } from '../../components/ui/Input'
+import { Textarea } from '../../components/ui/Textarea'
 
 interface GRNLine {
   id: number
@@ -36,8 +38,11 @@ interface GRNResponse {
 
 interface POLine {
   id: number
+  item_id: number | null
   description: string
   quantity_expected: number
+  quantity_cancelled: number
+  quantity_received: number
   unit_price: number
 }
 
@@ -53,17 +58,23 @@ export const GRNDetailPage = () => {
   })
   const [rollbackDialogOpen, setRollbackDialogOpen] = useState(false)
   const [rollbackReason, setRollbackReason] = useState('')
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [editQuantities, setEditQuantities] = useState<Record<number, number>>({})
+  const [editReceivedDate, setEditReceivedDate] = useState('')
+  const [editNotes, setEditNotes] = useState('')
+  const [editReason, setEditReason] = useState('')
 
   const { data: grn, loading, refetch: refetchGRN } = useApi<GRNResponse>(
     resolvedId ? `/procurement/grns/${resolvedId}` : null
   )
-  const { data: poData } = useApi<{ lines: POLine[] }>(
+  const { data: poData, refetch: refetchPO } = useApi<{ lines: POLine[] }>(
     grn?.po_id ? `/procurement/purchase-orders/${grn.po_id}` : null
   )
   const { execute: approveGRN, loading: approving } = useApiMutation()
   const { execute: cancelGRN, loading: cancelling } = useApiMutation()
   const { execute: rollbackGRN, loading: rollingBack } = useApiMutation()
-  const busy = approving || cancelling || rollingBack
+  const { execute: updateGRN, loading: updating } = useApiMutation()
+  const busy = approving || cancelling || rollingBack || updating
 
   // Update PO lines map when PO data loads
   useEffect(() => {
@@ -114,6 +125,68 @@ export const GRNDetailPage = () => {
     }
   }
 
+  const openEdit = () => {
+    if (!grn) return
+    const quantities: Record<number, number> = {}
+    grn.lines.forEach((line) => {
+      quantities[line.po_line_id] = (quantities[line.po_line_id] || 0) + line.quantity_received
+    })
+    setEditQuantities(quantities)
+    setEditReceivedDate(grn.received_date)
+    setEditNotes(grn.notes || '')
+    setEditReason('')
+    setEditDialogOpen(true)
+  }
+
+  const getOriginalGRNQuantity = (poLineId: number) =>
+    grn?.lines
+      .filter((line) => line.po_line_id === poLineId)
+      .reduce((sum, line) => sum + line.quantity_received, 0) || 0
+
+  const handleEditQuantityChange = (poLine: POLine, value: string) => {
+    const originalInThisGRN = getOriginalGRNQuantity(poLine.id)
+    const receivedOutsideThisGRN = Math.max(0, poLine.quantity_received - originalInThisGRN)
+    const maxQty = Math.max(0, poLine.quantity_expected - poLine.quantity_cancelled - receivedOutsideThisGRN)
+    const nextQty = Math.max(0, Math.min(Number(value) || 0, maxQty))
+    setEditQuantities((prev) => ({ ...prev, [poLine.id]: nextQty }))
+  }
+
+  const handleSaveEdit = async () => {
+    if (!resolvedId || !grn) return
+    const lines = Object.entries(editQuantities)
+      .map(([poLineId, quantity]) => ({
+        po_line_id: Number(poLineId),
+        quantity_received: Number(quantity) || 0,
+      }))
+      .filter((line) => line.quantity_received > 0)
+
+    if (!lines.length) {
+      setError('Add at least one GRN line.')
+      return
+    }
+    if (grn.status === 'approved' && !editReason.trim()) {
+      setError('Enter edit reason.')
+      return
+    }
+
+    setError(null)
+    const result = await updateGRN(() =>
+      api.put(`/procurement/grns/${resolvedId}`, {
+        received_date: editReceivedDate || null,
+        notes: editNotes.trim() || null,
+        reason: editReason.trim() || null,
+        lines,
+      })
+    )
+    if (result) {
+      setEditDialogOpen(false)
+      await refetchGRN()
+      await refetchPO()
+    } else {
+      setError('Failed to update GRN.')
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex justify-center py-8">
@@ -134,6 +207,7 @@ export const GRNDetailPage = () => {
   const canApprove = !readOnly && grn.status === 'draft' && canApproveGRN(user)
   const canCancel = !readOnly && grn.status === 'draft'
   const canRollback = !readOnly && isSuperAdmin(user) && grn.status === 'approved'
+  const canEdit = !readOnly && isSuperAdmin(user) && grn.status !== 'cancelled'
 
   return (
     <div>
@@ -154,6 +228,11 @@ export const GRNDetailPage = () => {
           {canApprove && (
             <Button variant="contained" disabled={busy} onClick={() => setConfirmState({ open: true, action: 'approve' })}>
               Approve
+            </Button>
+          )}
+          {canEdit && (
+            <Button variant="outlined" disabled={busy} onClick={openEdit}>
+              Edit
             </Button>
           )}
           {canCancel && (
@@ -266,6 +345,96 @@ export const GRNDetailPage = () => {
             disabled={!rollbackReason.trim() || busy}
           >
             {rollingBack ? 'Rolling back…' : 'Rollback'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="lg" fullWidth>
+        <DialogTitle>Edit GRN</DialogTitle>
+        <DialogContent className="space-y-4">
+          {grn.status === 'approved' && (
+            <Alert severity="warning">
+              Saving an approved GRN will update PO received quantities and create correcting stock movements.
+            </Alert>
+          )}
+          <Input
+            label="Received date"
+            type="date"
+            value={editReceivedDate}
+            onChange={(e) => setEditReceivedDate(e.target.value)}
+          />
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Description</TableHeaderCell>
+                  <TableHeaderCell align="right">Expected</TableHeaderCell>
+                  <TableHeaderCell align="right">PO received</TableHeaderCell>
+                  <TableHeaderCell align="right">Current GRN</TableHeaderCell>
+                  <TableHeaderCell align="right">Correct GRN qty</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {(poData?.lines || []).map((poLine) => {
+                  const currentInThisGRN = editQuantities[poLine.id] || 0
+                  const originalInThisGRN = getOriginalGRNQuantity(poLine.id)
+                  const receivedOutsideThisGRN = Math.max(0, poLine.quantity_received - originalInThisGRN)
+                  const maxQty = Math.max(
+                    0,
+                    poLine.quantity_expected - poLine.quantity_cancelled - receivedOutsideThisGRN
+                  )
+                  return (
+                    <TableRow key={poLine.id}>
+                      <TableCell>{poLine.description}</TableCell>
+                      <TableCell align="right">{poLine.quantity_expected}</TableCell>
+                      <TableCell align="right">{poLine.quantity_received}</TableCell>
+                      <TableCell align="right">
+                        {originalInThisGRN}
+                      </TableCell>
+                      <TableCell align="right">
+                        <Input
+                          type="number"
+                          value={currentInThisGRN === 0 ? '' : currentInThisGRN}
+                          onChange={(e) => handleEditQuantityChange(poLine, e.target.value)}
+                          onFocus={(e) => e.currentTarget.select()}
+                          onWheel={(e) => e.currentTarget.blur()}
+                          min={0}
+                          max={maxQty}
+                          className="w-28"
+                        />
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+          <Textarea
+            label="Notes"
+            value={editNotes}
+            onChange={(e) => setEditNotes(e.target.value)}
+            rows={3}
+          />
+          {grn.status === 'approved' && (
+            <Textarea
+              label="Reason"
+              value={editReason}
+              onChange={(e) => setEditReason(e.target.value)}
+              rows={3}
+              required
+            />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button variant="outlined" onClick={() => setEditDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveEdit}
+            disabled={busy || (grn.status === 'approved' && !editReason.trim())}
+          >
+            {updating ? 'Saving…' : 'Save changes'}
           </Button>
         </DialogActions>
       </Dialog>

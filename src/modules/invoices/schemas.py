@@ -58,6 +58,7 @@ class InvoiceLineResponse(BaseModel):
     discount_amount: float
     net_amount: float
     paid_amount: float
+    adjustment_amount: float = 0
     remaining_amount: float
 
     model_config = {"from_attributes": True}
@@ -109,6 +110,7 @@ class InvoiceResponse(BaseModel):
     discount_total: float
     total: float
     paid_total: float
+    adjustment_total: float = 0
     amount_due: float
     notes: str | None
     created_by_id: int
@@ -132,6 +134,7 @@ class InvoiceSummary(BaseModel):
     status: str
     total: float
     paid_total: float
+    adjustment_total: float = 0
     amount_due: float
     issue_date: date | None
     due_date: date | None

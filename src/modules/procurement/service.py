@@ -5,17 +5,18 @@ import io
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.core.audit.service import AuditService
 from src.core.auth.models import UserRole
 from src.core.documents.number_generator import get_document_number
 from src.core.exceptions import AuthorizationError, NotFoundError, ValidationError
 from src.modules.compensations.models import FundingSource
 from src.modules.compensations.service import ExpenseClaimService
 from src.modules.inventory.models import MovementType, StockMovement
-from src.modules.inventory.schemas import ReceiveStockRequest
+from src.modules.inventory.schemas import AdjustStockRequest, ReceiveStockRequest
 from src.modules.inventory.service import InventoryService
 from src.modules.procurement.models import (
     GoodsReceivedLine,
@@ -31,7 +32,9 @@ from src.modules.procurement.models import (
 )
 from src.modules.procurement.schemas import (
     GoodsReceivedFilters,
+    GoodsReceivedLineCreate,
     GoodsReceivedNoteCreate,
+    GoodsReceivedNoteUpdate,
     PaymentPurposeCreate,
     PaymentPurposeUpdate,
     ProcurementPaymentCreate,
@@ -621,6 +624,7 @@ class GoodsReceivedService:
         self.db = db
         self.inventory = InventoryService(db)
         self.po_service = PurchaseOrderService(db)
+        self.audit = AuditService(db)
 
     async def create_grn(
         self, data: GoodsReceivedNoteCreate, received_by_id: int
@@ -737,6 +741,252 @@ class GoodsReceivedService:
         grn.status = GoodsReceivedStatus.CANCELLED.value
         await self.db.commit()
         return await self.get_grn_by_id(grn.id)
+
+    async def update_grn(
+        self,
+        grn_id: int,
+        data: GoodsReceivedNoteUpdate,
+        *,
+        updated_by_id: int,
+    ) -> GoodsReceivedNote:
+        """Edit a draft or approved GRN.
+
+        Draft GRNs are simply rewritten. Approved GRNs are corrected in place with
+        compensating stock movements and PO quantity updates so procurement totals
+        match what was actually received.
+        """
+        grn = await self.get_grn_by_id(grn_id)
+        if grn.status == GoodsReceivedStatus.CANCELLED.value:
+            raise ValidationError("Cancelled GRNs cannot be edited")
+
+        if grn.status == GoodsReceivedStatus.APPROVED.value:
+            await self._update_approved_grn(grn, data, updated_by_id=updated_by_id)
+        elif grn.status == GoodsReceivedStatus.DRAFT.value:
+            await self._update_draft_grn(grn, data, updated_by_id=updated_by_id)
+        else:
+            raise ValidationError("Unsupported GRN status")
+
+        await self.db.commit()
+        self.db.expunge_all()
+        return await self.get_grn_by_id(grn_id)
+
+    async def _update_draft_grn(
+        self,
+        grn: GoodsReceivedNote,
+        data: GoodsReceivedNoteUpdate,
+        *,
+        updated_by_id: int,
+    ) -> None:
+        po = await self.po_service.get_purchase_order_by_id(grn.po_id)
+        if po.status in (PurchaseOrderStatus.CANCELLED.value, PurchaseOrderStatus.CLOSED.value):
+            raise ValidationError("Cannot edit a draft GRN for cancelled/closed PO")
+
+        new_quantities = self._aggregate_grn_line_quantities(data.lines)
+        po_lines = {line.id: line for line in po.lines}
+        for po_line_id, quantity in new_quantities.items():
+            po_line = po_lines.get(po_line_id)
+            if not po_line:
+                raise ValidationError("GRN line does not belong to purchase order")
+            remaining = (
+                po_line.quantity_expected
+                - po_line.quantity_cancelled
+                - po_line.quantity_received
+            )
+            if quantity > remaining:
+                raise ValidationError(
+                    f"Quantity exceeds remaining for PO line {po_line.id}"
+                )
+
+        old_values = {
+            "received_date": grn.received_date.isoformat(),
+            "notes": grn.notes,
+            "lines": [
+                {"po_line_id": line.po_line_id, "quantity_received": line.quantity_received}
+                for line in grn.lines
+            ],
+        }
+
+        await self.db.execute(
+            delete(GoodsReceivedLine).where(GoodsReceivedLine.grn_id == grn.id)
+        )
+        await self._insert_grn_lines(grn.id, po_lines, new_quantities)
+
+        if data.received_date is not None:
+            grn.received_date = data.received_date
+        grn.notes = data.notes
+
+        await self.audit.log(
+            action="procurement.grn.update",
+            entity_type="GoodsReceivedNote",
+            entity_id=grn.id,
+            entity_identifier=grn.grn_number,
+            user_id=updated_by_id,
+            old_values=old_values,
+            new_values={
+                "received_date": grn.received_date.isoformat(),
+                "notes": grn.notes,
+                "lines": [
+                    {"po_line_id": po_line_id, "quantity_received": quantity}
+                    for po_line_id, quantity in new_quantities.items()
+                ],
+            },
+            comment=data.reason,
+        )
+
+    async def _update_approved_grn(
+        self,
+        grn: GoodsReceivedNote,
+        data: GoodsReceivedNoteUpdate,
+        *,
+        updated_by_id: int,
+    ) -> None:
+        reason = (data.reason or "").strip()
+        if not reason:
+            raise ValidationError("Reason is required to edit an approved GRN")
+
+        po = await self.po_service.get_purchase_order_by_id(grn.po_id)
+        if po.status == PurchaseOrderStatus.CANCELLED.value:
+            raise ValidationError("Cannot edit an approved GRN for cancelled PO")
+
+        old_quantities: dict[int, int] = {}
+        for line in grn.lines:
+            old_quantities[line.po_line_id] = (
+                old_quantities.get(line.po_line_id, 0) + line.quantity_received
+            )
+        new_quantities = self._aggregate_grn_line_quantities(data.lines)
+        po_lines = {line.id: line for line in po.lines}
+        touched_line_ids = set(old_quantities) | set(new_quantities)
+
+        for po_line_id in touched_line_ids:
+            po_line = po_lines.get(po_line_id)
+            if not po_line:
+                raise ValidationError("GRN line does not belong to purchase order")
+            old_qty = old_quantities.get(po_line_id, 0)
+            new_qty = new_quantities.get(po_line_id, 0)
+            received_excluding_this_grn = po_line.quantity_received - old_qty
+            if received_excluding_this_grn < 0:
+                raise ValidationError("Cannot edit GRN: PO received quantity is inconsistent")
+            max_qty = (
+                po_line.quantity_expected
+                - po_line.quantity_cancelled
+                - received_excluding_this_grn
+            )
+            if new_qty > max_qty:
+                raise ValidationError(
+                    f"Quantity exceeds available capacity for PO line {po_line.id}"
+                )
+
+        old_values = {
+            "received_date": grn.received_date.isoformat(),
+            "notes": grn.notes,
+            "lines": [
+                {"po_line_id": line.po_line_id, "quantity_received": line.quantity_received}
+                for line in grn.lines
+            ],
+        }
+
+        for po_line_id in touched_line_ids:
+            po_line = po_lines[po_line_id]
+            old_qty = old_quantities.get(po_line_id, 0)
+            new_qty = new_quantities.get(po_line_id, 0)
+            delta = new_qty - old_qty
+            if delta == 0:
+                continue
+
+            po_line.quantity_received += delta
+            if po_line.quantity_received < 0:
+                raise ValidationError("Cannot edit GRN: PO received quantity would become negative")
+
+            if not (po.track_to_warehouse and po_line.item_id):
+                continue
+
+            if delta > 0:
+                await self.inventory.receive_stock(
+                    ReceiveStockRequest(
+                        item_id=po_line.item_id,
+                        quantity=delta,
+                        unit_cost=po_line.unit_price,
+                        reference_type="grn_edit",
+                        reference_id=grn.id,
+                        notes=f"Edit GRN {grn.grn_number}: {reason}",
+                    ),
+                    updated_by_id,
+                    commit=False,
+                )
+            else:
+                await self.inventory.adjust_stock(
+                    data=AdjustStockRequest(
+                        item_id=po_line.item_id,
+                        quantity=delta,
+                        reason=f"Edit GRN {grn.grn_number}: {reason}",
+                        reference_type="grn_edit",
+                        reference_id=grn.id,
+                    ),
+                    adjusted_by_id=updated_by_id,
+                    commit=False,
+                )
+
+        await self.db.execute(
+            delete(GoodsReceivedLine).where(GoodsReceivedLine.grn_id == grn.id)
+        )
+        await self._insert_grn_lines(grn.id, po_lines, new_quantities)
+
+        if data.received_date is not None:
+            grn.received_date = data.received_date
+        grn.notes = data.notes
+        grn.notes = f"{grn.notes}\n[EDITED] {reason}" if grn.notes else f"[EDITED] {reason}"
+
+        await self.po_service._recalculate_totals(po.id)
+        await self.audit.log(
+            action="procurement.grn.update_approved",
+            entity_type="GoodsReceivedNote",
+            entity_id=grn.id,
+            entity_identifier=grn.grn_number,
+            user_id=updated_by_id,
+            old_values=old_values,
+            new_values={
+                "received_date": grn.received_date.isoformat(),
+                "notes": grn.notes,
+                "lines": [
+                    {"po_line_id": po_line_id, "quantity_received": quantity}
+                    for po_line_id, quantity in new_quantities.items()
+                ],
+            },
+            comment=reason,
+        )
+
+    def _aggregate_grn_line_quantities(
+        self, lines: list[GoodsReceivedLineCreate]
+    ) -> dict[int, int]:
+        quantities: dict[int, int] = {}
+        for line in lines:
+            if line.quantity_received <= 0:
+                continue
+            quantities[line.po_line_id] = (
+                quantities.get(line.po_line_id, 0) + line.quantity_received
+            )
+        if not quantities:
+            raise ValidationError("At least one line must have quantity_received > 0")
+        return quantities
+
+    async def _insert_grn_lines(
+        self,
+        grn_id: int,
+        po_lines: dict[int, PurchaseOrderLine],
+        quantities: dict[int, int],
+    ) -> None:
+        for po_line_id, quantity in quantities.items():
+            po_line = po_lines.get(po_line_id)
+            if not po_line:
+                raise ValidationError("GRN line does not belong to purchase order")
+            self.db.add(
+                GoodsReceivedLine(
+                    grn_id=grn_id,
+                    po_line_id=po_line.id,
+                    item_id=po_line.item_id,
+                    quantity_received=quantity,
+                )
+            )
 
     async def rollback_purchase_order_receiving(
         self, po_id: int, *, rolled_back_by_id: int, reason: str

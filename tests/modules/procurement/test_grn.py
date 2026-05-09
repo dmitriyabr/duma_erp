@@ -37,12 +37,18 @@ class TestGoodsReceivedEndpoints:
         return response.json()["data"]["access_token"]
 
     async def _create_product_item(
-        self, client: AsyncClient, token: str
+        self,
+        client: AsyncClient,
+        token: str,
+        *,
+        sku: str = "GRN-001",
+        name: str = "GRN Item",
+        category: str = "GRN Category",
     ) -> int:
         cat_response = await client.post(
             "/api/v1/items/categories",
             headers={"Authorization": f"Bearer {token}"},
-            json={"name": "GRN Category"},
+            json={"name": category},
         )
         category_id = cat_response.json()["data"]["id"]
 
@@ -51,8 +57,8 @@ class TestGoodsReceivedEndpoints:
             headers={"Authorization": f"Bearer {token}"},
             json={
                 "category_id": category_id,
-                "sku_code": "GRN-001",
-                "name": "GRN Item",
+                "sku_code": sku,
+                "name": name,
                 "item_type": "product",
                 "price_type": "standard",
                 "price": "25.00",
@@ -137,6 +143,132 @@ class TestGoodsReceivedEndpoints:
         )
         assert stock_response.status_code == 200
         assert stock_response.json()["data"]["quantity_on_hand"] == 2
+
+    async def test_superadmin_can_edit_approved_grn_and_correct_po_value_and_stock(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        token = await self._get_admin_token(
+            client, db_session, role=UserRole.SUPER_ADMIN
+        )
+        item_1_id = await self._create_product_item(
+            client,
+            token,
+            sku="GRN-EDIT-001",
+            name="Uniform Size M",
+            category="GRN Edit Category 1",
+        )
+        item_2_id = await self._create_product_item(
+            client,
+            token,
+            sku="GRN-EDIT-002",
+            name="Uniform Size L",
+            category="GRN Edit Category 2",
+        )
+        purpose_id = await self._create_payment_purpose(client, token)
+
+        po_response = await client.post(
+            "/api/v1/procurement/purchase-orders",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "supplier_name": "Uniform Supplier",
+                "track_to_warehouse": True,
+                "purpose_id": purpose_id,
+                "lines": [
+                    {
+                        "item_id": item_1_id,
+                        "description": "Uniform Size M",
+                        "quantity_expected": 5,
+                        "unit_price": "25.00",
+                    },
+                    {
+                        "item_id": item_2_id,
+                        "description": "Uniform Size L",
+                        "quantity_expected": 5,
+                        "unit_price": "40.00",
+                    },
+                ],
+            },
+        )
+        assert po_response.status_code == 201
+        po_data = po_response.json()["data"]
+        po_id = po_data["id"]
+        line_1_id = po_data["lines"][0]["id"]
+        line_2_id = po_data["lines"][1]["id"]
+
+        grn_response = await client.post(
+            "/api/v1/procurement/grns",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "po_id": po_id,
+                "lines": [{"po_line_id": line_1_id, "quantity_received": 3}],
+            },
+        )
+        assert grn_response.status_code == 201
+        grn_id = grn_response.json()["data"]["id"]
+
+        approve_response = await client.post(
+            f"/api/v1/procurement/grns/{grn_id}/approve",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert approve_response.status_code == 200
+
+        update_response = await client.put(
+            f"/api/v1/procurement/grns/{grn_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "received_date": "2026-02-10",
+                "notes": "Corrected receiving",
+                "reason": "Wrong sizes were received on the original GRN",
+                "lines": [
+                    {"po_line_id": line_1_id, "quantity_received": 1},
+                    {"po_line_id": line_2_id, "quantity_received": 2},
+                ],
+            },
+        )
+        assert update_response.status_code == 200
+        assert update_response.json()["data"]["status"] == "approved"
+        assert len(update_response.json()["data"]["lines"]) == 2
+
+        po_after = await client.get(
+            f"/api/v1/procurement/purchase-orders/{po_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert po_after.status_code == 200
+        lines_after = {line["id"]: line for line in po_after.json()["data"]["lines"]}
+        assert lines_after[line_1_id]["quantity_received"] == 1
+        assert lines_after[line_2_id]["quantity_received"] == 2
+        assert po_after.json()["data"]["received_value"] == "105.00"
+        assert po_after.json()["data"]["debt_amount"] == "105.00"
+
+        stock_1_after = await client.get(
+            f"/api/v1/inventory/stock/{item_1_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        stock_2_after = await client.get(
+            f"/api/v1/inventory/stock/{item_2_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert stock_1_after.json()["data"]["quantity_on_hand"] == 1
+        assert stock_2_after.json()["data"]["quantity_on_hand"] == 2
+
+        correction_receipt = await db_session.scalar(
+            select(StockMovement)
+            .where(StockMovement.item_id == item_2_id)
+            .where(StockMovement.reference_type == "grn_edit")
+            .where(StockMovement.reference_id == grn_id)
+            .where(StockMovement.movement_type == MovementType.RECEIPT.value)
+        )
+        correction_adjustment = await db_session.scalar(
+            select(StockMovement)
+            .where(StockMovement.item_id == item_1_id)
+            .where(StockMovement.reference_type == "grn_edit")
+            .where(StockMovement.reference_id == grn_id)
+            .where(StockMovement.movement_type == MovementType.ADJUSTMENT.value)
+        )
+        assert correction_receipt is not None
+        assert correction_receipt.quantity == 2
+        assert correction_adjustment is not None
+        assert correction_adjustment.quantity == -2
 
     async def test_superadmin_can_rollback_po_receiving(
         self, client: AsyncClient, db_session: AsyncSession

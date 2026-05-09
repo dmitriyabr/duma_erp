@@ -18,6 +18,7 @@ from src.modules.procurement.schemas import (
     GoodsReceivedFilters,
     GoodsReceivedNoteCreate,
     GoodsReceivedNoteResponse,
+    GoodsReceivedNoteUpdate,
     ParsedPOLine,
     ParsePOLinesResponse,
     PaymentPurposeCreate,
@@ -464,6 +465,26 @@ async def get_grn(
     service = GoodsReceivedService(db)
     grn = await service.get_grn_by_id(grn_id)
     return ApiResponse(success=True, data=_grn_to_response(grn))
+
+
+@router.put(
+    "/grns/{grn_id}",
+    response_model=ApiResponse[GoodsReceivedNoteResponse],
+)
+async def update_grn(
+    grn_id: int,
+    data: GoodsReceivedNoteUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+):
+    """Edit a draft or approved GRN (SUPER_ADMIN only)."""
+    service = GoodsReceivedService(db)
+    grn = await service.update_grn(grn_id, data, updated_by_id=current_user.id)
+    return ApiResponse(
+        success=True,
+        message="GRN updated successfully",
+        data=_grn_to_response(grn),
+    )
 
 
 @router.post(

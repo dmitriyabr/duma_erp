@@ -1,8 +1,11 @@
 """Invoice and InvoiceLine models."""
 
+from __future__ import annotations
+
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
@@ -17,6 +20,11 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, backref, mapped_column, relationship
 
 from src.core.database.base import Base, BigIntPK
+
+if TYPE_CHECKING:
+    from src.modules.payments.models import CreditAllocation
+    from src.modules.reservations.models import Reservation
+    from src.modules.withdrawals.models import WithdrawalSettlement
 
 
 class InvoiceType(StrEnum):
@@ -37,6 +45,14 @@ class InvoiceStatus(StrEnum):
     PAID = "paid"
     CANCELLED = "cancelled"
     VOID = "void"
+
+
+class InvoiceAdjustmentType(StrEnum):
+    """Invoice receivable adjustment type."""
+
+    WITHDRAWAL_WRITE_OFF = "withdrawal_write_off"
+    CREDIT_NOTE = "credit_note"
+    CORRECTION = "correction"
 
 
 class Invoice(Base):
@@ -85,6 +101,9 @@ class Invoice(Base):
     paid_total: Mapped[Decimal] = mapped_column(
         Numeric(15, 2), nullable=False, default=Decimal("0.00")
     )
+    adjustment_total: Mapped[Decimal] = mapped_column(
+        Numeric(15, 2), nullable=False, default=Decimal("0.00")
+    )
     amount_due: Mapped[Decimal] = mapped_column(
         Numeric(15, 2), nullable=False, default=Decimal("0.00")
     )
@@ -113,6 +132,9 @@ class Invoice(Base):
     )
     allocations: Mapped[list["CreditAllocation"]] = relationship(
         "CreditAllocation", back_populates="invoice"
+    )
+    adjustments: Mapped[list["InvoiceAdjustment"]] = relationship(
+        "InvoiceAdjustment", back_populates="invoice", order_by="InvoiceAdjustment.created_at"
     )
 
     @property
@@ -202,9 +224,12 @@ class InvoiceLine(Base):
     paid_amount: Mapped[Decimal] = mapped_column(
         Numeric(15, 2), nullable=False, default=Decimal("0.00")
     )
+    adjustment_amount: Mapped[Decimal] = mapped_column(
+        Numeric(15, 2), nullable=False, default=Decimal("0.00")
+    )
     remaining_amount: Mapped[Decimal] = mapped_column(
         Numeric(15, 2), nullable=False
-    )  # net_amount - paid_amount
+    )  # net_amount - paid_amount - adjustment_amount
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -215,6 +240,9 @@ class InvoiceLine(Base):
     kit: Mapped["Kit"] = relationship("Kit")
     reservation: Mapped["Reservation | None"] = relationship(
         "Reservation", uselist=False, back_populates="invoice_line"
+    )
+    adjustments: Mapped[list["InvoiceAdjustment"]] = relationship(
+        "InvoiceAdjustment", back_populates="invoice_line", order_by="InvoiceAdjustment.created_at"
     )
 
     @property
@@ -248,6 +276,45 @@ class InvoiceLineComponent(Base):
         "InvoiceLine", backref=backref("components", order_by="InvoiceLineComponent.id")
     )
     item: Mapped["Item"] = relationship("Item")
+
+
+class InvoiceAdjustment(Base):
+    """Receivable-side adjustment that reduces invoice amount due without moving cash."""
+
+    __tablename__ = "invoice_adjustments"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    adjustment_number: Mapped[str] = mapped_column(
+        String(50), nullable=False, unique=True, index=True
+    )
+    invoice_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("invoices.id"), nullable=False, index=True
+    )
+    invoice_line_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("invoice_lines.id"), nullable=True, index=True
+    )
+    settlement_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("withdrawal_settlements.id"), nullable=True, index=True
+    )
+    adjustment_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    invoice: Mapped["Invoice"] = relationship("Invoice", back_populates="adjustments")
+    invoice_line: Mapped["InvoiceLine | None"] = relationship(
+        "InvoiceLine", back_populates="adjustments"
+    )
+    settlement: Mapped["WithdrawalSettlement | None"] = relationship(
+        "WithdrawalSettlement", back_populates="invoice_adjustments"
+    )
+    created_by: Mapped["User"] = relationship("User")
 
 
 # Import at the end to avoid circular imports

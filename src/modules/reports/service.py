@@ -28,7 +28,7 @@ from src.modules.compensations.models import (
     PayoutAllocation,
 )
 from src.modules.discounts.models import Discount, DiscountReason
-from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus
+from src.modules.invoices.models import Invoice, InvoiceAdjustment, InvoiceLine, InvoiceStatus
 from src.modules.inventory.models import Issuance, Stock, StockMovement
 from src.modules.items.models import Category, Item, Kit
 from src.modules.payments.models import (
@@ -44,7 +44,6 @@ from src.modules.payments.reporting import (
     get_student_payment_totals_by_account,
     get_student_payment_totals_by_account_day,
     get_student_payment_totals_by_method,
-    get_student_refund_total,
     get_student_refund_totals_by_account,
     get_student_refund_totals_by_account_day,
     get_student_refund_totals_by_method,
@@ -720,8 +719,18 @@ class ReportsService:
             .where(func.date(CreditAllocation.created_at) <= as_at)
             .group_by(CreditAllocation.invoice_id)
         ).subquery()
+        adjustment_totals_as_at = (
+            select(
+                InvoiceAdjustment.invoice_id,
+                func.coalesce(func.sum(InvoiceAdjustment.amount), 0).label("adjusted"),
+            )
+            .where(func.date(InvoiceAdjustment.created_at) <= as_at)
+            .group_by(InvoiceAdjustment.invoice_id)
+        ).subquery()
         amount_due_as_at = (
-            Invoice.total - func.coalesce(allocation_totals_as_at.c.allocated, 0)
+            Invoice.total
+            - func.coalesce(allocation_totals_as_at.c.allocated, 0)
+            - func.coalesce(adjustment_totals_as_at.c.adjusted, 0)
         )
 
         # Load invoices that had outstanding debt at as_at. Current amount_due can
@@ -732,6 +741,10 @@ class ReportsService:
             .outerjoin(
                 allocation_totals_as_at,
                 Invoice.id == allocation_totals_as_at.c.invoice_id,
+            )
+            .outerjoin(
+                adjustment_totals_as_at,
+                Invoice.id == adjustment_totals_as_at.c.invoice_id,
             )
             .where(
                 Invoice.issue_date.is_not(None),
@@ -1442,7 +1455,19 @@ class ReportsService:
             .where(cast(CreditAllocation.created_at, SqlDate) <= as_at_date)
             .group_by(CreditAllocation.invoice_id)
         ).subquery()
-        due_expr = Invoice.total - func.coalesce(alloc_subq.c.allocated, 0)
+        adjustment_subq = (
+            select(
+                InvoiceAdjustment.invoice_id,
+                func.coalesce(func.sum(InvoiceAdjustment.amount), 0).label("adjusted"),
+            )
+            .where(cast(InvoiceAdjustment.created_at, SqlDate) <= as_at_date)
+            .group_by(InvoiceAdjustment.invoice_id)
+        ).subquery()
+        due_expr = (
+            Invoice.total
+            - func.coalesce(alloc_subq.c.allocated, 0)
+            - func.coalesce(adjustment_subq.c.adjusted, 0)
+        )
         recv_q = (
             select(
                 func.coalesce(
@@ -1452,6 +1477,7 @@ class ReportsService:
             )
             .select_from(Invoice)
             .outerjoin(alloc_subq, Invoice.id == alloc_subq.c.invoice_id)
+            .outerjoin(adjustment_subq, Invoice.id == adjustment_subq.c.invoice_id)
             .where(Invoice.issue_date <= as_at_date)
             .where(Invoice.status.notin_(excluded))
         )
@@ -1964,8 +1990,18 @@ class ReportsService:
             .where(cast(CreditAllocation.created_at, SqlDate) <= as_at)
             .group_by(CreditAllocation.invoice_id)
         ).subquery()
+        adjustment_totals_as_at = (
+            select(
+                InvoiceAdjustment.invoice_id,
+                func.coalesce(func.sum(InvoiceAdjustment.amount), 0).label("adjusted"),
+            )
+            .where(cast(InvoiceAdjustment.created_at, SqlDate) <= as_at)
+            .group_by(InvoiceAdjustment.invoice_id)
+        ).subquery()
         amount_due_as_at = (
-            Invoice.total - func.coalesce(allocation_totals_as_at.c.allocated, 0)
+            Invoice.total
+            - func.coalesce(allocation_totals_as_at.c.allocated, 0)
+            - func.coalesce(adjustment_totals_as_at.c.adjusted, 0)
         )
         inv_q = (
             select(
@@ -1976,6 +2012,10 @@ class ReportsService:
             .outerjoin(
                 allocation_totals_as_at,
                 Invoice.id == allocation_totals_as_at.c.invoice_id,
+            )
+            .outerjoin(
+                adjustment_totals_as_at,
+                Invoice.id == adjustment_totals_as_at.c.invoice_id,
             )
             .where(
                 Invoice.student_id.in_(student_ids),

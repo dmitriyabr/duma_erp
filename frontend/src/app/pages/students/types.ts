@@ -56,6 +56,7 @@ export interface InvoiceSummary {
   status: string
   total: number
   paid_total: number
+  adjustment_total?: number
   amount_due: number
   issue_date?: string | null
   due_date?: string | null
@@ -70,6 +71,7 @@ export interface InvoiceLine {
   discount_amount: number
   net_amount: number
   paid_amount: number
+  adjustment_amount?: number
   remaining_amount: number
 }
 

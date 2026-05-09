@@ -22,10 +22,11 @@ from src.modules.terms.models import Term, PriceSetting, TransportZone, Transpor
 from src.modules.items.models import Category, Item, ItemPriceHistory, Kit, KitItem, KitPriceHistory
 from src.modules.inventory.models import Stock, StockMovement, Issuance, IssuanceItem
 from src.modules.students.models import Grade, Student
-from src.modules.invoices.models import Invoice, InvoiceLine
+from src.modules.invoices.models import Invoice, InvoiceAdjustment, InvoiceLine
 from src.modules.discounts.models import DiscountReason, Discount, StudentDiscount
 from src.modules.payments.models import Payment, CreditAllocation
 from src.modules.reservations.models import Reservation, ReservationItem
+from src.modules.withdrawals.models import WithdrawalSettlement, WithdrawalSettlementLine
 from src.modules.procurement.models import (
     PurchaseOrder,
     PurchaseOrderLine,

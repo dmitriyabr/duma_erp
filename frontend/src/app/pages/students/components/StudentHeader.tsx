@@ -26,6 +26,7 @@ interface StudentHeaderProps {
   transportZones: TransportZoneOption[]
   onStudentUpdate: () => void
   onError: (message: string) => void
+  onWithdraw?: () => void
 }
 
 export const StudentHeader = ({
@@ -36,6 +37,7 @@ export const StudentHeader = ({
   transportZones,
   onStudentUpdate,
   onError,
+  onWithdraw,
 }: StudentHeaderProps) => {
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -173,6 +175,11 @@ export const StudentHeader = ({
             <Button variant="outlined" onClick={openEdit}>
               Edit
             </Button>
+            {student.status === 'active' && onWithdraw && (
+              <Button variant="outlined" color="error" onClick={onWithdraw}>
+                Withdraw
+              </Button>
+            )}
             <Button variant="outlined" onClick={requestToggleActive}>
               {student.status === 'active' ? 'Deactivate' : 'Activate'}
             </Button>
