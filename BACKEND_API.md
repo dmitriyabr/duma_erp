@@ -178,7 +178,7 @@
 - `GET /students/{student_id}` — response также содержит linked billing account summary
 - `PATCH /students/{student_id}`
 - `POST /students/{student_id}/activate`
-- `POST /students/{student_id}/deactivate`
+- `POST /students/{student_id}/deactivate` — только меняет статус student. Existing invoices не закрываются автоматически; withdrawal/write-off/refund settlement design описан в `docs/WITHDRAWAL_SETTLEMENT_PLAN.md`.
 
 ### 5.5.1. Billing Accounts
 - `GET /billing-accounts` — filters: `search`, `page`, `limit`; возвращает все billing accounts, независимо от количества linked students

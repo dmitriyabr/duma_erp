@@ -93,6 +93,20 @@ The refund detail can expand into:
 - internal payment source attribution;
 - proof/reference/download.
 
+### 3.3. Boundary with withdrawal settlement
+
+Refunds should not close student debt by themselves.
+
+If a student withdraws and the school decides that part of the remaining invoice balance is no longer collectible, that is a withdrawal settlement/write-off decision, not a refund decision.
+
+Use `docs/WITHDRAWAL_SETTLEMENT_PLAN.md` for that workflow.
+
+Rules:
+
+- refund = outgoing cash and allocation reversals;
+- settlement/write-off = receivable cleanup and explanation for retained/deducted amounts;
+- a withdrawal can create a refund, but the refund must remain only one component of the settlement.
+
 
 ## 4. Data Model
 
@@ -651,7 +665,7 @@ Manual/follow-up QA:
 ## 12. Open Decisions
 
 1. Should manual impact override be exposed in UI?
-   Current state: backend schema accepts manual allocation reversal requests; UI uses automatic newest-first preview/create.
+   Current state: implemented. UI exposes `Auto` and `Manual` modes and sends `allocation_reversals` for manual impact selection.
 
 2. Should manual impact override be available to Admin only or also Accountant?
    Current state: SuperAdmin/Admin can create refunds; Accountant can reconcile and inspect.

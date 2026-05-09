@@ -641,6 +641,7 @@ Family auto-allocation будет трогать больше invoice и бол�
 - billing account = owner of money
 - allocation = bridge between family money and student invoice
 - refund = account-level outgoing cash document; allocation reversals, not original payment selection, are the primary business impact
+- withdrawal settlement = separate manual accounting workflow for retained amounts, write-offs, cancellations and optional refund
 
 Это даст:
 - общий семейный кошелек;
@@ -649,6 +650,7 @@ Family auto-allocation будет трогать больше invoice и бол�
 - устойчивую основу для M-Pesa, statement и будущего parent portal.
 
 Account-level refund design is captured separately in `docs/BILLING_ACCOUNT_REFUNDS_PLAN.md`.
+Manual student withdrawal settlement design is captured separately in `docs/WITHDRAWAL_SETTLEMENT_PLAN.md`.
 
 Если делать это следующим шагом, safest path такой:
 1. Ввести account-level owner без изменения поведения через one-student-per-account backfill.
