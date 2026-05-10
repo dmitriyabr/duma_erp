@@ -536,6 +536,26 @@ export const BillingAccountDetailPage = () => {
       return sum + (Number.isFinite(amount) && amount > 0 ? amount : 0)
     }, 0)
 
+  const getWithdrawRefundReopenByInvoice = (
+    reversals: Record<number, string> = withdrawManualReversals
+  ) => {
+    const optionsByAllocation = new Map(
+      (refundAllocationOptionsApi.data ?? []).map((option) => [option.allocation_id, option])
+    )
+    return Object.entries(reversals).reduce<Record<number, number>>((acc, [allocationId, value]) => {
+      const amount = Number(value)
+      const option = optionsByAllocation.get(Number(allocationId))
+      if (!option || !Number.isFinite(amount) || amount <= 0) return acc
+      acc[option.invoice_id] = (acc[option.invoice_id] ?? 0) + amount
+      return acc
+    }, {})
+  }
+
+  const getWithdrawInvoiceAmountToClose = (
+    invoice: InvoiceRow,
+    reopenByInvoice: Record<number, number> = getWithdrawRefundReopenByInvoice()
+  ) => Number(invoice.amount_due) + Number(reopenByInvoice[invoice.id] ?? 0)
+
   const buildWithdrawManualAllocationReversals = () =>
     Object.entries(withdrawManualReversals)
       .map(([allocationId, amountValue]) => ({
@@ -584,6 +604,27 @@ export const BillingAccountDetailPage = () => {
       } else if (amountToReopenCents > 0 && selectedTotalCents !== amountToReopenCents) {
         nextErrors.refund_allocations = `Manual reversals must total ${formatMoney(amountToReopen)}.`
       }
+    }
+    const reopenByInvoice = getWithdrawRefundReopenByInvoice()
+    const invoicesById = new Map(selectedWithdrawInvoiceRows().map((invoice) => [invoice.id, invoice]))
+    const invalidInvoiceAction = Object.entries(withdrawInvoiceActions).find(([invoiceId, action]) => {
+      if (action.action === 'none') return false
+      const invoice = invoicesById.get(Number(invoiceId))
+      if (!invoice) return false
+      const amount = Number(action.amount)
+      if (!Number.isFinite(amount) || amount <= 0) return true
+      const amountToClose = getWithdrawInvoiceAmountToClose(invoice, reopenByInvoice)
+      if (action.action === 'cancel_unpaid') {
+        return Number(invoice.paid_total) > 0 || Math.round(amount * 100) > Math.round(Number(invoice.amount_due) * 100)
+      }
+      if (action.action === 'write_off') {
+        return Math.round(amount * 100) > Math.round(amountToClose * 100)
+      }
+      return false
+    })
+    if (invalidInvoiceAction) {
+      nextErrors.invoice_actions =
+        'Check invoice actions: cancel only unpaid invoices, and write-off cannot exceed current due plus refund reopening.'
     }
     setWithdrawValidationErrors(nextErrors)
     return Object.keys(nextErrors).length === 0
@@ -1616,12 +1657,14 @@ export const BillingAccountDetailPage = () => {
         <DialogContent>
           <div className="space-y-4 mt-4">
             {(withdrawValidationErrors.students ||
+              withdrawValidationErrors.invoice_actions ||
               withdrawValidationErrors.refund_allocations ||
               withdrawValidationErrors.refund_proof ||
               withdrawalPreviewMutation.error ||
               withdrawalMutation.error) && (
               <Alert severity="error">
                 {withdrawValidationErrors.students ||
+                  withdrawValidationErrors.invoice_actions ||
                   withdrawValidationErrors.refund_allocations ||
                   withdrawValidationErrors.refund_proof ||
                   withdrawalPreviewMutation.error ||
@@ -1725,6 +1768,8 @@ export const BillingAccountDetailPage = () => {
                       <TableHeaderCell>Status</TableHeaderCell>
                       <TableHeaderCell align="right">Paid</TableHeaderCell>
                       <TableHeaderCell align="right">Due</TableHeaderCell>
+                      <TableHeaderCell align="right">Refund reopening</TableHeaderCell>
+                      <TableHeaderCell align="right">Amount to close</TableHeaderCell>
                       <TableHeaderCell>Action</TableHeaderCell>
                       <TableHeaderCell align="right">Amount</TableHeaderCell>
                     </TableRow>
@@ -1736,6 +1781,8 @@ export const BillingAccountDetailPage = () => {
                         amount: String(invoice.amount_due),
                         notes: '',
                       }
+                      const refundReopening = getWithdrawRefundReopenByInvoice()[invoice.id] ?? 0
+                      const amountToClose = getWithdrawInvoiceAmountToClose(invoice)
                       return (
                         <TableRow key={invoice.id}>
                           <TableCell>
@@ -1749,6 +1796,8 @@ export const BillingAccountDetailPage = () => {
                           <TableCell>{formatInvoiceStatusLabel(invoice.status)}</TableCell>
                           <TableCell align="right">{formatMoney(invoice.paid_total)}</TableCell>
                           <TableCell align="right">{formatMoney(invoice.amount_due)}</TableCell>
+                          <TableCell align="right">{refundReopening > 0 ? formatMoney(refundReopening) : '—'}</TableCell>
+                          <TableCell align="right">{formatMoney(amountToClose)}</TableCell>
                           <TableCell>
                             <Select
                               value={action.action}
@@ -1759,7 +1808,12 @@ export const BillingAccountDetailPage = () => {
                                   [invoice.id]: {
                                     ...action,
                                     action: event.target.value as 'none' | 'cancel_unpaid' | 'write_off' | 'keep_charged',
-                                    amount: action.amount || String(invoice.amount_due),
+                                    amount:
+                                      event.target.value === 'write_off'
+                                        ? String(amountToClose)
+                                        : event.target.value === 'cancel_unpaid'
+                                          ? String(invoice.amount_due)
+                                          : action.amount || String(amountToClose),
                                   },
                                 }))
                               }}
@@ -1791,7 +1845,7 @@ export const BillingAccountDetailPage = () => {
                     })}
                     {!selectedWithdrawInvoiceRows().length && (
                       <TableRow>
-                        <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                        <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
                           No invoices for selected students.
                         </td>
                       </TableRow>
@@ -1877,12 +1931,40 @@ export const BillingAccountDetailPage = () => {
                                   value={withdrawManualReversals[option.allocation_id] ?? ''}
                                   containerClassName="min-w-32"
                                   onChange={(event) => {
+                                    const nextValue = event.target.value
                                     setWithdrawPreview(null)
-                                    setWithdrawValidationErrors((current) => ({ ...current, refund_allocations: '' }))
-                                    setWithdrawManualReversals((current) => ({
+                                    setWithdrawValidationErrors((current) => ({
                                       ...current,
-                                      [option.allocation_id]: event.target.value,
+                                      refund_allocations: '',
+                                      invoice_actions: '',
                                     }))
+                                    setWithdrawManualReversals((current) => {
+                                      const next = {
+                                        ...current,
+                                        [option.allocation_id]: nextValue,
+                                      }
+                                      const reopenByInvoice = getWithdrawRefundReopenByInvoice(next)
+                                      const invoice = invoices.find((item) => item.id === option.invoice_id)
+                                      if (invoice) {
+                                        const amountToClose = getWithdrawInvoiceAmountToClose(invoice, reopenByInvoice)
+                                        setWithdrawInvoiceActions((currentActions) => {
+                                          const currentAction = currentActions[invoice.id] ?? {
+                                            action: 'none' as const,
+                                            amount: '0',
+                                            notes: '',
+                                          }
+                                          return {
+                                            ...currentActions,
+                                            [invoice.id]: {
+                                              ...currentAction,
+                                              action: 'write_off',
+                                              amount: String(amountToClose),
+                                            },
+                                          }
+                                        })
+                                      }
+                                      return next
+                                    })
                                   }}
                                 />
                               </TableCell>

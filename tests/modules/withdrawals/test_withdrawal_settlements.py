@@ -370,3 +370,75 @@ async def test_billing_account_withdrawal_settlement_deactivates_multiple_studen
     )
     assert list_response.status_code == 200
     assert len(list_response.json()["data"]) == 1
+
+
+async def test_billing_account_withdrawal_refund_reopened_amount_can_be_written_off(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    token, user_id, data = await _setup_student_with_invoices(db_session)
+    service = PaymentService(db_session)
+    payment = await service.create_payment(
+        PaymentCreate(
+            student_id=data["student"].id,
+            preferred_invoice_id=data["invoice_two"].id,
+            amount=Decimal("5000.00"),
+            payment_method=PaymentMethod.MPESA,
+            payment_date=date.today(),
+            reference="WDR-ACCOUNT-REFUND",
+        ),
+        received_by_id=user_id,
+    )
+    await service.complete_payment(payment.id, user_id)
+    allocation = (
+        await db_session.execute(
+            select(CreditAllocation).where(CreditAllocation.invoice_id == data["invoice_two"].id)
+        )
+    ).scalar_one()
+
+    response = await client.post(
+        f"/api/v1/billing-accounts/{data['student'].billing_account_id}/withdrawal-settlements",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "student_ids": [data["student"].id],
+            "settlement_date": str(date.today()),
+            "reason": "Family withdrawal with refund",
+            "retained_amount": "0.00",
+            "deduction_amount": "0.00",
+            "refund": {
+                "amount": "2000.00",
+                "refund_date": str(date.today()),
+                "refund_method": "bank_transfer",
+                "reference_number": "WDR-ACCOUNT-RFND",
+                "reason": "Withdrawal refund",
+                "allocation_reversals": [
+                    {"allocation_id": allocation.id, "amount": "2000.00"}
+                ],
+            },
+            "invoice_actions": [
+                {
+                    "invoice_id": data["invoice_one"].id,
+                    "action": "cancel_unpaid",
+                    "amount": "3000.00",
+                    "notes": "No service delivered",
+                },
+                {
+                    "invoice_id": data["invoice_two"].id,
+                    "action": "write_off",
+                    "amount": "2000.00",
+                    "notes": "Write off refunded allocation",
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    settlement = response.json()["data"]
+    assert Decimal(settlement["refund_amount"]) == Decimal("2000.00")
+    assert Decimal(settlement["write_off_amount"]) == Decimal("2000.00")
+    assert Decimal(settlement["remaining_collectible_debt"]) == Decimal("0.00")
+
+    invoice_two = await db_session.get(Invoice, data["invoice_two"].id)
+    assert invoice_two.paid_total == Decimal("3000.00")
+    assert invoice_two.adjustment_total == Decimal("2000.00")
+    assert invoice_two.amount_due == Decimal("0.00")
