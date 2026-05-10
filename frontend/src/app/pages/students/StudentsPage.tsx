@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Download } from 'lucide-react'
 import { useAuth } from '../../auth/AuthContext'
 import { isAccountant } from '../../utils/permissions'
 import type { PaginatedResponse } from '../../types/api'
@@ -13,6 +14,7 @@ import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell, TablePagination } from '../../components/ui/Table'
+import { TableSortLabel } from '../../components/ui/TableSortLabel'
 import { Typography } from '../../components/ui/Typography'
 import { Chip } from '../../components/ui/Chip'
 import { Alert } from '../../components/ui/Alert'
@@ -44,6 +46,39 @@ interface StudentRow {
   balance?: number | null
 }
 
+type SortField =
+  | 'student_number'
+  | 'full_name'
+  | 'grade_name'
+  | 'transport_zone_name'
+  | 'guardian_name'
+  | 'status'
+  | 'balance'
+
+type SortDirection = 'asc' | 'desc'
+
+const sortableColumns: Array<{ field: SortField; label: string }> = [
+  { field: 'student_number', label: 'Student #' },
+  { field: 'full_name', label: 'Name' },
+  { field: 'grade_name', label: 'Grade' },
+  { field: 'transport_zone_name', label: 'Transport zone' },
+  { field: 'guardian_name', label: 'Guardian' },
+  { field: 'status', label: 'Status' },
+  { field: 'balance', label: 'Student balance' },
+]
+
+const getSortValue = (row: StudentRow, field: SortField) => {
+  if (field === 'balance') {
+    return row.balance ?? 0
+  }
+  return row[field] ?? ''
+}
+
+const escapeCsvValue = (value: string | number | null | undefined) => {
+  const normalizedValue = value == null ? '' : String(value)
+  return `"${normalizedValue.replace(/"/g, '""')}"`
+}
+
 export const StudentsPage = () => {
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -54,6 +89,8 @@ export const StudentsPage = () => {
   const [gradeFilter, setGradeFilter] = useState<number | 'all'>('all')
   const [transportFilter, setTransportFilter] = useState<number | 'all'>('all')
   const [search, setSearch] = useState('')
+  const [sortField, setSortField] = useState<SortField>('full_name')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
   const debouncedSearch = useDebouncedValue(search, 400)
 
   const { grades, transportZones } = useReferencedData()
@@ -87,6 +124,66 @@ export const StudentsPage = () => {
 
   const rows = studentsData?.items || []
   const total = studentsData?.total || 0
+  const sortedRows = useMemo(() => {
+    return [...rows].sort((a, b) => {
+      const left = getSortValue(a, sortField)
+      const right = getSortValue(b, sortField)
+
+      const comparison = typeof left === 'number' && typeof right === 'number'
+        ? left - right
+        : String(left).localeCompare(String(right), undefined, {
+            sensitivity: 'base',
+            numeric: true,
+          })
+
+      return sortDirection === 'asc' ? comparison : -comparison
+    })
+  }, [rows, sortDirection, sortField])
+
+  const handleSort = (field: SortField) => {
+    if (field === sortField) {
+      setSortDirection((currentDirection) => currentDirection === 'asc' ? 'desc' : 'asc')
+      return
+    }
+
+    setSortField(field)
+    setSortDirection('asc')
+  }
+
+  const exportCsv = () => {
+    const headers = [
+      'Student #',
+      'Name',
+      'Grade',
+      'Transport zone',
+      'Guardian name',
+      'Guardian phone',
+      'Status',
+      'Student balance',
+    ]
+    const body = sortedRows.map((row) => [
+      formatStudentNumberShort(row.student_number),
+      row.full_name,
+      row.grade_name ?? '',
+      row.transport_zone_name ?? '',
+      row.guardian_name,
+      row.guardian_phone,
+      row.status === 'active' ? 'Active' : 'Inactive',
+      row.balance ?? 0,
+    ])
+    const csv = [headers, ...body]
+      .map((line) => line.map(escapeCsvValue).join(','))
+      .join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'students.csv'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <div>
@@ -94,11 +191,17 @@ export const StudentsPage = () => {
         <Typography variant="h4">
           Students
         </Typography>
-        {!readOnly && (
-          <Button variant="contained" onClick={() => navigate('/students/new')}>
-            New admission
+        <div className="flex items-center gap-2">
+          <Button variant="outlined" onClick={exportCsv} disabled={!sortedRows.length}>
+            <Download className="w-4 h-4 mr-2" />
+            Export CSV
           </Button>
-        )}
+          {!readOnly && (
+            <Button variant="contained" onClick={() => navigate('/students/new')}>
+              New admission
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="flex gap-4 mb-4 flex-wrap">
@@ -161,17 +264,21 @@ export const StudentsPage = () => {
         <Table>
           <TableHead>
             <TableRow>
-              <TableHeaderCell>Student #</TableHeaderCell>
-              <TableHeaderCell>Name</TableHeaderCell>
-              <TableHeaderCell>Grade</TableHeaderCell>
-              <TableHeaderCell>Transport zone</TableHeaderCell>
-              <TableHeaderCell>Guardian</TableHeaderCell>
-              <TableHeaderCell>Status</TableHeaderCell>
-              <TableHeaderCell>Student balance</TableHeaderCell>
+              {sortableColumns.map((column) => (
+                <TableHeaderCell key={column.field}>
+                  <TableSortLabel
+                    active={sortField === column.field}
+                    direction={sortDirection}
+                    onClick={() => handleSort(column.field)}
+                  >
+                    {column.label}
+                  </TableSortLabel>
+                </TableHeaderCell>
+              ))}
             </TableRow>
           </TableHead>
           <TableBody>
-            {rows.map((row) => (
+            {sortedRows.map((row) => (
               <TableRow
                 key={row.id}
                 className="cursor-pointer hover:bg-slate-50 transition-colors"
@@ -208,7 +315,7 @@ export const StudentsPage = () => {
                 </td>
               </TableRow>
             )}
-            {!rows.length && !loading && (
+            {!sortedRows.length && !loading && (
               <TableRow>
                 <td colSpan={7} className="px-4 py-8 text-center">
                   <Typography color="secondary">No students found</Typography>
