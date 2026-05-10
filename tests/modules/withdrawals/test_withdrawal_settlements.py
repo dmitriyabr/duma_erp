@@ -432,6 +432,34 @@ async def test_billing_account_withdrawal_refund_reopened_amount_can_be_written_
     assert Decimal(settlement["write_off_amount"]) == Decimal("2000.00")
     assert Decimal(settlement["remaining_collectible_debt"]) == Decimal("0.00")
 
+    refunds_response = await client.get(
+        f"/api/v1/billing-accounts/{data['student'].billing_account_id}/refunds",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert refunds_response.status_code == 200
+    refunds = refunds_response.json()["data"]
+    assert refunds[0]["refund_number"] == settlement["refund_number"]
+    assert Decimal(refunds[0]["amount"]) == Decimal("2000.00")
+    assert Decimal(refunds[0]["payment_sources"][0]["amount"]) == Decimal("2000.00")
+    assert refunds[0]["allocation_reversals"][0]["invoice_id"] == data["invoice_two"].id
+
+    statement_response = await client.get(
+        f"/api/v1/billing-accounts/{data['student'].billing_account_id}/statement",
+        headers={"Authorization": f"Bearer {token}"},
+        params={
+            "date_from": str(date.today() - timedelta(days=1)),
+            "date_to": str(date.today() + timedelta(days=1)),
+        },
+    )
+    assert statement_response.status_code == 200
+    statement = statement_response.json()["data"]
+    refund_entry = next(entry for entry in statement["entries"] if entry["entry_type"] == "refund")
+    reversal_entry = next(
+        entry for entry in statement["entries"] if entry["entry_type"] == "allocation_reversal"
+    )
+    assert Decimal(refund_entry["debit"]) == Decimal("2000.00")
+    assert Decimal(reversal_entry["credit"]) == Decimal("2000.00")
+
     invoice_two = await db_session.get(Invoice, data["invoice_two"].id)
     assert invoice_two.paid_total == Decimal("3000.00")
     assert invoice_two.adjustment_total == Decimal("2000.00")

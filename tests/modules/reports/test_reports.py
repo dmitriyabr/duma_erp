@@ -3,7 +3,6 @@
 from datetime import date
 from decimal import Decimal
 
-import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1750,6 +1749,93 @@ class TestCashFlow:
         assert Decimal(data["total_outflows"]) == Decimal("30.00")
         assert Decimal(data["net_cash_flow"]) == Decimal("70.00")
         assert Decimal(data["closing_balance"]) == Decimal("70.00")
+
+    async def test_cash_flow_method_filter_includes_account_refund_sources(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        from src.modules.billing_accounts.models import BillingAccount
+        from src.modules.payments.models import Payment, PaymentRefund, PaymentRefundSource
+
+        auth = AuthService(db_session)
+        user = await auth.create_user(
+            email="reports_cf_account_refund_admin@test.com",
+            password="Pass123",
+            full_name="Test Admin",
+            role=UserRole.ADMIN,
+        )
+        await db_session.flush()
+
+        grade = Grade(code="CFAR", name="CashFlow Account Refund", display_order=1, is_active=True)
+        account = BillingAccount(
+            account_number="FAM-2026-CFAR001",
+            display_name="CashFlow Account Refund Family",
+            primary_guardian_name="Refund Parent",
+            primary_guardian_phone="+254700000112",
+            created_by_id=user.id,
+        )
+        db_session.add_all([grade, account])
+        await db_session.flush()
+
+        student = Student(
+            student_number="STU-2026-CFAR001",
+            first_name="CashFlow",
+            last_name="AccountRefund",
+            gender=Gender.MALE.value,
+            billing_account_id=account.id,
+            grade_id=grade.id,
+            guardian_name="Refund Parent",
+            guardian_phone="+254700000112",
+            status=StudentStatus.ACTIVE.value,
+            created_by_id=user.id,
+        )
+        db_session.add(student)
+        await db_session.flush()
+
+        payment = Payment(
+            payment_number="PAY-2026-CFAR001",
+            receipt_number="RCP-2026-CFAR001",
+            student_id=student.id,
+            billing_account_id=account.id,
+            amount=Decimal("100.00"),
+            payment_method="mpesa",
+            payment_date=date(2026, 1, 10),
+            status="completed",
+            received_by_id=user.id,
+        )
+        db_session.add(payment)
+        await db_session.flush()
+
+        refund = PaymentRefund(
+            payment_id=None,
+            billing_account_id=account.id,
+            amount=Decimal("30.00"),
+            refund_date=date(2026, 1, 15),
+            refund_method="bank_transfer",
+            reason="Account-level withdrawal refund",
+            refunded_by_id=user.id,
+        )
+        db_session.add(refund)
+        await db_session.flush()
+        db_session.add(
+            PaymentRefundSource(
+                refund_id=refund.id,
+                payment_id=payment.id,
+                amount=Decimal("30.00"),
+            )
+        )
+        await db_session.commit()
+
+        _, token, _ = await auth.authenticate("reports_cf_account_refund_admin@test.com", "Pass123")
+        response = await client.get(
+            "/api/v1/reports/cash-flow"
+            "?date_from=2026-01-01&date_to=2026-01-31&payment_method=mpesa",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        outflows = {row["label"]: Decimal(row["amount"]) for row in data["outflow_lines"]}
+        assert outflows["Student Refunds"] == Decimal("30.00")
+        assert Decimal(data["net_cash_flow"]) == Decimal("70.00")
 
     async def test_cash_flow_inflows_breakdown_by_invoice_type_and_credit(
         self, client: AsyncClient, db_session: AsyncSession

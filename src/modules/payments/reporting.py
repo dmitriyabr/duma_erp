@@ -327,29 +327,75 @@ async def get_student_refund_totals_by_account_day(
     date_to: date,
     payment_method: str | None = None,
 ) -> dict[tuple[int, date], Decimal]:
-    query = (
+    if payment_method is None:
+        query = (
+            select(
+                PaymentRefund.billing_account_id,
+                PaymentRefund.refund_date,
+                func.coalesce(func.sum(PaymentRefund.amount), 0).label("total"),
+            )
+            .select_from(PaymentRefund)
+            .where(
+                PaymentRefund.refund_date >= date_from,
+                PaymentRefund.refund_date <= date_to,
+                PaymentRefund.billing_account_id.isnot(None),
+            )
+            .group_by(PaymentRefund.billing_account_id, PaymentRefund.refund_date)
+        )
+        result = await db.execute(query)
+        return {
+            (int(row[0]), row[1]): Decimal(str(row[2] or 0))
+            for row in result.all()
+            if row[0] is not None and row[1] is not None
+        }
+
+    source_query = (
+        select(
+            PaymentRefund.billing_account_id,
+            PaymentRefund.refund_date,
+            func.coalesce(func.sum(PaymentRefundSource.amount), 0).label("total"),
+        )
+        .select_from(PaymentRefundSource)
+        .join(PaymentRefund, PaymentRefund.id == PaymentRefundSource.refund_id)
+        .join(Payment, Payment.id == PaymentRefundSource.payment_id)
+        .where(
+            PaymentRefund.refund_date >= date_from,
+            PaymentRefund.refund_date <= date_to,
+            PaymentRefund.billing_account_id.isnot(None),
+            Payment.payment_method == payment_method,
+        )
+        .group_by(PaymentRefund.billing_account_id, PaymentRefund.refund_date)
+    )
+    legacy_query = (
         select(
             PaymentRefund.billing_account_id,
             PaymentRefund.refund_date,
             func.coalesce(func.sum(PaymentRefund.amount), 0).label("total"),
         )
         .select_from(PaymentRefund)
+        .outerjoin(Payment, Payment.id == PaymentRefund.payment_id)
         .where(
             PaymentRefund.refund_date >= date_from,
             PaymentRefund.refund_date <= date_to,
             PaymentRefund.billing_account_id.isnot(None),
+            func.coalesce(PaymentRefund.refund_method, Payment.payment_method)
+            == payment_method,
+            ~select(PaymentRefundSource.id)
+            .where(PaymentRefundSource.refund_id == PaymentRefund.id)
+            .exists(),
         )
         .group_by(PaymentRefund.billing_account_id, PaymentRefund.refund_date)
     )
-    if payment_method is not None:
-        query = query.join(Payment, Payment.id == PaymentRefund.payment_id)
-        query = query.where(Payment.payment_method == payment_method)
-    result = await db.execute(query)
-    return {
-        (int(row[0]), row[1]): Decimal(str(row[2] or 0))
-        for row in result.all()
-        if row[0] is not None and row[1] is not None
-    }
+
+    totals: dict[tuple[int, date], Decimal] = {}
+    for query in (source_query, legacy_query):
+        result = await db.execute(query)
+        for account_id, refund_date, amount in result.all():
+            if account_id is None or refund_date is None:
+                continue
+            key = (int(account_id), refund_date)
+            totals[key] = totals.get(key, Decimal("0.00")) + Decimal(str(amount or 0))
+    return totals
 
 
 async def get_student_payment_totals_by_method(
