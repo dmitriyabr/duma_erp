@@ -11,10 +11,12 @@ from src.core.auth.models import UserRole
 from src.core.auth.service import AuthService
 from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.invoices.models import Invoice, InvoiceAdjustment, InvoiceLine, InvoiceStatus, InvoiceType
-from src.modules.items.models import Category, ItemType, Kit, PriceType
+from src.modules.items.models import Category, Item, ItemType, Kit, KitItem, PriceType
 from src.modules.payments.models import CreditAllocation, PaymentMethod
 from src.modules.payments.schemas import PaymentCreate
 from src.modules.payments.service import PaymentService
+from src.modules.reservations.models import ReservationStatus
+from src.modules.reservations.service import ReservationService
 from src.modules.students.models import Gender, Grade, Student, StudentStatus
 
 
@@ -180,6 +182,89 @@ async def test_withdrawal_settlement_cancels_unpaid_and_writes_off_partial_invoi
     adjustments = list((await db_session.execute(select(InvoiceAdjustment))).scalars().all())
     assert len(adjustments) == 1
     assert adjustments[0].adjustment_type == "withdrawal_write_off"
+
+
+async def test_withdrawal_cancel_unpaid_invoice_cancels_reservation(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    token, user_id, data = await _setup_student_with_invoices(db_session)
+    item = Item(
+        category_id=data["kit"].category_id,
+        sku_code="WDR-RES-ITEM",
+        name="Withdrawal Reservation Item",
+        item_type=ItemType.PRODUCT.value,
+        price_type=PriceType.STANDARD.value,
+        price=Decimal("3000.00"),
+        is_active=True,
+    )
+    db_session.add(item)
+    await db_session.flush()
+    product_kit = Kit(
+        category_id=data["kit"].category_id,
+        sku_code="WDR-RES-KIT",
+        name="Withdrawal Reservation Kit",
+        item_type=ItemType.PRODUCT.value,
+        price_type=PriceType.STANDARD.value,
+        price=Decimal("3000.00"),
+        requires_full_payment=False,
+        is_active=True,
+    )
+    db_session.add(product_kit)
+    await db_session.flush()
+    db_session.add(
+        KitItem(
+            kit_id=product_kit.id,
+            item_id=item.id,
+            quantity=1,
+            source_type="item",
+        )
+    )
+    invoice_line = (
+        await db_session.execute(
+            select(InvoiceLine).where(InvoiceLine.invoice_id == data["invoice_one"].id)
+        )
+    ).scalar_one()
+    invoice_line.kit_id = product_kit.id
+    await db_session.flush()
+
+    reservation_service = ReservationService(db_session)
+    reservation = await reservation_service.create_from_line(
+        invoice_line.id,
+        created_by_id=user_id,
+    )
+    await db_session.commit()
+    assert reservation is not None
+    assert reservation.status == ReservationStatus.PENDING.value
+
+    response = await client.post(
+        f"/api/v1/students/{data['student'].id}/withdrawal-settlements",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "settlement_date": str(date.today()),
+            "reason": "Parent withdrew before collection",
+            "retained_amount": "0.00",
+            "deduction_amount": "0.00",
+            "invoice_actions": [
+                {
+                    "invoice_id": data["invoice_one"].id,
+                    "action": "cancel_unpaid",
+                    "amount": "3000.00",
+                    "notes": "No items delivered",
+                },
+                {
+                    "invoice_id": data["invoice_two"].id,
+                    "action": "cancel_unpaid",
+                    "amount": "5000.00",
+                    "notes": "No service delivered",
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    reservation = await reservation_service.get_by_id(reservation.id)
+    assert reservation.status == ReservationStatus.CANCELLED.value
 
 
 async def test_withdrawal_settlement_can_refund_and_write_off_reopened_invoice(

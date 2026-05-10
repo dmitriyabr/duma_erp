@@ -21,6 +21,7 @@ from src.modules.invoices.models import (
 from src.modules.payments.models import Payment, PaymentStatus
 from src.modules.payments.schemas import BillingAccountRefundPreviewRequest
 from src.modules.payments.service import PaymentService
+from src.modules.reservations.service import ReservationService
 from src.modules.students.models import Student, StudentStatus
 from src.modules.withdrawals.models import (
     WithdrawalSettlement,
@@ -233,6 +234,11 @@ class WithdrawalSettlementService:
             )
             if action.action == WithdrawalSettlementLineAction.CANCEL_UNPAID:
                 await self._apply_cancel_unpaid(action, invoice_by_id, created_by_id)
+                if action.invoice_id is not None:
+                    await ReservationService(self.db).sync_for_invoice(
+                        int(action.invoice_id),
+                        created_by_id,
+                    )
             elif action.action == WithdrawalSettlementLineAction.WRITE_OFF:
                 await self._apply_write_off(action, invoice_by_id, settlement.id, created_by_id, data.reason)
 
