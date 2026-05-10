@@ -385,6 +385,7 @@ export const BillingAccountDetailPage = () => {
     Record<number, { action: 'none' | 'cancel' | 'close'; notes: string }>
   >({})
   const [withdrawManualReversals, setWithdrawManualReversals] = useState<Record<number, string>>({})
+  const [uploadingWithdrawRefundProof, setUploadingWithdrawRefundProof] = useState(false)
   const [withdrawForm, setWithdrawForm] = useState({
     settlement_date: new Date().toISOString().slice(0, 10),
     reason: '',
@@ -395,6 +396,8 @@ export const BillingAccountDetailPage = () => {
     refund_method: 'mpesa',
     reference_number: '',
     proof_text: '',
+    proof_attachment_id: null as number | null,
+    proof_file_name: null as string | null,
     refund_reason: '',
     refund_notes: '',
   })
@@ -561,6 +564,8 @@ export const BillingAccountDetailPage = () => {
       refund_method: 'mpesa',
       reference_number: '',
       proof_text: '',
+      proof_attachment_id: null,
+      proof_file_name: null,
       refund_reason: '',
       refund_notes: '',
     })
@@ -650,7 +655,9 @@ export const BillingAccountDetailPage = () => {
       nextErrors.refund_amount = 'Refund amount must be greater than zero.'
     }
     const hasRefundProof =
-      Boolean(withdrawForm.reference_number.trim()) || Boolean(withdrawForm.proof_text.trim())
+      Boolean(withdrawForm.reference_number.trim()) ||
+      Boolean(withdrawForm.proof_text.trim()) ||
+      withdrawForm.proof_attachment_id != null
     if (mode === 'submit' && refundAmount > 0 && !hasRefundProof) {
       nextErrors.refund_proof = 'Reference or proof text is required for refund.'
     }
@@ -743,6 +750,7 @@ export const BillingAccountDetailPage = () => {
               refund_method: withdrawForm.refund_method || null,
               reference_number: withdrawForm.reference_number.trim() || null,
               proof_text: withdrawForm.proof_text.trim() || null,
+              proof_attachment_id: withdrawForm.proof_attachment_id,
               reason: withdrawForm.refund_reason.trim() || withdrawForm.reason.trim(),
               notes: withdrawForm.refund_notes.trim() || null,
               invoice_reversals: buildWithdrawInvoiceReversals(),
@@ -926,6 +934,35 @@ export const BillingAccountDetailPage = () => {
       }))
     } finally {
       setUploadingRefundProof(false)
+    }
+  }, [])
+
+  const uploadWithdrawRefundProofFile = useCallback(async (file: File) => {
+    setUploadingWithdrawRefundProof(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const response = await api.post<ApiResponse<{ id: number }>>('/attachments', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setWithdrawForm((current) => ({
+        ...current,
+        proof_attachment_id: response.data.data.id,
+        proof_file_name: file.name,
+      }))
+      setWithdrawValidationErrors((current) => ({ ...current, refund_proof: '' }))
+    } catch {
+      setWithdrawForm((current) => ({
+        ...current,
+        proof_attachment_id: null,
+        proof_file_name: null,
+      }))
+      setWithdrawValidationErrors((current) => ({
+        ...current,
+        refund_proof: 'Failed to upload refund proof file.',
+      }))
+    } finally {
+      setUploadingWithdrawRefundProof(false)
     }
   }, [])
 
@@ -2045,7 +2082,15 @@ export const BillingAccountDetailPage = () => {
                     setWithdrawValidationErrors((current) => ({ ...current, refund_proof: '' }))
                     setWithdrawForm((current) => ({ ...current, proof_text: event.target.value }))
                   }}
-                  helperText="Reference or proof text is required before posting a refund"
+                  helperText="Reference, proof text or confirmation file is required before posting a refund"
+                />
+                <FileDropzone
+                  title="Upload refund confirmation (image/PDF)"
+                  accept="image/*,.pdf,application/pdf"
+                  fileName={withdrawForm.proof_file_name}
+                  disabled={uploadingWithdrawRefundProof}
+                  loading={uploadingWithdrawRefundProof}
+                  onFileSelected={uploadWithdrawRefundProofFile}
                 />
 
                 <div className="space-y-3">

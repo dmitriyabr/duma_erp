@@ -4,6 +4,7 @@ import { INVOICE_LIST_LIMIT } from '../../constants/pagination'
 import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { useApi, useApiMutation } from '../../hooks/useApi'
 import { api } from '../../services/api'
+import type { ApiResponse } from '../../types/api'
 import { formatDate, formatMoney } from '../../utils/format'
 import { InvoicesTab } from './components/InvoicesTab'
 import { ItemsToIssueTab } from './components/ItemsToIssueTab'
@@ -22,6 +23,7 @@ import { parseNumber } from './types'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { Dialog, DialogActions, DialogCloseButton, DialogContent, DialogTitle } from '../../components/ui/Dialog'
+import { FileDropzone } from '../../components/ui/FileDropzone'
 import { Input } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
 import { Spinner } from '../../components/ui/Spinner'
@@ -146,6 +148,7 @@ export const StudentDetailPage = () => {
   const [withdrawDialogOpen, setWithdrawDialogOpen] = useState(false)
   const [withdrawPreview, setWithdrawPreview] = useState<WithdrawalSettlementPreview | null>(null)
   const [withdrawErrors, setWithdrawErrors] = useState<Record<string, string>>({})
+  const [uploadingWithdrawRefundProof, setUploadingWithdrawRefundProof] = useState(false)
   const [settlementForm, setSettlementForm] = useState({
     settlement_date: new Date().toISOString().slice(0, 10),
     reason: '',
@@ -156,6 +159,8 @@ export const StudentDetailPage = () => {
     refund_method: 'bank_transfer',
     refund_reference_number: '',
     refund_proof_text: '',
+    refund_proof_attachment_id: null as number | null,
+    refund_proof_file_name: null as string | null,
     refund_reason: 'Withdrawal settlement refund',
   })
   const [invoiceActions, setInvoiceActions] = useState<
@@ -240,6 +245,8 @@ export const StudentDetailPage = () => {
       refund_method: 'bank_transfer',
       refund_reference_number: '',
       refund_proof_text: '',
+      refund_proof_attachment_id: null,
+      refund_proof_file_name: null,
       refund_reason: 'Withdrawal settlement refund',
     })
   }
@@ -284,6 +291,7 @@ export const StudentDetailPage = () => {
         refund_method: settlementForm.refund_method || null,
         reference_number: settlementForm.refund_reference_number.trim() || null,
         proof_text: settlementForm.refund_proof_text.trim() || null,
+        proof_attachment_id: settlementForm.refund_proof_attachment_id,
         reason: settlementForm.refund_reason.trim() || settlementForm.reason.trim(),
         notes: settlementForm.notes.trim() || null,
         ...(allocation_reversals.length ? { allocation_reversals } : {}),
@@ -302,8 +310,13 @@ export const StudentDetailPage = () => {
     }
     const refundAmount = Number(settlementForm.refund_amount || 0)
     if (refundAmount > 0) {
-      if (mode === 'submit' && !settlementForm.refund_reference_number.trim() && !settlementForm.refund_proof_text.trim()) {
-        nextErrors.refund_proof = 'Refund reference or proof text is required.'
+      if (
+        mode === 'submit' &&
+        !settlementForm.refund_reference_number.trim() &&
+        !settlementForm.refund_proof_text.trim() &&
+        settlementForm.refund_proof_attachment_id == null
+      ) {
+        nextErrors.refund_proof = 'Refund reference, proof text or confirmation file is required.'
       }
       if (settlementForm.refund_reason.trim().length < 3) {
         nextErrors.refund_reason = 'Refund reason must be at least 3 characters.'
@@ -371,6 +384,35 @@ export const StudentDetailPage = () => {
       return { ...current, [reservation.id]: { ...existing, ...next } }
     })
   }
+
+  const uploadWithdrawRefundProofFile = useCallback(async (file: File) => {
+    setUploadingWithdrawRefundProof(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const response = await api.post<ApiResponse<{ id: number }>>('/attachments', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setSettlementForm((current) => ({
+        ...current,
+        refund_proof_attachment_id: response.data.data.id,
+        refund_proof_file_name: file.name,
+      }))
+      setWithdrawErrors((current) => ({ ...current, refund_proof: '' }))
+    } catch {
+      setSettlementForm((current) => ({
+        ...current,
+        refund_proof_attachment_id: null,
+        refund_proof_file_name: null,
+      }))
+      setWithdrawErrors((current) => ({
+        ...current,
+        refund_proof: 'Failed to upload refund proof file.',
+      }))
+    } finally {
+      setUploadingWithdrawRefundProof(false)
+    }
+  }, [])
 
   const updateInvoiceAction = (
     invoice: InvoiceSummary,
@@ -753,8 +795,19 @@ export const StudentDetailPage = () => {
               <Textarea
                 label="Refund proof text"
                 value={settlementForm.refund_proof_text}
-                onChange={(event) => setSettlementForm((current) => ({ ...current, refund_proof_text: event.target.value }))}
+                onChange={(event) => {
+                  setWithdrawErrors((current) => ({ ...current, refund_proof: '' }))
+                  setSettlementForm((current) => ({ ...current, refund_proof_text: event.target.value }))
+                }}
                 rows={2}
+              />
+              <FileDropzone
+                title="Upload refund confirmation (image/PDF)"
+                accept="image/*,.pdf,application/pdf"
+                fileName={settlementForm.refund_proof_file_name}
+                disabled={uploadingWithdrawRefundProof}
+                loading={uploadingWithdrawRefundProof}
+                onFileSelected={uploadWithdrawRefundProofFile}
               />
 
               {(refundAllocationOptionsApi.data ?? []).length > 0 && (
