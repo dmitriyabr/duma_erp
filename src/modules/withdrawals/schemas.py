@@ -56,6 +56,18 @@ class WithdrawalSettlementCreate(WithdrawalSettlementBaseRequest):
     """Payload for posting settlement."""
 
 
+class BillingAccountWithdrawalSettlementPreviewRequest(WithdrawalSettlementBaseRequest):
+    """Payload for family/account-level settlement preview."""
+
+    student_ids: list[int] = Field(default_factory=list)
+
+
+class BillingAccountWithdrawalSettlementCreate(WithdrawalSettlementBaseRequest):
+    """Payload for posting family/account-level settlement."""
+
+    student_ids: list[int] = Field(default_factory=list)
+
+
 class WithdrawalInvoiceImpact(BaseSchema):
     """Projected or posted invoice impact from a settlement."""
 
@@ -104,11 +116,22 @@ class InvoiceAdjustmentResponse(BaseSchema):
     created_at: datetime
 
 
+class WithdrawalSettlementStudentResponse(BaseSchema):
+    """Student included in a posted settlement."""
+
+    student_id: int
+    student_name: str | None = None
+    status_before: str
+    status_after: str
+
+
 class WithdrawalSettlementPreview(BaseSchema):
     """Manual withdrawal settlement preview."""
 
-    student_id: int
-    student_name: str
+    student_id: int | None = None
+    student_name: str | None = None
+    student_ids: list[int] = Field(default_factory=list)
+    student_names: list[str] = Field(default_factory=list)
     billing_account_id: int
     total_paid: Decimal
     current_outstanding_debt: Decimal
@@ -128,8 +151,9 @@ class WithdrawalSettlementResponse(BaseSchema):
 
     id: int
     settlement_number: str
-    student_id: int
+    student_id: int | None = None
     student_name: str | None = None
+    students: list[WithdrawalSettlementStudentResponse] = Field(default_factory=list)
     billing_account_id: int
     refund_id: int | None = None
     refund_number: str | None = None

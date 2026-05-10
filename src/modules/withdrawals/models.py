@@ -28,7 +28,7 @@ class WithdrawalSettlementLineAction(StrEnum):
 
 
 class WithdrawalSettlement(Base):
-    """Manual accounting document for student withdrawal."""
+    """Manual accounting document for student or family withdrawal."""
 
     __tablename__ = "withdrawal_settlements"
 
@@ -36,8 +36,8 @@ class WithdrawalSettlement(Base):
     settlement_number: Mapped[str] = mapped_column(
         String(50), nullable=False, unique=True, index=True
     )
-    student_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("students.id"), nullable=False, index=True
+    student_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("students.id"), nullable=True, index=True
     )
     billing_account_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("billing_accounts.id"), nullable=False, index=True
@@ -96,6 +96,12 @@ class WithdrawalSettlement(Base):
         cascade="all, delete-orphan",
         order_by="WithdrawalSettlementLine.id",
     )
+    students: Mapped[list["WithdrawalSettlementStudent"]] = relationship(
+        "WithdrawalSettlementStudent",
+        back_populates="settlement",
+        cascade="all, delete-orphan",
+        order_by="WithdrawalSettlementStudent.id",
+    )
     invoice_adjustments: Mapped[list["InvoiceAdjustment"]] = relationship(
         "InvoiceAdjustment",
         back_populates="settlement",
@@ -130,6 +136,30 @@ class WithdrawalSettlementLine(Base):
     )
     invoice: Mapped["Invoice | None"] = relationship("Invoice")
     invoice_line: Mapped["InvoiceLine | None"] = relationship("InvoiceLine")
+
+
+class WithdrawalSettlementStudent(Base):
+    """Student included in a withdrawal settlement document."""
+
+    __tablename__ = "withdrawal_settlement_students"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    settlement_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("withdrawal_settlements.id"), nullable=False, index=True
+    )
+    student_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("students.id"), nullable=False, index=True
+    )
+    status_before: Mapped[str] = mapped_column(String(30), nullable=False)
+    status_after: Mapped[str] = mapped_column(String(30), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    settlement: Mapped["WithdrawalSettlement"] = relationship(
+        "WithdrawalSettlement", back_populates="students"
+    )
+    student: Mapped["Student"] = relationship("Student")
 
 
 from src.core.attachments.models import Attachment

@@ -195,6 +195,55 @@ interface BillingAccountRefund {
   allocation_reversals: RefundAllocationImpact[]
 }
 
+interface WithdrawalInvoiceImpact {
+  invoice_id: number
+  invoice_number: string
+  student_id: number
+  student_name?: string | null
+  action: string
+  amount: number
+  amount_due_before: number
+  amount_due_after: number
+  status_before: string
+  status_after: string
+}
+
+interface WithdrawalSettlementPreview {
+  billing_account_id: number
+  student_ids: number[]
+  student_names: string[]
+  current_outstanding_debt: number
+  retained_amount: number
+  deduction_amount: number
+  write_off_amount: number
+  cancelled_amount: number
+  refund_amount: number
+  remaining_collectible_debt_after: number
+  invoice_impacts: WithdrawalInvoiceImpact[]
+  refund_preview?: BillingAccountRefundPreview | null
+  warnings: string[]
+}
+
+interface WithdrawalSettlement {
+  id: number
+  settlement_number: string
+  settlement_date: string
+  status: string
+  refund_id?: number | null
+  refund_number?: string | null
+  write_off_amount: number
+  cancelled_amount: number
+  refund_amount: number
+  remaining_collectible_debt: number
+  reason: string
+  students: Array<{
+    student_id: number
+    student_name?: string | null
+    status_before: string
+    status_after: string
+  }>
+}
+
 interface GenerationResult {
   school_fee_invoices_created: number
   transport_invoices_created: number
@@ -233,6 +282,11 @@ export const BillingAccountDetailPage = () => {
     undefined,
     [resolvedId]
   )
+  const withdrawalSettlementsApi = useApi<WithdrawalSettlement[]>(
+    resolvedId ? `/billing-accounts/${resolvedId}/withdrawal-settlements` : null,
+    undefined,
+    [resolvedId]
+  )
   const refundAllocationOptionsApi = useApi<RefundAllocationOption[]>(
     resolvedId ? `/billing-accounts/${resolvedId}/refunds/allocation-options` : null,
     undefined,
@@ -258,6 +312,8 @@ export const BillingAccountDetailPage = () => {
   const refundPaymentMutation = useApiMutation<unknown>()
   const accountRefundPreviewMutation = useApiMutation<BillingAccountRefundPreview>()
   const accountRefundMutation = useApiMutation<BillingAccountRefund>()
+  const withdrawalPreviewMutation = useApiMutation<WithdrawalSettlementPreview>()
+  const withdrawalMutation = useApiMutation<WithdrawalSettlement>()
 
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [addChildDialogOpen, setAddChildDialogOpen] = useState(false)
@@ -287,6 +343,27 @@ export const BillingAccountDetailPage = () => {
   const [accountRefundDialogOpen, setAccountRefundDialogOpen] = useState(false)
   const [accountRefundPreview, setAccountRefundPreview] = useState<BillingAccountRefundPreview | null>(null)
   const [accountRefundValidationErrors, setAccountRefundValidationErrors] = useState<Record<string, string>>({})
+  const [withdrawDialogOpen, setWithdrawDialogOpen] = useState(false)
+  const [withdrawPreview, setWithdrawPreview] = useState<WithdrawalSettlementPreview | null>(null)
+  const [withdrawValidationErrors, setWithdrawValidationErrors] = useState<Record<string, string>>({})
+  const [withdrawStudentIds, setWithdrawStudentIds] = useState<number[]>([])
+  const [withdrawInvoiceActions, setWithdrawInvoiceActions] = useState<
+    Record<number, { action: 'none' | 'cancel_unpaid' | 'write_off' | 'keep_charged'; amount: string; notes: string }>
+  >({})
+  const [withdrawManualReversals, setWithdrawManualReversals] = useState<Record<number, string>>({})
+  const [withdrawForm, setWithdrawForm] = useState({
+    settlement_date: new Date().toISOString().slice(0, 10),
+    reason: '',
+    retained_amount: '0',
+    deduction_amount: '0',
+    notes: '',
+    refund_amount: '',
+    refund_method: 'mpesa',
+    reference_number: '',
+    proof_text: '',
+    refund_reason: '',
+    refund_notes: '',
+  })
   const [refundAllocationMode, setRefundAllocationMode] = useState<'auto' | 'manual'>('auto')
   const [manualRefundReversals, setManualRefundReversals] = useState<Record<number, string>>({})
   const [refundForm, setRefundForm] = useState({
@@ -407,6 +484,183 @@ export const BillingAccountDetailPage = () => {
     })
     setUploadingRefundProof(false)
     setRefundValidationError(null)
+  }
+
+  const openWithdrawDialog = () => {
+    const activeIds = activeMembers.map((member) => member.student_id)
+    const nextActions: Record<number, { action: 'none' | 'cancel_unpaid' | 'write_off' | 'keep_charged'; amount: string; notes: string }> = {}
+    invoices
+      .filter((invoice) => activeIds.includes(invoice.student_id) && Number(invoice.amount_due) > 0)
+      .forEach((invoice) => {
+        nextActions[invoice.id] = {
+          action: Number(invoice.paid_total) > 0 ? 'write_off' : 'cancel_unpaid',
+          amount: String(invoice.amount_due),
+          notes: '',
+        }
+      })
+    setWithdrawStudentIds(activeIds)
+    setWithdrawInvoiceActions(nextActions)
+    setWithdrawManualReversals({})
+    setWithdrawPreview(null)
+    setWithdrawValidationErrors({})
+    setWithdrawForm({
+      settlement_date: new Date().toISOString().slice(0, 10),
+      reason: '',
+      retained_amount: '0',
+      deduction_amount: '0',
+      notes: '',
+      refund_amount: '',
+      refund_method: 'mpesa',
+      reference_number: '',
+      proof_text: '',
+      refund_reason: '',
+      refund_notes: '',
+    })
+    setWithdrawDialogOpen(true)
+  }
+
+  const selectedWithdrawInvoiceRows = () =>
+    invoices.filter((invoice) => withdrawStudentIds.includes(invoice.student_id))
+
+  const getWithdrawRefundAmount = () => {
+    const amount = Number(withdrawForm.refund_amount)
+    return Number.isFinite(amount) && amount > 0 ? amount : 0
+  }
+
+  const getWithdrawRefundAmountToReopen = () =>
+    Math.max(0, getWithdrawRefundAmount() - Math.max(Number(account?.available_balance ?? 0), 0))
+
+  const getWithdrawManualReversalTotal = () =>
+    Object.values(withdrawManualReversals).reduce((sum, value) => {
+      const amount = Number(value)
+      return sum + (Number.isFinite(amount) && amount > 0 ? amount : 0)
+    }, 0)
+
+  const buildWithdrawManualAllocationReversals = () =>
+    Object.entries(withdrawManualReversals)
+      .map(([allocationId, amountValue]) => ({
+        allocation_id: Number(allocationId),
+        amount: Number(amountValue),
+      }))
+      .filter((item) => Number.isFinite(item.amount) && item.amount > 0)
+
+  const validateWithdrawForm = (mode: 'preview' | 'submit' = 'submit') => {
+    const nextErrors: Record<string, string> = {}
+    if (!withdrawStudentIds.length) {
+      nextErrors.students = 'Select at least one student.'
+    }
+    if (!withdrawForm.settlement_date) {
+      nextErrors.settlement_date = 'Settlement date is required.'
+    }
+    if (!withdrawForm.reason.trim() || withdrawForm.reason.trim().length < 3) {
+      nextErrors.reason = 'Reason must be at least 3 characters.'
+    }
+    const refundAmount = getWithdrawRefundAmount()
+    if (withdrawForm.refund_amount && refundAmount <= 0) {
+      nextErrors.refund_amount = 'Refund amount must be greater than zero.'
+    }
+    const hasRefundProof =
+      Boolean(withdrawForm.reference_number.trim()) || Boolean(withdrawForm.proof_text.trim())
+    if (mode === 'submit' && refundAmount > 0 && !hasRefundProof) {
+      nextErrors.refund_proof = 'Reference or proof text is required for refund.'
+    }
+    if (refundAmount > 0) {
+      const amountToReopen = getWithdrawRefundAmountToReopen()
+      const selectedTotal = getWithdrawManualReversalTotal()
+      const selectedTotalCents = Math.round(selectedTotal * 100)
+      const amountToReopenCents = Math.round(amountToReopen * 100)
+      const selectedStudentSet = new Set(withdrawStudentIds)
+      const optionsById = new Map(
+        (refundAllocationOptionsApi.data ?? [])
+          .filter((option) => selectedStudentSet.has(option.student_id))
+          .map((option) => [option.allocation_id, option])
+      )
+      const hasInvalidAmount = buildWithdrawManualAllocationReversals().some((item) => {
+        const option = optionsById.get(item.allocation_id)
+        return !option || Math.round(item.amount * 100) > Math.round(option.current_allocation_amount * 100)
+      })
+      if (hasInvalidAmount) {
+        nextErrors.refund_allocations = 'Selected reversal exceeds the current invoice allocation.'
+      } else if (amountToReopenCents > 0 && selectedTotalCents !== amountToReopenCents) {
+        nextErrors.refund_allocations = `Manual reversals must total ${formatMoney(amountToReopen)}.`
+      }
+    }
+    setWithdrawValidationErrors(nextErrors)
+    return Object.keys(nextErrors).length === 0
+  }
+
+  const buildWithdrawPayload = () => {
+    const invoice_actions = Object.entries(withdrawInvoiceActions)
+      .map(([invoiceId, action]) => ({
+        invoice_id: Number(invoiceId),
+        action: action.action,
+        amount: Number(action.amount),
+        notes: action.notes.trim() || null,
+      }))
+      .filter((action) => action.action !== 'none' && Number.isFinite(action.amount) && action.amount > 0)
+
+    const refundAmount = getWithdrawRefundAmount()
+    return {
+      student_ids: withdrawStudentIds,
+      settlement_date: withdrawForm.settlement_date,
+      reason: withdrawForm.reason.trim(),
+      retained_amount: Number(withdrawForm.retained_amount || 0),
+      deduction_amount: Number(withdrawForm.deduction_amount || 0),
+      notes: withdrawForm.notes.trim() || null,
+      invoice_actions,
+      ...(refundAmount > 0
+        ? {
+            refund: {
+              amount: refundAmount,
+              refund_date: withdrawForm.settlement_date,
+              refund_method: withdrawForm.refund_method || null,
+              reference_number: withdrawForm.reference_number.trim() || null,
+              proof_text: withdrawForm.proof_text.trim() || null,
+              reason: withdrawForm.refund_reason.trim() || withdrawForm.reason.trim(),
+              notes: withdrawForm.refund_notes.trim() || null,
+              allocation_reversals: buildWithdrawManualAllocationReversals(),
+            },
+          }
+        : {}),
+    }
+  }
+
+  const previewWithdrawSettlement = async () => {
+    if (!validateWithdrawForm('preview')) return
+    setError(null)
+    setSuccessMessage(null)
+    withdrawalPreviewMutation.reset()
+    const result = await withdrawalPreviewMutation.execute(() =>
+      api.post(`/billing-accounts/${resolvedId}/withdrawal-settlements/preview`, buildWithdrawPayload())
+    )
+    if (result != null) {
+      setWithdrawPreview(result)
+    } else if (withdrawalPreviewMutation.error) {
+      setError(withdrawalPreviewMutation.error)
+    }
+  }
+
+  const submitWithdrawSettlement = async () => {
+    if (!validateWithdrawForm('submit')) return
+    setError(null)
+    setSuccessMessage(null)
+    withdrawalMutation.reset()
+    const result = await withdrawalMutation.execute(() =>
+      api.post(`/billing-accounts/${resolvedId}/withdrawal-settlements`, buildWithdrawPayload())
+    )
+    if (result != null) {
+      setWithdrawDialogOpen(false)
+      setWithdrawPreview(null)
+      refetch()
+      invoicesApi.refetch()
+      paymentsApi.refetch()
+      refundsApi.refetch()
+      withdrawalSettlementsApi.refetch()
+      if (statement) await loadStatement()
+      setSuccessMessage('Family withdrawal settlement posted.')
+    } else if (withdrawalMutation.error) {
+      setError(withdrawalMutation.error)
+    }
   }
 
   const validateAccountRefundForm = (mode: 'preview' | 'submit' = 'submit') => {
@@ -851,6 +1105,7 @@ export const BillingAccountDetailPage = () => {
         invoicesApi.error ||
         paymentsApi.error ||
         refundsApi.error ||
+        withdrawalSettlementsApi.error ||
         studentsApi.error ||
         activeTermApi.error ||
         referencedError ||
@@ -862,6 +1117,7 @@ export const BillingAccountDetailPage = () => {
             invoicesApi.error ??
             paymentsApi.error ??
             refundsApi.error ??
+            withdrawalSettlementsApi.error ??
             studentsApi.error ??
             activeTermApi.error ??
             referencedError ??
@@ -944,6 +1200,14 @@ export const BillingAccountDetailPage = () => {
               )}
               <Button
                 variant="outlined"
+                color="error"
+                onClick={openWithdrawDialog}
+                disabled={activeMembers.length === 0 || withdrawalMutation.loading}
+              >
+                Withdraw family
+              </Button>
+              <Button
+                variant="outlined"
                 onClick={openManualAllocation}
                 disabled={manualAllocationMutation.loading}
               >
@@ -983,6 +1247,44 @@ export const BillingAccountDetailPage = () => {
           <Typography variant="body2" color="secondary">Notes</Typography>
           <Typography variant="body2" className="mt-2">{account.notes}</Typography>
         </div>
+      )}
+
+      {(withdrawalSettlementsApi.data ?? []).length > 0 && (
+        <section>
+          <Typography variant="h6" className="mb-3">Withdrawal settlements</Typography>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Date</TableHeaderCell>
+                  <TableHeaderCell>Settlement #</TableHeaderCell>
+                  <TableHeaderCell>Students</TableHeaderCell>
+                  <TableHeaderCell align="right">Refund</TableHeaderCell>
+                  <TableHeaderCell align="right">Write-off</TableHeaderCell>
+                  <TableHeaderCell align="right">Cancelled</TableHeaderCell>
+                  <TableHeaderCell align="right">Remaining debt</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {(withdrawalSettlementsApi.data ?? []).map((settlement) => (
+                  <TableRow key={settlement.id}>
+                    <TableCell>{formatDate(settlement.settlement_date)}</TableCell>
+                    <TableCell>{settlement.settlement_number}</TableCell>
+                    <TableCell>
+                      {settlement.students.length
+                        ? settlement.students.map((student) => student.student_name ?? `Student #${student.student_id}`).join(', ')
+                        : '—'}
+                    </TableCell>
+                    <TableCell align="right">{formatMoney(settlement.refund_amount)}</TableCell>
+                    <TableCell align="right">{formatMoney(settlement.write_off_amount)}</TableCell>
+                    <TableCell align="right">{formatMoney(settlement.cancelled_amount)}</TableCell>
+                    <TableCell align="right">{formatMoney(settlement.remaining_collectible_debt)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </section>
       )}
 
       <section>
@@ -1307,6 +1609,342 @@ export const BillingAccountDetailPage = () => {
           </>
         )}
       </section>
+
+      <Dialog open={withdrawDialogOpen} onClose={() => setWithdrawDialogOpen(false)} maxWidth="xl" fullWidth>
+        <DialogCloseButton onClose={() => setWithdrawDialogOpen(false)} />
+        <DialogTitle>Withdraw family</DialogTitle>
+        <DialogContent>
+          <div className="space-y-4 mt-4">
+            {(withdrawValidationErrors.students ||
+              withdrawValidationErrors.refund_allocations ||
+              withdrawValidationErrors.refund_proof ||
+              withdrawalPreviewMutation.error ||
+              withdrawalMutation.error) && (
+              <Alert severity="error">
+                {withdrawValidationErrors.students ||
+                  withdrawValidationErrors.refund_allocations ||
+                  withdrawValidationErrors.refund_proof ||
+                  withdrawalPreviewMutation.error ||
+                  withdrawalMutation.error}
+              </Alert>
+            )}
+
+            <div className="grid gap-3 md:grid-cols-4">
+              <Input
+                label="Settlement date"
+                type="date"
+                value={withdrawForm.settlement_date}
+                error={withdrawValidationErrors.settlement_date}
+                onChange={(event) => {
+                  setWithdrawPreview(null)
+                  setWithdrawValidationErrors((current) => ({ ...current, settlement_date: '' }))
+                  setWithdrawForm((current) => ({ ...current, settlement_date: event.target.value }))
+                }}
+              />
+              <Input
+                label="Retained amount"
+                type="number"
+                value={withdrawForm.retained_amount}
+                onChange={(event) => {
+                  setWithdrawPreview(null)
+                  setWithdrawForm((current) => ({ ...current, retained_amount: event.target.value }))
+                }}
+              />
+              <Input
+                label="Deduction amount"
+                type="number"
+                value={withdrawForm.deduction_amount}
+                onChange={(event) => {
+                  setWithdrawPreview(null)
+                  setWithdrawForm((current) => ({ ...current, deduction_amount: event.target.value }))
+                }}
+              />
+              <Input
+                label="Refund amount"
+                type="number"
+                value={withdrawForm.refund_amount}
+                error={withdrawValidationErrors.refund_amount}
+                onChange={(event) => {
+                  setWithdrawPreview(null)
+                  setWithdrawValidationErrors((current) => ({ ...current, refund_amount: '', refund_allocations: '' }))
+                  setWithdrawForm((current) => ({ ...current, refund_amount: event.target.value }))
+                }}
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Textarea
+                label="Reason"
+                value={withdrawForm.reason}
+                error={withdrawValidationErrors.reason}
+                rows={3}
+                onChange={(event) => {
+                  setWithdrawValidationErrors((current) => ({ ...current, reason: '' }))
+                  setWithdrawForm((current) => ({ ...current, reason: event.target.value }))
+                }}
+              />
+              <Textarea
+                label="Notes"
+                value={withdrawForm.notes}
+                rows={3}
+                onChange={(event) => setWithdrawForm((current) => ({ ...current, notes: event.target.value }))}
+              />
+            </div>
+
+            <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+              <Typography variant="body2" className="font-semibold">Students</Typography>
+              <div className="grid gap-2 md:grid-cols-2">
+                {activeMembers.map((member) => (
+                  <label key={member.student_id} className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={withdrawStudentIds.includes(member.student_id)}
+                      onChange={() => {
+                        setWithdrawPreview(null)
+                        setWithdrawValidationErrors((current) => ({ ...current, students: '' }))
+                        setWithdrawStudentIds((current) =>
+                          current.includes(member.student_id)
+                            ? current.filter((id) => id !== member.student_id)
+                            : [...current, member.student_id]
+                        )
+                      }}
+                    />
+                    <span>{member.student_name} · #{formatStudentNumberShort(member.student_number)}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Typography variant="body2" className="font-semibold">Invoice actions</Typography>
+              <div className="overflow-hidden rounded-lg border border-slate-200">
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableHeaderCell>Invoice</TableHeaderCell>
+                      <TableHeaderCell>Student</TableHeaderCell>
+                      <TableHeaderCell>Status</TableHeaderCell>
+                      <TableHeaderCell align="right">Paid</TableHeaderCell>
+                      <TableHeaderCell align="right">Due</TableHeaderCell>
+                      <TableHeaderCell>Action</TableHeaderCell>
+                      <TableHeaderCell align="right">Amount</TableHeaderCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {selectedWithdrawInvoiceRows().map((invoice) => {
+                      const action = withdrawInvoiceActions[invoice.id] ?? {
+                        action: 'none' as const,
+                        amount: String(invoice.amount_due),
+                        notes: '',
+                      }
+                      return (
+                        <TableRow key={invoice.id}>
+                          <TableCell>
+                            <div className="font-medium">{invoice.invoice_number}</div>
+                            <div className="text-xs text-slate-500">
+                              {formatInvoiceTypeLabel(invoice.invoice_type)}
+                              {invoice.due_date ? ` · due ${formatDate(invoice.due_date)}` : ''}
+                            </div>
+                          </TableCell>
+                          <TableCell>{invoice.student_name ?? `Student #${invoice.student_id}`}</TableCell>
+                          <TableCell>{formatInvoiceStatusLabel(invoice.status)}</TableCell>
+                          <TableCell align="right">{formatMoney(invoice.paid_total)}</TableCell>
+                          <TableCell align="right">{formatMoney(invoice.amount_due)}</TableCell>
+                          <TableCell>
+                            <Select
+                              value={action.action}
+                              onChange={(event) => {
+                                setWithdrawPreview(null)
+                                setWithdrawInvoiceActions((current) => ({
+                                  ...current,
+                                  [invoice.id]: {
+                                    ...action,
+                                    action: event.target.value as 'none' | 'cancel_unpaid' | 'write_off' | 'keep_charged',
+                                    amount: action.amount || String(invoice.amount_due),
+                                  },
+                                }))
+                              }}
+                            >
+                              <option value="none">None</option>
+                              <option value="cancel_unpaid">Cancel unpaid</option>
+                              <option value="write_off">Write off</option>
+                              <option value="keep_charged">Keep charged</option>
+                            </Select>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={action.amount}
+                              containerClassName="min-w-32"
+                              onChange={(event) => {
+                                setWithdrawPreview(null)
+                                setWithdrawInvoiceActions((current) => ({
+                                  ...current,
+                                  [invoice.id]: { ...action, amount: event.target.value },
+                                }))
+                              }}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                    {!selectedWithdrawInvoiceRows().length && (
+                      <TableRow>
+                        <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                          No invoices for selected students.
+                        </td>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+
+            {getWithdrawRefundAmount() > 0 && (
+              <div className="rounded-lg border border-slate-200 p-4 space-y-4">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <Select
+                    label="Refund method"
+                    value={withdrawForm.refund_method}
+                    onChange={(event) => setWithdrawForm((current) => ({ ...current, refund_method: event.target.value }))}
+                  >
+                    <option value="mpesa">M-Pesa</option>
+                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="cash">Cash</option>
+                    <option value="other">Other</option>
+                  </Select>
+                  <Input
+                    label="Reference number"
+                    value={withdrawForm.reference_number}
+                    onChange={(event) => {
+                      setWithdrawValidationErrors((current) => ({ ...current, refund_proof: '' }))
+                      setWithdrawForm((current) => ({ ...current, reference_number: event.target.value }))
+                    }}
+                  />
+                  <Input
+                    label="Refund reason"
+                    value={withdrawForm.refund_reason}
+                    onChange={(event) => setWithdrawForm((current) => ({ ...current, refund_reason: event.target.value }))}
+                  />
+                </div>
+                <Textarea
+                  label="Refund proof"
+                  value={withdrawForm.proof_text}
+                  rows={3}
+                  onChange={(event) => {
+                    setWithdrawValidationErrors((current) => ({ ...current, refund_proof: '' }))
+                    setWithdrawForm((current) => ({ ...current, proof_text: event.target.value }))
+                  }}
+                  helperText="Reference or proof text is required before posting a refund"
+                />
+
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <Typography variant="body2" className="font-semibold">
+                      Refund allocation reversals
+                    </Typography>
+                    <Typography variant="body2" color="secondary">
+                      Amount to reopen: {formatMoney(getWithdrawRefundAmountToReopen())} · Selected: {formatMoney(getWithdrawManualReversalTotal())}
+                    </Typography>
+                  </div>
+                  <div className="overflow-hidden rounded-lg border border-slate-200">
+                    <Table>
+                      <TableHead>
+                        <TableRow>
+                          <TableHeaderCell>Invoice</TableHeaderCell>
+                          <TableHeaderCell>Student</TableHeaderCell>
+                          <TableHeaderCell align="right">Allocated</TableHeaderCell>
+                          <TableHeaderCell align="right">Reverse</TableHeaderCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {(refundAllocationOptionsApi.data ?? [])
+                          .filter((option) => withdrawStudentIds.includes(option.student_id))
+                          .map((option) => (
+                            <TableRow key={option.allocation_id}>
+                              <TableCell>
+                                <div className="font-medium">{option.invoice_number}</div>
+                                <div className="text-xs text-slate-500">{formatInvoiceTypeLabel(option.invoice_type)}</div>
+                              </TableCell>
+                              <TableCell>{option.student_name ?? `Student #${option.student_id}`}</TableCell>
+                              <TableCell align="right">{formatMoney(option.current_allocation_amount)}</TableCell>
+                              <TableCell align="right">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={withdrawManualReversals[option.allocation_id] ?? ''}
+                                  containerClassName="min-w-32"
+                                  onChange={(event) => {
+                                    setWithdrawPreview(null)
+                                    setWithdrawValidationErrors((current) => ({ ...current, refund_allocations: '' }))
+                                    setWithdrawManualReversals((current) => ({
+                                      ...current,
+                                      [option.allocation_id]: event.target.value,
+                                    }))
+                                  }}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {withdrawPreview && (
+              <div className="rounded-lg border border-slate-200 p-4 space-y-4">
+                <div className="grid gap-3 md:grid-cols-4">
+                  <div>
+                    <Typography variant="body2" color="secondary">Current debt</Typography>
+                    <Typography variant="body2" className="font-semibold">{formatMoney(withdrawPreview.current_outstanding_debt)}</Typography>
+                  </div>
+                  <div>
+                    <Typography variant="body2" color="secondary">Refund</Typography>
+                    <Typography variant="body2" className="font-semibold">{formatMoney(withdrawPreview.refund_amount)}</Typography>
+                  </div>
+                  <div>
+                    <Typography variant="body2" color="secondary">Write-off / cancel</Typography>
+                    <Typography variant="body2" className="font-semibold">
+                      {formatMoney(withdrawPreview.write_off_amount)} / {formatMoney(withdrawPreview.cancelled_amount)}
+                    </Typography>
+                  </div>
+                  <div>
+                    <Typography variant="body2" color="secondary">Remaining debt</Typography>
+                    <Typography variant="body2" className="font-semibold">{formatMoney(withdrawPreview.remaining_collectible_debt_after)}</Typography>
+                  </div>
+                </div>
+                {withdrawPreview.warnings.length > 0 && (
+                  <Alert severity="warning">{withdrawPreview.warnings.join(' ')}</Alert>
+                )}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="outlined" onClick={() => setWithdrawDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="outlined"
+            onClick={previewWithdrawSettlement}
+            disabled={withdrawalPreviewMutation.loading || withdrawalMutation.loading}
+          >
+            {withdrawalPreviewMutation.loading ? <Spinner size="small" /> : 'Preview'}
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={submitWithdrawSettlement}
+            disabled={withdrawalMutation.loading}
+          >
+            {withdrawalMutation.loading ? <Spinner size="small" /> : 'Post settlement'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={accountRefundDialogOpen} onClose={() => setAccountRefundDialogOpen(false)} maxWidth="lg" fullWidth>
         <DialogCloseButton onClose={() => setAccountRefundDialogOpen(false)} />

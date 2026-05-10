@@ -192,6 +192,9 @@
 - `POST /billing-accounts/{account_id}/members` — добавить existing students в существующий billing account; student из single-student account может быть перенесён, student из уже shared account требует отдельного split/merge flow
 - `POST /billing-accounts/{account_id}/children` — создать нового ребёнка сразу внутри существующего billing account; child может унаследовать guardian contact из account header
 - `GET /billing-accounts/{account_id}/statement` — account statement по общему кошельку (`date_from`, `date_to`)
+- `POST /billing-accounts/{account_id}/withdrawal-settlements/preview` — family/account withdrawal settlement preview for selected `student_ids` inside the account. If `student_ids` is omitted, all active students are selected.
+- `POST /billing-accounts/{account_id}/withdrawal-settlements` — post one family settlement atomically: optional account-level refund, invoice write-offs/cancellations across selected children, selected students deactivation.
+- `GET /billing-accounts/{account_id}/withdrawal-settlements` — settlement history for billing account.
 - `BillingAccount` — канонический owner of money: payments и credit allocations привязываются к account, invoices хранят snapshot `billing_account_id`, а student response показывает linked billing account metadata. Разделения `individual/family` и поля `account_type` больше нет: один account может иметь одного или нескольких students.
 
 ### 5.5.2. Paid Activities

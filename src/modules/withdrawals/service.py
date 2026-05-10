@@ -1,10 +1,10 @@
-"""Service for manual student withdrawal settlements."""
+"""Service for manual student and family withdrawal settlements."""
 
 from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -26,9 +26,12 @@ from src.modules.withdrawals.models import (
     WithdrawalSettlement,
     WithdrawalSettlementLine,
     WithdrawalSettlementLineAction,
+    WithdrawalSettlementStudent,
     WithdrawalSettlementStatus,
 )
 from src.modules.withdrawals.schemas import (
+    BillingAccountWithdrawalSettlementCreate,
+    BillingAccountWithdrawalSettlementPreviewRequest,
     WithdrawalInvoiceActionRequest,
     WithdrawalInvoiceImpact,
     WithdrawalSettlementCreate,
@@ -52,7 +55,24 @@ class WithdrawalSettlementService:
     ) -> WithdrawalSettlementPreview:
         student = await self._get_student(student_id)
         billing_account_id = self._require_billing_account(student)
-        invoices = await self._load_student_invoices(student_id)
+        return await self._preview_for_students(billing_account_id, [student], data)
+
+    async def preview_billing_account_settlement(
+        self,
+        billing_account_id: int,
+        data: BillingAccountWithdrawalSettlementPreviewRequest,
+    ) -> WithdrawalSettlementPreview:
+        students = await self._resolve_account_students(billing_account_id, data.student_ids)
+        return await self._preview_for_students(billing_account_id, students, data)
+
+    async def _preview_for_students(
+        self,
+        billing_account_id: int,
+        students: list[Student],
+        data: WithdrawalSettlementPreviewRequest | BillingAccountWithdrawalSettlementPreviewRequest,
+    ) -> WithdrawalSettlementPreview:
+        student_ids = [student.id for student in students]
+        invoices = await self._load_students_invoices(student_ids)
         total_paid = await self._get_completed_payments_total(billing_account_id)
         current_debt = self._sum_current_debt(invoices)
 
@@ -70,6 +90,8 @@ class WithdrawalSettlementService:
                 ),
             )
             for impact in refund_preview.allocation_reversals:
+                if impact.student_id not in student_ids:
+                    raise ValidationError("Refund allocation reversals must belong to selected students")
                 refund_reopened_by_invoice[impact.invoice_id] = round_money(
                     refund_reopened_by_invoice[impact.invoice_id] + impact.reversal_amount
                 )
@@ -92,8 +114,10 @@ class WithdrawalSettlementService:
             warnings.append("Refund proof/reference is required before posting.")
 
         return WithdrawalSettlementPreview(
-            student_id=student.id,
-            student_name=student.full_name,
+            student_id=students[0].id if len(students) == 1 else None,
+            student_name=students[0].full_name if len(students) == 1 else None,
+            student_ids=student_ids,
+            student_names=[student.full_name for student in students],
             billing_account_id=billing_account_id,
             total_paid=total_paid,
             current_outstanding_debt=current_debt,
@@ -116,12 +140,34 @@ class WithdrawalSettlementService:
     ) -> WithdrawalSettlement:
         student = await self._get_student(student_id)
         billing_account_id = self._require_billing_account(student)
-        if student.status == StudentStatus.INACTIVE.value:
-            raise ValidationError("Student is already inactive")
+        return await self._create_for_students(billing_account_id, [student], data, created_by_id)
+
+    async def create_billing_account_settlement(
+        self,
+        billing_account_id: int,
+        data: BillingAccountWithdrawalSettlementCreate,
+        created_by_id: int,
+    ) -> WithdrawalSettlement:
+        students = await self._resolve_account_students(billing_account_id, data.student_ids)
+        return await self._create_for_students(billing_account_id, students, data, created_by_id)
+
+    async def _create_for_students(
+        self,
+        billing_account_id: int,
+        students: list[Student],
+        data: WithdrawalSettlementCreate | BillingAccountWithdrawalSettlementCreate,
+        created_by_id: int,
+    ) -> WithdrawalSettlement:
+        inactive = [student.full_name for student in students if student.status == StudentStatus.INACTIVE.value]
+        if inactive:
+            raise ValidationError(f"Student is already inactive: {', '.join(inactive)}")
 
         preview = await self.preview_settlement(
-            student_id,
-            WithdrawalSettlementPreviewRequest(**data.model_dump()),
+            students[0].id,
+            WithdrawalSettlementPreviewRequest(**data.model_dump(exclude={"student_ids"})),
+        ) if len(students) == 1 else await self.preview_billing_account_settlement(
+            billing_account_id,
+            BillingAccountWithdrawalSettlementPreviewRequest(**data.model_dump()),
         )
         if data.refund is not None and round_money(data.refund.amount) > 0:
             if not self._has_refund_proof(data.refund):
@@ -130,7 +176,7 @@ class WithdrawalSettlementService:
         number_gen = DocumentNumberGenerator(self.db)
         settlement = WithdrawalSettlement(
             settlement_number=await number_gen.generate("WDR"),
-            student_id=student.id,
+            student_id=students[0].id if len(students) == 1 else None,
             billing_account_id=billing_account_id,
             settlement_date=data.settlement_date,
             status=WithdrawalSettlementStatus.POSTED.value,
@@ -149,6 +195,17 @@ class WithdrawalSettlementService:
         self.db.add(settlement)
         await self.db.flush()
 
+        status_before_by_student = {student.id: student.status for student in students}
+        for student in students:
+            self.db.add(
+                WithdrawalSettlementStudent(
+                    settlement_id=settlement.id,
+                    student_id=student.id,
+                    status_before=student.status,
+                    status_after=StudentStatus.INACTIVE.value,
+                )
+            )
+
         refund = None
         if data.refund is not None and round_money(data.refund.amount) > 0:
             refund = await PaymentService(self.db).create_billing_account_refund(
@@ -160,7 +217,7 @@ class WithdrawalSettlementService:
             settlement.refund_id = refund.id
             await self.db.flush()
 
-        invoices = await self._load_student_invoices(student_id)
+        invoices = await self._load_students_invoices([student.id for student in students])
         invoice_by_id = {invoice.id: invoice for invoice in invoices}
 
         for action in data.invoice_actions:
@@ -179,16 +236,18 @@ class WithdrawalSettlementService:
             elif action.action == WithdrawalSettlementLineAction.WRITE_OFF:
                 await self._apply_write_off(action, invoice_by_id, settlement.id, created_by_id, data.reason)
 
-        old_status = student.status
-        student.status = StudentStatus.INACTIVE.value
+        for student in students:
+            student.status = StudentStatus.INACTIVE.value
+
         await self.audit.log(
             action="student.withdrawal_settlement",
             entity_type="WithdrawalSettlement",
             entity_id=settlement.id,
             entity_identifier=settlement.settlement_number,
             user_id=created_by_id,
-            old_values={"student_status": old_status},
+            old_values={"student_statuses": status_before_by_student},
             new_values={
+                "student_ids": [student.id for student in students],
                 "student_status": StudentStatus.INACTIVE.value,
                 "refund_id": refund.id if refund else None,
                 "write_off_amount": str(settlement.write_off_amount),
@@ -207,7 +266,25 @@ class WithdrawalSettlementService:
         await self._get_student(student_id)
         result = await self.db.execute(
             self._settlement_query()
-            .where(WithdrawalSettlement.student_id == student_id)
+            .where(
+                or_(
+                    WithdrawalSettlement.student_id == student_id,
+                    exists().where(
+                        WithdrawalSettlementStudent.settlement_id == WithdrawalSettlement.id,
+                        WithdrawalSettlementStudent.student_id == student_id,
+                    ),
+                )
+            )
+            .order_by(WithdrawalSettlement.settlement_date.desc(), WithdrawalSettlement.created_at.desc())
+        )
+        return list(result.scalars().unique().all())
+
+    async def list_billing_account_settlements(
+        self, billing_account_id: int
+    ) -> list[WithdrawalSettlement]:
+        result = await self.db.execute(
+            self._settlement_query()
+            .where(WithdrawalSettlement.billing_account_id == billing_account_id)
             .order_by(WithdrawalSettlement.settlement_date.desc(), WithdrawalSettlement.created_at.desc())
         )
         return list(result.scalars().unique().all())
@@ -224,6 +301,9 @@ class WithdrawalSettlementService:
     def _settlement_query(self):
         return select(WithdrawalSettlement).options(
             selectinload(WithdrawalSettlement.student),
+            selectinload(WithdrawalSettlement.students).selectinload(
+                WithdrawalSettlementStudent.student
+            ),
             selectinload(WithdrawalSettlement.refund),
             selectinload(WithdrawalSettlement.lines).selectinload(WithdrawalSettlementLine.invoice),
             selectinload(WithdrawalSettlement.invoice_adjustments).selectinload(
@@ -245,10 +325,44 @@ class WithdrawalSettlementService:
             raise ValidationError("Student has no billing account")
         return int(student.billing_account_id)
 
+    async def _resolve_account_students(
+        self,
+        billing_account_id: int,
+        student_ids: list[int],
+    ) -> list[Student]:
+        query = (
+            select(Student)
+            .where(Student.billing_account_id == billing_account_id)
+            .options(selectinload(Student.billing_account))
+            .order_by(Student.last_name, Student.first_name, Student.id)
+        )
+        if student_ids:
+            query = query.where(Student.id.in_(student_ids))
+        else:
+            query = query.where(Student.status == StudentStatus.ACTIVE.value)
+
+        result = await self.db.execute(query)
+        students = list(result.scalars().unique().all())
+        if not students:
+            raise ValidationError("No students selected for withdrawal settlement")
+
+        requested_ids = set(student_ids)
+        found_ids = {student.id for student in students}
+        missing = requested_ids - found_ids
+        if missing:
+            raise ValidationError("Selected students must belong to this billing account")
+
+        return students
+
     async def _load_student_invoices(self, student_id: int) -> list[Invoice]:
+        return await self._load_students_invoices([student_id])
+
+    async def _load_students_invoices(self, student_ids: list[int]) -> list[Invoice]:
+        if not student_ids:
+            return []
         result = await self.db.execute(
             select(Invoice)
-            .where(Invoice.student_id == student_id)
+            .where(Invoice.student_id.in_(student_ids))
             .options(
                 selectinload(Invoice.student),
                 selectinload(Invoice.lines),

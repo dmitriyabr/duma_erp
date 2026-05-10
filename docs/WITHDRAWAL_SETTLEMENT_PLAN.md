@@ -125,7 +125,7 @@ Most withdrawal cases should end with remaining collectible debt = `0.00`, but t
 withdrawal_settlements
   id
   settlement_number
-  student_id
+  student_id nullable        single-student shortcut / legacy link
   billing_account_id
   settlement_date
   status                 draft | posted | voided
@@ -142,6 +142,18 @@ withdrawal_settlements
   posted_at nullable
   created_at
   updated_at
+```
+
+Family/account withdrawal links all affected children through:
+
+```text
+withdrawal_settlement_students
+  id
+  settlement_id
+  student_id
+  status_before
+  status_after
+  created_at
 ```
 
 MVP can post immediately if we do not want approval states yet:
@@ -199,8 +211,8 @@ Longer-term, this can become a more general credit note module.
 
 When posting a settlement:
 
-1. Validate student and billing account.
-2. Validate all selected invoices belong to the student's billing account.
+1. Validate selected student(s) and billing account.
+2. Validate all selected invoices belong to selected student(s) inside the billing account.
 3. Validate invoice actions are consistent:
    - `cancel_unpaid` only if invoice can be cancelled and `paid_total = 0`;
    - `write_off` cannot exceed invoice open amount;
@@ -210,7 +222,7 @@ When posting a settlement:
 5. Cancel selected unpaid invoices.
 6. Create invoice adjustments for selected write-offs and recalculate invoice totals/status.
 7. If `refund_amount > 0`, create `BillingAccountRefund` using existing refund service.
-8. Deactivate the student.
+8. Deactivate selected student(s).
 9. Sync billing account/student balance caches.
 10. Commit atomically.
 
@@ -329,10 +341,22 @@ POST /students/{student_id}/withdrawal-settlements
 
 Same payload as preview. The response returns settlement detail plus created `refund_id` if any.
 
+For family/account withdrawal:
+
+```text
+POST /billing-accounts/{account_id}/withdrawal-settlements/preview
+POST /billing-accounts/{account_id}/withdrawal-settlements
+```
+
+The billing-account endpoints accept the same settlement payload plus `student_ids`.
+If `student_ids` is omitted, the backend uses all active students in the billing account.
+This is the recommended path when a family withdraws multiple children because refund/cash reconciliation lives at billing account level.
+
 ### 8.3. History
 
 ```text
 GET /students/{student_id}/withdrawal-settlements
+GET /billing-accounts/{account_id}/withdrawal-settlements
 GET /withdrawal-settlements/{settlement_id}
 ```
 
@@ -424,6 +448,7 @@ Retained/deduction amounts:
 ### Phase 2 - Minimal Backend
 
 - Implemented: `withdrawal_settlements`;
+- Implemented: `withdrawal_settlement_students` for family/account withdrawals;
 - Implemented: `withdrawal_settlement_lines`;
 - Implemented: `invoice_adjustments`;
 - Implemented: invoice/line `adjustment_total` / `adjustment_amount`;
@@ -438,6 +463,7 @@ Retained/deduction amounts:
 - Implemented: manual refund allocation selector;
 - Implemented: preview and submit;
 - Implemented: settlement history table on student detail.
+- Implemented: `Withdraw family` action and settlement history on billing account detail.
 
 ### Phase 4 - Reporting
 

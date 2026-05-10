@@ -7,12 +7,15 @@ from src.core.auth.dependencies import require_roles
 from src.core.auth.models import User, UserRole
 from src.core.database.session import get_db
 from src.modules.withdrawals.schemas import (
+    BillingAccountWithdrawalSettlementCreate,
+    BillingAccountWithdrawalSettlementPreviewRequest,
     InvoiceAdjustmentResponse,
     WithdrawalSettlementCreate,
     WithdrawalSettlementLineResponse,
     WithdrawalSettlementPreview,
     WithdrawalSettlementPreviewRequest,
     WithdrawalSettlementResponse,
+    WithdrawalSettlementStudentResponse,
 )
 from src.modules.withdrawals.service import WithdrawalSettlementService
 from src.shared.schemas.base import ApiResponse
@@ -57,6 +60,15 @@ def _settlement_to_response(settlement) -> WithdrawalSettlementResponse:
         settlement_number=settlement.settlement_number,
         student_id=settlement.student_id,
         student_name=settlement.student.full_name if settlement.student else None,
+        students=[
+            WithdrawalSettlementStudentResponse(
+                student_id=item.student_id,
+                student_name=item.student.full_name if item.student else None,
+                status_before=item.status_before,
+                status_after=item.status_after,
+            )
+            for item in getattr(settlement, "students", [])
+        ],
         billing_account_id=settlement.billing_account_id,
         refund_id=settlement.refund_id,
         refund_number=settlement.refund.refund_number if settlement.refund else None,
@@ -81,6 +93,62 @@ def _settlement_to_response(settlement) -> WithdrawalSettlementResponse:
             for adjustment in getattr(settlement, "invoice_adjustments", [])
         ],
     )
+
+
+@router.post(
+    "/billing-accounts/{account_id}/withdrawal-settlements/preview",
+    response_model=ApiResponse[WithdrawalSettlementPreview],
+)
+async def preview_billing_account_withdrawal_settlement(
+    account_id: int,
+    data: BillingAccountWithdrawalSettlementPreviewRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
+):
+    service = WithdrawalSettlementService(db)
+    preview = await service.preview_billing_account_settlement(account_id, data)
+    return ApiResponse(data=preview)
+
+
+@router.post(
+    "/billing-accounts/{account_id}/withdrawal-settlements",
+    response_model=ApiResponse[WithdrawalSettlementResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_billing_account_withdrawal_settlement(
+    account_id: int,
+    data: BillingAccountWithdrawalSettlementCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
+):
+    service = WithdrawalSettlementService(db)
+    settlement = await service.create_billing_account_settlement(
+        account_id,
+        data,
+        current_user.id,
+    )
+    return ApiResponse(
+        data=_settlement_to_response(settlement),
+        message="Withdrawal settlement posted successfully",
+    )
+
+
+@router.get(
+    "/billing-accounts/{account_id}/withdrawal-settlements",
+    response_model=ApiResponse[list[WithdrawalSettlementResponse]],
+)
+async def list_billing_account_withdrawal_settlements(
+    account_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
+):
+    service = WithdrawalSettlementService(db)
+    settlements = await service.list_billing_account_settlements(account_id)
+    return ApiResponse(data=[_settlement_to_response(settlement) for settlement in settlements])
 
 
 @router.post(

@@ -59,7 +59,7 @@ def upgrade() -> None:
             "withdrawal_settlements",
             sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
             sa.Column("settlement_number", sa.String(length=50), nullable=False),
-            sa.Column("student_id", sa.BigInteger(), nullable=False),
+            sa.Column("student_id", sa.BigInteger(), nullable=True),
             sa.Column("billing_account_id", sa.BigInteger(), nullable=False),
             sa.Column("refund_id", sa.BigInteger(), nullable=True),
             sa.Column("settlement_date", sa.Date(), nullable=False),
@@ -96,6 +96,29 @@ def upgrade() -> None:
         op.create_index("ix_withdrawal_settlements_settlement_date", "withdrawal_settlements", ["settlement_date"])
         op.create_index("ix_withdrawal_settlements_status", "withdrawal_settlements", ["status"])
         op.create_index("ix_withdrawal_settlements_proof_attachment_id", "withdrawal_settlements", ["proof_attachment_id"])
+
+    if not _has_table(bind, "withdrawal_settlement_students"):
+        op.create_table(
+            "withdrawal_settlement_students",
+            sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+            sa.Column("settlement_id", sa.BigInteger(), nullable=False),
+            sa.Column("student_id", sa.BigInteger(), nullable=False),
+            sa.Column("status_before", sa.String(length=30), nullable=False),
+            sa.Column("status_after", sa.String(length=30), nullable=False),
+            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+            sa.ForeignKeyConstraint(["settlement_id"], ["withdrawal_settlements.id"]),
+            sa.ForeignKeyConstraint(["student_id"], ["students.id"]),
+        )
+        op.create_index(
+            "ix_withdrawal_settlement_students_settlement_id",
+            "withdrawal_settlement_students",
+            ["settlement_id"],
+        )
+        op.create_index(
+            "ix_withdrawal_settlement_students_student_id",
+            "withdrawal_settlement_students",
+            ["student_id"],
+        )
 
     if not _has_table(bind, "withdrawal_settlement_lines"):
         op.create_table(
@@ -150,6 +173,8 @@ def downgrade() -> None:
         op.drop_table("invoice_adjustments")
     if _has_table(bind, "withdrawal_settlement_lines"):
         op.drop_table("withdrawal_settlement_lines")
+    if _has_table(bind, "withdrawal_settlement_students"):
+        op.drop_table("withdrawal_settlement_students")
     if _has_table(bind, "withdrawal_settlements"):
         op.drop_table("withdrawal_settlements")
     if _has_table(bind, "invoice_lines") and "adjustment_amount" in _column_names(bind, "invoice_lines"):

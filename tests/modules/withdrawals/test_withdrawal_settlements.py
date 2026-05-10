@@ -74,6 +74,8 @@ async def _setup_student_with_invoices(db_session: AsyncSession) -> tuple[str, i
     _, token, _ = await auth_service.authenticate("withdrawal_admin@school.com", "SuperAdmin123")
     return token, user.id, {
         "student": student,
+        "grade": grade,
+        "kit": kit,
         "invoice_one": invoice_one,
         "invoice_two": invoice_two,
     }
@@ -284,3 +286,87 @@ async def test_withdrawal_settlement_can_refund_and_write_off_reopened_invoice(
     assert invoice_two.paid_total == Decimal("3000.00")
     assert invoice_two.adjustment_total == Decimal("2000.00")
     assert invoice_two.amount_due == Decimal("0.00")
+
+
+async def test_billing_account_withdrawal_settlement_deactivates_multiple_students(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    token, user_id, data = await _setup_student_with_invoices(db_session)
+    first_student = data["student"]
+    second_student = Student(
+        student_number="STU-WDR-002",
+        first_name="Sibling",
+        last_name="Student",
+        gender=Gender.FEMALE.value,
+        grade_id=data["grade"].id,
+        guardian_name="Withdrawal Guardian",
+        guardian_phone="+254712345678",
+        billing_account_id=first_student.billing_account_id,
+        status=StudentStatus.ACTIVE.value,
+        created_by_id=user_id,
+    )
+    db_session.add(second_student)
+    await db_session.flush()
+
+    sibling_invoice = _invoice(second_student, user_id, "INV-WDR-003", Decimal("2500.00"))
+    db_session.add(sibling_invoice)
+    await db_session.flush()
+    _line(db_session, sibling_invoice, data["kit"].id, Decimal("2500.00"))
+    await db_session.commit()
+
+    response = await client.post(
+        f"/api/v1/billing-accounts/{first_student.billing_account_id}/withdrawal-settlements",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "student_ids": [first_student.id, second_student.id],
+            "settlement_date": str(date.today()),
+            "reason": "Family withdrew all children",
+            "retained_amount": "0.00",
+            "deduction_amount": "0.00",
+            "invoice_actions": [
+                {
+                    "invoice_id": data["invoice_one"].id,
+                    "action": "cancel_unpaid",
+                    "amount": "3000.00",
+                    "notes": "No service delivered",
+                },
+                {
+                    "invoice_id": data["invoice_two"].id,
+                    "action": "cancel_unpaid",
+                    "amount": "5000.00",
+                    "notes": "No service delivered",
+                },
+                {
+                    "invoice_id": sibling_invoice.id,
+                    "action": "cancel_unpaid",
+                    "amount": "2500.00",
+                    "notes": "No service delivered",
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    settlement = response.json()["data"]
+    assert settlement["student_id"] is None
+    assert {student["student_id"] for student in settlement["students"]} == {
+        first_student.id,
+        second_student.id,
+    }
+    assert Decimal(settlement["cancelled_amount"]) == Decimal("10500.00")
+    assert Decimal(settlement["remaining_collectible_debt"]) == Decimal("0.00")
+
+    await db_session.refresh(first_student)
+    await db_session.refresh(second_student)
+    await db_session.refresh(sibling_invoice)
+    assert first_student.status == StudentStatus.INACTIVE.value
+    assert second_student.status == StudentStatus.INACTIVE.value
+    assert sibling_invoice.status == InvoiceStatus.CANCELLED.value
+
+    list_response = await client.get(
+        f"/api/v1/billing-accounts/{first_student.billing_account_id}/withdrawal-settlements",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert list_response.status_code == 200
+    assert len(list_response.json()["data"]) == 1
