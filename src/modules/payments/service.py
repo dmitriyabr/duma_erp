@@ -41,6 +41,7 @@ from src.modules.payments.schemas import (
     RefundAllocationOption,
     RefundAllocationImpact,
     RefundAllocationReversalRequest,
+    RefundInvoiceReversalRequest,
     RefundPaymentSourceImpact,
     PaymentUpdate,
     StatementEntry,
@@ -525,10 +526,17 @@ class PaymentService:
         if amount_to_reopen > current_allocated_total:
             raise ValidationError("Refund exceeds current recoverable credit on the billing account")
 
+        allocation_reversals = data.allocation_reversals
+        if data.invoice_reversals is not None:
+            allocation_reversals = await self._build_invoice_refund_reversal_requests(
+                billing_account_id=billing_account_id,
+                amount_to_reopen=amount_to_reopen,
+                invoice_reversals=data.invoice_reversals,
+            )
         allocation_reversals = await self._build_refund_allocation_impacts(
             billing_account_id=billing_account_id,
             amount_to_reopen=amount_to_reopen,
-            manual_reversals=data.allocation_reversals,
+            manual_reversals=allocation_reversals,
         )
         payment_sources = await self._build_refund_payment_sources(
             billing_account_id=billing_account_id,
@@ -611,6 +619,7 @@ class PaymentService:
                 amount=requested_amount,
                 refund_date=data.refund_date,
                 allocation_reversals=data.allocation_reversals,
+                invoice_reversals=data.invoice_reversals,
             ),
         )
 
@@ -656,6 +665,16 @@ class PaymentService:
                 )
             )
 
+        resolved_manual_reversals = None
+        if data.allocation_reversals is not None or data.invoice_reversals is not None:
+            resolved_manual_reversals = [
+                RefundAllocationReversalRequest(
+                    allocation_id=impact.allocation_id,
+                    amount=impact.reversal_amount,
+                )
+                for impact in preview.allocation_reversals
+            ]
+
         released_amount = Decimal("0.00")
         if preview.amount_to_reopen > 0:
             released_amount = await self._release_account_allocations_for_refund(
@@ -666,7 +685,7 @@ class PaymentService:
                     f"Refund {refund.refund_number or refund.id}"
                     f" ({requested_amount})"
                 ),
-                manual_reversals=data.allocation_reversals,
+                manual_reversals=resolved_manual_reversals,
                 refund_id=refund.id,
                 effective_at=self._dated_event_datetime(data.refund_date),
             )
@@ -1870,6 +1889,61 @@ class PaymentService:
                 raise ValidationError("Selected reversal exceeds current allocation amount")
             impacts.append(self._allocation_impact(allocation, reversal_amount))
         return impacts
+
+    async def _build_invoice_refund_reversal_requests(
+        self,
+        *,
+        billing_account_id: int,
+        amount_to_reopen: Decimal,
+        invoice_reversals: list[RefundInvoiceReversalRequest],
+    ) -> list[RefundAllocationReversalRequest]:
+        if not invoice_reversals:
+            raise ValidationError("Invoice reversals are required for this refund amount")
+
+        reversal_by_invoice: dict[int, Decimal] = {}
+        for item in invoice_reversals:
+            reversal_by_invoice[item.invoice_id] = round_money(
+                reversal_by_invoice.get(item.invoice_id, Decimal("0.00")) + item.amount
+            )
+        requested_total = round_money(sum(reversal_by_invoice.values(), Decimal("0.00")))
+        if requested_total != amount_to_reopen:
+            raise ValidationError(f"Invoice reversal total must equal {amount_to_reopen}")
+
+        result = await self.db.execute(
+            select(CreditAllocation)
+            .where(
+                CreditAllocation.billing_account_id == billing_account_id,
+                CreditAllocation.invoice_id.in_(list(reversal_by_invoice)),
+                CreditAllocation.amount > 0,
+            )
+            .options(selectinload(CreditAllocation.invoice).selectinload(Invoice.student))
+            .order_by(CreditAllocation.invoice_id, CreditAllocation.created_at.desc(), CreditAllocation.id.desc())
+        )
+        allocations_by_invoice: dict[int, list[CreditAllocation]] = defaultdict(list)
+        for allocation in result.scalars().unique().all():
+            allocations_by_invoice[allocation.invoice_id].append(allocation)
+
+        requests: list[RefundAllocationReversalRequest] = []
+        for invoice_id, invoice_amount in reversal_by_invoice.items():
+            remaining = round_money(invoice_amount)
+            allocations = allocations_by_invoice.get(invoice_id, [])
+            if not allocations:
+                raise ValidationError("Selected invoice has no refundable allocation")
+            for allocation in allocations:
+                if remaining <= 0:
+                    break
+                reversal_amount = min(remaining, round_money(allocation.amount))
+                requests.append(
+                    RefundAllocationReversalRequest(
+                        allocation_id=allocation.id,
+                        amount=reversal_amount,
+                    )
+                )
+                remaining = round_money(remaining - reversal_amount)
+            if remaining > 0:
+                raise ValidationError("Invoice reversal exceeds refundable invoice allocation")
+
+        return requests
 
     def _allocation_impact(
         self,

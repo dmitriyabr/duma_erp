@@ -134,10 +134,18 @@ class RefundAllocationReversalRequest(BaseSchema):
     amount: Decimal = Field(gt=0)
 
 
+class RefundInvoiceReversalRequest(BaseSchema):
+    """Manual invoice-level refund source override."""
+
+    invoice_id: int
+    amount: Decimal = Field(gt=0)
+
+
 class BillingAccountRefundCreate(PaymentRefundCreate):
     """Schema for creating a billing-account-level refund."""
 
     allocation_reversals: list[RefundAllocationReversalRequest] | None = None
+    invoice_reversals: list[RefundInvoiceReversalRequest] | None = None
 
 
 class BillingAccountRefundPreviewRequest(BaseSchema):
@@ -146,6 +154,7 @@ class BillingAccountRefundPreviewRequest(BaseSchema):
     amount: Decimal = Field(gt=0, description="Refund amount")
     refund_date: date | None = None
     allocation_reversals: list[RefundAllocationReversalRequest] | None = None
+    invoice_reversals: list[RefundInvoiceReversalRequest] | None = None
 
 
 class RefundAllocationImpact(BaseSchema):

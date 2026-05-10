@@ -536,17 +536,32 @@ export const BillingAccountDetailPage = () => {
       return sum + (Number.isFinite(amount) && amount > 0 ? amount : 0)
     }, 0)
 
+  const getWithdrawRefundInvoiceOptions = () => {
+    const selectedStudentSet = new Set(withdrawStudentIds)
+    const grouped = new Map<number, RefundAllocationOption & { refundable_amount: number }>()
+    ;(refundAllocationOptionsApi.data ?? [])
+      .filter((option) => selectedStudentSet.has(option.student_id))
+      .forEach((option) => {
+        const current = grouped.get(option.invoice_id)
+        if (current) {
+          current.refundable_amount += Number(option.current_allocation_amount)
+        } else {
+          grouped.set(option.invoice_id, {
+            ...option,
+            refundable_amount: Number(option.current_allocation_amount),
+          })
+        }
+      })
+    return Array.from(grouped.values())
+  }
+
   const getWithdrawRefundReopenByInvoice = (
     reversals: Record<number, string> = withdrawManualReversals
   ) => {
-    const optionsByAllocation = new Map(
-      (refundAllocationOptionsApi.data ?? []).map((option) => [option.allocation_id, option])
-    )
-    return Object.entries(reversals).reduce<Record<number, number>>((acc, [allocationId, value]) => {
+    return Object.entries(reversals).reduce<Record<number, number>>((acc, [invoiceId, value]) => {
       const amount = Number(value)
-      const option = optionsByAllocation.get(Number(allocationId))
-      if (!option || !Number.isFinite(amount) || amount <= 0) return acc
-      acc[option.invoice_id] = (acc[option.invoice_id] ?? 0) + amount
+      if (!Number.isFinite(amount) || amount <= 0) return acc
+      acc[Number(invoiceId)] = amount
       return acc
     }, {})
   }
@@ -556,10 +571,10 @@ export const BillingAccountDetailPage = () => {
     reopenByInvoice: Record<number, number> = getWithdrawRefundReopenByInvoice()
   ) => Number(invoice.amount_due) + Number(reopenByInvoice[invoice.id] ?? 0)
 
-  const buildWithdrawManualAllocationReversals = () =>
+  const buildWithdrawInvoiceReversals = () =>
     Object.entries(withdrawManualReversals)
-      .map(([allocationId, amountValue]) => ({
-        allocation_id: Number(allocationId),
+      .map(([invoiceId, amountValue]) => ({
+        invoice_id: Number(invoiceId),
         amount: Number(amountValue),
       }))
       .filter((item) => Number.isFinite(item.amount) && item.amount > 0)
@@ -589,20 +604,17 @@ export const BillingAccountDetailPage = () => {
       const selectedTotal = getWithdrawManualReversalTotal()
       const selectedTotalCents = Math.round(selectedTotal * 100)
       const amountToReopenCents = Math.round(amountToReopen * 100)
-      const selectedStudentSet = new Set(withdrawStudentIds)
-      const optionsById = new Map(
-        (refundAllocationOptionsApi.data ?? [])
-          .filter((option) => selectedStudentSet.has(option.student_id))
-          .map((option) => [option.allocation_id, option])
+      const optionsByInvoice = new Map(
+        getWithdrawRefundInvoiceOptions().map((option) => [option.invoice_id, option])
       )
-      const hasInvalidAmount = buildWithdrawManualAllocationReversals().some((item) => {
-        const option = optionsById.get(item.allocation_id)
-        return !option || Math.round(item.amount * 100) > Math.round(option.current_allocation_amount * 100)
+      const hasInvalidAmount = buildWithdrawInvoiceReversals().some((item) => {
+        const option = optionsByInvoice.get(item.invoice_id)
+        return !option || Math.round(item.amount * 100) > Math.round(option.refundable_amount * 100)
       })
       if (hasInvalidAmount) {
-        nextErrors.refund_allocations = 'Selected reversal exceeds the current invoice allocation.'
+        nextErrors.refund_allocations = 'Selected refund exceeds the refundable amount for an invoice.'
       } else if (amountToReopenCents > 0 && selectedTotalCents !== amountToReopenCents) {
-        nextErrors.refund_allocations = `Manual reversals must total ${formatMoney(amountToReopen)}.`
+        nextErrors.refund_allocations = `Refund from invoices must total ${formatMoney(amountToReopen)}.`
       }
     }
     const reopenByInvoice = getWithdrawRefundReopenByInvoice()
@@ -659,7 +671,7 @@ export const BillingAccountDetailPage = () => {
               proof_text: withdrawForm.proof_text.trim() || null,
               reason: withdrawForm.refund_reason.trim() || withdrawForm.reason.trim(),
               notes: withdrawForm.refund_notes.trim() || null,
-              allocation_reversals: buildWithdrawManualAllocationReversals(),
+              invoice_reversals: buildWithdrawInvoiceReversals(),
             },
           }
         : {}),
@@ -1896,7 +1908,7 @@ export const BillingAccountDetailPage = () => {
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <Typography variant="body2" className="font-semibold">
-                      Refund allocation reversals
+                      Refund from invoices
                     </Typography>
                     <Typography variant="body2" color="secondary">
                       Amount to reopen: {formatMoney(getWithdrawRefundAmountToReopen())} · Selected: {formatMoney(getWithdrawManualReversalTotal())}
@@ -1908,27 +1920,29 @@ export const BillingAccountDetailPage = () => {
                         <TableRow>
                           <TableHeaderCell>Invoice</TableHeaderCell>
                           <TableHeaderCell>Student</TableHeaderCell>
-                          <TableHeaderCell align="right">Allocated</TableHeaderCell>
-                          <TableHeaderCell align="right">Reverse</TableHeaderCell>
+                          <TableHeaderCell align="right">Refundable</TableHeaderCell>
+                          <TableHeaderCell align="right">Refund from invoice</TableHeaderCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {(refundAllocationOptionsApi.data ?? [])
-                          .filter((option) => withdrawStudentIds.includes(option.student_id))
+                        {getWithdrawRefundInvoiceOptions()
                           .map((option) => (
-                            <TableRow key={option.allocation_id}>
+                            <TableRow key={option.invoice_id}>
                               <TableCell>
                                 <div className="font-medium">{option.invoice_number}</div>
-                                <div className="text-xs text-slate-500">{formatInvoiceTypeLabel(option.invoice_type)}</div>
+                                <div className="text-xs text-slate-500">
+                                  {formatInvoiceTypeLabel(option.invoice_type)}
+                                  {option.due_date ? ` · due ${formatDate(option.due_date)}` : ''}
+                                </div>
                               </TableCell>
                               <TableCell>{option.student_name ?? `Student #${option.student_id}`}</TableCell>
-                              <TableCell align="right">{formatMoney(option.current_allocation_amount)}</TableCell>
+                              <TableCell align="right">{formatMoney(option.refundable_amount)}</TableCell>
                               <TableCell align="right">
                                 <Input
                                   type="number"
                                   min="0"
                                   step="0.01"
-                                  value={withdrawManualReversals[option.allocation_id] ?? ''}
+                                  value={withdrawManualReversals[option.invoice_id] ?? ''}
                                   containerClassName="min-w-32"
                                   onChange={(event) => {
                                     const nextValue = event.target.value
@@ -1941,7 +1955,7 @@ export const BillingAccountDetailPage = () => {
                                     setWithdrawManualReversals((current) => {
                                       const next = {
                                         ...current,
-                                        [option.allocation_id]: nextValue,
+                                        [option.invoice_id]: nextValue,
                                       }
                                       const reopenByInvoice = getWithdrawRefundReopenByInvoice(next)
                                       const invoice = invoices.find((item) => item.id === option.invoice_id)

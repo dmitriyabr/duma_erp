@@ -221,8 +221,8 @@ async def test_withdrawal_settlement_can_refund_and_write_off_reopened_invoice(
                 "refund_method": "bank_transfer",
                 "reference_number": "WDR-REFUND",
                 "reason": "Withdrawal refund",
-                "allocation_reversals": [
-                    {"allocation_id": allocation.id, "amount": "2000.00"}
+                "invoice_reversals": [
+                    {"invoice_id": data["invoice_two"].id, "amount": "2000.00"}
                 ],
             },
             "invoice_actions": [
@@ -390,12 +390,6 @@ async def test_billing_account_withdrawal_refund_reopened_amount_can_be_written_
         received_by_id=user_id,
     )
     await service.complete_payment(payment.id, user_id)
-    allocation = (
-        await db_session.execute(
-            select(CreditAllocation).where(CreditAllocation.invoice_id == data["invoice_two"].id)
-        )
-    ).scalar_one()
-
     response = await client.post(
         f"/api/v1/billing-accounts/{data['student'].billing_account_id}/withdrawal-settlements",
         headers={"Authorization": f"Bearer {token}"},
@@ -411,8 +405,8 @@ async def test_billing_account_withdrawal_refund_reopened_amount_can_be_written_
                 "refund_method": "bank_transfer",
                 "reference_number": "WDR-ACCOUNT-RFND",
                 "reason": "Withdrawal refund",
-                "allocation_reversals": [
-                    {"allocation_id": allocation.id, "amount": "2000.00"}
+                "invoice_reversals": [
+                    {"invoice_id": data["invoice_two"].id, "amount": "2000.00"}
                 ],
             },
             "invoice_actions": [
