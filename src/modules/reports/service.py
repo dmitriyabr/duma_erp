@@ -1,11 +1,11 @@
 """Service for reports (Admin/SuperAdmin)."""
 
+from calendar import monthrange
+from collections import defaultdict
 from datetime import date
 from decimal import Decimal
-from collections import defaultdict
-from calendar import monthrange
 
-from sqlalchemy import case, cast, select, func
+from sqlalchemy import and_, case, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.types import Date as SqlDate
@@ -28,8 +28,8 @@ from src.modules.compensations.models import (
     PayoutAllocation,
 )
 from src.modules.discounts.models import Discount, DiscountReason
+from src.modules.inventory.models import Issuance, MovementType, Stock, StockMovement
 from src.modules.invoices.models import Invoice, InvoiceAdjustment, InvoiceLine, InvoiceStatus
-from src.modules.inventory.models import Issuance, Stock, StockMovement
 from src.modules.items.models import Category, Item, Kit
 from src.modules.payments.models import (
     CreditAllocation,
@@ -49,8 +49,8 @@ from src.modules.payments.reporting import (
     get_student_refund_totals_by_method,
 )
 from src.modules.procurement.models import (
-    GoodsReceivedNote,
     GoodsReceivedLine,
+    GoodsReceivedNote,
     GoodsReceivedStatus,
     PaymentPurpose,
     ProcurementPayment,
@@ -59,38 +59,37 @@ from src.modules.procurement.models import (
     PurchaseOrderLine,
     PurchaseOrderStatus,
 )
-from src.modules.students.models import Grade, Student, StudentStatus
-from src.modules.terms.models import Term
-from src.shared.utils.money import round_money
-
 from src.modules.reports.schemas import (
     AgedReceivablesRow,
     AgedReceivablesSummary,
-    ProfitLossBasis,
-    StudentFeesRow,
-    StudentFeesSummary,
-    ProfitLossRevenueLine,
-    ProfitLossExpenseLine,
-    CashFlowInflowLine,
-    CashFlowOutflowLine,
     BalanceSheetAssetLine,
     BalanceSheetLiabilityLine,
+    CashFlowInflowLine,
+    CashFlowOutflowLine,
     CollectionRateMonthRow,
-    DiscountAnalysisRow,
-    DiscountAnalysisSummary,
-    TopDebtorRow,
-    ProcurementSummaryRow,
-    ProcurementSummaryOutstanding,
-    InventoryValuationRow,
-    LowStockAlertRow,
-    StockMovementRow,
     CompensationSummaryRow,
     CompensationSummaryTotals,
+    DiscountAnalysisRow,
+    DiscountAnalysisSummary,
     ExpenseClaimsByCategoryRow,
-    RevenueTrendRow,
+    InventoryValuationRow,
+    LowStockAlertRow,
     PaymentMethodDistributionRow,
+    ProcurementSummaryOutstanding,
+    ProcurementSummaryRow,
+    ProfitLossBasis,
+    ProfitLossExpenseLine,
+    ProfitLossRevenueLine,
+    RevenueTrendRow,
+    StockMovementRow,
+    StudentFeesRow,
+    StudentFeesSummary,
     TermComparisonMetric,
+    TopDebtorRow,
 )
+from src.modules.students.models import Grade, Student, StudentStatus
+from src.modules.terms.models import Term
+from src.shared.utils.money import round_money
 
 
 def _months_in_range(date_from: date, date_to: date) -> list[str]:
@@ -1559,8 +1558,51 @@ class ReportsService:
         )
         employee_advances = round_money(Decimal(str((await self.db.execute(employee_advances_q)).scalar() or 0)))
         total_assets = round_money(cash + receivables + inventory + employee_advances)
-        # Accounts Payable (Supplier Debts) as at date: received value (from GRNs approved by date) minus payments by date, per PO.
-        grn_value_q = (
+        # Accounts Payable (Supplier Debts) as at date.
+        #
+        # Warehouse-tracked GRNs are valued from dated stock movements so approved
+        # GRN edits affect reports on the correction date, not retroactively on
+        # the original approval date. Non-warehouse GRNs have no stock movement,
+        # so they continue to use approved GRN lines.
+        tracked_movement_value_q = (
+            select(
+                GoodsReceivedNote.po_id,
+                func.coalesce(
+                    func.sum(StockMovement.quantity * StockMovement.unit_cost),
+                    0,
+                ).label("received"),
+            )
+            .select_from(StockMovement)
+            .join(
+                GoodsReceivedNote,
+                StockMovement.reference_id == GoodsReceivedNote.id,
+            )
+            .join(PurchaseOrder, PurchaseOrder.id == GoodsReceivedNote.po_id)
+            .where(PurchaseOrder.track_to_warehouse.is_(True))
+            .where(cast(StockMovement.created_at, SqlDate) <= as_at_date)
+            .where(StockMovement.unit_cost.is_not(None))
+            .where(
+                or_(
+                    and_(
+                        StockMovement.movement_type == MovementType.RECEIPT.value,
+                        StockMovement.reference_type.in_(
+                            ["grn", "grn_edit", "grn_rollback"]
+                        ),
+                    ),
+                    and_(
+                        StockMovement.movement_type == MovementType.ADJUSTMENT.value,
+                        StockMovement.reference_type == "grn_edit",
+                    ),
+                )
+            )
+            .group_by(GoodsReceivedNote.po_id)
+        )
+        tracked_rows = (await self.db.execute(tracked_movement_value_q)).all()
+        received_by_po: dict[int, Decimal] = {
+            r[0]: round_money(Decimal(str(r[1] or 0))) for r in tracked_rows
+        }
+
+        untracked_grn_value_q = (
             select(
                 GoodsReceivedNote.po_id,
                 func.coalesce(
@@ -1571,12 +1613,18 @@ class ReportsService:
             .select_from(GoodsReceivedNote)
             .join(GoodsReceivedLine, GoodsReceivedLine.grn_id == GoodsReceivedNote.id)
             .join(PurchaseOrderLine, PurchaseOrderLine.id == GoodsReceivedLine.po_line_id)
+            .join(PurchaseOrder, PurchaseOrder.id == GoodsReceivedNote.po_id)
+            .where(PurchaseOrder.track_to_warehouse.is_(False))
             .where(GoodsReceivedNote.status == GoodsReceivedStatus.APPROVED.value)
             .where(cast(GoodsReceivedNote.approved_at, SqlDate) <= as_at_date)
             .group_by(GoodsReceivedNote.po_id)
         )
-        grn_rows = (await self.db.execute(grn_value_q)).all()
-        received_by_po: dict[int, Decimal] = {r[0]: round_money(Decimal(str(r[1] or 0))) for r in grn_rows}
+        untracked_rows = (await self.db.execute(untracked_grn_value_q)).all()
+        for po_id, received in untracked_rows:
+            received_by_po[po_id] = round_money(
+                received_by_po.get(po_id, Decimal("0"))
+                + Decimal(str(received or 0))
+            )
         pay_supp_q = (
             select(
                 ProcurementPayment.po_id,
@@ -1717,12 +1765,12 @@ class ReportsService:
         """
         data = await self._balance_sheet_as_at(as_at_date)
         asset_lines = [
-            BalanceSheetAssetLine(label=l, amount=a)
-            for l, a in data["asset_lines"]
+            BalanceSheetAssetLine(label=label, amount=amount)
+            for label, amount in data["asset_lines"]
         ]
         liability_lines = [
-            BalanceSheetLiabilityLine(label=l, amount=a)
-            for l, a in data["liability_lines"]
+            BalanceSheetLiabilityLine(label=label, amount=amount)
+            for label, amount in data["liability_lines"]
         ]
         debt_to_asset_percent = (
             round(float(data["total_liabilities"] / data["total_assets"] * 100), 2)
@@ -1767,10 +1815,10 @@ class ReportsService:
                 debt_to_asset_monthly[mo] = round(float(tl / ta * 100), 2)
             if tl and tl > 0:
                 current_ratio_monthly[mo] = round(float(ta / tl), 2)
-            for l, a in month_data["asset_lines"]:
-                asset_by_label[l][mo] = a
-            for l, a in month_data["liability_lines"]:
-                liability_by_label[l][mo] = a
+            for label, amount in month_data["asset_lines"]:
+                asset_by_label[label][mo] = amount
+            for label, amount in month_data["liability_lines"]:
+                liability_by_label[label][mo] = amount
         for line in asset_lines:
             line.monthly = dict(asset_by_label.get(line.label, {}))
         for line in liability_lines:
@@ -2329,8 +2377,10 @@ class ReportsService:
         raw = result.all()
 
         # Resolve ref_display: load GRN and Issuance numbers for reference_id
-        grn_ids = [r[7] for r in raw if r[6] == "grn" and r[7]]
-        iss_ids = [r[7] for r in raw if r[6] == "issuance" and r[7]]
+        grn_ref_types = {"grn", "grn_edit", "grn_rollback"}
+        issuance_ref_types = {"issuance", "issuance_cancellation"}
+        grn_ids = [r[8] for r in raw if r[7] in grn_ref_types and r[8]]
+        iss_ids = [r[8] for r in raw if r[7] in issuance_ref_types and r[8]]
         grn_map = {}
         if grn_ids:
             grn_res = await self.db.execute(
@@ -2363,9 +2413,9 @@ class ReportsService:
             mov_id, created_at, mtype, item_id, item_name, qty, qty_after, ref_type, ref_id, created_by_id = r
             ref_display = None
             if ref_type and ref_id:
-                if ref_type == "grn":
+                if ref_type in grn_ref_types:
                     ref_display = grn_map.get(ref_id)
-                elif ref_type == "issuance":
+                elif ref_type in issuance_ref_types:
                     ref_display = iss_map.get(ref_id)
                 if not ref_display:
                     ref_display = f"{ref_type or 'n/a'}#{ref_id}"

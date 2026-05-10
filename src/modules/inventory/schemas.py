@@ -1,13 +1,12 @@
 """Schemas for Inventory module."""
 
 from datetime import datetime
-from enum import StrEnum
 from decimal import Decimal
+from enum import StrEnum
 
 from pydantic import BaseModel, Field, model_validator
 
 from src.modules.inventory.models import RecipientType
-
 
 # --- Stock Schemas ---
 
@@ -62,6 +61,12 @@ class AdjustStockRequest(BaseModel):
 
     item_id: int
     quantity: int = Field(..., description="Adjustment quantity (positive to add, negative to remove)")
+    unit_cost: Decimal | None = Field(
+        None,
+        ge=0,
+        decimal_places=2,
+        description="Optional valuation cost for financial/reporting corrections",
+    )
     reason: str = Field(..., min_length=1, description="Reason for adjustment")
     reference_type: str | None = Field(None, max_length=50)
     reference_id: int | None = None

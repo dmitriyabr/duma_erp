@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.core.audit.service import AuditService
+from src.core.auth.models import User
 from src.core.documents.number_generator import DocumentNumberGenerator
 from src.core.exceptions import NotFoundError, ValidationError
 from src.modules.inventory.models import (
@@ -24,12 +25,11 @@ from src.modules.inventory.models import (
 from src.modules.inventory.schemas import (
     AdjustStockRequest,
     InternalIssuanceCreate,
+    InventoryCountItem,
     IssueStockRequest,
     ReceiveStockRequest,
     WriteOffItem,
-    InventoryCountItem,
 )
-from src.core.auth.models import User
 from src.modules.items.models import Category, Item, ItemType, ItemVariantMembership, Kit, KitItem
 from src.modules.procurement.models import PurchaseOrder, PurchaseOrderLine, PurchaseOrderStatus
 from src.modules.reservations.models import Reservation, ReservationItem, ReservationStatus
@@ -497,6 +497,7 @@ class InventoryService:
         movement = await self._apply_adjustment(
             item_id=data.item_id,
             quantity_delta=data.quantity,
+            unit_cost=data.unit_cost,
             reason=data.reason,
             reference_type=data.reference_type,
             reference_id=data.reference_id,
@@ -521,6 +522,7 @@ class InventoryService:
             movement = await self._apply_adjustment(
                 item_id=item.item_id,
                 quantity_delta=-item.quantity,
+                unit_cost=None,
                 reason=reason_detail,
                 reference_type="writeoff",
                 reference_id=None,
@@ -545,6 +547,7 @@ class InventoryService:
             movement = await self._apply_adjustment(
                 item_id=item.item_id,
                 quantity_delta=delta,
+                unit_cost=None,
                 reason=f"Inventory count: actual {item.actual_quantity}",
                 reference_type="inventory_count",
                 reference_id=None,
@@ -560,6 +563,7 @@ class InventoryService:
         self,
         item_id: int,
         quantity_delta: int,
+        unit_cost: Decimal | None,
         reason: str,
         reference_type: str | None,
         reference_id: int | None,
@@ -584,7 +588,7 @@ class InventoryService:
             item_id=item_id,
             movement_type=MovementType.ADJUSTMENT.value,
             quantity=quantity_delta,
-            unit_cost=None,
+            unit_cost=unit_cost,
             quantity_before=quantity_before,
             quantity_after=new_quantity,
             average_cost_before=stock.average_cost,
@@ -1162,6 +1166,7 @@ class InventoryService:
                 await self._apply_adjustment(
                     item_id=stock.item_id,
                     quantity_delta=-stock.quantity_on_hand,
+                    unit_cost=None,
                     reason="Bulk overwrite: zero stock",
                     reference_type="bulk_upload",
                     reference_id=None,
@@ -1234,6 +1239,7 @@ class InventoryService:
                 await self._apply_adjustment(
                     item_id=item.id,
                     quantity_delta=delta,
+                    unit_cost=None,
                     reason="Bulk upload from CSV",
                     reference_type="bulk_upload",
                     reference_id=None,

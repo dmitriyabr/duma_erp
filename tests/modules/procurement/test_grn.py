@@ -269,6 +269,18 @@ class TestGoodsReceivedEndpoints:
         assert correction_receipt.quantity == 2
         assert correction_adjustment is not None
         assert correction_adjustment.quantity == -2
+        assert correction_adjustment.unit_cost == 25
+
+        balance_sheet = await client.get(
+            "/api/v1/reports/balance-sheet?as_at_date=2099-01-01",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert balance_sheet.status_code == 200
+        liabilities = {
+            row["label"]: row["amount"]
+            for row in balance_sheet.json()["data"]["liability_lines"]
+        }
+        assert liabilities["Accounts Payable (Supplier Debts)"] == "105.00"
 
     async def test_superadmin_can_rollback_po_receiving(
         self, client: AsyncClient, db_session: AsyncSession

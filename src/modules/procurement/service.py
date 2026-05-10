@@ -918,6 +918,7 @@ class GoodsReceivedService:
                     data=AdjustStockRequest(
                         item_id=po_line.item_id,
                         quantity=delta,
+                        unit_cost=po_line.unit_price,
                         reason=f"Edit GRN {grn.grn_number}: {reason}",
                         reference_type="grn_edit",
                         reference_id=grn.id,
