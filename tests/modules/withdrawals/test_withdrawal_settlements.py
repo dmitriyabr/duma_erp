@@ -528,6 +528,73 @@ async def test_withdrawal_settlement_can_refund_and_write_off_reopened_invoice(
     assert invoice_two.amount_due == Decimal("0.00")
 
 
+async def test_withdrawal_preview_uses_selected_refund_invoice_reversals(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    token, user_id, data = await _setup_student_with_invoices(db_session)
+    service = PaymentService(db_session)
+    first_payment = await service.create_payment(
+        PaymentCreate(
+            student_id=data["student"].id,
+            preferred_invoice_id=data["invoice_one"].id,
+            amount=Decimal("3000.00"),
+            payment_method=PaymentMethod.MPESA,
+            payment_date=date.today(),
+            reference="WDR-REV-ONE",
+        ),
+        received_by_id=user_id,
+    )
+    await service.complete_payment(first_payment.id, user_id)
+    second_payment = await service.create_payment(
+        PaymentCreate(
+            student_id=data["student"].id,
+            preferred_invoice_id=data["invoice_two"].id,
+            amount=Decimal("5000.00"),
+            payment_method=PaymentMethod.MPESA,
+            payment_date=date.today(),
+            reference="WDR-REV-TWO",
+        ),
+        received_by_id=user_id,
+    )
+    await service.complete_payment(second_payment.id, user_id)
+
+    response = await client.post(
+        f"/api/v1/students/{data['student'].id}/withdrawal-settlements/preview",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "settlement_date": str(date.today()),
+            "reason": "Refund from selected invoice",
+            "retained_amount": "0.00",
+            "deduction_amount": "0.00",
+            "refund": {
+                "amount": "1000.00",
+                "refund_date": str(date.today()),
+                "refund_method": "bank_transfer",
+                "reference_number": "WDR-REV-SEL",
+                "reason": "Selected invoice refund",
+                "invoice_reversals": [
+                    {"invoice_id": data["invoice_one"].id, "amount": "1000.00"}
+                ],
+            },
+            "invoice_actions": [
+                {
+                    "invoice_id": data["invoice_one"].id,
+                    "action": "write_off",
+                    "amount": "1000.00",
+                    "notes": "Write off selected reopened invoice",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    preview = response.json()["data"]
+    assert preview["refund_preview"]["allocation_reversals"][0]["invoice_id"] == data["invoice_one"].id
+    assert preview["invoice_impacts"][0]["invoice_id"] == data["invoice_one"].id
+    assert Decimal(preview["invoice_impacts"][0]["amount_due_after"]) == Decimal("0.00")
+
+
 async def test_billing_account_withdrawal_settlement_deactivates_multiple_students(
     client: AsyncClient,
     db_session: AsyncSession,

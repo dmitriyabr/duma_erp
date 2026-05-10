@@ -94,6 +94,7 @@ class WithdrawalSettlementService:
                     amount=refund_amount,
                     refund_date=data.refund.refund_date,
                     allocation_reversals=data.refund.allocation_reversals,
+                    invoice_reversals=data.refund.invoice_reversals,
                 ),
             )
             for impact in refund_preview.allocation_reversals:
