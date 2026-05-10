@@ -57,6 +57,12 @@ class ReservationCancelRequest(BaseModel):
     reason: str | None = Field(None, max_length=500)
 
 
+class ReservationCloseRequest(BaseModel):
+    """Close outstanding reservation demand without reversing issued items."""
+
+    reason: str | None = Field(None, max_length=500)
+
+
 class ReservationConfigureComponentsAllocation(BaseModel):
     item_id: int
     quantity: int = Field(..., ge=1)

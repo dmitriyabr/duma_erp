@@ -9,6 +9,7 @@ from src.core.database.session import get_db
 from src.modules.reservations.models import ReservationStatus
 from src.modules.reservations.schemas import (
     ReservationCancelRequest,
+    ReservationCloseRequest,
     ReservationConfigureComponentsRequest,
     ReservationIssueRequest,
     ReservationItemResponse,
@@ -51,6 +52,7 @@ def _map_reservation(reservation) -> ReservationResponse:
 @router.get("", response_model=ApiResponse[PaginatedResponse[ReservationResponse]])
 async def list_reservations(
     student_id: int | None = Query(None),
+    billing_account_id: int | None = Query(None),
     invoice_id: int | None = Query(None),
     status: ReservationStatus | None = Query(None),
     page: int = Query(1, ge=1),
@@ -65,6 +67,7 @@ async def list_reservations(
     service = ReservationService(db)
     reservations, total = await service.list_reservations(
         student_id=student_id,
+        billing_account_id=billing_account_id,
         invoice_id=invoice_id,
         status=status,
         page=page,
@@ -136,6 +139,28 @@ async def cancel_reservation(
     reservation = await service.cancel_reservation(
         reservation_id=reservation_id,
         cancelled_by_id=current_user.id,
+        reason=payload.reason,
+        commit=True,
+    )
+    return ApiResponse(success=True, data=_map_reservation(reservation))
+
+
+@router.post(
+    "/{reservation_id}/close",
+    response_model=ApiResponse[ReservationResponse],
+)
+async def close_reservation(
+    reservation_id: int,
+    payload: ReservationCloseRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+    ),
+):
+    service = ReservationService(db)
+    reservation = await service.close_reservation(
+        reservation_id=reservation_id,
+        closed_by_id=current_user.id,
         reason=payload.reason,
         commit=True,
     )

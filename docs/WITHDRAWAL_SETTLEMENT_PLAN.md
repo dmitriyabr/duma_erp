@@ -388,9 +388,13 @@ Recommended layout:
    - write-off amount.
 4. Refund allocation selector:
    - reuse account refund manual allocation UI.
-5. Proof/reason/notes.
-6. Preview.
-7. Confirm and deactivate.
+5. Reservation actions:
+   - `pending` reservations can be cancelled when no items were issued;
+   - `partial` reservations should be closed as-is when the issued items stay with the family;
+   - closing a reservation stops the remaining demand without reversing completed issuances or returning stock.
+6. Proof/reason/notes.
+7. Preview.
+8. Confirm and deactivate.
 
 ### 9.3. UX Rules
 
@@ -399,6 +403,9 @@ Recommended layout:
 - If remaining collectible debt after settlement is non-zero, show it clearly.
 - If refund amount is non-zero, proof/reference should be required.
 - If write-off amount is non-zero, reason should be required.
+- If a cancelled invoice has a partially issued reservation, the settlement must close that reservation first.
+- `Cancel reservation` reverses issued stock and is not the right action when the school keeps already-issued items with the family.
+- `Close reservation` preserves issued quantities, removes outstanding owed quantity, and prevents further issuing.
 
 
 ## 10. Reporting and Accounting
@@ -433,6 +440,7 @@ Retained/deduction amounts:
 
 3. Should issued inventory returns be part of withdrawal?
    - MVP recommendation: no automatic return calculation. Use existing issuance cancellation/return workflow if items are physically returned.
+   - If issued items are not returned, close the reservation in the withdrawal settlement instead of cancelling it.
 
 4. Should `Deactivate` offer settlement automatically when open invoices exist?
    - Recommendation: yes. If open invoices or refundable credit exist, show `Withdraw / Settle` instead of plain deactivation.
@@ -450,6 +458,7 @@ Retained/deduction amounts:
 - Implemented: `withdrawal_settlements`;
 - Implemented: `withdrawal_settlement_students` for family/account withdrawals;
 - Implemented: `withdrawal_settlement_lines`;
+- Implemented: `withdrawal_settlement_reservation_actions`;
 - Implemented: `invoice_adjustments`;
 - Implemented: invoice/line `adjustment_total` / `adjustment_amount`;
 - Implemented: preview/create/list/detail endpoints;
@@ -461,6 +470,7 @@ Retained/deduction amounts:
 - Implemented: invoice action table;
 - Implemented: manual retained/deduction/refund inputs;
 - Implemented: manual refund allocation selector;
+- Implemented: reservation action selector for pending/partial reservations;
 - Implemented: preview and submit;
 - Implemented: settlement history table on student detail.
 - Implemented: `Withdraw family` action and settlement history on billing account detail.

@@ -16,16 +16,20 @@ from src.modules.invoices.models import (
     Invoice,
     InvoiceAdjustment,
     InvoiceAdjustmentType,
+    InvoiceLine,
     InvoiceStatus,
 )
 from src.modules.payments.models import Payment, PaymentStatus
 from src.modules.payments.schemas import BillingAccountRefundPreviewRequest
 from src.modules.payments.service import PaymentService
+from src.modules.reservations.models import Reservation, ReservationItem, ReservationStatus
 from src.modules.reservations.service import ReservationService
 from src.modules.students.models import Student, StudentStatus
 from src.modules.withdrawals.models import (
+    WithdrawalReservationAction,
     WithdrawalSettlement,
     WithdrawalSettlementLine,
+    WithdrawalSettlementReservationAction,
     WithdrawalSettlementLineAction,
     WithdrawalSettlementStudent,
     WithdrawalSettlementStatus,
@@ -35,6 +39,8 @@ from src.modules.withdrawals.schemas import (
     BillingAccountWithdrawalSettlementPreviewRequest,
     WithdrawalInvoiceActionRequest,
     WithdrawalInvoiceImpact,
+    WithdrawalReservationActionRequest,
+    WithdrawalReservationImpact,
     WithdrawalSettlementCreate,
     WithdrawalSettlementPreview,
     WithdrawalSettlementPreviewRequest,
@@ -102,6 +108,17 @@ class WithdrawalSettlementService:
             data.invoice_actions,
             refund_reopened_by_invoice,
         )
+        reservations = await self._load_students_reservations(student_ids)
+        reservation_impacts = self._preview_reservation_actions(
+            reservations,
+            data.reservation_actions,
+            student_ids,
+        )
+        self._validate_cancelled_invoice_reservations(
+            reservations,
+            data.invoice_actions,
+            data.reservation_actions,
+        )
         remaining_debt = round_money(
             current_debt
             + round_money(sum(refund_reopened_by_invoice.values(), Decimal("0.00")))
@@ -129,6 +146,7 @@ class WithdrawalSettlementService:
             refund_amount=refund_amount,
             remaining_collectible_debt_after=remaining_debt,
             invoice_impacts=action_impacts,
+            reservation_impacts=reservation_impacts,
             refund_preview=refund_preview,
             warnings=warnings,
         )
@@ -218,9 +236,16 @@ class WithdrawalSettlementService:
             settlement.refund_id = refund.id
             await self.db.flush()
 
+        await self._apply_reservation_actions(
+            settlement.id,
+            [student.id for student in students],
+            data.reservation_actions,
+            created_by_id,
+            data.reason,
+        )
+
         invoices = await self._load_students_invoices([student.id for student in students])
         invoice_by_id = {invoice.id: invoice for invoice in invoices}
-
         for action in data.invoice_actions:
             self.db.add(
                 WithdrawalSettlementLine(
@@ -312,6 +337,9 @@ class WithdrawalSettlementService:
             ),
             selectinload(WithdrawalSettlement.refund),
             selectinload(WithdrawalSettlement.lines).selectinload(WithdrawalSettlementLine.invoice),
+            selectinload(WithdrawalSettlement.reservation_actions)
+            .selectinload(WithdrawalSettlementReservationAction.reservation)
+            .selectinload(Reservation.invoice),
             selectinload(WithdrawalSettlement.invoice_adjustments).selectinload(
                 InvoiceAdjustment.invoice
             ),
@@ -374,6 +402,22 @@ class WithdrawalSettlementService:
                 selectinload(Invoice.lines),
             )
             .order_by(Invoice.issue_date.desc(), Invoice.id.desc())
+        )
+        return list(result.scalars().unique().all())
+
+    async def _load_students_reservations(self, student_ids: list[int]) -> list[Reservation]:
+        if not student_ids:
+            return []
+        result = await self.db.execute(
+            select(Reservation)
+            .where(Reservation.student_id.in_(student_ids))
+            .options(
+                selectinload(Reservation.student),
+                selectinload(Reservation.invoice),
+                selectinload(Reservation.invoice_line).selectinload(InvoiceLine.kit),
+                selectinload(Reservation.items).selectinload(ReservationItem.item),
+            )
+            .order_by(Reservation.created_at.desc(), Reservation.id.desc())
         )
         return list(result.scalars().unique().all())
 
@@ -466,6 +510,96 @@ class WithdrawalSettlementService:
             return Decimal("0.00")
         return round_money(sum((line.remaining_amount for line in invoice.lines), Decimal("0.00")))
 
+    def _preview_reservation_actions(
+        self,
+        reservations: list[Reservation],
+        actions: list[WithdrawalReservationActionRequest],
+        student_ids: list[int],
+    ) -> list[WithdrawalReservationImpact]:
+        reservation_by_id = {reservation.id: reservation for reservation in reservations}
+        impacts: list[WithdrawalReservationImpact] = []
+        seen: set[int] = set()
+        for action in actions:
+            if action.reservation_id in seen:
+                raise ValidationError("Duplicate reservation action in withdrawal settlement")
+            seen.add(action.reservation_id)
+            reservation = reservation_by_id.get(action.reservation_id)
+            if reservation is None or reservation.student_id not in student_ids:
+                raise ValidationError("Selected reservation does not belong to selected students")
+            if reservation.status in (
+                ReservationStatus.CANCELLED.value,
+                ReservationStatus.CLOSED.value,
+                ReservationStatus.FULFILLED.value,
+            ):
+                raise ValidationError("Selected reservation is already closed")
+
+            required = sum(int(item.quantity_required) for item in reservation.items)
+            issued = sum(int(item.quantity_issued) for item in reservation.items)
+            remaining = max(0, required - issued)
+            if action.action == WithdrawalReservationAction.CANCEL and issued > 0:
+                raise ValidationError("Partially issued reservations must be closed, not cancelled")
+            status_after = (
+                ReservationStatus.CANCELLED.value
+                if action.action == WithdrawalReservationAction.CANCEL
+                else ReservationStatus.CLOSED.value
+            )
+            impacts.append(
+                WithdrawalReservationImpact(
+                    reservation_id=reservation.id,
+                    invoice_id=reservation.invoice_id,
+                    invoice_number=reservation.invoice.invoice_number if reservation.invoice else None,
+                    invoice_line_id=reservation.invoice_line_id,
+                    student_id=reservation.student_id,
+                    student_name=reservation.student.full_name if reservation.student else None,
+                    status_before=reservation.status,
+                    status_after=status_after,
+                    action=action.action.value,
+                    quantity_required=required,
+                    quantity_issued=issued,
+                    quantity_remaining_before=remaining,
+                    quantity_remaining_after=0,
+                    notes=action.notes,
+                )
+            )
+        return impacts
+
+    def _validate_cancelled_invoice_reservations(
+        self,
+        reservations: list[Reservation],
+        invoice_actions: list[WithdrawalInvoiceActionRequest],
+        reservation_actions: list[WithdrawalReservationActionRequest],
+    ) -> None:
+        cancelled_invoice_ids = {
+            int(action.invoice_id)
+            for action in invoice_actions
+            if action.invoice_id is not None
+            and action.action == WithdrawalSettlementLineAction.CANCEL_UNPAID
+        }
+        if not cancelled_invoice_ids:
+            return
+
+        reservation_actions_by_id = {
+            action.reservation_id: action.action for action in reservation_actions
+        }
+        for reservation in reservations:
+            if reservation.invoice_id not in cancelled_invoice_ids:
+                continue
+            if reservation.status in (
+                ReservationStatus.CANCELLED.value,
+                ReservationStatus.CLOSED.value,
+                ReservationStatus.FULFILLED.value,
+            ):
+                continue
+            issued = sum(int(item.quantity_issued) for item in reservation.items)
+            if issued <= 0:
+                continue
+            if reservation_actions_by_id.get(reservation.id) != WithdrawalReservationAction.CLOSE:
+                invoice_number = reservation.invoice.invoice_number if reservation.invoice else reservation.invoice_id
+                raise ValidationError(
+                    "Partially issued reservations must be closed before cancelling invoice "
+                    f"{invoice_number}"
+                )
+
     async def _apply_cancel_unpaid(
         self,
         action: WithdrawalInvoiceActionRequest,
@@ -533,6 +667,53 @@ class WithdrawalSettlementService:
             remaining = round_money(remaining - line_amount)
 
         self._recalculate_invoice_after_adjustment(invoice)
+
+    async def _apply_reservation_actions(
+        self,
+        settlement_id: int,
+        student_ids: list[int],
+        actions: list[WithdrawalReservationActionRequest],
+        user_id: int,
+        reason: str,
+    ) -> None:
+        if not actions:
+            return
+
+        reservations = await self._load_students_reservations(student_ids)
+        impacts = self._preview_reservation_actions(reservations, actions, student_ids)
+        impact_by_reservation_id = {impact.reservation_id: impact for impact in impacts}
+        reservation_service = ReservationService(self.db)
+
+        for action in actions:
+            impact = impact_by_reservation_id[action.reservation_id]
+            notes = (action.notes or "").strip() or reason
+            if action.action == WithdrawalReservationAction.CANCEL:
+                await reservation_service.cancel_reservation(
+                    action.reservation_id,
+                    cancelled_by_id=user_id,
+                    reason=notes,
+                    commit=False,
+                )
+            elif action.action == WithdrawalReservationAction.CLOSE:
+                await reservation_service.close_reservation(
+                    action.reservation_id,
+                    closed_by_id=user_id,
+                    reason=notes,
+                    commit=False,
+                )
+            else:
+                raise ValidationError("Unsupported reservation action")
+
+            self.db.add(
+                WithdrawalSettlementReservationAction(
+                    settlement_id=settlement_id,
+                    reservation_id=action.reservation_id,
+                    action=action.action.value,
+                    status_before=impact.status_before,
+                    status_after=impact.status_after,
+                    notes=(action.notes or "").strip() or None,
+                )
+            )
 
     def _recalculate_invoice_after_adjustment(self, invoice: Invoice) -> None:
         invoice.adjustment_total = round_money(

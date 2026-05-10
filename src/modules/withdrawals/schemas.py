@@ -6,7 +6,7 @@ from decimal import Decimal
 from pydantic import Field, model_validator
 
 from src.modules.payments.schemas import BillingAccountRefundCreate, BillingAccountRefundPreview
-from src.modules.withdrawals.models import WithdrawalSettlementLineAction
+from src.modules.withdrawals.models import WithdrawalReservationAction, WithdrawalSettlementLineAction
 from src.shared.schemas.base import BaseSchema
 
 
@@ -35,6 +35,14 @@ class WithdrawalSettlementRefundRequest(BillingAccountRefundCreate):
     """Optional outgoing refund created as part of a withdrawal settlement."""
 
 
+class WithdrawalReservationActionRequest(BaseSchema):
+    """Manual reservation action for withdrawal inventory demand."""
+
+    reservation_id: int
+    action: WithdrawalReservationAction
+    notes: str | None = None
+
+
 class WithdrawalSettlementBaseRequest(BaseSchema):
     """Common manual settlement payload."""
 
@@ -45,6 +53,7 @@ class WithdrawalSettlementBaseRequest(BaseSchema):
     notes: str | None = None
     proof_attachment_id: int | None = None
     invoice_actions: list[WithdrawalInvoiceActionRequest] = Field(default_factory=list)
+    reservation_actions: list[WithdrawalReservationActionRequest] = Field(default_factory=list)
     refund: WithdrawalSettlementRefundRequest | None = None
 
 
@@ -82,6 +91,25 @@ class WithdrawalInvoiceImpact(BaseSchema):
     amount: Decimal
     amount_due_before: Decimal
     amount_due_after: Decimal
+    notes: str | None = None
+
+
+class WithdrawalReservationImpact(BaseSchema):
+    """Projected or posted reservation impact from a settlement."""
+
+    reservation_id: int
+    invoice_id: int
+    invoice_number: str | None = None
+    invoice_line_id: int
+    student_id: int
+    student_name: str | None = None
+    status_before: str
+    status_after: str
+    action: str
+    quantity_required: int
+    quantity_issued: int
+    quantity_remaining_before: int
+    quantity_remaining_after: int
     notes: str | None = None
 
 
@@ -125,6 +153,22 @@ class WithdrawalSettlementStudentResponse(BaseSchema):
     status_after: str
 
 
+class WithdrawalSettlementReservationActionResponse(BaseSchema):
+    """Posted reservation action."""
+
+    id: int
+    settlement_id: int
+    reservation_id: int
+    invoice_id: int | None = None
+    invoice_number: str | None = None
+    invoice_line_id: int | None = None
+    action: str
+    status_before: str
+    status_after: str
+    notes: str | None = None
+    created_at: datetime
+
+
 class WithdrawalSettlementPreview(BaseSchema):
     """Manual withdrawal settlement preview."""
 
@@ -142,6 +186,7 @@ class WithdrawalSettlementPreview(BaseSchema):
     refund_amount: Decimal
     remaining_collectible_debt_after: Decimal
     invoice_impacts: list[WithdrawalInvoiceImpact]
+    reservation_impacts: list[WithdrawalReservationImpact] = Field(default_factory=list)
     refund_preview: BillingAccountRefundPreview | None = None
     warnings: list[str] = Field(default_factory=list)
 
@@ -173,4 +218,5 @@ class WithdrawalSettlementResponse(BaseSchema):
     created_at: datetime
     updated_at: datetime
     lines: list[WithdrawalSettlementLineResponse] = Field(default_factory=list)
+    reservation_actions: list[WithdrawalSettlementReservationActionResponse] = Field(default_factory=list)
     invoice_adjustments: list[InvoiceAdjustmentResponse] = Field(default_factory=list)

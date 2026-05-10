@@ -14,6 +14,7 @@ from src.modules.withdrawals.schemas import (
     WithdrawalSettlementLineResponse,
     WithdrawalSettlementPreview,
     WithdrawalSettlementPreviewRequest,
+    WithdrawalSettlementReservationActionResponse,
     WithdrawalSettlementResponse,
     WithdrawalSettlementStudentResponse,
 )
@@ -54,6 +55,24 @@ def _invoice_adjustment_to_response(adjustment) -> InvoiceAdjustmentResponse:
     )
 
 
+def _reservation_action_to_response(action) -> WithdrawalSettlementReservationActionResponse:
+    reservation = action.reservation
+    invoice = reservation.invoice if reservation else None
+    return WithdrawalSettlementReservationActionResponse(
+        id=action.id,
+        settlement_id=action.settlement_id,
+        reservation_id=action.reservation_id,
+        invoice_id=reservation.invoice_id if reservation else None,
+        invoice_number=invoice.invoice_number if invoice else None,
+        invoice_line_id=reservation.invoice_line_id if reservation else None,
+        action=action.action,
+        status_before=action.status_before,
+        status_after=action.status_after,
+        notes=action.notes,
+        created_at=action.created_at,
+    )
+
+
 def _settlement_to_response(settlement) -> WithdrawalSettlementResponse:
     return WithdrawalSettlementResponse(
         id=settlement.id,
@@ -88,6 +107,10 @@ def _settlement_to_response(settlement) -> WithdrawalSettlementResponse:
         created_at=settlement.created_at,
         updated_at=settlement.updated_at,
         lines=[_settlement_line_to_response(line) for line in getattr(settlement, "lines", [])],
+        reservation_actions=[
+            _reservation_action_to_response(action)
+            for action in getattr(settlement, "reservation_actions", [])
+        ],
         invoice_adjustments=[
             _invoice_adjustment_to_response(adjustment)
             for adjustment in getattr(settlement, "invoice_adjustments", [])

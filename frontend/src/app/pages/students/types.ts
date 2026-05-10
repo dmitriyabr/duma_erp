@@ -118,6 +118,8 @@ export interface ReservationItem {
 
 export interface ReservationResponse {
   id: number
+  student_id?: number | null
+  student_name?: string | null
   invoice_id?: number | null
   invoice_line_id?: number | null
   status: string

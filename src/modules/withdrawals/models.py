@@ -27,6 +27,13 @@ class WithdrawalSettlementLineAction(StrEnum):
     DEDUCTION = "deduction"
 
 
+class WithdrawalReservationAction(StrEnum):
+    """Inventory demand action applied by a withdrawal settlement."""
+
+    CANCEL = "cancel"
+    CLOSE = "close"
+
+
 class WithdrawalSettlement(Base):
     """Manual accounting document for student or family withdrawal."""
 
@@ -107,6 +114,12 @@ class WithdrawalSettlement(Base):
         back_populates="settlement",
         order_by="InvoiceAdjustment.created_at",
     )
+    reservation_actions: Mapped[list["WithdrawalSettlementReservationAction"]] = relationship(
+        "WithdrawalSettlementReservationAction",
+        back_populates="settlement",
+        cascade="all, delete-orphan",
+        order_by="WithdrawalSettlementReservationAction.id",
+    )
 
 
 class WithdrawalSettlementLine(Base):
@@ -162,9 +175,36 @@ class WithdrawalSettlementStudent(Base):
     student: Mapped["Student"] = relationship("Student")
 
 
+class WithdrawalSettlementReservationAction(Base):
+    """Reservation action recorded by a withdrawal settlement."""
+
+    __tablename__ = "withdrawal_settlement_reservation_actions"
+
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    settlement_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("withdrawal_settlements.id"), nullable=False, index=True
+    )
+    reservation_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("reservations.id"), nullable=False, index=True
+    )
+    action: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    status_before: Mapped[str] = mapped_column(String(20), nullable=False)
+    status_after: Mapped[str] = mapped_column(String(20), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    settlement: Mapped["WithdrawalSettlement"] = relationship(
+        "WithdrawalSettlement", back_populates="reservation_actions"
+    )
+    reservation: Mapped["Reservation"] = relationship("Reservation")
+
+
 from src.core.attachments.models import Attachment
 from src.core.auth.models import User
 from src.modules.billing_accounts.models import BillingAccount
 from src.modules.invoices.models import Invoice, InvoiceAdjustment, InvoiceLine
 from src.modules.payments.models import PaymentRefund
+from src.modules.reservations.models import Reservation
 from src.modules.students.models import Student

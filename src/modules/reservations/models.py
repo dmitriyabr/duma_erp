@@ -1,12 +1,21 @@
 """Reservation models for paid invoice items."""
 
+from __future__ import annotations
+
 from enum import StrEnum
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.database.base import Base, BigIntPK
+
+if TYPE_CHECKING:
+    from src.core.auth.models import User
+    from src.modules.invoices.models import Invoice, InvoiceLine
+    from src.modules.items.models import Item
+    from src.modules.students.models import Student
 
 
 class ReservationStatus(StrEnum):
@@ -16,6 +25,7 @@ class ReservationStatus(StrEnum):
     PARTIAL = "partial"
     FULFILLED = "fulfilled"
     CANCELLED = "cancelled"
+    CLOSED = "closed"
 
 
 class Reservation(Base):

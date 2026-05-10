@@ -78,6 +78,22 @@ interface InvoiceRow {
   due_date?: string | null
 }
 
+interface ReservationRow {
+  id: number
+  student_id: number
+  student_name?: string | null
+  invoice_id: number
+  invoice_line_id: number
+  status: string
+  items: Array<{
+    id: number
+    item_id: number
+    item_name?: string | null
+    quantity_required: number
+    quantity_issued: number
+  }>
+}
+
 interface PaymentRow {
   id: number
   payment_number: string
@@ -220,6 +236,16 @@ interface WithdrawalSettlementPreview {
   refund_amount: number
   remaining_collectible_debt_after: number
   invoice_impacts: WithdrawalInvoiceImpact[]
+  reservation_impacts: Array<{
+    reservation_id: number
+    invoice_number?: string | null
+    action: string
+    status_before: string
+    status_after: string
+    quantity_required: number
+    quantity_issued: number
+    quantity_remaining_after: number
+  }>
   refund_preview?: BillingAccountRefundPreview | null
   warnings: string[]
 }
@@ -292,6 +318,11 @@ export const BillingAccountDetailPage = () => {
     undefined,
     [resolvedId]
   )
+  const reservationsApi = useApi<PaginatedResponse<ReservationRow>>(
+    resolvedId ? `/reservations?billing_account_id=${resolvedId}&limit=1000&page=1` : null,
+    undefined,
+    [resolvedId]
+  )
   const studentsApi = useApi<PaginatedResponse<BillingStudent>>('/students', {
     params: { status: 'active', page: 1, limit: 500 },
   }, [])
@@ -349,6 +380,9 @@ export const BillingAccountDetailPage = () => {
   const [withdrawStudentIds, setWithdrawStudentIds] = useState<number[]>([])
   const [withdrawInvoiceActions, setWithdrawInvoiceActions] = useState<
     Record<number, { action: 'none' | 'cancel_unpaid' | 'write_off' | 'keep_charged'; amount: string; notes: string }>
+  >({})
+  const [withdrawReservationActions, setWithdrawReservationActions] = useState<
+    Record<number, { action: 'none' | 'cancel' | 'close'; notes: string }>
   >({})
   const [withdrawManualReversals, setWithdrawManualReversals] = useState<Record<number, string>>({})
   const [withdrawForm, setWithdrawForm] = useState({
@@ -498,8 +532,22 @@ export const BillingAccountDetailPage = () => {
           notes: '',
         }
       })
+    const nextReservationActions: Record<number, { action: 'none' | 'cancel' | 'close'; notes: string }> = {}
+    ;(reservationsApi.data?.items ?? [])
+      .filter((reservation) => activeIds.includes(reservation.student_id) && reservation.status === 'partial')
+      .forEach((reservation) => {
+        const issued = reservation.items.reduce((sum, item) => sum + Number(item.quantity_issued), 0)
+        const required = reservation.items.reduce((sum, item) => sum + Number(item.quantity_required), 0)
+        if (issued > 0 && required > issued) {
+          nextReservationActions[reservation.id] = {
+            action: 'close',
+            notes: 'Close outstanding demand after family withdrawal',
+          }
+        }
+      })
     setWithdrawStudentIds(activeIds)
     setWithdrawInvoiceActions(nextActions)
+    setWithdrawReservationActions(nextReservationActions)
     setWithdrawManualReversals({})
     setWithdrawPreview(null)
     setWithdrawValidationErrors({})
@@ -521,6 +569,13 @@ export const BillingAccountDetailPage = () => {
 
   const selectedWithdrawInvoiceRows = () =>
     invoices.filter((invoice) => withdrawStudentIds.includes(invoice.student_id))
+
+  const selectedWithdrawReservationRows = () =>
+    (reservationsApi.data?.items ?? []).filter(
+      (reservation) =>
+        withdrawStudentIds.includes(reservation.student_id) &&
+        ['pending', 'partial'].includes(reservation.status)
+    )
 
   const getWithdrawRefundAmount = () => {
     const amount = Number(withdrawForm.refund_amount)
@@ -638,6 +693,17 @@ export const BillingAccountDetailPage = () => {
       nextErrors.invoice_actions =
         'Check invoice actions: cancel only unpaid invoices, and write-off cannot exceed current due plus refund reopening.'
     }
+    const reservationsById = new Map(selectedWithdrawReservationRows().map((reservation) => [reservation.id, reservation]))
+    const invalidReservationAction = Object.entries(withdrawReservationActions).find(([reservationId, action]) => {
+      if (action.action === 'none') return false
+      const reservation = reservationsById.get(Number(reservationId))
+      if (!reservation) return true
+      const issued = reservation.items.reduce((sum, item) => sum + Number(item.quantity_issued), 0)
+      return action.action === 'cancel' && issued > 0
+    })
+    if (invalidReservationAction) {
+      nextErrors.reservation_actions = 'Partially issued reservations must be closed, not cancelled.'
+    }
     setWithdrawValidationErrors(nextErrors)
     return Object.keys(nextErrors).length === 0
   }
@@ -653,6 +719,13 @@ export const BillingAccountDetailPage = () => {
       .filter((action) => action.action !== 'none' && Number.isFinite(action.amount) && action.amount > 0)
 
     const refundAmount = getWithdrawRefundAmount()
+    const reservation_actions = Object.entries(withdrawReservationActions)
+      .map(([reservationId, action]) => ({
+        reservation_id: Number(reservationId),
+        action: action.action,
+        notes: action.notes.trim() || null,
+      }))
+      .filter((action) => action.action !== 'none')
     return {
       student_ids: withdrawStudentIds,
       settlement_date: withdrawForm.settlement_date,
@@ -661,6 +734,7 @@ export const BillingAccountDetailPage = () => {
       deduction_amount: Number(withdrawForm.deduction_amount || 0),
       notes: withdrawForm.notes.trim() || null,
       invoice_actions,
+      reservation_actions,
       ...(refundAmount > 0
         ? {
             refund: {
@@ -708,6 +782,7 @@ export const BillingAccountDetailPage = () => {
       invoicesApi.refetch()
       paymentsApi.refetch()
       refundsApi.refetch()
+      reservationsApi.refetch()
       withdrawalSettlementsApi.refetch()
       if (statement) await loadStatement()
       setSuccessMessage('Family withdrawal settlement posted.')
@@ -1670,6 +1745,7 @@ export const BillingAccountDetailPage = () => {
           <div className="space-y-4 mt-4">
             {(withdrawValidationErrors.students ||
               withdrawValidationErrors.invoice_actions ||
+              withdrawValidationErrors.reservation_actions ||
               withdrawValidationErrors.refund_allocations ||
               withdrawValidationErrors.refund_proof ||
               withdrawalPreviewMutation.error ||
@@ -1677,6 +1753,7 @@ export const BillingAccountDetailPage = () => {
               <Alert severity="error">
                 {withdrawValidationErrors.students ||
                   withdrawValidationErrors.invoice_actions ||
+                  withdrawValidationErrors.reservation_actions ||
                   withdrawValidationErrors.refund_allocations ||
                   withdrawValidationErrors.refund_proof ||
                   withdrawalPreviewMutation.error ||
@@ -1867,6 +1944,72 @@ export const BillingAccountDetailPage = () => {
               </div>
             </div>
 
+            {selectedWithdrawReservationRows().length > 0 && (
+              <div className="space-y-3">
+                <Typography variant="body2" className="font-semibold">Reservation actions</Typography>
+                <div className="overflow-hidden rounded-lg border border-slate-200">
+                  <Table>
+                    <TableHead>
+                      <TableRow>
+                        <TableHeaderCell>Reservation</TableHeaderCell>
+                        <TableHeaderCell>Student</TableHeaderCell>
+                        <TableHeaderCell>Status</TableHeaderCell>
+                        <TableHeaderCell>Items</TableHeaderCell>
+                        <TableHeaderCell>Action</TableHeaderCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {selectedWithdrawReservationRows().map((reservation) => {
+                        const action = withdrawReservationActions[reservation.id] ?? {
+                          action: 'none' as const,
+                          notes: '',
+                        }
+                        const issued = reservation.items.reduce((sum, item) => sum + Number(item.quantity_issued), 0)
+                        return (
+                          <TableRow key={reservation.id}>
+                            <TableCell>
+                              <div className="font-medium">#{reservation.id}</div>
+                              <div className="text-xs text-slate-500">Invoice #{reservation.invoice_id}</div>
+                            </TableCell>
+                            <TableCell>{reservation.student_name ?? `Student #${reservation.student_id}`}</TableCell>
+                            <TableCell>{reservation.status}</TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                {reservation.items.map((item) => (
+                                  <div key={item.id} className="text-sm">
+                                    {item.item_name ?? `Item #${item.item_id}`} · {item.quantity_issued}/{item.quantity_required}
+                                  </div>
+                                ))}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Select
+                                value={action.action}
+                                onChange={(event) => {
+                                  setWithdrawPreview(null)
+                                  setWithdrawReservationActions((current) => ({
+                                    ...current,
+                                    [reservation.id]: {
+                                      ...action,
+                                      action: event.target.value as 'none' | 'cancel' | 'close',
+                                    },
+                                  }))
+                                }}
+                              >
+                                <option value="none">None</option>
+                                {issued === 0 && <option value="cancel">Cancel</option>}
+                                <option value="close">Close as is</option>
+                              </Select>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+
             {getWithdrawRefundAmount() > 0 && (
               <div className="rounded-lg border border-slate-200 p-4 space-y-4">
                 <div className="grid gap-3 md:grid-cols-3">
@@ -2015,6 +2158,35 @@ export const BillingAccountDetailPage = () => {
                 </div>
                 {withdrawPreview.warnings.length > 0 && (
                   <Alert severity="warning">{withdrawPreview.warnings.join(' ')}</Alert>
+                )}
+                {withdrawPreview.reservation_impacts.length > 0 && (
+                  <div className="overflow-hidden rounded-lg border border-slate-200">
+                    <Table>
+                      <TableHead>
+                        <TableRow>
+                          <TableHeaderCell>Reservation</TableHeaderCell>
+                          <TableHeaderCell>Action</TableHeaderCell>
+                          <TableHeaderCell>Status</TableHeaderCell>
+                          <TableHeaderCell align="right">Issued</TableHeaderCell>
+                          <TableHeaderCell align="right">Remaining after</TableHeaderCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {withdrawPreview.reservation_impacts.map((impact) => (
+                          <TableRow key={`${impact.reservation_id}-${impact.action}`}>
+                            <TableCell>
+                              #{impact.reservation_id}
+                              {impact.invoice_number ? ` · ${impact.invoice_number}` : ''}
+                            </TableCell>
+                            <TableCell>{impact.action}</TableCell>
+                            <TableCell>{impact.status_before} → {impact.status_after}</TableCell>
+                            <TableCell align="right">{impact.quantity_issued}/{impact.quantity_required}</TableCell>
+                            <TableCell align="right">{impact.quantity_remaining_after}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 )}
               </div>
             )}

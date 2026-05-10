@@ -59,6 +59,7 @@ class ReservationService:
     async def list_reservations(
         self,
         student_id: int | None = None,
+        billing_account_id: int | None = None,
         invoice_id: int | None = None,
         status: ReservationStatus | None = None,
         page: int = 1,
@@ -76,6 +77,10 @@ class ReservationService:
 
         if student_id is not None:
             query = query.where(Reservation.student_id == student_id)
+        if billing_account_id is not None:
+            query = query.join(Student, Student.id == Reservation.student_id).where(
+                Student.billing_account_id == billing_account_id
+            )
         if invoice_id is not None:
             query = query.where(Reservation.invoice_id == invoice_id)
         if status is not None:
@@ -115,7 +120,10 @@ class ReservationService:
         if invoice.status in (InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value):
             for line in invoice.lines:
                 existing = await self.get_by_invoice_line_id(line.id)
-                if existing and existing.status != ReservationStatus.CANCELLED.value:
+                if existing and existing.status not in (
+                    ReservationStatus.CANCELLED.value,
+                    ReservationStatus.CLOSED.value,
+                ):
                     await self.cancel_reservation(
                         existing.id,
                         cancelled_by_id=user_id,
@@ -193,8 +201,11 @@ class ReservationService:
         """Issue reserved items for a reservation."""
         reservation = await self.get_by_id(reservation_id)
 
-        if reservation.status == ReservationStatus.CANCELLED.value:
-            raise ValidationError("Reservation is cancelled")
+        if reservation.status in (
+            ReservationStatus.CANCELLED.value,
+            ReservationStatus.CLOSED.value,
+        ):
+            raise ValidationError("Reservation is not open")
         if reservation.status == ReservationStatus.FULFILLED.value:
             raise ValidationError("Reservation already fulfilled")
 
@@ -286,6 +297,8 @@ class ReservationService:
 
         if reservation.status == ReservationStatus.CANCELLED.value:
             raise ValidationError("Reservation is already cancelled")
+        if reservation.status == ReservationStatus.CLOSED.value:
+            raise ValidationError("Reservation is already closed")
 
         # Cancel all issuances linked to this reservation (return stock)
         issuances_result = await self.db.execute(
@@ -318,6 +331,41 @@ class ReservationService:
             await self.db.refresh(reservation)
         return reservation
 
+    async def close_reservation(
+        self,
+        reservation_id: int,
+        closed_by_id: int,
+        reason: str | None = None,
+        commit: bool = True,
+    ) -> Reservation:
+        """Close outstanding reservation demand without returning already issued stock."""
+        reservation = await self.get_by_id(reservation_id)
+
+        if reservation.status == ReservationStatus.CLOSED.value:
+            raise ValidationError("Reservation is already closed")
+        if reservation.status == ReservationStatus.CANCELLED.value:
+            raise ValidationError("Reservation is cancelled")
+        if reservation.status == ReservationStatus.FULFILLED.value:
+            raise ValidationError("Reservation is already fulfilled")
+
+        old_status = reservation.status
+        reservation.status = ReservationStatus.CLOSED.value
+
+        await self.audit.log(
+            action="reservation.close",
+            entity_type="Reservation",
+            entity_id=reservation.id,
+            user_id=closed_by_id,
+            old_values={"status": old_status},
+            new_values={"status": reservation.status},
+            comment=reason,
+        )
+
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(reservation)
+        return reservation
+
     async def configure_components(
         self,
         reservation_id: int,
@@ -332,8 +380,11 @@ class ReservationService:
         """
         reservation = await self.get_by_id(reservation_id)
 
-        if reservation.status == ReservationStatus.CANCELLED.value:
-            raise ValidationError("Reservation is cancelled")
+        if reservation.status in (
+            ReservationStatus.CANCELLED.value,
+            ReservationStatus.CLOSED.value,
+        ):
+            raise ValidationError("Reservation is not open")
         if reservation.status == ReservationStatus.FULFILLED.value:
             raise ValidationError("Reservation already fulfilled")
 
