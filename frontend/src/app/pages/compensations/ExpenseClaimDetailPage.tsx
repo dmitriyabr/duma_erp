@@ -420,7 +420,7 @@ export const ExpenseClaimDetailPage = () => {
             Funding
           </Typography>
           <Typography>
-            {claim.funding_source === 'budget' ? 'Budget advance' : 'Personal funds'}
+            {claim.funding_source === 'budget' ? 'Budget advance' : 'Personal funds reimbursement'}
           </Typography>
         </div>
         <div>
@@ -435,7 +435,13 @@ export const ExpenseClaimDetailPage = () => {
           <Typography variant="subtitle2" color="secondary" className="mb-1">
             Budget funding status
           </Typography>
-          <Typography>{claim.funding_source === 'budget' ? claim.budget_funding_status : '—'}</Typography>
+          <Typography>
+            {claim.funding_source === 'budget'
+              ? claim.budget_funding_status
+              : claim.budget_id
+                ? 'Attributed to budget'
+                : '—'}
+          </Typography>
         </div>
       </div>
 

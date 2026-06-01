@@ -250,6 +250,7 @@ async def approve_claim(
         approve=data.approve,
         reason=data.reason,
         acted_by_id=current_user.id,
+        acted_by_role=current_user.role,
     )
     return ApiResponse(success=True, data=_claim_to_response(claim))
 

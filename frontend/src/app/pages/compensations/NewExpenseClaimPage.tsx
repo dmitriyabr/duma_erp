@@ -194,7 +194,7 @@ export const NewExpenseClaimPage = () => {
     const created = await createClaim(async () => {
       const res = await api.post('/compensations/claims', {
         employee_id: canChooseEmployee && employeeId ? Number(employeeId) : undefined,
-        budget_id: fundingSource === 'budget' && budgetId ? Number(budgetId) : null,
+        budget_id: budgetId ? Number(budgetId) : null,
         funding_source: fundingSource,
         purpose_id: Number(purposeId),
         amount: amountValue,
@@ -290,9 +290,6 @@ export const NewExpenseClaimPage = () => {
               fundingSource={fundingSource}
               onFundingSourceChange={(value) => {
                 setFundingSource(value)
-                if (value === 'personal_funds') {
-                  setBudgetId('')
-                }
               }}
               budgetId={budgetId}
               onBudgetIdChange={setBudgetId}

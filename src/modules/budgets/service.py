@@ -55,6 +55,7 @@ class BudgetTotals:
     reserved_total: Decimal
     settled_total: Decimal
     committed_total: Decimal
+    personal_reimbursement_total: Decimal
     open_on_hands_total: Decimal
     available_unreserved_total: Decimal
     available_to_issue: Decimal
@@ -233,6 +234,22 @@ class BudgetService:
                 )
             )
         )
+        personal_reimbursement_total = self._money(
+            await self.db.scalar(
+                select(func.coalesce(func.sum(ExpenseClaim.amount), 0)).where(
+                    ExpenseClaim.budget_id == budget_id,
+                    ExpenseClaim.funding_source == FundingSource.PERSONAL_FUNDS.value,
+                    ExpenseClaim.status.in_(
+                        [
+                            ExpenseClaimStatus.PENDING_APPROVAL.value,
+                            ExpenseClaimStatus.APPROVED.value,
+                            ExpenseClaimStatus.PARTIALLY_PAID.value,
+                            ExpenseClaimStatus.PAID.value,
+                        ]
+                    ),
+                )
+            )
+        )
         overdue_advances_count = int(
             await self.db.scalar(
                 select(func.count(BudgetAdvance.id)).where(
@@ -247,7 +264,9 @@ class BudgetService:
             direct_issue_total + transfer_in_total - returned_total - transfer_out_total
         )
         settled_total = round_money(settled_from_advances_total + direct_company_paid_total)
-        committed_total = round_money(employee_funding_committed_total + direct_company_paid_total)
+        committed_total = round_money(
+            employee_funding_committed_total + direct_company_paid_total + personal_reimbursement_total
+        )
         open_on_hands_total = round_money(employee_funding_committed_total - settled_from_advances_total)
         available_unreserved_total = round_money(open_on_hands_total - reserved_total)
         available_to_issue = round_money(budget_limit - committed_total)
@@ -260,6 +279,7 @@ class BudgetService:
             reserved_total=reserved_total,
             settled_total=settled_total,
             committed_total=max(Decimal("0.00"), committed_total),
+            personal_reimbursement_total=personal_reimbursement_total,
             open_on_hands_total=max(Decimal("0.00"), open_on_hands_total),
             available_unreserved_total=max(Decimal("0.00"), available_unreserved_total),
             available_to_issue=available_to_issue,
@@ -341,9 +361,9 @@ class BudgetService:
         budget = await self._get_budget_base(budget_id)
         update = data.model_dump(exclude_unset=True)
 
-        protected_fields = {"purpose_id", "period_from", "period_to", "limit_amount"}
+        protected_fields = {"purpose_id", "period_from", "period_to"}
         if budget.status != BudgetStatus.DRAFT.value and protected_fields.intersection(update):
-            raise ValidationError("Only draft budgets can change purpose, period, or limit_amount")
+            raise ValidationError("Only draft budgets can change purpose or period")
 
         for field, value in update.items():
             setattr(budget, field, value)
@@ -444,6 +464,33 @@ class BudgetService:
             rows = filtered
         await self.db.commit()
         return rows, len(rows) if employee_id is not None else total
+
+    async def list_claimable_budgets(
+        self,
+        *,
+        purpose_id: int | None = None,
+        effective_date: date | None = None,
+    ) -> list[Budget]:
+        query = (
+            select(Budget)
+            .where(Budget.status.in_([BudgetStatus.ACTIVE.value, BudgetStatus.CLOSING.value]))
+            .options(selectinload(Budget.purpose))
+        )
+        if purpose_id:
+            query = query.where(Budget.purpose_id == purpose_id)
+        if effective_date:
+            query = query.where(Budget.period_from <= effective_date, Budget.period_to >= effective_date)
+        budgets = list(
+            (
+                await self.db.execute(query.order_by(Budget.period_from.desc(), Budget.id.desc()))
+            )
+            .scalars()
+            .all()
+        )
+        for budget in budgets:
+            await self._refresh_budget_period_state(budget)
+        await self.db.commit()
+        return [budget for budget in budgets if budget.status in (BudgetStatus.ACTIVE.value, BudgetStatus.CLOSING.value)]
 
     async def get_budget_closure_status(self, budget_id: int) -> dict:
         budget = await self._get_budget_base(budget_id)
@@ -850,13 +897,7 @@ class BudgetService:
         if claim.funding_source != FundingSource.BUDGET.value or not claim.budget_id:
             raise ValidationError("Claim is not budget-funded")
 
-        budget = await self._get_budget_base(claim.budget_id)
-        if claim.expense_date < budget.period_from or claim.expense_date > budget.period_to:
-            raise ValidationError("Claim expense_date must be inside budget period")
-        if claim.purpose_id != budget.purpose_id:
-            raise ValidationError("Claim purpose must match budget purpose")
-        if budget.status not in (BudgetStatus.ACTIVE.value, BudgetStatus.CLOSING.value):
-            raise ValidationError("Budget is not open for claims")
+        await self.validate_claim_budget_attribution(claim)
 
         if claim.status not in (
             ExpenseClaimStatus.DRAFT.value,
@@ -926,6 +967,23 @@ class BudgetService:
             advance = await self.db.scalar(select(BudgetAdvance).where(BudgetAdvance.id == advance_id))
             if advance:
                 await self._refresh_advance_status(advance)
+
+    async def validate_claim_budget_attribution(self, claim: ExpenseClaim) -> None:
+        if not claim.budget_id:
+            return
+        budget = await self._get_budget_base(claim.budget_id)
+        if claim.expense_date < budget.period_from or claim.expense_date > budget.period_to:
+            raise ValidationError("Claim expense_date must be inside budget period")
+        if claim.purpose_id != budget.purpose_id:
+            raise ValidationError("Claim purpose must match budget purpose")
+        if budget.status not in (BudgetStatus.ACTIVE.value, BudgetStatus.CLOSING.value):
+            raise ValidationError("Budget is not open for claims")
+
+    async def personal_claim_exceeds_budget_headroom(self, claim: ExpenseClaim) -> bool:
+        if claim.funding_source != FundingSource.PERSONAL_FUNDS.value or not claim.budget_id:
+            return False
+        totals = await self._budget_totals(claim.budget_id)
+        return totals.available_to_issue < Decimal("0.00")
 
     async def release_claim_allocations(self, claim_id: int, reason: str) -> None:
         claim = await self.db.scalar(
@@ -1025,6 +1083,7 @@ class BudgetService:
             "reserved_total": totals.reserved_total,
             "settled_total": totals.settled_total,
             "committed_total": totals.committed_total,
+            "personal_reimbursement_total": totals.personal_reimbursement_total,
             "open_on_hands_total": totals.open_on_hands_total,
             "available_unreserved_total": totals.available_unreserved_total,
             "available_to_issue": totals.available_to_issue,

@@ -61,6 +61,17 @@ interface DirectPaymentRow {
   status: string
 }
 
+interface ReimbursementClaimRow {
+  id: number
+  claim_number: string
+  employee_name: string
+  expense_date: string
+  amount: number | string
+  paid_amount: number | string
+  remaining_amount: number | string
+  status: string
+}
+
 const statusColor = (status: string) => {
   if (status === 'active' || status === 'issued' || status === 'settled' || status === 'closed' || status === 'posted') return 'success'
   if (status === 'draft' || status === 'closing' || status === 'overdue') return 'warning'
@@ -93,6 +104,13 @@ export const BudgetDetailPage = () => {
   const { data: directPaymentsData, refetch: refetchDirectPayments } = useApi<PaginatedResponse<DirectPaymentRow>>(
     resolvedBudgetId ? `/procurement/payments?budget_id=${resolvedBudgetId}&company_paid=true&page=1&limit=100` : null
   )
+  const { data: reimbursementClaimsData, refetch: refetchReimbursementClaims } = useApi<
+    PaginatedResponse<ReimbursementClaimRow>
+  >(
+    resolvedBudgetId
+      ? `/compensations/claims?budget_id=${resolvedBudgetId}&funding_source=personal_funds&page=1&limit=100`
+      : null
+  )
   const { data: employeesData } = useApi<{ items: UserRow[] }>(
     canManage ? '/users' : null,
     canManage ? { params: { page: 1, limit: 500, is_active: true } } : undefined,
@@ -112,6 +130,7 @@ export const BudgetDetailPage = () => {
   const advances = advancesData?.items || []
   const transfers = transfersData?.items || []
   const directPayments = directPaymentsData?.items || []
+  const reimbursementClaims = reimbursementClaimsData?.items || []
   const employees = employeesData?.items || []
   const transferBudgetOptions = (activeBudgetsData?.items || []).filter((row) => row.id !== resolvedBudgetId)
   const purposes = purposesData || []
@@ -195,7 +214,14 @@ export const BudgetDetailPage = () => {
     transferMutation.error
 
   const reloadAll = async () => {
-    await Promise.all([refetchBudget(), refetchClosure(), refetchAdvances(), refetchTransfers(), refetchDirectPayments()])
+    await Promise.all([
+      refetchBudget(),
+      refetchClosure(),
+      refetchAdvances(),
+      refetchTransfers(),
+      refetchDirectPayments(),
+      refetchReimbursementClaims(),
+    ])
   }
 
   const uploadAttachment = useCallback(
@@ -260,22 +286,28 @@ export const BudgetDetailPage = () => {
       notes: editNotes.trim() || null,
     }
 
+    if (!editLimitAmount) {
+      setLocalError('Fill limit.')
+      return
+    }
+
+    const limitAmount = Number(editLimitAmount)
+    if (!limitAmount || limitAmount <= 0) {
+      setLocalError('Limit amount must be greater than 0.')
+      return
+    }
+
+    payload.limit_amount = limitAmount
+
     if (budget.status === 'draft') {
       if (!editPurposeId || !editPeriodFrom || !editPeriodTo || !editLimitAmount) {
         setLocalError('Fill purpose, period, and limit.')
         return
       }
 
-      const limitAmount = Number(editLimitAmount)
-      if (!limitAmount || limitAmount <= 0) {
-        setLocalError('Limit amount must be greater than 0.')
-        return
-      }
-
       payload.purpose_id = Number(editPurposeId)
       payload.period_from = editPeriodFrom
       payload.period_to = editPeriodTo
-      payload.limit_amount = limitAmount
     }
 
     setLocalError(null)
@@ -487,6 +519,7 @@ export const BudgetDetailPage = () => {
             { label: 'Limit', value: formatMoney(budget.limit_amount) },
             { label: 'Available to issue', value: formatMoney(budget.available_to_issue) },
             { label: 'Direct company paid', value: formatMoney(budget.direct_company_paid_total) },
+            { label: 'Personal reimbursements', value: formatMoney(budget.personal_reimbursement_total) },
             { label: 'On hands', value: formatMoney(budget.open_on_hands_total) },
             { label: 'Available for claims', value: formatMoney(budget.available_unreserved_total) },
             { label: 'Settled', value: formatMoney(budget.settled_total) },
@@ -591,9 +624,19 @@ export const BudgetDetailPage = () => {
                 />
               </>
             ) : (
-              <Alert severity="warning">
-                Purpose, period, and limit can only be edited while the budget is draft.
-              </Alert>
+              <>
+                <Input
+                  label="Limit amount"
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={editLimitAmount}
+                  onChange={(e) => setEditLimitAmount(e.target.value)}
+                />
+                <Alert severity="warning">
+                  Purpose and period can only be edited while the budget is draft.
+                </Alert>
+              </>
             )}
             <Textarea label="Notes" value={editNotes} onChange={(e) => setEditNotes(e.target.value)} rows={3} />
           </div>
@@ -617,7 +660,7 @@ export const BudgetDetailPage = () => {
         </Alert>
       ) : null}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-7 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         {summaryCards.map((card) => (
           <Card key={card.label}>
             <CardContent>
@@ -709,6 +752,53 @@ export const BudgetDetailPage = () => {
                 <TableRow>
                   <td colSpan={7} className="px-4 py-6 text-center text-sm text-slate-500">
                     No direct company-paid budget payments recorded yet.
+                  </td>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+
+      <div className="mb-6">
+        <Typography variant="h6" className="mb-2">Personal reimbursements</Typography>
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden mb-6">
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Claim</TableHeaderCell>
+                <TableHeaderCell>Employee</TableHeaderCell>
+                <TableHeaderCell>Date</TableHeaderCell>
+                <TableHeaderCell align="right">Amount</TableHeaderCell>
+                <TableHeaderCell align="right">Paid</TableHeaderCell>
+                <TableHeaderCell align="right">Remaining</TableHeaderCell>
+                <TableHeaderCell>Status</TableHeaderCell>
+                <TableHeaderCell align="right">Actions</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {reimbursementClaims.map((claim) => (
+                <TableRow key={claim.id}>
+                  <TableCell>{claim.claim_number}</TableCell>
+                  <TableCell>{claim.employee_name}</TableCell>
+                  <TableCell>{formatDate(claim.expense_date)}</TableCell>
+                  <TableCell align="right">{formatMoney(claim.amount)}</TableCell>
+                  <TableCell align="right">{formatMoney(claim.paid_amount)}</TableCell>
+                  <TableCell align="right">{formatMoney(claim.remaining_amount)}</TableCell>
+                  <TableCell>
+                    <Chip label={claim.status} color={statusColor(claim.status)} />
+                  </TableCell>
+                  <TableCell align="right">
+                    <Button size="small" onClick={() => navigate(`/compensations/claims/${claim.id}`)}>
+                      View
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!reimbursementClaims.length ? (
+                <TableRow>
+                  <td colSpan={8} className="px-4 py-6 text-center text-sm text-slate-500">
+                    No personal reimbursement claims attributed to this budget yet.
                   </td>
                 </TableRow>
               ) : null}

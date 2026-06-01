@@ -191,7 +191,7 @@ export const EditExpenseClaimPage = () => {
     const feeAmountValue = feeAmount.trim() ? Number(feeAmount) : 0
     const result = await updateClaim(() =>
       api.patch(`/compensations/claims/${resolvedId}`, {
-        budget_id: fundingSource === 'budget' && budgetId ? Number(budgetId) : null,
+        budget_id: budgetId ? Number(budgetId) : null,
         funding_source: fundingSource,
         purpose_id: Number(purposeId),
         amount: Number(amount),
@@ -221,7 +221,7 @@ export const EditExpenseClaimPage = () => {
 
     const saveResult = await updateClaim(() =>
       api.patch(`/compensations/claims/${resolvedId}`, {
-        budget_id: fundingSource === 'budget' && budgetId ? Number(budgetId) : null,
+        budget_id: budgetId ? Number(budgetId) : null,
         funding_source: fundingSource,
         purpose_id: Number(purposeId),
         amount: Number(amount),

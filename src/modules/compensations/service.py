@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.core.auth.models import UserRole
 from src.core.documents.number_generator import get_document_number
 from src.core.exceptions import NotFoundError, ValidationError
 from src.modules.budgets.models import BudgetClaimAllocation
@@ -178,10 +179,14 @@ class ExpenseClaimService:
         self.db.add(claim)
         await self.db.flush()
 
-        if claim.funding_source == FundingSource.BUDGET.value and claim.status == ExpenseClaimStatus.PENDING_APPROVAL.value:
+        if claim.budget_id:
             from src.modules.budgets.service import BudgetService
 
-            await BudgetService(self.db).reserve_claim_allocations(claim.id)
+            budget_service = BudgetService(self.db)
+            if claim.funding_source == FundingSource.BUDGET.value and claim.status == ExpenseClaimStatus.PENDING_APPROVAL.value:
+                await budget_service.reserve_claim_allocations(claim.id)
+            else:
+                await budget_service.validate_claim_budget_attribution(claim)
 
         await self.db.commit()
         return await self.get_claim_by_id(claim.id)
@@ -211,7 +216,8 @@ class ExpenseClaimService:
         update = data.model_dump(exclude_unset=True)
         submit = update.pop("submit", None)
         funding_source = update.pop("funding_source", None) if "funding_source" in update else None
-        budget_id = update.pop("budget_id", None) if "budget_id" in update else None
+        budget_id_provided = "budget_id" in update
+        budget_id = update.pop("budget_id", None) if budget_id_provided else None
 
         # Extract fee-related updates (these live on the optional fee payment, not on the claim row).
         fee_amount = None
@@ -263,19 +269,16 @@ class ExpenseClaimService:
         if funding_source is not None:
             claim.funding_source = funding_source
             if funding_source == FundingSource.PERSONAL_FUNDS.value:
-                claim.budget_id = None
                 claim.budget_funding_status = BudgetFundingStatus.NONE.value
             payment.funding_source = funding_source
 
-        if budget_id is not None:
+        if budget_id_provided:
             claim.budget_id = budget_id
             payment.budget_id = budget_id
 
         if claim.funding_source == FundingSource.BUDGET.value and not claim.budget_id:
             raise ValidationError("budget_id is required when funding_source=budget")
         if claim.funding_source == FundingSource.PERSONAL_FUNDS.value:
-            claim.budget_id = None
-            payment.budget_id = None
             claim.budget_funding_status = BudgetFundingStatus.NONE.value
         if claim.fee_payment is not None:
             claim.fee_payment.budget_id = claim.budget_id
@@ -378,6 +381,11 @@ class ExpenseClaimService:
 
             await self.db.flush()
             await BudgetService(self.db).reserve_claim_allocations(claim.id)
+        elif claim.budget_id:
+            from src.modules.budgets.service import BudgetService
+
+            await self.db.flush()
+            await BudgetService(self.db).validate_claim_budget_attribution(claim)
 
         await self.db.commit()
         return await self.get_claim_by_id(claim_id)
@@ -407,10 +415,14 @@ class ExpenseClaimService:
                 raise ValidationError("Fee proof is required: provide fee_proof_text or fee_proof_attachment_id")
         claim.status = ExpenseClaimStatus.PENDING_APPROVAL.value
         claim.edit_comment = None
-        if claim.funding_source == FundingSource.BUDGET.value:
+        if claim.budget_id:
             from src.modules.budgets.service import BudgetService
 
-            await BudgetService(self.db).reserve_claim_allocations(claim.id)
+            budget_service = BudgetService(self.db)
+            if claim.funding_source == FundingSource.BUDGET.value:
+                await budget_service.reserve_claim_allocations(claim.id)
+            else:
+                await budget_service.validate_claim_budget_attribution(claim)
         await self.db.commit()
         return await self.get_claim_by_id(claim_id)
 
@@ -448,6 +460,7 @@ class ExpenseClaimService:
         reason: str | None = None,
         *,
         acted_by_id: int,
+        acted_by_role: str = UserRole.SUPER_ADMIN.value,
     ) -> ExpenseClaim:
         """Approve or reject an expense claim."""
         claim = await self.get_claim_by_id(claim_id)
@@ -462,6 +475,16 @@ class ExpenseClaimService:
 
                 await BudgetService(self.db).settle_claim_allocations(claim.id)
             else:
+                if claim.budget_id:
+                    from src.modules.budgets.service import BudgetService
+
+                    budget_service = BudgetService(self.db)
+                    await budget_service.validate_claim_budget_attribution(claim)
+                    if (
+                        acted_by_role != UserRole.SUPER_ADMIN.value
+                        and await budget_service.personal_claim_exceeds_budget_headroom(claim)
+                    ):
+                        raise ValidationError("Only SuperAdmin can approve a claim that exceeds budget headroom")
                 claim.status = ExpenseClaimStatus.APPROVED.value
                 if claim.remaining_amount <= 0:
                     claim.remaining_amount = Decimal(str(claim.amount))

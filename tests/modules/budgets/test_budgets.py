@@ -1,10 +1,13 @@
 from decimal import Decimal
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth.models import UserRole
 from src.core.auth.service import AuthService
+from src.core.exceptions import ValidationError
+from src.modules.compensations.service import ExpenseClaimService
 
 
 async def _create_user_and_token(
@@ -591,6 +594,288 @@ class TestBudgets:
         assert update_budget.json()["data"]["name"] == "Kitchen April Revised"
         assert update_budget.json()["data"]["notes"] == "Updated by super admin"
         assert Decimal(update_budget.json()["data"]["limit_amount"]) == Decimal("1200.00")
+
+    async def test_super_admin_can_update_active_budget_limit(self, client: AsyncClient, db_session: AsyncSession):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-update-active-super@test.com",
+            password="Pass123!",
+            full_name="Budget Super",
+            role=UserRole.SUPER_ADMIN,
+        )
+        purpose_id = await self._create_purpose(client, super_token, "Kitchen")
+
+        budget = await client.post(
+            "/api/v1/budgets",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "name": "Kitchen July",
+                "purpose_id": purpose_id,
+                "period_from": "2099-07-01",
+                "period_to": "2099-07-31",
+                "limit_amount": "1000.00",
+            },
+        )
+        assert budget.status_code == 201
+        budget_id = budget.json()["data"]["id"]
+
+        activate_budget = await client.post(
+            f"/api/v1/budgets/{budget_id}/activate",
+            headers={"Authorization": f"Bearer {super_token}"},
+        )
+        assert activate_budget.status_code == 200
+        assert activate_budget.json()["data"]["status"] == "active"
+
+        update_budget = await client.patch(
+            f"/api/v1/budgets/{budget_id}",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={"limit_amount": "1500.00"},
+        )
+        assert update_budget.status_code == 200
+        assert update_budget.json()["data"]["status"] == "active"
+        assert Decimal(update_budget.json()["data"]["limit_amount"]) == Decimal("1500.00")
+
+    async def test_personal_funds_claim_can_be_attributed_to_budget(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-personal-super@test.com",
+            password="Pass123!",
+            full_name="Budget Super",
+            role=UserRole.SUPER_ADMIN,
+        )
+        employee_id, employee_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-personal-employee@test.com",
+            password="Pass123!",
+            full_name="Budget Employee",
+            role=UserRole.USER,
+        )
+        purpose_id = await self._create_purpose(client, super_token, "Kitchen Personal")
+
+        budget = await client.post(
+            "/api/v1/budgets",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "name": "Kitchen Personal July",
+                "purpose_id": purpose_id,
+                "period_from": "2099-07-01",
+                "period_to": "2099-07-31",
+                "limit_amount": "1000.00",
+            },
+        )
+        budget_id = budget.json()["data"]["id"]
+        await client.post(
+            f"/api/v1/budgets/{budget_id}/activate",
+            headers={"Authorization": f"Bearer {super_token}"},
+        )
+
+        claimable = await client.get(
+            f"/api/v1/budgets/claimable?purpose_id={purpose_id}&effective_date=2099-07-10",
+            headers={"Authorization": f"Bearer {employee_token}"},
+        )
+        assert claimable.status_code == 200
+        assert [row["id"] for row in claimable.json()["data"]] == [budget_id]
+
+        claim = await client.post(
+            "/api/v1/compensations/claims",
+            headers={"Authorization": f"Bearer {employee_token}"},
+            json={
+                "budget_id": budget_id,
+                "funding_source": "personal_funds",
+                "purpose_id": purpose_id,
+                "amount": "900.00",
+                "fee_amount": "100.00",
+                "payee_name": "Local shop",
+                "description": "Kitchen groceries paid personally",
+                "expense_date": "2099-07-10",
+                "proof_text": "Receipt #1",
+                "fee_proof_text": "M-Pesa fee receipt",
+                "submit": True,
+            },
+        )
+        assert claim.status_code == 201
+        body = claim.json()["data"]
+        assert body["budget_id"] == budget_id
+        assert body["funding_source"] == "personal_funds"
+        assert body["budget_funding_status"] == "none"
+        assert body["budget_allocations"] == []
+        assert Decimal(body["amount"]) == Decimal("1000.00")
+
+        budget_after_claim = await client.get(
+            f"/api/v1/budgets/{budget_id}",
+            headers={"Authorization": f"Bearer {super_token}"},
+        )
+        budget_body = budget_after_claim.json()["data"]
+        assert Decimal(budget_body["personal_reimbursement_total"]) == Decimal("1000.00")
+        assert Decimal(budget_body["committed_total"]) == Decimal("1000.00")
+        assert Decimal(budget_body["available_to_issue"]) == Decimal("0.00")
+
+        approve = await client.post(
+            f"/api/v1/compensations/claims/{body['id']}/approve",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={"approve": True},
+        )
+        assert approve.status_code == 200
+        assert approve.json()["data"]["status"] == "approved"
+
+        balance = await client.get(
+            f"/api/v1/compensations/payouts/employees/{employee_id}/balance",
+            headers={"Authorization": f"Bearer {super_token}"},
+        )
+        assert balance.status_code == 200
+        assert Decimal(balance.json()["data"]["balance"]) == Decimal("1000.00")
+
+        payout = await client.post(
+            "/api/v1/compensations/payouts",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "employee_id": employee_id,
+                "payout_date": "2099-07-20",
+                "amount": "1000.00",
+                "payment_method": "bank",
+                "reference_number": "PAY-PERSONAL-1",
+                "proof_text": "Bank transfer confirmation",
+            },
+        )
+        assert payout.status_code == 200
+        assert Decimal(payout.json()["data"]["allocations"][0]["allocated_amount"]) == Decimal("1000.00")
+
+    async def test_rejected_personal_budget_claim_is_removed_from_budget_totals(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-personal-reject-super@test.com",
+            password="Pass123!",
+            full_name="Budget Super",
+            role=UserRole.SUPER_ADMIN,
+        )
+        _, employee_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-personal-reject-employee@test.com",
+            password="Pass123!",
+            full_name="Budget Employee",
+            role=UserRole.USER,
+        )
+        purpose_id = await self._create_purpose(client, super_token, "Kitchen Reject")
+        budget = await client.post(
+            "/api/v1/budgets",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "name": "Kitchen Reject July",
+                "purpose_id": purpose_id,
+                "period_from": "2099-07-01",
+                "period_to": "2099-07-31",
+                "limit_amount": "1000.00",
+            },
+        )
+        budget_id = budget.json()["data"]["id"]
+        await client.post(f"/api/v1/budgets/{budget_id}/activate", headers={"Authorization": f"Bearer {super_token}"})
+
+        claim = await client.post(
+            "/api/v1/compensations/claims",
+            headers={"Authorization": f"Bearer {employee_token}"},
+            json={
+                "budget_id": budget_id,
+                "funding_source": "personal_funds",
+                "purpose_id": purpose_id,
+                "amount": "300.00",
+                "payee_name": "Local shop",
+                "description": "Rejected groceries",
+                "expense_date": "2099-07-10",
+                "proof_text": "Receipt #2",
+                "submit": True,
+            },
+        )
+        claim_id = claim.json()["data"]["id"]
+        reject = await client.post(
+            f"/api/v1/compensations/claims/{claim_id}/approve",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={"approve": False, "reason": "Wrong receipt"},
+        )
+        assert reject.status_code == 200
+        assert reject.json()["data"]["status"] == "rejected"
+
+        budget_after_reject = await client.get(
+            f"/api/v1/budgets/{budget_id}",
+            headers={"Authorization": f"Bearer {super_token}"},
+        )
+        assert Decimal(budget_after_reject.json()["data"]["personal_reimbursement_total"]) == Decimal("0.00")
+        assert Decimal(budget_after_reject.json()["data"]["committed_total"]) == Decimal("0.00")
+
+    async def test_non_superadmin_service_cannot_approve_personal_budget_claim_over_limit(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-personal-over-super@test.com",
+            password="Pass123!",
+            full_name="Budget Super",
+            role=UserRole.SUPER_ADMIN,
+        )
+        _, employee_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-personal-over-employee@test.com",
+            password="Pass123!",
+            full_name="Budget Employee",
+            role=UserRole.USER,
+        )
+        purpose_id = await self._create_purpose(client, super_token, "Kitchen Over")
+        budget = await client.post(
+            "/api/v1/budgets",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "name": "Kitchen Over July",
+                "purpose_id": purpose_id,
+                "period_from": "2099-07-01",
+                "period_to": "2099-07-31",
+                "limit_amount": "100.00",
+            },
+        )
+        budget_id = budget.json()["data"]["id"]
+        await client.post(f"/api/v1/budgets/{budget_id}/activate", headers={"Authorization": f"Bearer {super_token}"})
+
+        claim = await client.post(
+            "/api/v1/compensations/claims",
+            headers={"Authorization": f"Bearer {employee_token}"},
+            json={
+                "budget_id": budget_id,
+                "funding_source": "personal_funds",
+                "purpose_id": purpose_id,
+                "amount": "120.00",
+                "payee_name": "Local shop",
+                "description": "Over budget groceries",
+                "expense_date": "2099-07-10",
+                "proof_text": "Receipt #3",
+                "submit": True,
+            },
+        )
+        claim_id = claim.json()["data"]["id"]
+
+        with pytest.raises(ValidationError):
+            await ExpenseClaimService(db_session).approve_claim(
+                claim_id,
+                approve=True,
+                acted_by_id=1,
+                acted_by_role=UserRole.ADMIN.value,
+            )
+
+        approve = await client.post(
+            f"/api/v1/compensations/claims/{claim_id}/approve",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={"approve": True},
+        )
+        assert approve.status_code == 200
+        assert approve.json()["data"]["status"] == "approved"
 
     async def test_admin_cannot_update_budget(self, client: AsyncClient, db_session: AsyncSession):
         _, super_token = await _create_user_and_token(

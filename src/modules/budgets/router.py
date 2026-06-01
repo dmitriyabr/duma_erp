@@ -103,6 +103,19 @@ async def list_my_budgets(
     return ApiResponse(success=True, data=items)
 
 
+@router.get("/claimable", response_model=ApiResponse[list[BudgetResponse]])
+async def list_claimable_budgets(
+    purpose_id: int | None = Query(None),
+    effective_date: date | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = BudgetUserRole,
+):
+    service = BudgetService(db)
+    budgets = await service.list_claimable_budgets(purpose_id=purpose_id, effective_date=effective_date)
+    items = [BudgetResponse(**(await service.get_budget_snapshot(budget))) for budget in budgets]
+    return ApiResponse(success=True, data=items)
+
+
 @router.get("/my/advances", response_model=ApiResponse[PaginatedResponse[BudgetAdvanceResponse]])
 async def list_my_advances(
     status: str | None = Query(None),

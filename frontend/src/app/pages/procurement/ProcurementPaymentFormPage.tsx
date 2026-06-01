@@ -506,6 +506,7 @@ export const ProcurementPaymentFormPage = () => {
                 employeeId={employeePaidId}
                 purposeId={purposeId}
                 effectiveDate={paymentDate}
+                allowPersonalBudgetAttribution={false}
                 requireExplicitEmployee
               />
             </div>

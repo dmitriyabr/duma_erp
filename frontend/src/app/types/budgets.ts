@@ -23,6 +23,7 @@ export interface BudgetSummary {
   reserved_total: number | string
   settled_total: number | string
   committed_total: number | string
+  personal_reimbursement_total: number | string
   open_on_hands_total: number | string
   available_unreserved_total: number | string
   available_to_issue: number | string

@@ -64,6 +64,7 @@ class BudgetResponse(BaseSchema):
     reserved_total: Decimal
     settled_total: Decimal
     committed_total: Decimal
+    personal_reimbursement_total: Decimal
     open_on_hands_total: Decimal
     available_unreserved_total: Decimal
     available_to_issue: Decimal

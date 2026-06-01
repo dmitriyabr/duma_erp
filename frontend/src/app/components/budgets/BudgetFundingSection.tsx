@@ -20,6 +20,7 @@ interface BudgetFundingSectionProps {
   effectiveDate?: string
   disabled?: boolean
   showFundingSource?: boolean
+  allowPersonalBudgetAttribution?: boolean
   requireExplicitEmployee?: boolean
   title?: string
 }
@@ -34,6 +35,7 @@ export const BudgetFundingSection = ({
   effectiveDate,
   disabled = false,
   showFundingSource = true,
+  allowPersonalBudgetAttribution = true,
   requireExplicitEmployee = false,
   title,
 }: BudgetFundingSectionProps) => {
@@ -47,7 +49,15 @@ export const BudgetFundingSection = ({
         : (user?.id ?? null)
 
   const budgetsUrl = useMemo(() => {
-    if (fundingSource !== 'budget') return null
+    if (fundingSource === 'personal_funds') {
+      if (!allowPersonalBudgetAttribution) return null
+      const params = new URLSearchParams()
+      if (typeof purposeId === 'number') params.set('purpose_id', String(purposeId))
+      if (effectiveDate) params.set('effective_date', effectiveDate)
+      const suffix = params.toString() ? `?${params.toString()}` : ''
+      return `/budgets/claimable${suffix}`
+    }
+
     if (!selectedEmployeeId) return null
 
     if (currentUserRole === 'User') {
@@ -59,7 +69,7 @@ export const BudgetFundingSection = ({
     params.set('limit', '100')
     params.set('employee_id', String(selectedEmployeeId))
     return `/budgets?${params.toString()}`
-  }, [fundingSource, selectedEmployeeId, currentUserRole])
+  }, [fundingSource, selectedEmployeeId, currentUserRole, purposeId, effectiveDate, allowPersonalBudgetAttribution])
 
   const { data: rawBudgetsData, loading: budgetsLoading, error: budgetsError } = useApi<
     PaginatedResponse<BudgetSummary> | BudgetSummary[]
@@ -82,11 +92,10 @@ export const BudgetFundingSection = ({
   )
 
   useEffect(() => {
-    if (fundingSource !== 'budget') return
     if (!budgetId) return
     if (budgets.some((budget) => budget.id === budgetId)) return
     onBudgetIdChange('')
-  }, [fundingSource, budgetId, budgets, onBudgetIdChange])
+  }, [budgetId, budgets, onBudgetIdChange])
 
   const balanceUrl = useMemo(() => {
     if (fundingSource !== 'budget' || !budgetId || !selectedEmployeeId) return null
@@ -177,6 +186,47 @@ export const BudgetFundingSection = ({
                   {balanceError}
                 </Typography>
               ) : null}
+            </div>
+          ) : null}
+        </>
+      ) : allowPersonalBudgetAttribution ? (
+        <>
+          <Select
+            label="Budget attribution (optional)"
+            value={budgetId}
+            onChange={(e) => onBudgetIdChange(e.target.value ? Number(e.target.value) : '')}
+            disabled={disabled || budgetsLoading}
+            helperText={
+              budgetsLoading
+                ? 'Loading budgets...'
+                : budgets.length
+                  ? undefined
+                  : 'No open budgets match the selected purpose and date.'
+            }
+          >
+            <option value="">No budget attribution</option>
+            {budgets.map((budget) => (
+              <option key={budget.id} value={budget.id}>
+                {budget.budget_number} · {budget.name}
+              </option>
+            ))}
+          </Select>
+
+          {budgetsError ? (
+            <Alert severity="warning">{budgetsError}</Alert>
+          ) : null}
+
+          {selectedBudget ? (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <Typography variant="body2">
+                Period: {selectedBudget.period_from} - {selectedBudget.period_to}
+              </Typography>
+              <Typography variant="body2">
+                Purpose: {selectedBudget.purpose_name ?? '—'}
+              </Typography>
+              <Typography variant="body2">
+                Budget headroom: {formatMoney(selectedBudget.available_to_issue)}
+              </Typography>
             </div>
           ) : null}
         </>
