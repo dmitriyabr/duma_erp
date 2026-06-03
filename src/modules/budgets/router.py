@@ -227,7 +227,7 @@ async def create_advance(
     current_user: User = BudgetWriteRole,
 ):
     service = BudgetService(db)
-    advance = await service.create_advance(data, current_user.id)
+    advance = await service.create_advance(data, current_user.id, current_user.role)
     return ApiResponse(success=True, message="Advance created", data=BudgetAdvanceResponse(**(await service.get_advance_snapshot(advance))))
 
 
@@ -268,7 +268,7 @@ async def issue_advance(
     current_user: User = BudgetWriteRole,
 ):
     service = BudgetService(db)
-    advance = await service.issue_advance(advance_id, data)
+    advance = await service.issue_advance(advance_id, data, current_user.role)
     return ApiResponse(success=True, message="Advance issued", data=BudgetAdvanceResponse(**(await service.get_advance_snapshot(advance))))
 
 

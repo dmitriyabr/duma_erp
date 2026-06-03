@@ -877,6 +877,193 @@ class TestBudgets:
         assert approve.status_code == 200
         assert approve.json()["data"]["status"] == "approved"
 
+    async def test_super_admin_can_create_backdated_advance_in_closing_budget(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-backdate-super@test.com",
+            password="Pass123!",
+            full_name="Budget Super",
+            role=UserRole.SUPER_ADMIN,
+        )
+        employee_id, _ = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-backdate-employee@test.com",
+            password="Pass123!",
+            full_name="Budget Employee",
+            role=UserRole.USER,
+        )
+        purpose_id = await self._create_purpose(client, super_token, "Kitchen Backdate")
+
+        budget = await client.post(
+            "/api/v1/budgets",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "name": "Kitchen Backdate April",
+                "purpose_id": purpose_id,
+                "period_from": "2026-04-01",
+                "period_to": "2026-04-30",
+                "limit_amount": "1000.00",
+            },
+        )
+        budget_id = budget.json()["data"]["id"]
+        activated = await client.post(
+            f"/api/v1/budgets/{budget_id}/activate",
+            headers={"Authorization": f"Bearer {super_token}"},
+        )
+        assert activated.status_code == 200
+        assert activated.json()["data"]["status"] == "closing"
+
+        advance = await client.post(
+            "/api/v1/budgets/advances",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "budget_id": budget_id,
+                "employee_id": employee_id,
+                "issue_date": "2026-04-24",
+                "amount_issued": "300.00",
+                "payment_method": "bank",
+                "reference_number": "ADV-BACKDATE-1",
+                "proof_text": "Transfer entered late",
+                "settlement_due_date": "2026-04-30",
+                "issue_now": True,
+            },
+        )
+        assert advance.status_code == 201
+        assert advance.json()["data"]["status"] == "overdue"
+        assert Decimal(advance.json()["data"]["amount_issued"]) == Decimal("300.00")
+
+    async def test_admin_cannot_create_backdated_advance_in_closing_budget(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-backdate-owner@test.com",
+            password="Pass123!",
+            full_name="Budget Super",
+            role=UserRole.SUPER_ADMIN,
+        )
+        _, admin_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-backdate-admin@test.com",
+            password="Pass123!",
+            full_name="Budget Admin",
+            role=UserRole.ADMIN,
+        )
+        employee_id, _ = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-backdate-admin-employee@test.com",
+            password="Pass123!",
+            full_name="Budget Employee",
+            role=UserRole.USER,
+        )
+        purpose_id = await self._create_purpose(client, super_token, "Kitchen Backdate Admin")
+
+        budget = await client.post(
+            "/api/v1/budgets",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "name": "Kitchen Backdate Admin April",
+                "purpose_id": purpose_id,
+                "period_from": "2026-04-01",
+                "period_to": "2026-04-30",
+                "limit_amount": "1000.00",
+            },
+        )
+        budget_id = budget.json()["data"]["id"]
+        await client.post(
+            f"/api/v1/budgets/{budget_id}/activate",
+            headers={"Authorization": f"Bearer {super_token}"},
+        )
+
+        advance = await client.post(
+            "/api/v1/budgets/advances",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={
+                "budget_id": budget_id,
+                "employee_id": employee_id,
+                "issue_date": "2026-04-24",
+                "amount_issued": "300.00",
+                "payment_method": "bank",
+                "reference_number": "ADV-BACKDATE-ADMIN-1",
+                "proof_text": "Transfer entered late",
+                "settlement_due_date": "2026-04-30",
+                "issue_now": True,
+            },
+        )
+        assert advance.status_code == 422
+        assert "SuperAdmin" in advance.json()["message"]
+
+    async def test_super_admin_can_issue_draft_advance_in_closing_budget(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-backdate-issue-super@test.com",
+            password="Pass123!",
+            full_name="Budget Super",
+            role=UserRole.SUPER_ADMIN,
+        )
+        employee_id, _ = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-backdate-issue-employee@test.com",
+            password="Pass123!",
+            full_name="Budget Employee",
+            role=UserRole.USER,
+        )
+        purpose_id = await self._create_purpose(client, super_token, "Kitchen Backdate Issue")
+
+        budget = await client.post(
+            "/api/v1/budgets",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "name": "Kitchen Backdate Issue April",
+                "purpose_id": purpose_id,
+                "period_from": "2026-04-01",
+                "period_to": "2026-04-30",
+                "limit_amount": "1000.00",
+            },
+        )
+        budget_id = budget.json()["data"]["id"]
+        await client.post(
+            f"/api/v1/budgets/{budget_id}/activate",
+            headers={"Authorization": f"Bearer {super_token}"},
+        )
+
+        draft = await client.post(
+            "/api/v1/budgets/advances",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "budget_id": budget_id,
+                "employee_id": employee_id,
+                "issue_date": "2026-04-24",
+                "amount_issued": "300.00",
+                "payment_method": "bank",
+                "reference_number": "ADV-BACKDATE-ISSUE-1",
+                "settlement_due_date": "2026-04-30",
+                "issue_now": False,
+            },
+        )
+        assert draft.status_code == 201
+        assert draft.json()["data"]["status"] == "draft"
+        advance_id = draft.json()["data"]["id"]
+
+        issued = await client.post(
+            f"/api/v1/budgets/advances/{advance_id}/issue",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={"reference_number": "ADV-BACKDATE-ISSUE-1", "proof_text": "Transfer entered late"},
+        )
+        assert issued.status_code == 200
+        assert issued.json()["data"]["status"] == "overdue"
+
     async def test_admin_cannot_update_budget(self, client: AsyncClient, db_session: AsyncSession):
         _, super_token = await _create_user_and_token(
             client,

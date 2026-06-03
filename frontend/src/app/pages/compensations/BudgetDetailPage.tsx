@@ -92,6 +92,8 @@ export const BudgetDetailPage = () => {
   const { data: budget, loading, error, refetch: refetchBudget } = useApi<BudgetSummary>(
     resolvedBudgetId ? `/budgets/${resolvedBudgetId}` : null
   )
+  const canCreateAdvance =
+    budget?.status === 'active' || (user?.role === 'SuperAdmin' && budget?.status === 'closing')
   const { data: closure, refetch: refetchClosure } = useApi<BudgetClosureStatus>(
     resolvedBudgetId ? `/budgets/${resolvedBudgetId}/closure` : null
   )
@@ -573,7 +575,7 @@ export const BudgetDetailPage = () => {
               </Button>
             </>
           ) : null}
-          {canManage && budget.status === 'active' ? (
+          {canManage && canCreateAdvance ? (
             <Button onClick={openCreateAdvanceDialog}>New advance</Button>
           ) : null}
           {canManage && ['active', 'closing'].includes(budget.status) ? (

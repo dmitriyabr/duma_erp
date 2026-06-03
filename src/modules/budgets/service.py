@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from src.core.documents.number_generator import get_document_number
 from src.core.exceptions import NotFoundError, ValidationError
+from src.core.auth.models import UserRole
 from src.modules.budgets.models import (
     Budget,
     BudgetAdvance,
@@ -553,10 +554,16 @@ class BudgetService:
         await self.db.commit()
         return await self.get_budget_by_id(budget.id)
 
-    async def create_advance(self, data: BudgetAdvanceCreate, created_by_id: int) -> BudgetAdvance:
+    def _ensure_budget_open_for_advance(self, budget: Budget, *, actor_role: str, action: str) -> None:
+        if budget.status == BudgetStatus.ACTIVE.value:
+            return
+        if budget.status == BudgetStatus.CLOSING.value and actor_role == UserRole.SUPER_ADMIN.value:
+            return
+        raise ValidationError(f"Only active budgets can {action}; SuperAdmin can backdate advances in closing budgets")
+
+    async def create_advance(self, data: BudgetAdvanceCreate, created_by_id: int, actor_role: str) -> BudgetAdvance:
         budget = await self._get_budget_base(data.budget_id)
-        if budget.status != BudgetStatus.ACTIVE.value:
-            raise ValidationError("Only active budgets can create advances")
+        self._ensure_budget_open_for_advance(budget, actor_role=actor_role, action="create advances")
         if data.issue_date < budget.period_from or data.issue_date > budget.period_to:
             raise ValidationError("Advance issue_date must be inside budget period")
         due_date = data.settlement_due_date or budget.period_to
@@ -598,13 +605,12 @@ class BudgetService:
         await self.db.commit()
         return await self.get_advance_by_id(advance.id)
 
-    async def issue_advance(self, advance_id: int, data: BudgetAdvanceIssueRequest) -> BudgetAdvance:
+    async def issue_advance(self, advance_id: int, data: BudgetAdvanceIssueRequest, actor_role: str) -> BudgetAdvance:
         advance = await self._get_advance_base(advance_id)
         if advance.status != BudgetAdvanceStatus.DRAFT.value:
             raise ValidationError("Only draft advances can be issued")
         budget = advance.budget
-        if budget.status != BudgetStatus.ACTIVE.value:
-            raise ValidationError("Only active budgets can issue advances")
+        self._ensure_budget_open_for_advance(budget, actor_role=actor_role, action="issue advances")
 
         if data.issue_date is not None:
             advance.issue_date = data.issue_date
