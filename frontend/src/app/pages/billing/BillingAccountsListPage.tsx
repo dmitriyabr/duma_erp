@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react'
+import { Download } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { useApi } from '../../hooks/useApi'
 import { canManageBillingAccounts } from '../../utils/permissions'
 import { formatMoney } from '../../utils/format'
 import { formatStudentNumberShort } from '../../utils/studentNumber'
+import { downloadReportExcel } from '../../utils/reportExcel'
 import type { PaginatedResponse } from '../../types/api'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
@@ -55,11 +57,27 @@ export const BillingAccountsListPage = () => {
             Parent / guardian payment accounts that can pay and auto-allocate across one or more students.
           </Typography>
         </div>
-        {canManage && (
-          <Button variant="contained" onClick={() => navigate('/students/new')}>
-            New admission
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            variant="outlined"
+            className="gap-2"
+            onClick={() =>
+              downloadReportExcel(
+                '/billing-accounts/export',
+                search.trim() ? { search: search.trim() } : {},
+                'parent-balances.xlsx'
+              )
+            }
+          >
+            <Download className="h-4 w-4" />
+            Export balances
           </Button>
-        )}
+          {canManage && (
+            <Button variant="contained" onClick={() => navigate('/students/new')}>
+              New admission
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="max-w-[340px] mb-4">

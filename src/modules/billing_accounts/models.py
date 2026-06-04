@@ -3,7 +3,7 @@
 from decimal import Decimal
 
 from sqlalchemy import BigInteger, ForeignKey, Numeric, String, Text
-from sqlalchemy.orm import Mapped, relationship, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.database.base import BaseModel
 
@@ -48,8 +48,13 @@ class BillingAccount(BaseModel):
         back_populates="billing_account",
     )
 
+    @property
+    def available_balance(self) -> Decimal:
+        """Public balance label used by billing account responses."""
+        return self.cached_credit_balance
 
-from src.core.auth.models import User
-from src.modules.invoices.models import Invoice
-from src.modules.payments.models import CreditAllocation, Payment, PaymentRefund
-from src.modules.students.models import Student
+
+from src.core.auth.models import User  # noqa: E402
+from src.modules.invoices.models import Invoice  # noqa: E402
+from src.modules.payments.models import CreditAllocation, Payment, PaymentRefund  # noqa: E402
+from src.modules.students.models import Student  # noqa: E402

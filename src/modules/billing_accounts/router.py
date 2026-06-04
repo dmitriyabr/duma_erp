@@ -4,11 +4,16 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query, status
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth.dependencies import require_roles
 from src.core.auth.models import User, UserRole
 from src.core.database.session import get_db
+from src.modules.billing_accounts.excel_export import (
+    build_parent_balance_xlsx,
+    build_parent_balances_xlsx,
+)
 from src.modules.billing_accounts.schemas import (
     BillingAccountAddMembersRequest,
     BillingAccountChildCreate,
@@ -38,6 +43,19 @@ from src.shared.schemas.base import ApiResponse, PaginatedResponse
 from src.shared.utils.money import round_money
 
 router = APIRouter(prefix="/billing-accounts", tags=["Billing Accounts"])
+
+
+def _xlsx_response(content: bytes, filename: str) -> Response:
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+def _safe_filename_part(value: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in ("-", "_") else "-" for ch in value)
+    return cleaned.strip("-") or "billing-account"
 
 
 def _refund_allocation_impact_to_response(reversal) -> RefundAllocationImpact:
@@ -133,6 +151,22 @@ async def list_billing_accounts(
     )
 
 
+@router.get("/export")
+async def export_parent_balances(
+    search: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
+):
+    service = BillingAccountService(db)
+    data = await service.get_parent_balances_export(search=search)
+    return _xlsx_response(
+        build_parent_balances_xlsx(data),
+        "parent-balances.xlsx",
+    )
+
+
 @router.post(
     "",
     response_model=ApiResponse[BillingAccountDetail],
@@ -163,6 +197,23 @@ async def get_billing_account(
     service = BillingAccountService(db)
     detail = await service.get_billing_account_detail(account_id)
     return ApiResponse(data=detail)
+
+
+@router.get("/{account_id}/balance-export")
+async def export_parent_balance(
+    account_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
+):
+    service = BillingAccountService(db)
+    data = await service.get_parent_balance_export(account_id)
+    filename_part = _safe_filename_part(data["account"]["account_number"])
+    return _xlsx_response(
+        build_parent_balance_xlsx(data),
+        f"parent-balance-{filename_part}.xlsx",
+    )
 
 
 @router.patch(

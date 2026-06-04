@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
+import { Download } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { useApi, useApiMutation } from '../../hooks/useApi'
@@ -6,6 +7,7 @@ import { api } from '../../services/api'
 import { canCancelPayment, canInvoiceTerm, canManageBillingAccounts } from '../../utils/permissions'
 import { formatDate, formatDateTime, formatMoney } from '../../utils/format'
 import { formatStudentNumberShort } from '../../utils/studentNumber'
+import { downloadReportExcel } from '../../utils/reportExcel'
 import type { ApiResponse, PaginatedResponse } from '../../types/api'
 import { useReferencedData } from '../../contexts/ReferencedDataContext'
 import { Alert } from '../../components/ui/Alert'
@@ -1311,6 +1313,20 @@ export const BillingAccountDetailPage = () => {
           </Typography>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Button
+            variant="outlined"
+            className="gap-2"
+            onClick={() =>
+              downloadReportExcel(
+                `/billing-accounts/${account.id}/balance-export`,
+                {},
+                `parent-balance-${account.account_number}.xlsx`
+              )
+            }
+          >
+            <Download className="h-4 w-4" />
+            Export balance
+          </Button>
           {canManage && (
             <>
               {canInvoiceTerm(user) && (

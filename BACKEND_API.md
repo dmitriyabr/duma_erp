@@ -188,6 +188,8 @@
 - `GET /billing-accounts` — filters: `search`, `page`, `limit`; возвращает все billing accounts, независимо от количества linked students
 - `POST /billing-accounts` — создать billing account / admission. Payload поддерживает `student_ids` для already admitted students и `new_children` для unified admission flow; можно создать billing account с одним или несколькими детьми
 - `GET /billing-accounts/{account_id}` — header account + members + balances
+- `GET /billing-accounts/export` — XLSX выгрузка parent balances по всем billing accounts (опционально `search`): total payments, refunds, net paid, paid to invoices, credit, outstanding debt, amount to pay now
+- `GET /billing-accounts/{account_id}/balance-export` — XLSX выгрузка баланса одной семьи: summary, students, invoices, payments, refunds
 - `PATCH /billing-accounts/{account_id}` — обновить account name, billing contact, notes
 - `POST /billing-accounts/{account_id}/members` — добавить existing students в существующий billing account; student из single-student account может быть перенесён, student из уже shared account требует отдельного split/merge flow
 - `POST /billing-accounts/{account_id}/children` — создать нового ребёнка сразу внутри существующего billing account; child может унаследовать guardian contact из account header
