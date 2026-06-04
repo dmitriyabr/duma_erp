@@ -2,8 +2,10 @@
 
 from datetime import date, timedelta
 from decimal import Decimal
+from io import BytesIO
 
 from httpx import AsyncClient
+from openpyxl import load_workbook
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -691,13 +693,126 @@ class TestBillingAccountEndpoints:
         listed = list_response.json()["data"]["items"]
         assert listed[0]["display_name"] == "Kamau Family"
 
+    async def test_parent_balance_exports_show_paid_and_due(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+    ):
+        context = await self._create_family_context(client, db_session)
+        access_token = context["access_token"]
+        user = context["user"]
+        kit = context["kit"]
+        student = context["students"][0]
+        family = context["family"]
+
+        invoice = Invoice(
+            invoice_number="INV-FAMAPI-BAL-001",
+            student_id=student.id,
+            billing_account_id=family["id"],
+            invoice_type=InvoiceType.ADHOC.value,
+            status=InvoiceStatus.ISSUED.value,
+            issue_date=date(2026, 1, 10),
+            due_date=date(2026, 1, 31),
+            subtotal=Decimal("1000.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("1000.00"),
+            paid_total=Decimal("0.00"),
+            amount_due=Decimal("1000.00"),
+            created_by_id=user.id,
+        )
+        db_session.add(invoice)
+        await db_session.flush()
+        db_session.add(
+            InvoiceLine(
+                invoice_id=invoice.id,
+                kit_id=kit.id,
+                description="Balance export fee",
+                quantity=1,
+                unit_price=Decimal("1000.00"),
+                line_total=Decimal("1000.00"),
+                discount_amount=Decimal("0.00"),
+                net_amount=Decimal("1000.00"),
+                paid_amount=Decimal("0.00"),
+                remaining_amount=Decimal("1000.00"),
+            )
+        )
+        await db_session.commit()
+
+        payment_service = PaymentService(db_session)
+        payment = await payment_service.create_payment(
+            PaymentCreate(
+                billing_account_id=family["id"],
+                amount=Decimal("400.00"),
+                payment_method=PaymentMethod.MPESA,
+                payment_date=date(2026, 1, 20),
+                reference="BALANCE-EXPORT-PAID",
+            ),
+            received_by_id=user.id,
+        )
+        await payment_service.complete_payment(payment.id, user.id)
+
+        list_response = await client.get(
+            "/api/v1/billing-accounts/export",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert list_response.status_code == 200
+        assert "spreadsheetml" in list_response.headers.get("content-type", "")
+        assert "parent-balances.xlsx" in list_response.headers.get("content-disposition", "")
+
+        list_wb = load_workbook(BytesIO(list_response.content), data_only=True)
+        ws = list_wb["Parent Balances"]
+        headers = [cell.value for cell in ws[5]]
+        row = next(row for row in ws.iter_rows(min_row=6, values_only=True) if row[1] == "Kamau Family")
+        index = {name: pos for pos, name in enumerate(headers)}
+        assert Decimal(str(row[index["Paid by Parent"]])) == Decimal("400")
+        assert Decimal(str(row[index["Applied to Invoices"]])) == Decimal("400")
+        assert Decimal(str(row[index["Unpaid Invoice Balance"]])) == Decimal("600")
+        assert Decimal(str(row[index["Amount Parent Should Pay Now"]])) == Decimal("600")
+
+        detail_response = await client.get(
+            f"/api/v1/billing-accounts/{family['id']}/balance-export",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert detail_response.status_code == 200
+        assert "spreadsheetml" in detail_response.headers.get("content-type", "")
+        assert "parent-balance-" in detail_response.headers.get("content-disposition", "")
+
+        detail_wb = load_workbook(BytesIO(detail_response.content), data_only=True)
+        summary_ws = detail_wb["Summary"]
+        summary = {
+            row[0]: row[1]
+            for row in summary_ws.iter_rows(min_row=1, max_col=2, values_only=True)
+            if row[0]
+        }
+        assert Decimal(str(summary["Paid by parent"])) == Decimal("400")
+        assert Decimal(str(summary["Already applied to invoices"])) == Decimal("400")
+        assert Decimal(str(summary["Unpaid invoice balance"])) == Decimal("600")
+        assert Decimal(str(summary["Amount parent should pay now"])) == Decimal("600")
+
+        terms_ws = detail_wb["Invoices by Term"]
+        term_headers = [cell.value for cell in terms_ws[1]]
+        term_row = next(
+            row
+            for row in terms_ws.iter_rows(min_row=2, values_only=True)
+            if row[0] == "No term / Ad-hoc"
+        )
+        term_index = {name: pos for pos, name in enumerate(term_headers)}
+        assert term_row[term_index["Invoices"]] == 1
+        assert Decimal(str(term_row[term_index["Total Invoiced"]])) == Decimal("1000")
+        assert Decimal(str(term_row[term_index["Paid"]])) == Decimal("400")
+        assert Decimal(str(term_row[term_index["Amount Due"]])) == Decimal("600")
+
+        invoices_ws = detail_wb["Invoices"]
+        assert invoices_ws.cell(row=1, column=1).value == "Term"
+        assert invoices_ws.cell(row=2, column=1).value == "No term / Ad-hoc"
+
     async def test_create_family_account_with_new_child_only_via_api(
         self,
         client: AsyncClient,
         db_session: AsyncSession,
     ):
         auth_service = AuthService(db_session)
-        user = await auth_service.create_user(
+        await auth_service.create_user(
             email="family-new-child@test.com",
             password="Test123!",
             full_name="Family API Admin",
