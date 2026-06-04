@@ -10,6 +10,7 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.worksheet.worksheet import Worksheet
 
 MONEY_FORMAT = '#,##0.00'
+HIGHLIGHT_FILL = PatternFill("solid", fgColor="DBEAFE")
 
 
 def _cell_value(value: Any) -> Any:
@@ -34,6 +35,23 @@ def _style_header(ws: Worksheet, row: int, columns: int) -> None:
         cell.fill = fill
 
 
+def _style_label_value_row(
+    ws: Worksheet,
+    row: int,
+    *,
+    bold: bool = False,
+    highlight: bool = False,
+) -> None:
+    for column in (1, 2):
+        cell = ws.cell(row=row, column=column)
+        if bold:
+            cell.font = Font(bold=True, size=12 if highlight else 11)
+        if highlight:
+            cell.fill = HIGHLIGHT_FILL
+    if isinstance(ws.cell(row=row, column=2).value, int | float):
+        ws.cell(row=row, column=2).number_format = MONEY_FORMAT
+
+
 def _style_money_columns(ws: Worksheet, columns: list[int], start_row: int = 1) -> None:
     for row in ws.iter_rows(min_row=start_row):
         for column in columns:
@@ -50,6 +68,45 @@ def _autosize(ws: Worksheet) -> None:
             value = "" if cell.value is None else str(cell.value)
             width = max(width, min(len(value) + 2, 48))
         ws.column_dimensions[column_letter].width = width
+
+
+def _money(value: Any) -> Decimal:
+    if value is None:
+        return Decimal("0.00")
+    if isinstance(value, Decimal):
+        return value
+    return Decimal(str(value))
+
+
+def _invoice_term_rows(invoices: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[int | None, str], dict[str, Any]] = {}
+    for invoice in invoices:
+        term_id = invoice.get("term_id")
+        term_name = invoice.get("term_name") or "No term / Ad-hoc"
+        key = (term_id if isinstance(term_id, int) else None, term_name)
+        row = grouped.setdefault(
+            key,
+            {
+                "term_id": key[0],
+                "term_name": term_name,
+                "invoice_count": 0,
+                "total": Decimal("0.00"),
+                "paid_total": Decimal("0.00"),
+                "adjustment_total": Decimal("0.00"),
+                "amount_due": Decimal("0.00"),
+            },
+        )
+        row["invoice_count"] += 1
+        row["total"] += _money(invoice.get("total"))
+        row["paid_total"] += _money(invoice.get("paid_total"))
+        row["adjustment_total"] += _money(invoice.get("adjustment_total"))
+        row["amount_due"] += _money(invoice.get("amount_due"))
+
+    def sort_key(row: dict[str, Any]) -> tuple[int, str]:
+        term_id = row.get("term_id")
+        return (term_id if isinstance(term_id, int) else 999_999_999, row["term_name"])
+
+    return sorted(grouped.values(), key=sort_key)
 
 
 def build_parent_balances_xlsx(data: dict[str, Any]) -> bytes:
@@ -74,17 +131,16 @@ def build_parent_balances_xlsx(data: dict[str, Any]) -> bytes:
         "Email",
         "Students",
         "Members",
-        "Total Payments",
-        "Refunds",
-        "Net Paid",
-        "Paid to Invoices",
-        "Available Credit",
-        "Total Invoiced",
-        "Adjustments",
-        "Outstanding Debt",
-        "Amount to Pay Now",
-        "Credit After Debts",
-        "Net Balance",
+        "Amount Parent Should Pay Now",
+        "Overpayment / Credit",
+        "Invoices Issued",
+        "Paid by Parent",
+        "Refunded to Parent",
+        "Payment Kept by School",
+        "Applied to Invoices",
+        "Unused Credit",
+        "Unpaid Invoice Balance",
+        "Adjustments / Write-offs",
         "Last Payment",
     ]
     header_row = 5
@@ -105,17 +161,16 @@ def build_parent_balances_xlsx(data: dict[str, Any]) -> bytes:
                     row.get("primary_guardian_email"),
                     row.get("students"),
                     row.get("member_count"),
+                    row.get("amount_to_pay_now"),
+                    row.get("credit_after_debts"),
+                    row.get("total_invoiced"),
                     row.get("total_payments"),
                     row.get("total_refunds"),
                     row.get("net_paid"),
                     row.get("paid_to_invoices"),
                     row.get("available_credit"),
-                    row.get("total_invoiced"),
-                    row.get("invoice_adjustments"),
                     row.get("outstanding_debt"),
-                    row.get("amount_to_pay_now"),
-                    row.get("credit_after_debts"),
-                    row.get("net_balance"),
+                    row.get("invoice_adjustments"),
                     row.get("last_payment_date"),
                 ]
             ],
@@ -135,17 +190,16 @@ def build_parent_balances_xlsx(data: dict[str, Any]) -> bytes:
                 "",
                 "",
                 summary.get("account_count"),
+                summary.get("amount_to_pay_now"),
+                summary.get("credit_after_debts"),
+                summary.get("total_invoiced"),
                 summary.get("total_payments"),
                 summary.get("total_refunds"),
                 summary.get("net_paid"),
                 summary.get("paid_to_invoices"),
                 summary.get("available_credit"),
-                summary.get("total_invoiced"),
-                summary.get("invoice_adjustments"),
                 summary.get("outstanding_debt"),
-                summary.get("amount_to_pay_now"),
-                summary.get("credit_after_debts"),
-                summary.get("net_balance"),
+                summary.get("invoice_adjustments"),
                 "",
             ]
         ],
@@ -154,7 +208,7 @@ def build_parent_balances_xlsx(data: dict[str, Any]) -> bytes:
     for column in range(1, len(headers) + 1):
         ws.cell(row_index, column).font = Font(bold=True)
 
-    _style_money_columns(ws, list(range(8, 19)), header_row + 1)
+    _style_money_columns(ws, list(range(8, 18)), header_row + 1)
     _autosize(ws)
 
     buf = BytesIO()
@@ -170,6 +224,8 @@ def build_parent_balance_xlsx(data: dict[str, Any]) -> bytes:
 
     account = data.get("account") or {}
     summary = data.get("summary") or {}
+    amount_to_pay = summary.get("amount_to_pay_now")
+    credit_after_debts = summary.get("credit_after_debts")
     summary_rows = [
         ["Parent Balance"],
         ["Generated on", data.get("generated_on") or date.today()],
@@ -180,24 +236,64 @@ def build_parent_balance_xlsx(data: dict[str, Any]) -> bytes:
         ["Email", account.get("primary_guardian_email")],
         ["Students", account.get("students")],
         [],
-        ["Balance Summary", ""],
-        ["Total payments received", summary.get("total_payments")],
-        ["Refunds paid out", summary.get("total_refunds")],
-        ["Net paid by parent", summary.get("net_paid")],
-        ["Paid to invoices", summary.get("paid_to_invoices")],
-        ["Available credit", summary.get("available_credit")],
-        ["Total invoiced", summary.get("total_invoiced")],
-        ["Invoice adjustments / write-offs", summary.get("invoice_adjustments")],
-        ["Outstanding debt", summary.get("outstanding_debt")],
-        ["Amount to pay now", summary.get("amount_to_pay_now")],
-        ["Credit after debts", summary.get("credit_after_debts")],
-        ["Net balance", summary.get("net_balance")],
+        ["Simple Summary", ""],
+        ["Amount parent should pay now", amount_to_pay],
+        ["Paid by parent", summary.get("total_payments")],
+        ["Refunded to parent", summary.get("total_refunds")],
+        ["Payment kept by school", summary.get("net_paid")],
+        ["Overpayment / credit after unpaid invoices", credit_after_debts],
+        [],
+        ["How this was calculated", ""],
+        ["Invoices issued to this family", summary.get("total_invoiced")],
+        ["Already applied to invoices", summary.get("paid_to_invoices")],
+        ["Unused credit before unpaid invoices", summary.get("available_credit")],
+        ["Unpaid invoice balance", summary.get("outstanding_debt")],
+        ["Adjustments / write-offs", summary.get("invoice_adjustments")],
+        [],
+        [
+            "Formula",
+            "Amount to pay now = unpaid invoice balance - unused credit, never below zero.",
+        ],
     ]
     _write_rows(summary_ws, summary_rows)
     summary_ws.cell(1, 1).font = Font(bold=True, size=14)
-    summary_ws.cell(10, 1).font = Font(bold=True)
+    _style_label_value_row(summary_ws, 10, bold=True)
+    _style_label_value_row(summary_ws, 11, bold=True, highlight=True)
+    _style_label_value_row(summary_ws, 12, bold=True)
+    _style_label_value_row(summary_ws, 13, bold=True)
+    _style_label_value_row(summary_ws, 14, bold=True)
+    _style_label_value_row(summary_ws, 15, bold=True)
+    _style_label_value_row(summary_ws, 17, bold=True)
     _style_money_columns(summary_ws, [2], 11)
     _autosize(summary_ws)
+
+    invoices = data.get("invoices") or []
+    terms_ws = wb.create_sheet("Invoices by Term")
+    term_headers = [
+        "Term",
+        "Invoices",
+        "Total Invoiced",
+        "Paid",
+        "Adjustments",
+        "Amount Due",
+    ]
+    _write_rows(terms_ws, [term_headers], 1)
+    _style_header(terms_ws, 1, len(term_headers))
+    for index, term_row in enumerate(_invoice_term_rows(invoices), start=2):
+        _write_rows(
+            terms_ws,
+            [[
+                term_row.get("term_name"),
+                term_row.get("invoice_count"),
+                term_row.get("total"),
+                term_row.get("paid_total"),
+                term_row.get("adjustment_total"),
+                term_row.get("amount_due"),
+            ]],
+            index,
+        )
+    _style_money_columns(terms_ws, [3, 4, 5, 6], 2)
+    _autosize(terms_ws)
 
     students_ws = wb.create_sheet("Students")
     student_headers = ["Student #", "Student", "Grade", "Guardian", "Phone", "Status"]
@@ -220,6 +316,7 @@ def build_parent_balance_xlsx(data: dict[str, Any]) -> bytes:
 
     invoices_ws = wb.create_sheet("Invoices")
     invoice_headers = [
+        "Term",
         "Invoice #",
         "Student",
         "Type",
@@ -233,10 +330,11 @@ def build_parent_balance_xlsx(data: dict[str, Any]) -> bytes:
     ]
     _write_rows(invoices_ws, [invoice_headers], 1)
     _style_header(invoices_ws, 1, len(invoice_headers))
-    for index, invoice in enumerate(data.get("invoices") or [], start=2):
+    for index, invoice in enumerate(invoices, start=2):
         _write_rows(
             invoices_ws,
             [[
+                invoice.get("term_name") or "No term / Ad-hoc",
                 invoice.get("invoice_number"),
                 invoice.get("student_name"),
                 invoice.get("invoice_type"),
@@ -250,7 +348,7 @@ def build_parent_balance_xlsx(data: dict[str, Any]) -> bytes:
             ]],
             index,
         )
-    _style_money_columns(invoices_ws, [7, 8, 9, 10], 2)
+    _style_money_columns(invoices_ws, [8, 9, 10, 11], 2)
     _autosize(invoices_ws)
 
     payments_ws = wb.create_sheet("Payments")

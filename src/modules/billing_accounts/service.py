@@ -212,7 +212,7 @@ class BillingAccountService:
                 Invoice.status.in_(self._BILLABLE_INVOICE_STATUSES),
             )
             .options(selectinload(Invoice.student), selectinload(Invoice.term))
-            .order_by(Invoice.due_date, Invoice.invoice_number, Invoice.id)
+            .order_by(Invoice.term_id, Invoice.due_date, Invoice.invoice_number, Invoice.id)
         )
         invoices = list(invoices_result.scalars().unique().all())
 
@@ -263,6 +263,8 @@ class BillingAccountService:
                 {
                     "invoice_number": invoice.invoice_number,
                     "student_name": invoice.student.full_name if invoice.student else None,
+                    "term_id": invoice.term_id,
+                    "term_name": invoice.term.display_name if invoice.term else None,
                     "invoice_type": invoice.invoice_type,
                     "status": invoice.status,
                     "issue_date": invoice.issue_date,

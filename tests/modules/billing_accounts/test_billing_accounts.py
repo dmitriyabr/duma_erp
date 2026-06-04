@@ -764,10 +764,10 @@ class TestBillingAccountEndpoints:
         headers = [cell.value for cell in ws[5]]
         row = next(row for row in ws.iter_rows(min_row=6, values_only=True) if row[1] == "Kamau Family")
         index = {name: pos for pos, name in enumerate(headers)}
-        assert Decimal(str(row[index["Total Payments"]])) == Decimal("400")
-        assert Decimal(str(row[index["Paid to Invoices"]])) == Decimal("400")
-        assert Decimal(str(row[index["Outstanding Debt"]])) == Decimal("600")
-        assert Decimal(str(row[index["Amount to Pay Now"]])) == Decimal("600")
+        assert Decimal(str(row[index["Paid by Parent"]])) == Decimal("400")
+        assert Decimal(str(row[index["Applied to Invoices"]])) == Decimal("400")
+        assert Decimal(str(row[index["Unpaid Invoice Balance"]])) == Decimal("600")
+        assert Decimal(str(row[index["Amount Parent Should Pay Now"]])) == Decimal("600")
 
         detail_response = await client.get(
             f"/api/v1/billing-accounts/{family['id']}/balance-export",
@@ -784,10 +784,27 @@ class TestBillingAccountEndpoints:
             for row in summary_ws.iter_rows(min_row=1, max_col=2, values_only=True)
             if row[0]
         }
-        assert Decimal(str(summary["Total payments received"])) == Decimal("400")
-        assert Decimal(str(summary["Paid to invoices"])) == Decimal("400")
-        assert Decimal(str(summary["Outstanding debt"])) == Decimal("600")
-        assert Decimal(str(summary["Amount to pay now"])) == Decimal("600")
+        assert Decimal(str(summary["Paid by parent"])) == Decimal("400")
+        assert Decimal(str(summary["Already applied to invoices"])) == Decimal("400")
+        assert Decimal(str(summary["Unpaid invoice balance"])) == Decimal("600")
+        assert Decimal(str(summary["Amount parent should pay now"])) == Decimal("600")
+
+        terms_ws = detail_wb["Invoices by Term"]
+        term_headers = [cell.value for cell in terms_ws[1]]
+        term_row = next(
+            row
+            for row in terms_ws.iter_rows(min_row=2, values_only=True)
+            if row[0] == "No term / Ad-hoc"
+        )
+        term_index = {name: pos for pos, name in enumerate(term_headers)}
+        assert term_row[term_index["Invoices"]] == 1
+        assert Decimal(str(term_row[term_index["Total Invoiced"]])) == Decimal("1000")
+        assert Decimal(str(term_row[term_index["Paid"]])) == Decimal("400")
+        assert Decimal(str(term_row[term_index["Amount Due"]])) == Decimal("600")
+
+        invoices_ws = detail_wb["Invoices"]
+        assert invoices_ws.cell(row=1, column=1).value == "Term"
+        assert invoices_ws.cell(row=2, column=1).value == "No term / Ad-hoc"
 
     async def test_create_family_account_with_new_child_only_via_api(
         self,
