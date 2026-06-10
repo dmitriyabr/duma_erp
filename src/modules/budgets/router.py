@@ -18,6 +18,7 @@ from src.modules.budgets.schemas import (
     BudgetAdvanceReturnResponse,
     BudgetAdvanceTransferCreate,
     BudgetAdvanceTransferResponse,
+    BudgetAdvanceUpdate,
     BudgetClosureStatusResponse,
     BudgetCreate,
     BudgetResponse,
@@ -26,7 +27,6 @@ from src.modules.budgets.schemas import (
 )
 from src.modules.budgets.service import BudgetService
 from src.shared.schemas.base import ApiResponse, PaginatedResponse
-
 
 router = APIRouter(prefix="/budgets", tags=["Budgets"])
 
@@ -258,6 +258,18 @@ async def get_advance(
     service = BudgetService(db)
     advance = await service.get_advance_by_id(advance_id)
     return ApiResponse(success=True, data=BudgetAdvanceResponse(**(await service.get_advance_snapshot(advance))))
+
+
+@router.patch("/advances/{advance_id}", response_model=ApiResponse[BudgetAdvanceResponse])
+async def update_advance(
+    advance_id: int,
+    data: BudgetAdvanceUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = BudgetEditRole,
+):
+    service = BudgetService(db)
+    advance = await service.update_advance(advance_id, data)
+    return ApiResponse(success=True, message="Advance updated", data=BudgetAdvanceResponse(**(await service.get_advance_snapshot(advance))))
 
 
 @router.post("/advances/{advance_id}/issue", response_model=ApiResponse[BudgetAdvanceResponse])

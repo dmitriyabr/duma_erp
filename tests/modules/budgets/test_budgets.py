@@ -71,8 +71,8 @@ class TestBudgets:
             json={
                 "name": "Kitchen April",
                 "purpose_id": purpose_id,
-                "period_from": "2026-04-01",
-                "period_to": "2026-04-30",
+                "period_from": "2099-04-01",
+                "period_to": "2099-04-30",
                 "limit_amount": "5000.00",
             },
         )
@@ -92,11 +92,11 @@ class TestBudgets:
             json={
                 "budget_id": budget_id,
                 "employee_id": employee_id,
-                "issue_date": "2026-04-24",
+                "issue_date": "2099-04-24",
                 "amount_issued": "5000.00",
                 "payment_method": "bank",
                 "reference_number": "ADV-APR-01",
-                "settlement_due_date": "2026-04-30",
+                "settlement_due_date": "2099-04-30",
                 "issue_now": False,
             },
         )
@@ -148,7 +148,7 @@ class TestBudgets:
                 "amount": "1200.00",
                 "payee_name": "Local shop",
                 "description": "Kitchen groceries",
-                "expense_date": "2026-04-24",
+                "expense_date": "2099-04-24",
                 "proof_text": "Receipt #APR-1",
                 "submit": True,
             },
@@ -331,8 +331,8 @@ class TestBudgets:
             json={
                 "name": "Kitchen April",
                 "purpose_id": purpose_id,
-                "period_from": "2026-04-01",
-                "period_to": "2026-04-30",
+                "period_from": "2099-04-01",
+                "period_to": "2099-04-30",
                 "limit_amount": "1000.00",
             },
         )
@@ -348,8 +348,8 @@ class TestBudgets:
             json={
                 "name": "Kitchen May",
                 "purpose_id": purpose_id,
-                "period_from": "2026-05-01",
-                "period_to": "2026-05-31",
+                "period_from": "2099-05-01",
+                "period_to": "2099-05-31",
                 "limit_amount": "1000.00",
             },
         )
@@ -365,12 +365,12 @@ class TestBudgets:
             json={
                 "budget_id": april_budget_id,
                 "employee_id": employee_id,
-                "issue_date": "2026-04-24",
+                "issue_date": "2099-04-24",
                 "amount_issued": "500.00",
                 "payment_method": "bank",
                 "reference_number": "ADV-CLOSE-1",
                 "proof_text": "Transfer note",
-                "settlement_due_date": "2026-04-30",
+                "settlement_due_date": "2099-04-30",
             },
         )
         advance_id = advance.json()["data"]["id"]
@@ -384,7 +384,7 @@ class TestBudgets:
                 "purpose_id": purpose_id,
                 "amount": "100.00",
                 "description": "Kitchen milk",
-                "expense_date": "2026-04-24",
+                "expense_date": "2099-04-24",
                 "proof_text": "Receipt #CLOSE",
                 "submit": True,
             },
@@ -401,7 +401,7 @@ class TestBudgets:
             f"/api/v1/budgets/advances/{advance_id}/returns",
             headers={"Authorization": f"Bearer {super_token}"},
             json={
-                "return_date": "2026-04-25",
+                "return_date": "2099-04-25",
                 "amount": "100.00",
                 "return_method": "cash",
                 "reference_number": "RET-APR-1",
@@ -416,11 +416,11 @@ class TestBudgets:
             json={
                 "to_budget_id": may_budget_id,
                 "to_employee_id": employee_id,
-                "transfer_date": "2026-05-01",
+                "transfer_date": "2099-05-01",
                 "amount": "300.00",
                 "transfer_type": "rollover",
                 "reason": "Carry forward kitchen float",
-                "settlement_due_date": "2026-05-31",
+                "settlement_due_date": "2099-05-31",
             },
         )
         assert transfer.status_code == 201
@@ -1063,6 +1063,179 @@ class TestBudgets:
         )
         assert issued.status_code == 200
         assert issued.json()["data"]["status"] == "overdue"
+
+    async def test_super_admin_can_update_issued_advance_details(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-advance-update-super@test.com",
+            password="Pass123!",
+            full_name="Budget Super",
+            role=UserRole.SUPER_ADMIN,
+        )
+        _, admin_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-advance-update-admin@test.com",
+            password="Pass123!",
+            full_name="Budget Admin",
+            role=UserRole.ADMIN,
+        )
+        employee_id, _ = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-advance-update-employee@test.com",
+            password="Pass123!",
+            full_name="Budget Employee",
+            role=UserRole.USER,
+        )
+        purpose_id = await self._create_purpose(client, super_token, "Advance Update")
+
+        budget = await client.post(
+            "/api/v1/budgets",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "name": "Advance Update Budget",
+                "purpose_id": purpose_id,
+                "period_from": "2099-08-01",
+                "period_to": "2099-08-31",
+                "limit_amount": "1000.00",
+            },
+        )
+        budget_id = budget.json()["data"]["id"]
+        await client.post(f"/api/v1/budgets/{budget_id}/activate", headers={"Authorization": f"Bearer {super_token}"})
+
+        advance = await client.post(
+            "/api/v1/budgets/advances",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "budget_id": budget_id,
+                "employee_id": employee_id,
+                "issue_date": "2099-08-05",
+                "amount_issued": "300.00",
+                "payment_method": "bank",
+                "reference_number": "ADV-OLD",
+                "proof_text": "Old proof",
+                "settlement_due_date": "2099-08-31",
+            },
+        )
+        assert advance.status_code == 201
+        advance_id = advance.json()["data"]["id"]
+
+        admin_update = await client.patch(
+            f"/api/v1/budgets/advances/{advance_id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={"reference_number": "ADMIN-NOPE"},
+        )
+        assert admin_update.status_code == 403
+
+        update = await client.patch(
+            f"/api/v1/budgets/advances/{advance_id}",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "issue_date": "2099-08-06",
+                "amount_issued": "350.00",
+                "payment_method": "mpesa",
+                "reference_number": "ADV-NEW",
+                "proof_text": "Corrected proof",
+                "notes": "Corrected after bank confirmation",
+                "settlement_due_date": "2099-08-30",
+            },
+        )
+        assert update.status_code == 200
+        data = update.json()["data"]
+        assert data["issue_date"] == "2099-08-06"
+        assert Decimal(data["amount_issued"]) == Decimal("350.00")
+        assert data["payment_method"] == "mpesa"
+        assert data["reference_number"] == "ADV-NEW"
+        assert data["proof_text"] == "Corrected proof"
+        assert data["notes"] == "Corrected after bank confirmation"
+        assert data["settlement_due_date"] == "2099-08-30"
+
+    async def test_super_admin_cannot_change_advance_amount_after_allocation(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        _, super_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-advance-lock-super@test.com",
+            password="Pass123!",
+            full_name="Budget Super",
+            role=UserRole.SUPER_ADMIN,
+        )
+        employee_id, employee_token = await _create_user_and_token(
+            client,
+            db_session,
+            email="budget-advance-lock-employee@test.com",
+            password="Pass123!",
+            full_name="Budget Employee",
+            role=UserRole.USER,
+        )
+        purpose_id = await self._create_purpose(client, super_token, "Advance Lock")
+
+        budget = await client.post(
+            "/api/v1/budgets",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "name": "Advance Lock Budget",
+                "purpose_id": purpose_id,
+                "period_from": "2099-09-01",
+                "period_to": "2099-09-30",
+                "limit_amount": "1000.00",
+            },
+        )
+        budget_id = budget.json()["data"]["id"]
+        await client.post(f"/api/v1/budgets/{budget_id}/activate", headers={"Authorization": f"Bearer {super_token}"})
+
+        advance = await client.post(
+            "/api/v1/budgets/advances",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "budget_id": budget_id,
+                "employee_id": employee_id,
+                "issue_date": "2099-09-05",
+                "amount_issued": "500.00",
+                "payment_method": "cash",
+                "reference_number": "ADV-LOCK",
+                "proof_text": "Cash issue note",
+                "settlement_due_date": "2099-09-30",
+            },
+        )
+        advance_id = advance.json()["data"]["id"]
+
+        claim = await client.post(
+            "/api/v1/compensations/claims",
+            headers={"Authorization": f"Bearer {employee_token}"},
+            json={
+                "budget_id": budget_id,
+                "funding_source": "budget",
+                "purpose_id": purpose_id,
+                "amount": "100.00",
+                "description": "Budget spend",
+                "expense_date": "2099-09-10",
+                "proof_text": "Receipt #LOCK",
+                "submit": True,
+            },
+        )
+        assert claim.status_code == 201
+
+        proof_update = await client.patch(
+            f"/api/v1/budgets/advances/{advance_id}",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={"proof_text": "Corrected cash issue proof", "notes": "Proof corrected"},
+        )
+        assert proof_update.status_code == 200
+        assert proof_update.json()["data"]["proof_text"] == "Corrected cash issue proof"
+
+        amount_update = await client.patch(
+            f"/api/v1/budgets/advances/{advance_id}",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={"amount_issued": "450.00"},
+        )
+        assert amount_update.status_code == 422
+        assert "activity" in amount_update.json()["message"]
 
     async def test_admin_cannot_update_budget(self, client: AsyncClient, db_session: AsyncSession):
         _, super_token = await _create_user_and_token(

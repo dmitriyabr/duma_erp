@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { USERS_LIST_LIMIT } from '../../constants/pagination'
 import type { PaginatedResponse } from '../../types/api'
+import type { BudgetListResponse, BudgetSummary } from '../../types/budgets'
 import { useApi } from '../../hooks/useApi'
 import { api } from '../../services/api'
 import { formatDate, formatMoney } from '../../utils/format'
@@ -92,6 +93,7 @@ export const ExpenseClaimsListPage = () => {
   const initialDateFrom = searchParams.get('date_from') || ''
   const initialDateTo = searchParams.get('date_to') || ''
   const initialFundingSource = searchParams.get('funding_source') || 'all'
+  const initialBudget = searchParams.get('budget_id')
 
   const [page, setPage] = useState(initialPage)
   const [limit, setLimit] = useState(initialLimit)
@@ -102,6 +104,9 @@ export const ExpenseClaimsListPage = () => {
   const [dateFrom, setDateFrom] = useState(initialDateFrom)
   const [dateTo, setDateTo] = useState(initialDateTo)
   const [fundingSourceFilter, setFundingSourceFilter] = useState<string>(initialFundingSource)
+  const [budgetFilter, setBudgetFilter] = useState<number | ''>(
+    initialBudget ? Number(initialBudget) : ''
+  )
 
   useEffect(() => {
     const params = new URLSearchParams()
@@ -112,8 +117,20 @@ export const ExpenseClaimsListPage = () => {
     if (dateFrom) params.set('date_from', dateFrom)
     if (dateTo) params.set('date_to', dateTo)
     if (fundingSourceFilter !== 'all') params.set('funding_source', fundingSourceFilter)
+    if (budgetFilter) params.set('budget_id', String(budgetFilter))
     setSearchParams(params, { replace: true })
-  }, [page, limit, statusFilter, employeeFilter, dateFrom, dateTo, fundingSourceFilter, userIsSuperAdmin, setSearchParams])
+  }, [
+    page,
+    limit,
+    statusFilter,
+    employeeFilter,
+    dateFrom,
+    dateTo,
+    fundingSourceFilter,
+    budgetFilter,
+    userIsSuperAdmin,
+    setSearchParams,
+  ])
 
   const claimsUrl = useMemo(() => {
     const params: Record<string, string | number> = { page: page + 1, limit }
@@ -124,11 +141,23 @@ export const ExpenseClaimsListPage = () => {
     if (dateFrom) params.date_from = dateFrom
     if (dateTo) params.date_to = dateTo
     if (fundingSourceFilter !== 'all') params.funding_source = fundingSourceFilter
+    if (budgetFilter) params.budget_id = Number(budgetFilter)
 
     const sp = new URLSearchParams()
     Object.entries(params).forEach(([k, v]) => sp.append(k, String(v)))
     return `/compensations/claims?${sp.toString()}`
-  }, [page, limit, statusFilter, employeeFilter, dateFrom, dateTo, fundingSourceFilter, userIsSuperAdmin, user])
+  }, [
+    page,
+    limit,
+    statusFilter,
+    employeeFilter,
+    dateFrom,
+    dateTo,
+    fundingSourceFilter,
+    budgetFilter,
+    userIsSuperAdmin,
+    user,
+  ])
 
   const { data: claimsData, loading, error } = useApi<PaginatedResponse<ClaimRow>>(claimsUrl)
   const { data: employeesData } = useApi<{ items: UserRow[] }>(
@@ -136,6 +165,12 @@ export const ExpenseClaimsListPage = () => {
     userIsSuperAdmin ? { params: { limit: USERS_LIST_LIMIT } } : undefined,
     [userIsSuperAdmin]
   )
+  const budgetsUrl = useMemo(() => {
+    if (!user) return null
+    if (user.role === 'User') return '/budgets/my/budgets'
+    return '/budgets?page=1&limit=100'
+  }, [user])
+  const { data: budgetsData, error: budgetsError } = useApi<BudgetListResponse | BudgetSummary[]>(budgetsUrl)
   const { data: myTotals } = useApi<ClaimTotalsResponse>(
     user?.id && showMyTotals ? `/compensations/claims/employees/${user.id}/totals` : null
   )
@@ -143,6 +178,10 @@ export const ExpenseClaimsListPage = () => {
   const claims = claimsData?.items || []
   const total = claimsData?.total || 0
   const employees = employeesData?.items || []
+  const budgets = useMemo(() => {
+    if (!budgetsData) return []
+    return Array.isArray(budgetsData) ? budgetsData : budgetsData.items
+  }, [budgetsData])
 
   const downloadAttachment = async (attachmentId: number) => {
     try {
@@ -269,6 +308,24 @@ export const ExpenseClaimsListPage = () => {
             {fundingSourceOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="w-full sm:min-w-[220px]">
+          <Select
+            label="Budget"
+            value={budgetFilter}
+            onChange={(e) => {
+              const value = e.target.value
+              setBudgetFilter(value ? Number(value) : '')
+            }}
+            helperText={budgetsError ?? undefined}
+          >
+            <option value="">All budgets</option>
+            {budgets.map((budget) => (
+              <option key={budget.id} value={budget.id}>
+                {budget.budget_number} · {budget.name}
               </option>
             ))}
           </Select>

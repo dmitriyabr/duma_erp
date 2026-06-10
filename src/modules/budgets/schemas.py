@@ -123,6 +123,21 @@ class BudgetAdvanceIssueRequest(BaseSchema):
         return self
 
 
+class BudgetAdvanceUpdate(BaseSchema):
+    """SuperAdmin correction for an existing advance."""
+
+    budget_id: int | None = None
+    employee_id: int | None = None
+    issue_date: date | None = None
+    amount_issued: Decimal | None = Field(None, gt=0)
+    payment_method: str | None = Field(None, min_length=1, max_length=20)
+    reference_number: str | None = Field(None, max_length=200)
+    proof_text: str | None = None
+    proof_attachment_id: int | None = None
+    notes: str | None = None
+    settlement_due_date: date | None = None
+
+
 class BudgetAdvanceReturnCreate(BaseSchema):
     """Record a return of unused advance money."""
 

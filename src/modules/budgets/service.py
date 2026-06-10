@@ -10,9 +10,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.core.auth.models import UserRole
 from src.core.documents.number_generator import get_document_number
 from src.core.exceptions import NotFoundError, ValidationError
-from src.core.auth.models import UserRole
 from src.modules.budgets.models import (
     Budget,
     BudgetAdvance,
@@ -29,6 +29,7 @@ from src.modules.budgets.schemas import (
     BudgetAdvanceIssueRequest,
     BudgetAdvanceReturnCreate,
     BudgetAdvanceTransferCreate,
+    BudgetAdvanceUpdate,
     BudgetCreate,
     BudgetUpdate,
 )
@@ -639,6 +640,96 @@ class BudgetService:
             raise ValidationError("Advance exceeds available budget headroom")
 
         advance.status = BudgetAdvanceStatus.ISSUED.value
+        await self._refresh_advance_status(advance)
+        await self.db.commit()
+        return await self.get_advance_by_id(advance.id)
+
+    async def update_advance(self, advance_id: int, data: BudgetAdvanceUpdate) -> BudgetAdvance:
+        advance = await self._get_advance_base(advance_id)
+        if advance.status in (BudgetAdvanceStatus.CANCELLED.value, BudgetAdvanceStatus.CLOSED.value):
+            raise ValidationError("Cancelled or closed advances cannot be edited")
+
+        update = data.model_dump(exclude_unset=True)
+        if not update:
+            return advance
+
+        original_budget_id = advance.budget_id
+        original_amount = round_money(advance.amount_issued)
+        original_status = advance.status
+
+        core_fields = {"budget_id", "employee_id", "amount_issued"}
+        date_core_fields = {"issue_date"}
+        activity_locked = (
+            bool(advance.allocations)
+            or bool(advance.returns)
+            or bool(advance.transfer_out_documents)
+            or advance.source_type == BudgetAdvanceSourceType.TRANSFER_IN.value
+        )
+        if activity_locked and any(field in update for field in core_fields):
+            raise ValidationError("Cannot change budget, employee, or amount after advance activity exists")
+        if advance.source_type == BudgetAdvanceSourceType.TRANSFER_IN.value and any(field in update for field in date_core_fields):
+            raise ValidationError("Cannot change issue date for transfer-created advances")
+
+        target_budget = advance.budget
+        if "budget_id" in update and update["budget_id"] is not None and update["budget_id"] != advance.budget_id:
+            target_budget = await self._get_budget_base(int(update["budget_id"]))
+            if target_budget.status not in (BudgetStatus.ACTIVE.value, BudgetStatus.CLOSING.value):
+                raise ValidationError("Target budget is not open for advances")
+            advance.budget_id = target_budget.id
+            advance.budget = target_budget
+
+        if "employee_id" in update and update["employee_id"] is not None and update["employee_id"] != advance.employee_id:
+            from src.core.auth.service import AuthService
+
+            if not await AuthService(self.db).get_user_by_id(int(update["employee_id"])):
+                raise ValidationError("Employee not found")
+            advance.employee_id = int(update["employee_id"])
+
+        if "issue_date" in update and update["issue_date"] is not None:
+            advance.issue_date = update["issue_date"]
+        if "settlement_due_date" in update and update["settlement_due_date"] is not None:
+            advance.settlement_due_date = update["settlement_due_date"]
+        if "payment_method" in update and update["payment_method"] is not None:
+            advance.payment_method = update["payment_method"]
+        if "reference_number" in update:
+            advance.reference_number = update["reference_number"]
+        if "proof_text" in update:
+            advance.proof_text = update["proof_text"]
+        if "proof_attachment_id" in update:
+            advance.proof_attachment_id = update["proof_attachment_id"]
+        if "notes" in update:
+            advance.notes = update["notes"]
+
+        if advance.issue_date < target_budget.period_from or advance.issue_date > target_budget.period_to:
+            raise ValidationError("Advance issue_date must be inside budget period")
+        if advance.settlement_due_date < advance.issue_date:
+            raise ValidationError("settlement_due_date must be >= issue_date")
+
+        new_amount = (
+            round_money(update["amount_issued"])
+            if "amount_issued" in update and update["amount_issued"] is not None
+            else original_amount
+        )
+        needs_headroom_check = (
+            "amount_issued" in update
+            or ("budget_id" in update and update["budget_id"] is not None and update["budget_id"] != original_budget_id)
+        )
+        if needs_headroom_check and original_status != BudgetAdvanceStatus.DRAFT.value:
+            with self.db.no_autoflush:
+                totals = await self._budget_totals(target_budget.id)
+            available_for_advance = totals.available_to_issue
+            if original_budget_id == target_budget.id:
+                available_for_advance = round_money(available_for_advance + original_amount)
+            if new_amount > available_for_advance:
+                raise ValidationError("Advance exceeds available budget headroom")
+        if "amount_issued" in update and update["amount_issued"] is not None:
+            advance.amount_issued = new_amount
+
+        if advance.status != BudgetAdvanceStatus.DRAFT.value and not (
+            advance.reference_number or advance.proof_text or advance.proof_attachment_id
+        ):
+            raise ValidationError("reference_number or proof is required")
+
         await self._refresh_advance_status(advance)
         await self.db.commit()
         return await self.get_advance_by_id(advance.id)

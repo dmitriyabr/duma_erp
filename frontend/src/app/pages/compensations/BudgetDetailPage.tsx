@@ -16,6 +16,7 @@ import type {
   BudgetTransferListResponse,
 } from '../../types/budgets'
 import { formatDate, formatMoney } from '../../utils/format'
+import { openAttachmentInNewTab } from '../../utils/attachments'
 import {
   Alert,
   Button,
@@ -87,6 +88,7 @@ export const BudgetDetailPage = () => {
   const { user } = useAuth()
   const canManage = user?.role === 'SuperAdmin' || user?.role === 'Admin'
   const canEditBudget = user?.role === 'SuperAdmin'
+  const canEditAdvance = user?.role === 'SuperAdmin'
   const resolvedBudgetId = budgetId ? Number(budgetId) : null
 
   const { data: budget, loading, error, refetch: refetchBudget } = useApi<BudgetSummary>(
@@ -171,6 +173,20 @@ export const BudgetDetailPage = () => {
   const [issuePaymentMethod, setIssuePaymentMethod] = useState('')
   const [issueSettlementDueDate, setIssueSettlementDueDate] = useState('')
 
+  const [advanceDetailsTarget, setAdvanceDetailsTarget] = useState<BudgetAdvanceSummary | null>(null)
+  const [advanceEditMode, setAdvanceEditMode] = useState(false)
+  const [editAdvanceEmployeeId, setEditAdvanceEmployeeId] = useState<number | ''>('')
+  const [editAdvanceIssueDate, setEditAdvanceIssueDate] = useState('')
+  const [editAdvanceSettlementDueDate, setEditAdvanceSettlementDueDate] = useState('')
+  const [editAdvanceAmount, setEditAdvanceAmount] = useState('')
+  const [editAdvancePaymentMethod, setEditAdvancePaymentMethod] = useState('')
+  const [editAdvanceReferenceNumber, setEditAdvanceReferenceNumber] = useState('')
+  const [editAdvanceProofText, setEditAdvanceProofText] = useState('')
+  const [editAdvanceProofAttachmentId, setEditAdvanceProofAttachmentId] = useState<number | null>(null)
+  const [editAdvanceProofFileName, setEditAdvanceProofFileName] = useState<string | null>(null)
+  const [editAdvanceUploadingProof, setEditAdvanceUploadingProof] = useState(false)
+  const [editAdvanceNotes, setEditAdvanceNotes] = useState('')
+
   const [returnAdvanceTarget, setReturnAdvanceTarget] = useState<BudgetAdvanceSummary | null>(null)
   const [returnDate, setReturnDate] = useState(today())
   const [returnAmount, setReturnAmount] = useState('')
@@ -202,6 +218,7 @@ export const BudgetDetailPage = () => {
   const updateBudgetMutation = useApiMutation<BudgetSummary>()
   const advanceActionMutation = useApiMutation<BudgetAdvanceSummary>()
   const createAdvanceMutation = useApiMutation<BudgetAdvanceSummary>()
+  const updateAdvanceMutation = useApiMutation<BudgetAdvanceSummary>()
   const returnMutation = useApiMutation<BudgetAdvanceReturn>()
   const transferMutation = useApiMutation<BudgetAdvanceTransfer>()
 
@@ -212,6 +229,7 @@ export const BudgetDetailPage = () => {
     updateBudgetMutation.error ||
     advanceActionMutation.error ||
     createAdvanceMutation.error ||
+    updateAdvanceMutation.error ||
     returnMutation.error ||
     transferMutation.error
 
@@ -412,6 +430,83 @@ export const BudgetDetailPage = () => {
     await reloadAll()
   }
 
+  const advanceHasLockedFinancialActivity = (advance: BudgetAdvanceSummary) =>
+    advance.source_type === 'transfer_in' ||
+    Number(advance.reserved_amount) > 0 ||
+    Number(advance.settled_amount) > 0 ||
+    Number(advance.returned_amount) > 0 ||
+    Number(advance.transferred_out_amount) > 0
+
+  const openAdvanceDetails = (advance: BudgetAdvanceSummary) => {
+    setLocalError(null)
+    setAdvanceDetailsTarget(advance)
+    setAdvanceEditMode(false)
+  }
+
+  const startEditAdvance = (advance: BudgetAdvanceSummary) => {
+    setLocalError(null)
+    setEditAdvanceEmployeeId(advance.employee_id)
+    setEditAdvanceIssueDate(advance.issue_date)
+    setEditAdvanceSettlementDueDate(advance.settlement_due_date)
+    setEditAdvanceAmount(String(advance.amount_issued))
+    setEditAdvancePaymentMethod(advance.payment_method)
+    setEditAdvanceReferenceNumber(advance.reference_number ?? '')
+    setEditAdvanceProofText(advance.proof_text ?? '')
+    setEditAdvanceProofAttachmentId(advance.proof_attachment_id ?? null)
+    setEditAdvanceProofFileName(null)
+    setEditAdvanceUploadingProof(false)
+    setEditAdvanceNotes(advance.notes ?? '')
+    setAdvanceEditMode(true)
+  }
+
+  const handleUpdateAdvance = async () => {
+    if (!advanceDetailsTarget) return
+    if (!editAdvanceEmployeeId || !editAdvanceIssueDate || !editAdvanceSettlementDueDate || !editAdvanceAmount) {
+      setLocalError('Fill employee, issue date, due date, and amount.')
+      return
+    }
+    if (!editAdvancePaymentMethod.trim()) {
+      setLocalError('Payment method is required.')
+      return
+    }
+    const amountValue = Number(editAdvanceAmount)
+    if (!amountValue || amountValue <= 0) {
+      setLocalError('Advance amount must be greater than 0.')
+      return
+    }
+    if (
+      advanceDetailsTarget.status !== 'draft' &&
+      !editAdvanceReferenceNumber.trim() &&
+      !editAdvanceProofText.trim() &&
+      editAdvanceProofAttachmentId == null
+    ) {
+      setLocalError('Reference number or proof is required for issued advances.')
+      return
+    }
+
+    setLocalError(null)
+    const result = await updateAdvanceMutation.execute(() =>
+      api.patch(`/budgets/advances/${advanceDetailsTarget.id}`, {
+        budget_id: advanceDetailsTarget.budget_id,
+        employee_id: Number(editAdvanceEmployeeId),
+        issue_date: editAdvanceIssueDate,
+        amount_issued: amountValue,
+        payment_method: editAdvancePaymentMethod.trim(),
+        reference_number: editAdvanceReferenceNumber.trim() || null,
+        proof_text: editAdvanceProofText.trim() || null,
+        proof_attachment_id: editAdvanceProofAttachmentId,
+        notes: editAdvanceNotes.trim() || null,
+        settlement_due_date: editAdvanceSettlementDueDate,
+      })
+    )
+    if (!result) return
+
+    setSuccess(`Advance ${result.advance_number} updated.`)
+    setAdvanceDetailsTarget(result)
+    setAdvanceEditMode(false)
+    await reloadAll()
+  }
+
   const handleCancelAdvance = async (advance: BudgetAdvanceSummary) => {
     setLocalError(null)
     const result = await advanceActionMutation.execute(() => api.post(`/budgets/advances/${advance.id}/cancel`))
@@ -530,6 +625,13 @@ export const BudgetDetailPage = () => {
         : [],
     [budget]
   )
+  const selectedAdvanceHasLockedFinancialActivity = advanceDetailsTarget
+    ? advanceHasLockedFinancialActivity(advanceDetailsTarget)
+    : false
+  const selectedAdvanceCanEdit =
+    canEditAdvance &&
+    advanceDetailsTarget !== null &&
+    !['cancelled', 'closed'].includes(advanceDetailsTarget.status)
 
   if (loading) {
     return (
@@ -861,6 +963,9 @@ export const BudgetDetailPage = () => {
                     </TableCell>
                     <TableCell align="right">
                       <div className="flex justify-end gap-2 flex-wrap">
+                        <Button size="small" variant="outlined" onClick={() => openAdvanceDetails(advance)}>
+                          Details
+                        </Button>
                         <Button size="small" variant="outlined" onClick={() => setReturnsViewerAdvance(advance)}>
                           Returns
                         </Button>
@@ -1021,6 +1126,251 @@ export const BudgetDetailPage = () => {
           <Button variant="contained" onClick={handleIssueAdvance} disabled={advanceActionMutation.loading}>
             {advanceActionMutation.loading ? 'Issuing…' : 'Issue'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={advanceDetailsTarget !== null}
+        onClose={() => {
+          setAdvanceDetailsTarget(null)
+          setAdvanceEditMode(false)
+        }}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>{advanceEditMode ? 'Edit advance' : 'Advance details'}</DialogTitle>
+        <DialogContent>
+          {advanceDetailsTarget ? (
+            advanceEditMode ? (
+              <div className="grid gap-4 mt-2">
+                {selectedAdvanceHasLockedFinancialActivity ? (
+                  <Alert severity="warning">
+                    Employee and amount are locked because this advance already has allocations, returns, transfers, or was created by transfer.
+                  </Alert>
+                ) : null}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Select
+                    label="Employee"
+                    value={editAdvanceEmployeeId}
+                    onChange={(e) => setEditAdvanceEmployeeId(e.target.value ? Number(e.target.value) : '')}
+                    disabled={selectedAdvanceHasLockedFinancialActivity}
+                  >
+                    <option value="">Select employee</option>
+                    {employees.map((employee) => (
+                      <option key={employee.id} value={employee.id}>
+                        {employee.full_name}
+                      </option>
+                    ))}
+                  </Select>
+                  <Input
+                    label="Amount issued"
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={editAdvanceAmount}
+                    onChange={(e) => setEditAdvanceAmount(e.target.value)}
+                    disabled={selectedAdvanceHasLockedFinancialActivity}
+                  />
+                  <Input
+                    label="Issue date"
+                    type="date"
+                    value={editAdvanceIssueDate}
+                    onChange={(e) => setEditAdvanceIssueDate(e.target.value)}
+                    disabled={advanceDetailsTarget.source_type === 'transfer_in'}
+                  />
+                  <Input
+                    label="Settlement due date"
+                    type="date"
+                    value={editAdvanceSettlementDueDate}
+                    onChange={(e) => setEditAdvanceSettlementDueDate(e.target.value)}
+                  />
+                  <Select
+                    label="Payment method"
+                    value={editAdvancePaymentMethod}
+                    onChange={(e) => setEditAdvancePaymentMethod(e.target.value)}
+                  >
+                    <option value="bank">Bank transfer</option>
+                    <option value="cash">Cash</option>
+                    <option value="mpesa">M-Pesa</option>
+                    <option value="other">Other</option>
+                  </Select>
+                  <Input
+                    label="Reference number"
+                    value={editAdvanceReferenceNumber}
+                    onChange={(e) => setEditAdvanceReferenceNumber(e.target.value)}
+                  />
+                </div>
+
+                <Textarea
+                  label="Proof / note"
+                  value={editAdvanceProofText}
+                  onChange={(e) => setEditAdvanceProofText(e.target.value)}
+                  rows={3}
+                />
+                <FileDropzone
+                  title="Upload proof (image/PDF)"
+                  accept="image/*,.pdf,application/pdf"
+                  fileName={editAdvanceProofFileName ?? (editAdvanceProofAttachmentId ? 'Attachment uploaded' : null)}
+                  loading={editAdvanceUploadingProof}
+                  onFileSelected={(file) =>
+                    uploadAttachment(file, {
+                      setLoading: setEditAdvanceUploadingProof,
+                      setAttachmentId: setEditAdvanceProofAttachmentId,
+                      setFileName: setEditAdvanceProofFileName,
+                    })
+                  }
+                />
+                {editAdvanceProofAttachmentId != null ? (
+                  <div className="flex gap-2 flex-wrap">
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => openAttachmentInNewTab(editAdvanceProofAttachmentId)}
+                    >
+                      Open proof file
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="text"
+                      color="secondary"
+                      onClick={() => {
+                        setEditAdvanceProofAttachmentId(null)
+                        setEditAdvanceProofFileName(null)
+                      }}
+                    >
+                      Remove proof file
+                    </Button>
+                  </div>
+                ) : null}
+                <Textarea
+                  label="Notes"
+                  value={editAdvanceNotes}
+                  onChange={(e) => setEditAdvanceNotes(e.target.value)}
+                  rows={3}
+                />
+              </div>
+            ) : (
+              <div className="space-y-4 mt-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Typography variant="h6">{advanceDetailsTarget.advance_number}</Typography>
+                  <Chip size="small" label={advanceDetailsTarget.status} color={statusColor(advanceDetailsTarget.status)} />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Typography variant="caption" color="secondary">Budget</Typography>
+                    <Typography>{advanceDetailsTarget.budget_number} · {advanceDetailsTarget.budget_name}</Typography>
+                  </div>
+                  <div>
+                    <Typography variant="caption" color="secondary">Employee</Typography>
+                    <Typography>{advanceDetailsTarget.employee_name}</Typography>
+                  </div>
+                  <div>
+                    <Typography variant="caption" color="secondary">Issue date</Typography>
+                    <Typography>{formatDate(advanceDetailsTarget.issue_date)}</Typography>
+                  </div>
+                  <div>
+                    <Typography variant="caption" color="secondary">Settlement due date</Typography>
+                    <Typography>{formatDate(advanceDetailsTarget.settlement_due_date)}</Typography>
+                  </div>
+                  <div>
+                    <Typography variant="caption" color="secondary">Payment method</Typography>
+                    <Typography>{advanceDetailsTarget.payment_method}</Typography>
+                  </div>
+                  <div>
+                    <Typography variant="caption" color="secondary">Reference number</Typography>
+                    <Typography>{advanceDetailsTarget.reference_number ?? '—'}</Typography>
+                  </div>
+                  <div>
+                    <Typography variant="caption" color="secondary">Source type</Typography>
+                    <Typography>{advanceDetailsTarget.source_type}</Typography>
+                  </div>
+                  <div>
+                    <Typography variant="caption" color="secondary">Created</Typography>
+                    <Typography>{formatDate(advanceDetailsTarget.created_at)}</Typography>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div>
+                    <Typography variant="caption" color="secondary">Issued</Typography>
+                    <Typography>{formatMoney(advanceDetailsTarget.amount_issued)}</Typography>
+                  </div>
+                  <div>
+                    <Typography variant="caption" color="secondary">Reserved</Typography>
+                    <Typography>{formatMoney(advanceDetailsTarget.reserved_amount)}</Typography>
+                  </div>
+                  <div>
+                    <Typography variant="caption" color="secondary">Settled</Typography>
+                    <Typography>{formatMoney(advanceDetailsTarget.settled_amount)}</Typography>
+                  </div>
+                  <div>
+                    <Typography variant="caption" color="secondary">Returned</Typography>
+                    <Typography>{formatMoney(advanceDetailsTarget.returned_amount)}</Typography>
+                  </div>
+                  <div>
+                    <Typography variant="caption" color="secondary">Transferred out</Typography>
+                    <Typography>{formatMoney(advanceDetailsTarget.transferred_out_amount)}</Typography>
+                  </div>
+                  <div>
+                    <Typography variant="caption" color="secondary">Open balance</Typography>
+                    <Typography>{formatMoney(advanceDetailsTarget.open_balance)}</Typography>
+                  </div>
+                  <div>
+                    <Typography variant="caption" color="secondary">Available unreserved</Typography>
+                    <Typography>{formatMoney(advanceDetailsTarget.available_unreserved_amount)}</Typography>
+                  </div>
+                </div>
+
+                <div>
+                  <Typography variant="caption" color="secondary">Proof / note</Typography>
+                  <Typography>{advanceDetailsTarget.proof_text || '—'}</Typography>
+                </div>
+                {advanceDetailsTarget.proof_attachment_id != null ? (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => openAttachmentInNewTab(advanceDetailsTarget.proof_attachment_id!)}
+                  >
+                    Open proof file
+                  </Button>
+                ) : null}
+                <div>
+                  <Typography variant="caption" color="secondary">Notes</Typography>
+                  <Typography>{advanceDetailsTarget.notes || '—'}</Typography>
+                </div>
+              </div>
+            )
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          {advanceEditMode ? (
+            <>
+              <Button variant="outlined" onClick={() => setAdvanceEditMode(false)}>
+                Cancel edit
+              </Button>
+              <Button variant="contained" onClick={handleUpdateAdvance} disabled={updateAdvanceMutation.loading}>
+                {updateAdvanceMutation.loading ? 'Saving…' : 'Save changes'}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                onClick={() => {
+                  setAdvanceDetailsTarget(null)
+                  setAdvanceEditMode(false)
+                }}
+              >
+                Close
+              </Button>
+              {selectedAdvanceCanEdit && advanceDetailsTarget ? (
+                <Button variant="contained" onClick={() => startEditAdvance(advanceDetailsTarget)}>
+                  Edit
+                </Button>
+              ) : null}
+            </>
+          )}
         </DialogActions>
       </Dialog>
 
