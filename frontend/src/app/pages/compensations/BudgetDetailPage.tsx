@@ -80,6 +80,26 @@ const statusColor = (status: string) => {
   return 'default'
 }
 
+const isNonZeroMoney = (value: number | string) => Math.abs(Number(value)) > 0.004
+
+const formatPaymentMethodLabel = (value: string) => {
+  const labels: Record<string, string> = {
+    bank: 'Bank transfer',
+    cash: 'Cash',
+    mpesa: 'M-Pesa',
+    other: 'Other',
+  }
+  return labels[value] ?? value
+}
+
+const formatAdvanceSourceLabel = (value: string) => {
+  const labels: Record<string, string> = {
+    cash_issue: 'Cash issue',
+    transfer_in: 'Transfer in',
+  }
+  return labels[value] ?? value
+}
+
 const today = () => new Date().toISOString().slice(0, 10)
 
 export const BudgetDetailPage = () => {
@@ -632,6 +652,47 @@ export const BudgetDetailPage = () => {
     canEditAdvance &&
     advanceDetailsTarget !== null &&
     !['cancelled', 'closed'].includes(advanceDetailsTarget.status)
+  const selectedAdvancePrimaryMetrics = advanceDetailsTarget
+    ? [
+        { label: 'Issued', value: formatMoney(advanceDetailsTarget.amount_issued) },
+        ...(isNonZeroMoney(advanceDetailsTarget.settled_amount)
+          ? [{ label: 'Used', value: formatMoney(advanceDetailsTarget.settled_amount) }]
+          : []),
+        { label: 'Open balance', value: formatMoney(advanceDetailsTarget.open_balance) },
+      ]
+    : []
+  const selectedAdvanceBalanceAdjustments = advanceDetailsTarget
+    ? [
+        ...(isNonZeroMoney(advanceDetailsTarget.reserved_amount)
+          ? [{ label: 'Reserved for claims', value: formatMoney(advanceDetailsTarget.reserved_amount) }]
+          : []),
+        ...(isNonZeroMoney(advanceDetailsTarget.returned_amount)
+          ? [{ label: 'Returned', value: formatMoney(advanceDetailsTarget.returned_amount) }]
+          : []),
+        ...(isNonZeroMoney(advanceDetailsTarget.transferred_out_amount)
+          ? [{ label: 'Transferred out', value: formatMoney(advanceDetailsTarget.transferred_out_amount) }]
+          : []),
+        ...(Number(advanceDetailsTarget.available_unreserved_amount) !== Number(advanceDetailsTarget.open_balance)
+          ? [{ label: 'Available now', value: formatMoney(advanceDetailsTarget.available_unreserved_amount) }]
+          : []),
+      ]
+    : []
+  const selectedAdvanceDetailItems = advanceDetailsTarget
+    ? [
+        { label: 'Budget', value: `${advanceDetailsTarget.budget_number} · ${advanceDetailsTarget.budget_name}` },
+        { label: 'Employee', value: advanceDetailsTarget.employee_name },
+        { label: 'Issue date', value: formatDate(advanceDetailsTarget.issue_date) },
+        { label: 'Due date', value: formatDate(advanceDetailsTarget.settlement_due_date) },
+        { label: 'Payment method', value: formatPaymentMethodLabel(advanceDetailsTarget.payment_method) },
+        ...(advanceDetailsTarget.reference_number
+          ? [{ label: 'Reference', value: advanceDetailsTarget.reference_number }]
+          : []),
+        ...(advanceDetailsTarget.source_type !== 'cash_issue'
+          ? [{ label: 'Source', value: formatAdvanceSourceLabel(advanceDetailsTarget.source_type) }]
+          : []),
+        { label: 'Created', value: formatDate(advanceDetailsTarget.created_at) },
+      ]
+    : []
 
   if (loading) {
     return (
@@ -1251,95 +1312,92 @@ export const BudgetDetailPage = () => {
                 />
               </div>
             ) : (
-              <div className="space-y-4 mt-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Typography variant="h6">{advanceDetailsTarget.advance_number}</Typography>
-                  <Chip size="small" label={advanceDetailsTarget.status} color={statusColor(advanceDetailsTarget.status)} />
-                </div>
+              <div className="space-y-5 mt-2">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Typography variant="h5">{advanceDetailsTarget.advance_number}</Typography>
+                        <Chip size="small" label={advanceDetailsTarget.status} color={statusColor(advanceDetailsTarget.status)} />
+                      </div>
+                      <Typography variant="body2" color="secondary" className="mt-1">
+                        {advanceDetailsTarget.budget_number} · {advanceDetailsTarget.budget_name}
+                      </Typography>
+                      <Typography variant="body2" className="mt-3">
+                        {advanceDetailsTarget.employee_name}
+                      </Typography>
+                    </div>
+                    <div className="md:text-right">
+                      <Typography variant="caption" color="secondary">Open balance</Typography>
+                      <Typography variant="h4" className="mt-1">
+                        {formatMoney(advanceDetailsTarget.open_balance)}
+                      </Typography>
+                    </div>
+                  </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Typography variant="caption" color="secondary">Budget</Typography>
-                    <Typography>{advanceDetailsTarget.budget_number} · {advanceDetailsTarget.budget_name}</Typography>
-                  </div>
-                  <div>
-                    <Typography variant="caption" color="secondary">Employee</Typography>
-                    <Typography>{advanceDetailsTarget.employee_name}</Typography>
-                  </div>
-                  <div>
-                    <Typography variant="caption" color="secondary">Issue date</Typography>
-                    <Typography>{formatDate(advanceDetailsTarget.issue_date)}</Typography>
-                  </div>
-                  <div>
-                    <Typography variant="caption" color="secondary">Settlement due date</Typography>
-                    <Typography>{formatDate(advanceDetailsTarget.settlement_due_date)}</Typography>
-                  </div>
-                  <div>
-                    <Typography variant="caption" color="secondary">Payment method</Typography>
-                    <Typography>{advanceDetailsTarget.payment_method}</Typography>
-                  </div>
-                  <div>
-                    <Typography variant="caption" color="secondary">Reference number</Typography>
-                    <Typography>{advanceDetailsTarget.reference_number ?? '—'}</Typography>
-                  </div>
-                  <div>
-                    <Typography variant="caption" color="secondary">Source type</Typography>
-                    <Typography>{advanceDetailsTarget.source_type}</Typography>
-                  </div>
-                  <div>
-                    <Typography variant="caption" color="secondary">Created</Typography>
-                    <Typography>{formatDate(advanceDetailsTarget.created_at)}</Typography>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-5">
+                    {selectedAdvancePrimaryMetrics.map((item) => (
+                      <div key={item.label} className="rounded-lg bg-white border border-slate-200 p-3">
+                        <Typography variant="caption" color="secondary">{item.label}</Typography>
+                        <Typography variant="subtitle1" className="mt-1">{item.value}</Typography>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div>
-                    <Typography variant="caption" color="secondary">Issued</Typography>
-                    <Typography>{formatMoney(advanceDetailsTarget.amount_issued)}</Typography>
+                {selectedAdvanceBalanceAdjustments.length ? (
+                  <div className="rounded-lg border border-slate-200 p-4">
+                    <Typography variant="subtitle2" color="secondary" className="mb-3">Balance movements</Typography>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
+                      {selectedAdvanceBalanceAdjustments.map((item) => (
+                        <div key={item.label} className="flex items-center justify-between gap-4 border-b border-slate-100 pb-2 last:border-b-0">
+                          <Typography variant="body2" color="secondary">{item.label}</Typography>
+                          <Typography variant="body2" className="font-medium">{item.value}</Typography>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div>
-                    <Typography variant="caption" color="secondary">Reserved</Typography>
-                    <Typography>{formatMoney(advanceDetailsTarget.reserved_amount)}</Typography>
-                  </div>
-                  <div>
-                    <Typography variant="caption" color="secondary">Settled</Typography>
-                    <Typography>{formatMoney(advanceDetailsTarget.settled_amount)}</Typography>
-                  </div>
-                  <div>
-                    <Typography variant="caption" color="secondary">Returned</Typography>
-                    <Typography>{formatMoney(advanceDetailsTarget.returned_amount)}</Typography>
-                  </div>
-                  <div>
-                    <Typography variant="caption" color="secondary">Transferred out</Typography>
-                    <Typography>{formatMoney(advanceDetailsTarget.transferred_out_amount)}</Typography>
-                  </div>
-                  <div>
-                    <Typography variant="caption" color="secondary">Open balance</Typography>
-                    <Typography>{formatMoney(advanceDetailsTarget.open_balance)}</Typography>
-                  </div>
-                  <div>
-                    <Typography variant="caption" color="secondary">Available unreserved</Typography>
-                    <Typography>{formatMoney(advanceDetailsTarget.available_unreserved_amount)}</Typography>
-                  </div>
-                </div>
-
-                <div>
-                  <Typography variant="caption" color="secondary">Proof / note</Typography>
-                  <Typography>{advanceDetailsTarget.proof_text || '—'}</Typography>
-                </div>
-                {advanceDetailsTarget.proof_attachment_id != null ? (
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => openAttachmentInNewTab(advanceDetailsTarget.proof_attachment_id!)}
-                  >
-                    Open proof file
-                  </Button>
                 ) : null}
-                <div>
-                  <Typography variant="caption" color="secondary">Notes</Typography>
-                  <Typography>{advanceDetailsTarget.notes || '—'}</Typography>
+
+                <div className="rounded-lg border border-slate-200 p-4">
+                  <Typography variant="subtitle2" color="secondary" className="mb-3">Details</Typography>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3">
+                    {selectedAdvanceDetailItems.map((item) => (
+                      <div key={item.label}>
+                        <Typography variant="caption" color="secondary">{item.label}</Typography>
+                        <Typography variant="body2" className="mt-0.5 break-words">{item.value}</Typography>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+
+                {(advanceDetailsTarget.proof_text || advanceDetailsTarget.proof_attachment_id != null || advanceDetailsTarget.notes) ? (
+                  <div className="rounded-lg border border-slate-200 p-4">
+                    <Typography variant="subtitle2" color="secondary" className="mb-3">Supporting info</Typography>
+                    {advanceDetailsTarget.proof_text ? (
+                      <div>
+                        <Typography variant="caption" color="secondary">Proof / note</Typography>
+                        <Typography variant="body2" className="mt-0.5 break-words">{advanceDetailsTarget.proof_text}</Typography>
+                      </div>
+                    ) : null}
+                    {advanceDetailsTarget.proof_attachment_id != null ? (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        className="mt-3"
+                        onClick={() => openAttachmentInNewTab(advanceDetailsTarget.proof_attachment_id!)}
+                      >
+                        Open proof file
+                      </Button>
+                    ) : null}
+                    {advanceDetailsTarget.notes ? (
+                      <div className={advanceDetailsTarget.proof_text || advanceDetailsTarget.proof_attachment_id != null ? 'mt-4' : ''}>
+                        <Typography variant="caption" color="secondary">Notes</Typography>
+                        <Typography variant="body2" className="mt-0.5 break-words">{advanceDetailsTarget.notes}</Typography>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             )
           ) : null}
