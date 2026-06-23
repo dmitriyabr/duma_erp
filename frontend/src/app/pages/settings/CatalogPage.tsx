@@ -172,15 +172,30 @@ export const CatalogPage = () => {
   )
   const inventoryItems = inventoryApi.data ?? []
   const variants = variantsApi.data ?? []
+  const actionDialogOpen =
+    kitDialogOpen ||
+    categoryDialogOpen ||
+    variantDialogOpen ||
+    confirmState.open
   const tabError =
     categoriesApi.error ??
     kitsApi.error ??
     inventoryApi.error ??
     variantsApi.error ??
-    kitMutation.error ??
-    categoryMutation.error ??
-    toggleMutation.error ??
-    variantMutation.error
+    (!actionDialogOpen
+      ? kitMutation.error ??
+        categoryMutation.error ??
+        toggleMutation.error ??
+        variantMutation.error
+      : null)
+  const kitDialogError =
+    kitDialogOpen && !categoryDialogOpen
+      ? validationError ?? kitMutation.error
+      : null
+  const categoryDialogError =
+    categoryDialogOpen ? validationError ?? categoryMutation.error : null
+  const variantDialogError =
+    variantDialogOpen ? validationError ?? variantMutation.error : null
   const loading =
     categoriesApi.loading ||
     categoryMutation.loading ||
@@ -246,18 +261,24 @@ export const CatalogPage = () => {
   })
 
   const openCreateKit = () => {
+    setValidationError(null)
+    kitMutation.reset()
     setEditingKit(null)
     setKitForm({ ...emptyKitForm })
     setKitDialogOpen(true)
   }
 
   const openEditKit = (kit: KitRow) => {
+    setValidationError(null)
+    kitMutation.reset()
     setEditingKit(kit)
     setKitForm(buildKitFormFromKit(kit))
     setKitDialogOpen(true)
   }
 
   const openCopyKit = (kit: KitRow) => {
+    setValidationError(null)
+    kitMutation.reset()
     // Create a new kit prefilled from the selected one (no editingKit → POST)
     setEditingKit(null)
     setKitForm(buildKitFormFromKit(kit))
@@ -270,7 +291,7 @@ export const CatalogPage = () => {
     setEditingKit(null)
   }
 
-  const displayTabError = validationError ?? tabError
+  const displayTabError = (!actionDialogOpen ? validationError : null) ?? tabError
 
   const submitKit = async () => {
     const categoryId =
@@ -352,16 +373,21 @@ export const CatalogPage = () => {
   }
 
   const requestToggleKitActive = (kit: KitRow) => {
+    toggleMutation.reset()
     setConfirmState({ open: true, kit, nextActive: !kit.is_active })
   }
 
   const openCreateCategory = () => {
+    setValidationError(null)
+    categoryMutation.reset()
     setEditingCategory(null)
     setCategoryForm({ ...emptyCategoryForm })
     setCategoryDialogOpen(true)
   }
 
   const openEditCategory = (category: CategoryRow) => {
+    setValidationError(null)
+    categoryMutation.reset()
     setEditingCategory(category)
     setCategoryForm({ name: category.name })
     setCategoryDialogOpen(true)
@@ -374,12 +400,16 @@ export const CatalogPage = () => {
   }
 
   const openCreateVariant = () => {
+    setValidationError(null)
+    variantMutation.reset()
     setEditingVariant(null)
     setVariantForm({ ...emptyVariantForm })
     setVariantDialogOpen(true)
   }
 
   const openEditVariant = (variant: VariantRow) => {
+    setValidationError(null)
+    variantMutation.reset()
     setEditingVariant(variant)
     setVariantForm({
       name: variant.name,
@@ -467,32 +497,41 @@ export const CatalogPage = () => {
   }
 
   const requestToggleCategoryActive = (category: CategoryRow) => {
+    toggleMutation.reset()
     setConfirmState({ open: true, category, nextActive: !category.is_active })
   }
 
   const confirmToggleActive = async () => {
     if (confirmState.kit) {
-      setConfirmState({ open: false })
+      const kitId = confirmState.kit.id
+      const nextActive = confirmState.nextActive
       toggleMutation.reset()
       const ok = await toggleMutation.execute(() =>
         api
-          .patch(`/items/kits/${confirmState.kit!.id}`, { is_active: confirmState.nextActive })
+          .patch(`/items/kits/${kitId}`, { is_active: nextActive })
           .then((r) => ({ data: { data: unwrapResponse(r) } }))
       )
-      if (ok != null) kitsApi.refetch()
+      if (ok != null) {
+        setConfirmState({ open: false })
+        kitsApi.refetch()
+      }
       return
     }
     if (confirmState.category) {
-      setConfirmState({ open: false })
+      const categoryId = confirmState.category.id
+      const nextActive = confirmState.nextActive
       toggleMutation.reset()
       const ok = await toggleMutation.execute(() =>
         api
-          .patch(`/items/categories/${confirmState.category!.id}`, {
-            is_active: confirmState.nextActive,
+          .patch(`/items/categories/${categoryId}`, {
+            is_active: nextActive,
           })
           .then((r) => ({ data: { data: unwrapResponse(r) } }))
       )
-      if (ok != null) categoriesApi.refetch()
+      if (ok != null) {
+        setConfirmState({ open: false })
+        categoriesApi.refetch()
+      }
     }
   }
 
@@ -840,6 +879,11 @@ export const CatalogPage = () => {
         </DialogTitle>
         <DialogContent>
           <div className="grid gap-4 mt-2">
+            {kitDialogError ? (
+              <Alert severity="error">
+                {kitDialogError}
+              </Alert>
+            ) : null}
             <Input
               label="Name"
               value={kitForm.name}
@@ -1050,6 +1094,11 @@ export const CatalogPage = () => {
         <DialogTitle>{editingCategory ? 'Edit category' : 'Create category'}</DialogTitle>
         <DialogContent>
           <div className="grid gap-4 mt-2">
+            {categoryDialogError ? (
+              <Alert severity="error">
+                {categoryDialogError}
+              </Alert>
+            ) : null}
             <Input
               label="Name"
               value={categoryForm.name}
@@ -1069,6 +1118,11 @@ export const CatalogPage = () => {
       <Dialog open={variantDialogOpen} onClose={resetVariantDialog} fullWidth maxWidth="md">
         <DialogTitle>{editingVariant ? 'Edit variant group' : 'Create variant group'}</DialogTitle>
         <DialogContent className="space-y-4">
+          {variantDialogError ? (
+            <Alert severity="error">
+              {variantDialogError}
+            </Alert>
+          ) : null}
           <Input
             label="Name"
             value={variantForm.name}
@@ -1132,6 +1186,7 @@ export const CatalogPage = () => {
           confirmState.nextActive ? 'activate' : 'deactivate'
         } this ${confirmState.kit ? 'item' : 'category'}?`}
         confirmLabel={confirmState.nextActive ? 'Activate' : 'Deactivate'}
+        error={confirmState.open ? toggleMutation.error : null}
         onCancel={() => setConfirmState({ open: false })}
         onConfirm={confirmToggleActive}
       />

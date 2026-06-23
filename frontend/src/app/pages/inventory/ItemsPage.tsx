@@ -58,8 +58,13 @@ const nextSkuForCategory = (categoryName: string, items: ItemRow[]) => {
 export const ItemsPage = () => {
   const { data: items, loading, error, refetch } = useApi<ItemRow[]>('/items?item_type=product&include_inactive=true')
   const { data: categories } = useApi<CategoryRow[]>('/items/categories?include_inactive=true')
-  const { execute: saveItem, loading: saving, error: saveError } = useApiMutation<{ id: number }>()
-  const { execute: toggleActive, loading: _toggling, error: toggleError } = useApiMutation()
+  const { execute: saveItem, loading: saving, error: saveError, reset: resetSaveError } = useApiMutation<{ id: number }>()
+  const {
+    execute: toggleActive,
+    loading: _toggling,
+    error: toggleError,
+    reset: resetToggleError,
+  } = useApiMutation()
 
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<number | 'all'>('all')
@@ -114,14 +119,19 @@ export const ItemsPage = () => {
       return true
     })
   }, [items, search, categoryFilter, showInactive])
+  const pageError = error || (!dialogOpen ? saveError : null) || (!confirmState.open ? toggleError : null) || (!dialogOpen ? validationError : null)
 
   const openCreate = () => {
+    setValidationError(null)
+    resetSaveError()
     setEditingItem(null)
     setForm({ ...emptyForm })
     setDialogOpen(true)
   }
 
   const openEdit = (item: ItemRow) => {
+    setValidationError(null)
+    resetSaveError()
     setEditingItem(item)
     setForm({
       category_id: String(item.category_id),
@@ -199,6 +209,7 @@ export const ItemsPage = () => {
   }
 
   const requestToggleActive = (item: ItemRow) => {
+    resetToggleError()
     setConfirmState({ open: true, item, nextActive: !item.is_active })
   }
 
@@ -208,7 +219,6 @@ export const ItemsPage = () => {
     }
     const item = confirmState.item
     const nextActive = confirmState.nextActive
-    setConfirmState({ open: false })
 
     const result = await toggleActive(() =>
       api.patch(`/items/${item.id}`, {
@@ -217,6 +227,7 @@ export const ItemsPage = () => {
     )
 
     if (result) {
+      setConfirmState({ open: false })
       refetch()
     }
   }
@@ -267,9 +278,9 @@ export const ItemsPage = () => {
         </div>
       </div>
 
-      {(error || saveError || toggleError || validationError) && (
+      {pageError && (
         <Alert severity="error" className="mb-4">
-          {error || saveError || toggleError || validationError}
+          {pageError}
         </Alert>
       )}
 
@@ -337,6 +348,9 @@ export const ItemsPage = () => {
         <DialogTitle>{editingItem ? 'Edit item' : 'Create item'}</DialogTitle>
         <DialogContent>
           <div className="grid gap-4">
+            {(saveError || validationError) ? (
+              <Alert severity="error">{saveError || validationError}</Alert>
+            ) : null}
             <Select
               label="Category"
               value={form.category_id}
@@ -392,6 +406,7 @@ export const ItemsPage = () => {
           confirmState.nextActive ? 'activate' : 'deactivate'
         } this item?`}
         confirmLabel={confirmState.nextActive ? 'Activate' : 'Deactivate'}
+        error={confirmState.open ? toggleError : null}
         onCancel={() => setConfirmState({ open: false })}
         onConfirm={confirmToggleActive}
       />

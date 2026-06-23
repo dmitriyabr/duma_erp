@@ -445,6 +445,8 @@ export const BillingAccountDetailPage = () => {
   }
 
   const openAddChildDialog = () => {
+    setError(null)
+    addChildMutation.reset()
     setChildDraft(createEmptyBillingChildDraft())
     setChildErrors({})
     setAddChildDialogOpen(true)
@@ -487,6 +489,8 @@ export const BillingAccountDetailPage = () => {
   ) => `${allocation.invoice_number} · ${formatInvoiceTypeLabel(allocation.invoice_type)}`
 
   const openRefundDialog = (payment: PaymentRow) => {
+    setError(null)
+    refundPaymentMutation.reset()
     setRefundDialogPayment(payment)
     setRefundForm({
       amount: String(getRefundableAmount(payment)),
@@ -504,6 +508,9 @@ export const BillingAccountDetailPage = () => {
   }
 
   const openAccountRefundDialog = () => {
+    setError(null)
+    accountRefundPreviewMutation.reset()
+    accountRefundMutation.reset()
     setRefundDialogPayment(null)
     setAccountRefundDialogOpen(true)
     setAccountRefundPreview(null)
@@ -526,6 +533,9 @@ export const BillingAccountDetailPage = () => {
   }
 
   const openWithdrawDialog = () => {
+    setError(null)
+    withdrawalPreviewMutation.reset()
+    withdrawalMutation.reset()
     const activeIds = activeMembers.map((member) => member.student_id)
     const nextActions: Record<number, { action: 'none' | 'cancel_unpaid' | 'write_off' | 'keep_charged'; amount: string; notes: string }> = {}
     invoices
@@ -969,6 +979,8 @@ export const BillingAccountDetailPage = () => {
   }, [])
 
   const openManualAllocation = () => {
+    setError(null)
+    manualAllocationMutation.reset()
     invoicesApi.refetch()
     setAllocationLines([])
     setAllocationForm({ invoice_id: '', invoice_line_id: '', amount: '' })
@@ -1260,35 +1272,35 @@ export const BillingAccountDetailPage = () => {
     }
   }
 
+  const actionDialogOpen =
+    withdrawDialogOpen ||
+    accountRefundDialogOpen ||
+    Boolean(refundDialogPayment) ||
+    allocationDialogOpen ||
+    addChildDialogOpen ||
+    addDialogOpen
+  const actionDialogError = actionDialogOpen ? error : null
+  const pageError =
+    (!actionDialogOpen ? error : null) ||
+    accountError ||
+    invoicesApi.error ||
+    paymentsApi.error ||
+    refundsApi.error ||
+    withdrawalSettlementsApi.error ||
+    studentsApi.error ||
+    activeTermApi.error ||
+    referencedError ||
+    invoiceDetailApi.error
+
   return (
     <div className="space-y-6">
       <Button variant="outlined" onClick={() => navigate(-1)}>
         Back
       </Button>
 
-      {(
-        error ||
-        accountError ||
-        invoicesApi.error ||
-        paymentsApi.error ||
-        refundsApi.error ||
-        withdrawalSettlementsApi.error ||
-        studentsApi.error ||
-        activeTermApi.error ||
-        referencedError ||
-        invoiceDetailApi.error
-      ) && (
+      {pageError && (
         <Alert severity="error" onClose={() => setError(null)}>
-          {error ??
-            accountError ??
-            invoicesApi.error ??
-            paymentsApi.error ??
-            refundsApi.error ??
-            withdrawalSettlementsApi.error ??
-            studentsApi.error ??
-            activeTermApi.error ??
-            referencedError ??
-            invoiceDetailApi.error}
+          {pageError}
         </Alert>
       )}
       {successMessage && (
@@ -1400,7 +1412,14 @@ export const BillingAccountDetailPage = () => {
               <Button variant="outlined" onClick={openAddChildDialog}>
                 Add child
               </Button>
-              <Button variant="contained" onClick={() => setAddDialogOpen(true)}>
+              <Button
+                variant="contained"
+                onClick={() => {
+                  setError(null)
+                  addMembersMutation.reset()
+                  setAddDialogOpen(true)
+                }}
+              >
                 Link existing students
               </Button>
             </>
@@ -1801,6 +1820,7 @@ export const BillingAccountDetailPage = () => {
               withdrawValidationErrors.reservation_actions ||
               withdrawValidationErrors.refund_allocations ||
               withdrawValidationErrors.refund_proof ||
+              actionDialogError ||
               withdrawalPreviewMutation.error ||
               withdrawalMutation.error) && (
               <Alert severity="error">
@@ -1809,6 +1829,7 @@ export const BillingAccountDetailPage = () => {
                   withdrawValidationErrors.reservation_actions ||
                   withdrawValidationErrors.refund_allocations ||
                   withdrawValidationErrors.refund_proof ||
+                  actionDialogError ||
                   withdrawalPreviewMutation.error ||
                   withdrawalMutation.error}
               </Alert>
@@ -2283,12 +2304,14 @@ export const BillingAccountDetailPage = () => {
             {(accountRefundValidationErrors.proof ||
               accountRefundValidationErrors.allocation_reversals ||
               refundAllocationOptionsApi.error ||
+              actionDialogError ||
               accountRefundPreviewMutation.error ||
               accountRefundMutation.error) && (
               <Alert severity="error">
                 {accountRefundValidationErrors.proof ||
                   accountRefundValidationErrors.allocation_reversals ||
                   refundAllocationOptionsApi.error ||
+                  actionDialogError ||
                   accountRefundPreviewMutation.error ||
                   accountRefundMutation.error}
               </Alert>
@@ -2608,9 +2631,9 @@ export const BillingAccountDetailPage = () => {
         <DialogTitle>Refund payment</DialogTitle>
         <DialogContent>
           <div className="space-y-4 mt-4">
-            {(refundValidationError || refundPaymentMutation.error) && (
+            {(refundValidationError || actionDialogError || refundPaymentMutation.error) && (
               <Alert severity="error">
-                {refundValidationError || refundPaymentMutation.error}
+                {refundValidationError || actionDialogError || refundPaymentMutation.error}
               </Alert>
             )}
             <Typography variant="body2">
@@ -2842,6 +2865,11 @@ export const BillingAccountDetailPage = () => {
         <DialogTitle>Allocate credit</DialogTitle>
         <DialogContent>
           <div className="space-y-4 mt-4">
+            {(actionDialogError || manualAllocationMutation.error) && (
+              <Alert severity="error">
+                {actionDialogError || manualAllocationMutation.error}
+              </Alert>
+            )}
             <Select
               value={allocationForm.invoice_id}
               onChange={(event) => {
@@ -2911,6 +2939,11 @@ export const BillingAccountDetailPage = () => {
         <DialogTitle>Add child to billing account</DialogTitle>
         <DialogContent>
           <div className="mt-4">
+            {(actionDialogError || addChildMutation.error) && (
+              <Alert severity="error" className="mb-4">
+                {actionDialogError || addChildMutation.error}
+              </Alert>
+            )}
             <BillingAccountChildEditor
               title="New child"
               value={childDraft}
@@ -2940,6 +2973,11 @@ export const BillingAccountDetailPage = () => {
         <DialogTitle>Link existing students</DialogTitle>
         <DialogContent>
           <div className="space-y-3 mt-4 max-h-[420px] overflow-y-auto">
+            {(actionDialogError || addMembersMutation.error) && (
+              <Alert severity="error">
+                {actionDialogError || addMembersMutation.error}
+              </Alert>
+            )}
             {eligibleStudents.map((student) => {
               const disabled =
                 (student.billing_account_member_count ?? 0) > 1 &&

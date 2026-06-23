@@ -123,9 +123,9 @@ export const EmployeeViewPage = () => {
   const { execute: deleteEmployee, loading: deleting, error: deleteError } = useApiMutation<{
     deleted: boolean
   }>()
-  const { execute: linkUser, loading: linking, error: linkError } =
+  const { execute: linkUser, loading: linking, error: linkError, reset: resetLinkError } =
     useApiMutation<EmployeeResponse>()
-  const { execute: createUser, loading: creatingUser, error: createUserError } =
+  const { execute: createUser, loading: creatingUser, error: createUserError, reset: resetCreateUserError } =
     useApiMutation<UserOption>()
   const userLookupUrl = useMemo(() => {
     if (readOnly || !linkDialogOpen) return null
@@ -143,6 +143,7 @@ export const EmployeeViewPage = () => {
 
   const openCreateUserDialog = () => {
     if (!employee) return
+    resetCreateUserError()
     setCreateUserForm({
       email: employee.email ?? '',
       full_name: `${employee.first_name} ${employee.second_name ?? ''} ${employee.surname}`.replace(/\s+/g, ' ').trim(),
@@ -228,7 +229,14 @@ export const EmployeeViewPage = () => {
             <Button variant="outlined" onClick={() => navigate(`/employees/${employee.id}/edit`)}>
               Edit employee
             </Button>
-            <Button variant="outlined" onClick={() => setLinkDialogOpen(true)} disabled={linking}>
+            <Button
+              variant="outlined"
+              onClick={() => {
+                resetLinkError()
+                setLinkDialogOpen(true)
+              }}
+              disabled={linking}
+            >
               {employee.user_id ? 'Change linked user' : 'Link user'}
             </Button>
             {employee.user_id && (
@@ -248,9 +256,9 @@ export const EmployeeViewPage = () => {
         )}
       </div>
 
-      {(deleteError || linkError || createUserError) && (
+      {(deleteError || (!linkDialogOpen ? linkError : null) || (!createUserDialogOpen ? createUserError : null)) && (
         <Alert severity="error" className="mb-4">
-          {deleteError || linkError || createUserError}
+          {deleteError || (!linkDialogOpen ? linkError : null) || (!createUserDialogOpen ? createUserError : null)}
         </Alert>
       )}
 
@@ -333,6 +341,7 @@ export const EmployeeViewPage = () => {
         <DialogTitle>Link user</DialogTitle>
         <DialogContent>
           <div className="grid gap-4">
+            {linkError ? <Alert severity="error">{linkError}</Alert> : null}
             <Autocomplete<UserOption>
               label="User"
               options={userOptions}
@@ -365,6 +374,7 @@ export const EmployeeViewPage = () => {
         <DialogTitle>Create user for employee</DialogTitle>
         <DialogContent>
           <div className="grid gap-4">
+            {createUserError ? <Alert severity="error">{createUserError}</Alert> : null}
             <Input
               label="Email"
               value={createUserForm.email}

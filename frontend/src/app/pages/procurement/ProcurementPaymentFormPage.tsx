@@ -140,8 +140,12 @@ export const ProcurementPaymentFormPage = () => {
   }, [localPurposes, purposesData])
   const users = usersData?.items || []
 
-  const { execute: createPurpose, loading: creatingPurpose, error: createPurposeError } =
-    useApiMutation<PurposeRow>()
+  const {
+    execute: createPurpose,
+    loading: creatingPurpose,
+    error: createPurposeError,
+    reset: resetCreatePurposeError,
+  } = useApiMutation<PurposeRow>()
   const { execute: createPayment, loading: creatingPayment, error: createPaymentError } =
     useApiMutation<void>()
 
@@ -209,6 +213,8 @@ export const ProcurementPaymentFormPage = () => {
 
   const handlePurposeSelect = (value: number | string) => {
     if (value === 'create') {
+      setError(null)
+      resetCreatePurposeError()
       setNewPurposeName('')
       setNewPurposeDialogOpen(true)
       return
@@ -327,6 +333,12 @@ export const ProcurementPaymentFormPage = () => {
       navigate('/procurement/payments')
     }
   }
+  const purposeDialogError = newPurposeDialogOpen ? error || createPurposeError : null
+  const pageError =
+    (!newPurposeDialogOpen ? error : null) ||
+    lockedBudgetError ||
+    (!newPurposeDialogOpen ? createPurposeError : null) ||
+    createPaymentError
 
   return (
     <div>
@@ -337,9 +349,9 @@ export const ProcurementPaymentFormPage = () => {
         {isEdit ? 'Edit payment' : 'New payment'}
       </Typography>
 
-      {(error || lockedBudgetError || createPurposeError || createPaymentError) && (
+      {pageError && (
         <Alert severity="error" className="mb-4" onClose={() => setError(null)}>
-          {error || lockedBudgetError || createPurposeError || createPaymentError}
+          {pageError}
         </Alert>
       )}
 
@@ -531,6 +543,11 @@ export const ProcurementPaymentFormPage = () => {
         <DialogTitle>Create new category</DialogTitle>
         <DialogContent>
           <div className="grid gap-4 mt-2">
+            {purposeDialogError ? (
+              <Alert severity="error">
+                {purposeDialogError}
+              </Alert>
+            ) : null}
             <Input
               label="Category name"
               value={newPurposeName}

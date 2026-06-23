@@ -124,9 +124,18 @@ export const StockPage = () => {
   const rows = stockData?.items ?? EMPTY_STOCK_ROWS
   const total = stockData?.total || 0
 
-  const { execute: receiveStock, loading: receivingStock, error: receiveError } = useApiMutation<void>()
-  const { execute: writeoffStock, loading: writingOff, error: writeoffError } = useApiMutation<void>()
-  const { execute: createItem, loading: creatingItem, error: createError } = useApiMutation<{ id: number }>()
+  const { execute: receiveStock, loading: receivingStock, error: receiveError, reset: resetReceiveError } = useApiMutation<void>()
+  const { execute: writeoffStock, loading: writingOff, error: writeoffError, reset: resetWriteoffError } = useApiMutation<void>()
+  const { execute: createItem, loading: creatingItem, error: createError, reset: resetCreateError } = useApiMutation<{ id: number }>()
+  const receiveDialogError = receiveOpen ? error || receiveError : null
+  const createItemDialogError = createItemOpen ? error || createError : null
+  const writeoffDialogError = writeoffDialog ? error || writeoffError : null
+  const pageError =
+    stockError ||
+    (!receiveOpen && !createItemOpen && !writeoffDialog ? error : null) ||
+    (!receiveOpen ? receiveError : null) ||
+    (!createItemOpen ? createError : null) ||
+    (!writeoffDialog ? writeoffError : null)
 
   const filteredRows = useMemo(() => {
     let data = rows
@@ -285,6 +294,8 @@ export const StockPage = () => {
             <Button
               variant="contained"
               onClick={() => {
+                setError(null)
+                resetCreateError()
                 resetNewItemForm()
                 setCreateItemOpen(true)
               }}
@@ -329,9 +340,9 @@ export const StockPage = () => {
         />
       </div>
 
-      {(error || stockError || receiveError || writeoffError || createError) && (
+      {pageError && (
         <Alert severity="error" className="mb-4">
-          {error || stockError || receiveError || writeoffError || createError}
+          {pageError}
         </Alert>
       )}
 
@@ -370,6 +381,8 @@ export const StockPage = () => {
                         size="small"
                         variant="outlined"
                         onClick={() => {
+                          setError(null)
+                          resetReceiveError()
                           setReceiveDialog(row)
                           setReceiveOpen(true)
                         }}
@@ -380,7 +393,11 @@ export const StockPage = () => {
                         size="small"
                         variant="outlined"
                         color="error"
-                        onClick={() => setWriteoffDialog(row)}
+                        onClick={() => {
+                          setError(null)
+                          resetWriteoffError()
+                          setWriteoffDialog(row)
+                        }}
                       >
                         Write-off
                       </Button>
@@ -435,6 +452,7 @@ export const StockPage = () => {
         <DialogTitle>Receive stock</DialogTitle>
         <DialogContent>
           <div className="space-y-4 mt-4">
+            {receiveDialogError ? <Alert severity="error">{receiveDialogError}</Alert> : null}
             {receiveDialog?.item_id ? (
               <Input label="Item" value={receiveDialog?.item_name ?? ''} disabled />
             ) : (
@@ -489,6 +507,7 @@ export const StockPage = () => {
         <DialogTitle>New product item</DialogTitle>
         <DialogContent>
           <div className="space-y-4 mt-4">
+            {createItemDialogError ? <Alert severity="error">{createItemDialogError}</Alert> : null}
             <Select
               value={newItemCategoryId ? String(newItemCategoryId) : ''}
               onChange={(e) => {
@@ -549,6 +568,7 @@ export const StockPage = () => {
         <DialogTitle>Write-off</DialogTitle>
         <DialogContent>
           <div className="space-y-4 mt-4">
+            {writeoffDialogError ? <Alert severity="error">{writeoffDialogError}</Alert> : null}
             <Input label="Item" value={writeoffDialog?.item_name ?? ''} disabled />
             <Input
               label="Quantity"

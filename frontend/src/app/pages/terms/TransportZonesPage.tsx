@@ -27,7 +27,7 @@ const emptyForm = {
 
 export const TransportZonesPage = () => {
   const { transportZones, loading, error, refetchTransportZones } = useReferencedData()
-  const { execute: saveZone, loading: saving, error: saveError } = useApiMutation<TransportZoneRow>()
+  const { execute: saveZone, loading: saving, error: saveError, reset: resetSaveError } = useApiMutation<TransportZoneRow>()
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -42,12 +42,14 @@ export const TransportZonesPage = () => {
   })
 
   const openCreate = () => {
+    resetSaveError()
     setEditingZone(null)
     setForm({ ...emptyForm })
     setDialogOpen(true)
   }
 
   const openEdit = (zone: TransportZoneRow) => {
+    resetSaveError()
     setEditingZone(zone)
     setForm({
       zone_name: zone.zone_name,
@@ -102,9 +104,9 @@ export const TransportZonesPage = () => {
         </div>
       </div>
 
-      {(error || saveError) && (
+      {(error || (!dialogOpen ? saveError : null)) && (
         <Alert severity="error" className="mb-4">
-          {error || saveError}
+          {error || (!dialogOpen ? saveError : null)}
         </Alert>
       )}
 
@@ -159,6 +161,7 @@ export const TransportZonesPage = () => {
         <DialogTitle>{editingZone ? 'Edit transport zone' : 'Create transport zone'}</DialogTitle>
         <DialogContent>
           <div className="grid gap-4 mt-2">
+            {saveError ? <Alert severity="error">{saveError}</Alert> : null}
             <Input
               label="Zone name"
               value={form.zone_name}

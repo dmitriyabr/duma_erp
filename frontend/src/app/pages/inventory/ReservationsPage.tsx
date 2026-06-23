@@ -57,7 +57,7 @@ export const ReservationsPage = () => {
   }, [page, limit])
 
   const { data: reservationsData, loading, error, refetch } = useApi<PaginatedResponse<ReservationRow>>(reservationsUrl)
-  const { execute: cancelReservation, loading: cancelling, error: cancelError } = useApiMutation()
+  const { execute: cancelReservation, loading: cancelling, error: cancelError, reset: resetCancelError } = useApiMutation()
 
   const rows = reservationsData?.items || []
   const total = reservationsData?.total || 0
@@ -68,6 +68,7 @@ export const ReservationsPage = () => {
   }
 
   const openCancelDialog = (reservation: ReservationRow) => {
+    resetCancelError()
     setSelectedForCancel(reservation)
     setCancelReason('')
     setCancelDialogOpen(true)
@@ -119,9 +120,9 @@ export const ReservationsPage = () => {
         </ToggleButtonGroup>
       </div>
 
-      {(error || cancelError) && (
+      {(error || (!cancelDialogOpen ? cancelError : null)) && (
         <Alert severity="error" className="mb-4">
-          {error || cancelError}
+          {error || (!cancelDialogOpen ? cancelError : null)}
         </Alert>
       )}
 
@@ -212,12 +213,15 @@ export const ReservationsPage = () => {
         <DialogCloseButton onClose={() => setCancelDialogOpen(false)} />
         <DialogTitle>Cancel reservation</DialogTitle>
         <DialogContent>
-          <Textarea
-            label="Reason"
-            value={cancelReason}
-            onChange={(e) => setCancelReason(e.target.value)}
-            rows={3}
-          />
+          <div className="grid gap-4">
+            {cancelError ? <Alert severity="error">{cancelError}</Alert> : null}
+            <Textarea
+              label="Reason"
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              rows={3}
+            />
+          </div>
         </DialogContent>
         <DialogActions>
           <Button variant="outlined" onClick={() => setCancelDialogOpen(false)}>

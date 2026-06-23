@@ -83,8 +83,18 @@ export const UsersPage = () => {
   }, [page, limit, debouncedSearch, roleFilter, statusFilter])
 
   const { data, loading, error, refetch } = useApi<PaginatedResponse<UserRow>>(url)
-  const { execute: saveUser, loading: saving, error: saveError } = useApiMutation()
-  const { execute: toggleUser, loading: toggling, error: toggleError } = useApiMutation()
+  const {
+    execute: saveUser,
+    loading: saving,
+    error: saveError,
+    reset: resetSaveError,
+  } = useApiMutation()
+  const {
+    execute: toggleUser,
+    loading: toggling,
+    error: toggleError,
+    reset: resetToggleError,
+  } = useApiMutation()
   const busy = saving || toggling
 
   const rows = data?.items || []
@@ -101,8 +111,10 @@ export const UsersPage = () => {
   }, [dialogOpen, editingUser, debouncedEmployeeSearch])
   const { data: employeeData } = useApi<PaginatedResponse<EmployeeOption>>(employeeLookupUrl)
   const employeeOptions = employeeData?.items || []
+  const pageError = error || (!dialogOpen ? saveError : null) || (!confirmState.open ? toggleError : null)
 
   const openCreate = () => {
+    resetSaveError()
     setEditingUser(null)
     setForm({ ...emptyForm })
     setEmployeeSearch('')
@@ -111,6 +123,7 @@ export const UsersPage = () => {
   }
 
   const openEdit = (user: UserRow) => {
+    resetSaveError()
     setEditingUser(user)
     setForm({
       email: user.email,
@@ -149,6 +162,7 @@ export const UsersPage = () => {
   }
 
   const requestToggleActive = (user: UserRow) => {
+    resetToggleError()
     setConfirmState({ open: true, user, nextActive: !user.is_active })
   }
 
@@ -156,10 +170,10 @@ export const UsersPage = () => {
     if (!confirmState.user) return
     const endpoint = confirmState.nextActive ? 'activate' : 'deactivate'
     const userId = confirmState.user.id
-    setConfirmState({ open: false })
 
     const result = await toggleUser(() => api.post(`/users/${userId}/${endpoint}`))
     if (result) {
+      setConfirmState({ open: false })
       refetch()
     }
   }
@@ -211,9 +225,9 @@ export const UsersPage = () => {
         </div>
       </div>
 
-      {(error || saveError || toggleError) && (
+      {pageError && (
         <Alert severity="error" className="mb-4">
-          {error || saveError || toggleError}
+          {pageError}
         </Alert>
       )}
 
@@ -295,6 +309,11 @@ export const UsersPage = () => {
         <DialogTitle>{editingUser ? 'Edit user' : 'Create user'}</DialogTitle>
         <DialogContent>
           <div className="grid gap-4">
+            {saveError ? (
+              <Alert severity="error">
+                {saveError}
+              </Alert>
+            ) : null}
             <Input
               label="Email"
               value={form.email}
@@ -373,6 +392,7 @@ export const UsersPage = () => {
         title={`${confirmState.nextActive ? 'Activate' : 'Deactivate'} user`}
         description={`Are you sure you want to ${confirmState.nextActive ? 'activate' : 'deactivate'} this user?`}
         confirmLabel={confirmState.nextActive ? 'Activate' : 'Deactivate'}
+        error={confirmState.open ? toggleError : null}
         onCancel={() => setConfirmState({ open: false })}
         onConfirm={confirmToggleActive}
       />

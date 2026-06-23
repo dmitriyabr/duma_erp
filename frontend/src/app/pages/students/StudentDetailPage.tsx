@@ -441,11 +441,14 @@ export const StudentDetailPage = () => {
     )
   }
 
+  const pageError = !withdrawDialogOpen ? error : null
+  const withdrawDialogError = withdrawDialogOpen ? error : null
+
   return (
     <div>
-      {error && (
+      {pageError && (
         <Alert severity="error" className="mb-4" onClose={() => setError(null)}>
-          {error}
+          {pageError}
         </Alert>
       )}
       {allocationResult && (
@@ -553,6 +556,7 @@ export const StudentDetailPage = () => {
               withdrawErrors.refund_proof ||
               withdrawErrors.refund_reason ||
               withdrawErrors.reservation_actions ||
+              withdrawDialogError ||
               previewSettlementMutation.error ||
               createSettlementMutation.error) && (
               <Alert severity="error">
@@ -561,6 +565,7 @@ export const StudentDetailPage = () => {
                   withdrawErrors.refund_proof ||
                   withdrawErrors.refund_reason ||
                   withdrawErrors.reservation_actions ||
+                  withdrawDialogError ||
                   previewSettlementMutation.error ||
                   createSettlementMutation.error}
               </Alert>

@@ -488,14 +488,15 @@ export const BankReconciliationPage = () => {
     await refetchReconciliation()
   }
 
+  const manualMatchDialogOpen = manualMatchTxnId !== null || manualMatchEntity !== null
   const effectiveError =
-    error ||
+    (!manualMatchDialogOpen ? error : null) ||
     importsError ||
     detailError ||
     reconciliationError ||
     uploadMutation.error ||
     autoMatchMutation.error ||
-    manualMatchMutation.error ||
+    (!manualMatchDialogOpen ? manualMatchMutation.error : null) ||
     unmatchMutation.error
 
   if (accessDenied) {

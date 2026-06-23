@@ -208,6 +208,7 @@ export const PurchaseOrderFormPage = () => {
   }
 
   const openNewItemDialog = (line: POLineDraft) => {
+    setError(null)
     setCurrentLineForNewItem(line)
     setNewItemCategoryId('')
     setNewItemName('')
@@ -217,6 +218,7 @@ export const PurchaseOrderFormPage = () => {
 
   const handlePurposeSelect = (value: number | string) => {
     if (value === 'create') {
+      setError(null)
       setNewPurposeName('')
       setNewPurposeDialogOpen(true)
       return
@@ -305,6 +307,10 @@ export const PurchaseOrderFormPage = () => {
       setCreatingItem(false)
     }
   }
+  const actionDialogOpen = newItemDialogOpen || newPurposeDialogOpen
+  const pageError = (!actionDialogOpen ? error : null) || saveError
+  const newItemDialogError = newItemDialogOpen ? error : null
+  const newPurposeDialogError = newPurposeDialogOpen ? error : null
 
   const handleSubmit = async () => {
     if (
@@ -437,7 +443,7 @@ export const PurchaseOrderFormPage = () => {
         {isEdit ? 'Edit purchase order' : 'New purchase order'}
       </Typography>
 
-      {(error || saveError) && (
+      {pageError && (
         <Alert
           severity="error"
           className="mb-4"
@@ -446,7 +452,7 @@ export const PurchaseOrderFormPage = () => {
             resetSaveError()
           }}
         >
-          {error || saveError}
+          {pageError}
         </Alert>
       )}
 
@@ -672,6 +678,11 @@ export const PurchaseOrderFormPage = () => {
         <DialogTitle>Create new inventory item</DialogTitle>
         <DialogContent>
           <div className="grid gap-4 mt-2">
+            {newItemDialogError ? (
+              <Alert severity="error">
+                {newItemDialogError}
+              </Alert>
+            ) : null}
             <Select
               value={newItemCategoryId === '' ? '' : String(newItemCategoryId)}
               onChange={(event) => setNewItemCategoryId(Number(event.target.value))}
@@ -718,6 +729,11 @@ export const PurchaseOrderFormPage = () => {
         <DialogTitle>Create new category</DialogTitle>
         <DialogContent>
           <div className="grid gap-4 mt-2">
+            {newPurposeDialogError ? (
+              <Alert severity="error">
+                {newPurposeDialogError}
+              </Alert>
+            ) : null}
             <Input
               label="Category name"
               value={newPurposeName}

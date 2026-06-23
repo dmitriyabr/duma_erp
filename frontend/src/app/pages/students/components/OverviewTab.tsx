@@ -19,6 +19,7 @@ import { Input } from '../../../components/ui/Input'
 import { Select } from '../../../components/ui/Select'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../../components/ui/Table'
 import { Dialog, DialogTitle, DialogContent, DialogActions, DialogCloseButton } from '../../../components/ui/Dialog'
+import { Alert } from '../../../components/ui/Alert'
 import { Spinner } from '../../../components/ui/Spinner'
 
 interface OverviewTabProps {
@@ -36,8 +37,18 @@ export const OverviewTab = ({ student, studentId, onError }: OverviewTabProps) =
     [studentId]
   )
   const { data: discountsData, refetch } = useApi<PaginatedResponse<StudentDiscountResponse>>(discountsUrl)
-  const { execute: saveDiscount, loading, error: saveError } = useApiMutation()
-  const { execute: toggleDiscount, loading: toggling, error: toggleError } = useApiMutation()
+  const {
+    execute: saveDiscount,
+    loading,
+    error: saveError,
+    reset: resetSaveError,
+  } = useApiMutation()
+  const {
+    execute: toggleDiscount,
+    loading: toggling,
+    error: toggleError,
+    reset: resetToggleError,
+  } = useApiMutation()
   const busy = loading || toggling
 
   const [studentDiscountDialogOpen, setStudentDiscountDialogOpen] = useState(false)
@@ -51,11 +62,12 @@ export const OverviewTab = ({ student, studentId, onError }: OverviewTabProps) =
 
   const studentDiscounts = discountsData?.items || []
 
-  if (saveError || toggleError) {
-    onError(saveError || toggleError || 'Failed to update student discount.')
+  if (toggleError || (!studentDiscountDialogOpen && saveError)) {
+    onError(toggleError || saveError || 'Failed to update student discount.')
   }
 
   const openStudentDiscountDialog = (discount?: StudentDiscountResponse) => {
+    resetSaveError()
     setEditingStudentDiscount(discount ?? null)
     setStudentDiscountForm({
       value_type: (discount?.value_type as DiscountValueType) ?? 'percentage',
@@ -88,6 +100,7 @@ export const OverviewTab = ({ student, studentId, onError }: OverviewTabProps) =
   }
 
   const toggleStudentDiscountStatus = async (discount: StudentDiscountResponse) => {
+    resetToggleError()
     const result = await toggleDiscount(() =>
       api.patch(`/discounts/student/${discount.id}`, {
         is_active: !discount.is_active,
@@ -199,6 +212,11 @@ export const OverviewTab = ({ student, studentId, onError }: OverviewTabProps) =
         <DialogTitle>{editingStudentDiscount ? 'Edit discount' : 'New discount'}</DialogTitle>
         <DialogContent>
           <div className="space-y-4 mt-4">
+            {saveError ? (
+              <Alert severity="error">
+                {saveError}
+              </Alert>
+            ) : null}
             <Select
               value={studentDiscountForm.value_type}
               onChange={(e) =>

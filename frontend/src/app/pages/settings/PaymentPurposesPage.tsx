@@ -22,20 +22,31 @@ const emptyForm: { name: string; purpose_type: 'expense' | 'fee' } = { name: '',
 
 export const PaymentPurposesPage = () => {
   const { data: rows, loading, error, refetch } = useApi<PurposeRow[]>('/procurement/payment-purposes?include_inactive=true')
-  const { execute: savePurpose, loading: saving, error: saveError } = useApiMutation<PurposeRow>()
+  const {
+    execute: savePurpose,
+    loading: saving,
+    error: saveError,
+    reset: resetSaveError,
+  } = useApiMutation<PurposeRow>()
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingPurpose, setEditingPurpose] = useState<PurposeRow | null>(null)
   const [form, setForm] = useState({ ...emptyForm })
   const [validationError, setValidationError] = useState<string | null>(null)
+  const dialogError = saveError || validationError
+  const pageError = error || (!dialogOpen ? dialogError : null)
 
   const openCreate = () => {
+    resetSaveError()
+    setValidationError(null)
     setEditingPurpose(null)
     setForm({ ...emptyForm })
     setDialogOpen(true)
   }
 
   const openEdit = (purpose: PurposeRow) => {
+    resetSaveError()
+    setValidationError(null)
     setEditingPurpose(purpose)
     setForm({ name: purpose.name, purpose_type: purpose.purpose_type })
     setDialogOpen(true)
@@ -76,9 +87,9 @@ export const PaymentPurposesPage = () => {
         </Button>
       </div>
 
-      {(error || saveError || validationError) && (
+      {pageError && (
         <Alert severity="error" className="mb-4">
-          {error || saveError || validationError}
+          {pageError}
         </Alert>
       )}
 
@@ -133,6 +144,11 @@ export const PaymentPurposesPage = () => {
         <DialogTitle>{editingPurpose ? 'Edit purpose' : 'Create purpose'}</DialogTitle>
         <DialogContent>
           <div className="mt-2 grid grid-cols-1 gap-4">
+            {dialogError ? (
+              <Alert severity="error">
+                {dialogError}
+              </Alert>
+            ) : null}
             <Input
               label="Name"
               value={form.name}

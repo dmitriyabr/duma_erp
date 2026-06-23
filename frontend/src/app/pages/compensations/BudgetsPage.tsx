@@ -115,6 +115,7 @@ export const BudgetsPage = () => {
 
   const openCreateDialog = () => {
     setLocalError(null)
+    createBudgetMutation.reset()
     setFormName('')
     setFormPurposeId('')
     const now = today()
@@ -159,7 +160,8 @@ export const BudgetsPage = () => {
     navigate(`/compensations/budgets/${created.id}`)
   }
 
-  const effectiveError = localError || error || createBudgetMutation.error
+  const createDialogError = createDialogOpen ? localError || createBudgetMutation.error : null
+  const effectiveError = error || (!createDialogOpen ? localError || createBudgetMutation.error : null)
 
   return (
     <div>
@@ -353,6 +355,7 @@ export const BudgetsPage = () => {
         <DialogTitle>New budget</DialogTitle>
         <DialogContent>
           <div className="grid gap-4 mt-2">
+            {createDialogError ? <Alert severity="error">{createDialogError}</Alert> : null}
             <Input label="Name" value={formName} onChange={(e) => setFormName(e.target.value)} required />
             <Select
               label="Purpose"

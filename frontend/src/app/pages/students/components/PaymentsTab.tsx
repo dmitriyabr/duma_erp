@@ -98,6 +98,7 @@ export const PaymentsTab = ({
   }, [initialInvoices, invoicesApi.error, onError])
 
   const openManualAllocation = () => {
+    allocationMutation.reset()
     invoicesApi.refetch()
     setAllocationLines([])
     setAllocationForm({ invoice_id: '', invoice_line_id: '', amount: '' })
@@ -134,8 +135,6 @@ export const PaymentsTab = ({
     if (ok != null) {
       setAllocationDialogOpen(false)
       onBalanceChange()
-    } else if (allocationMutation.error) {
-      onError(allocationMutation.error)
     }
   }
 
@@ -544,6 +543,11 @@ export const PaymentsTab = ({
         <DialogTitle>Allocate credit</DialogTitle>
         <DialogContent>
           <div className="space-y-4 mt-4">
+            {allocationMutation.error ? (
+              <Alert severity="error">
+                {allocationMutation.error}
+              </Alert>
+            ) : null}
             <Select
               value={allocationForm.invoice_id}
               onChange={(e) => {

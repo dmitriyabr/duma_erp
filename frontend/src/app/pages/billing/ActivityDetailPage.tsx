@@ -141,6 +141,12 @@ export const ActivityDetailPage = () => {
     activity.status !== 'closed' &&
     activity.status !== 'cancelled' &&
     activity.planned_count > 0
+  const excludeDialogOpen = excludeDialog.participant != null
+  const pageError =
+    detailApi.error ||
+    generateMutation.error ||
+    (!addDialogOpen ? addParticipantMutation.error : null) ||
+    (!excludeDialogOpen ? excludeParticipantMutation.error : null)
 
   const runGenerate = async () => {
     if (!resolvedId) return
@@ -236,9 +242,9 @@ export const ActivityDetailPage = () => {
         )}
       </div>
 
-      {(detailApi.error || generateMutation.error || addParticipantMutation.error || excludeParticipantMutation.error) && (
+      {pageError && (
         <Alert severity="error" className="mb-4">
-          {detailApi.error || generateMutation.error || addParticipantMutation.error || excludeParticipantMutation.error}
+          {pageError}
         </Alert>
       )}
       {resultMessage && (
@@ -439,6 +445,11 @@ export const ActivityDetailPage = () => {
         <DialogTitle>Add participant</DialogTitle>
         <DialogContent>
           <div className="grid gap-4">
+            {addParticipantMutation.error ? (
+              <Alert severity="error">
+                {addParticipantMutation.error}
+              </Alert>
+            ) : null}
             <Autocomplete
               options={students}
               value={selectedStudent}
@@ -479,7 +490,7 @@ export const ActivityDetailPage = () => {
       </Dialog>
 
       <Dialog
-        open={excludeDialog.participant != null}
+        open={excludeDialogOpen}
         onClose={() => setExcludeDialog({ participant: null, reason: '' })}
         maxWidth="sm"
         fullWidth
@@ -488,6 +499,11 @@ export const ActivityDetailPage = () => {
         <DialogTitle>Exclude participant</DialogTitle>
         <DialogContent>
           <div className="grid gap-4">
+            {excludeParticipantMutation.error ? (
+              <Alert severity="error">
+                {excludeParticipantMutation.error}
+              </Alert>
+            ) : null}
             <Typography color="secondary">
               {excludeDialog.participant
                 ? `Exclude ${excludeDialog.participant.student_name} from this activity. If an unpaid invoice exists, it will be cancelled.`

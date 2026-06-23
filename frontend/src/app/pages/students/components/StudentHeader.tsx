@@ -10,6 +10,7 @@ import { formatStudentNumberShort } from '../../../utils/studentNumber'
 import type { Gender, GradeOption, StudentBalance, StudentResponse, TransportZoneOption } from '../types'
 import { parseNumber } from '../types'
 import { Typography } from '../../../components/ui/Typography'
+import { Alert } from '../../../components/ui/Alert'
 import { Button } from '../../../components/ui/Button'
 import { Chip } from '../../../components/ui/Chip'
 import { Input } from '../../../components/ui/Input'
@@ -36,14 +37,23 @@ export const StudentHeader = ({
   grades,
   transportZones,
   onStudentUpdate,
-  onError,
   onWithdraw,
 }: StudentHeaderProps) => {
   const navigate = useNavigate()
   const { user } = useAuth()
   const canManage = canManageStudents(user)
-  const { execute: updateStudent, loading, error: updateError } = useApiMutation()
-  const { execute: toggleStatus, loading: toggling, error: toggleError } = useApiMutation()
+  const {
+    execute: updateStudent,
+    loading,
+    error: updateError,
+    reset: resetUpdateError,
+  } = useApiMutation()
+  const {
+    execute: toggleStatus,
+    loading: toggling,
+    error: toggleError,
+    reset: resetToggleError,
+  } = useApiMutation()
 
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editForm, setEditForm] = useState({
@@ -65,6 +75,7 @@ export const StudentHeader = ({
   }>({ open: false })
 
   const openEdit = () => {
+    resetUpdateError()
     setEditForm({
       first_name: student.first_name,
       last_name: student.last_name,
@@ -101,18 +112,16 @@ export const StudentHeader = ({
     if (result) {
       setEditDialogOpen(false)
       onStudentUpdate()
-    } else if (updateError) {
-      onError('Failed to update student.')
     }
   }
 
   const requestToggleActive = () => {
+    resetToggleError()
     setConfirmState({ open: true, nextActive: student.status !== 'active' })
   }
 
   const confirmToggleActive = async () => {
     const nextActive = confirmState.nextActive
-    setConfirmState({ open: false })
 
     const result = await toggleStatus(() =>
       nextActive
@@ -121,9 +130,8 @@ export const StudentHeader = ({
     )
 
     if (result) {
+      setConfirmState({ open: false })
       onStudentUpdate()
-    } else if (toggleError) {
-      onError(`Failed to ${nextActive ? 'activate' : 'deactivate'} student.`)
     }
   }
 
@@ -193,6 +201,11 @@ export const StudentHeader = ({
         <DialogTitle>Edit student</DialogTitle>
         <DialogContent>
           <div className="space-y-4 mt-4">
+            {updateError ? (
+              <Alert severity="error">
+                {updateError}
+              </Alert>
+            ) : null}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Input
                 label="First name"
@@ -295,6 +308,7 @@ export const StudentHeader = ({
               : 'Deactivate this student?'
         }
         confirmLabel={confirmState.nextActive ? 'Activate' : 'Deactivate'}
+        error={confirmState.open ? toggleError : null}
         onCancel={() => setConfirmState({ open: false })}
         onConfirm={confirmToggleActive}
       />

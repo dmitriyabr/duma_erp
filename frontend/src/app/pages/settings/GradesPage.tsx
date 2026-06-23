@@ -27,7 +27,12 @@ const emptyForm = {
 
 export const GradesPage = () => {
   const { grades, loading, error, refetchGrades } = useReferencedData()
-  const { execute: saveGrade, loading: saving, error: saveError } = useApiMutation<GradeRow>()
+  const {
+    execute: saveGrade,
+    loading: saving,
+    error: saveError,
+    reset: resetSaveError,
+  } = useApiMutation<GradeRow>()
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingGrade, setEditingGrade] = useState<GradeRow | null>(null)
@@ -37,14 +42,17 @@ export const GradesPage = () => {
     () => [...grades].sort((a, b) => a.display_order - b.display_order),
     [grades]
   )
+  const pageError = error || (!dialogOpen ? saveError : null)
 
   const openCreate = () => {
+    resetSaveError()
     setEditingGrade(null)
     setForm({ ...emptyForm })
     setDialogOpen(true)
   }
 
   const openEdit = (grade: GradeRow) => {
+    resetSaveError()
     setEditingGrade(grade)
     setForm({
       code: grade.code,
@@ -85,9 +93,9 @@ export const GradesPage = () => {
         </Button>
       </div>
 
-      {(error || saveError) && (
+      {pageError && (
         <Alert severity="error" className="mb-4">
-          {error || saveError}
+          {pageError}
         </Alert>
       )}
 
@@ -142,6 +150,11 @@ export const GradesPage = () => {
         <DialogTitle>{editingGrade ? 'Edit grade' : 'Create grade'}</DialogTitle>
         <DialogContent>
           <div className="grid gap-4 mt-2">
+            {saveError ? (
+              <Alert severity="error">
+                {saveError}
+              </Alert>
+            ) : null}
             <Input
               label="Code"
               value={form.code}

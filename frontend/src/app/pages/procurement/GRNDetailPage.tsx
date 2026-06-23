@@ -127,6 +127,7 @@ export const GRNDetailPage = () => {
 
   const openEdit = () => {
     if (!grn) return
+    setError(null)
     const quantities: Record<number, number> = {}
     grn.lines.forEach((line) => {
       quantities[line.po_line_id] = (quantities[line.po_line_id] || 0) + line.quantity_received
@@ -208,6 +209,7 @@ export const GRNDetailPage = () => {
   const canCancel = !readOnly && grn.status === 'draft'
   const canRollback = !readOnly && isSuperAdmin(user) && grn.status === 'approved'
   const canEdit = !readOnly && isSuperAdmin(user) && grn.status !== 'cancelled'
+  const pageError = !confirmState.open && !rollbackDialogOpen && !editDialogOpen ? error : null
 
   return (
     <div>
@@ -226,7 +228,14 @@ export const GRNDetailPage = () => {
             color={grn.status === 'approved' ? 'success' : grn.status === 'cancelled' ? 'default' : 'warning'}
           />
           {canApprove && (
-            <Button variant="contained" disabled={busy} onClick={() => setConfirmState({ open: true, action: 'approve' })}>
+            <Button
+              variant="contained"
+              disabled={busy}
+              onClick={() => {
+                setError(null)
+                setConfirmState({ open: true, action: 'approve' })
+              }}
+            >
               Approve
             </Button>
           )}
@@ -236,7 +245,15 @@ export const GRNDetailPage = () => {
             </Button>
           )}
           {canCancel && (
-            <Button variant="outlined" color="error" disabled={busy} onClick={() => setConfirmState({ open: true, action: 'cancel' })}>
+            <Button
+              variant="outlined"
+              color="error"
+              disabled={busy}
+              onClick={() => {
+                setError(null)
+                setConfirmState({ open: true, action: 'cancel' })
+              }}
+            >
               Cancel
             </Button>
           )}
@@ -246,6 +263,7 @@ export const GRNDetailPage = () => {
               color="warning"
               disabled={busy}
               onClick={() => {
+                setError(null)
                 setRollbackReason('')
                 setRollbackDialogOpen(true)
               }}
@@ -259,9 +277,9 @@ export const GRNDetailPage = () => {
         </div>
       </div>
 
-      {error && (
+      {pageError && (
         <Alert severity="error" className="mb-4">
-          {error}
+          {pageError}
         </Alert>
       )}
 
@@ -301,6 +319,7 @@ export const GRNDetailPage = () => {
         title="Approve GRN"
         description="Are you sure you want to approve this GRN? This will update stock and PO quantities."
         confirmLabel="Approve"
+        error={confirmState.action === 'approve' ? error : null}
         onCancel={() => setConfirmState({ open: false })}
         onConfirm={handleApprove}
       />
@@ -310,6 +329,7 @@ export const GRNDetailPage = () => {
         title="Cancel GRN"
         description="Are you sure you want to cancel this GRN?"
         confirmLabel="Cancel"
+        error={confirmState.action === 'cancel' ? error : null}
         onCancel={() => setConfirmState({ open: false })}
         onConfirm={handleCancel}
       />
@@ -317,6 +337,7 @@ export const GRNDetailPage = () => {
       <Dialog open={rollbackDialogOpen} onClose={() => setRollbackDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Rollback GRN</DialogTitle>
         <DialogContent className="space-y-4">
+          {error ? <Alert severity="error">{error}</Alert> : null}
           <Typography variant="body2" color="secondary">
             This will cancel this approved GRN, revert PO received quantities, and (if tracked) revert warehouse stock receipts.
             Cancel procurement payments first if any exist.
@@ -352,6 +373,7 @@ export const GRNDetailPage = () => {
       <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="lg" fullWidth>
         <DialogTitle>Edit GRN</DialogTitle>
         <DialogContent className="space-y-4">
+          {error ? <Alert severity="error">{error}</Alert> : null}
           {grn.status === 'approved' && (
             <Alert severity="warning">
               Saving an approved GRN will update PO received quantities and create correcting stock movements.

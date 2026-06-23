@@ -71,9 +71,9 @@ export const ExpenseClaimDetailPage = () => {
   const { data: claim, loading, error, refetch } = useApi<ClaimResponse>(
     resolvedId ? `/compensations/claims/${resolvedId}` : null
   )
-  const { execute: approveClaim, loading: approving, error: approveError } = useApiMutation()
-  const { execute: rejectClaim, loading: _rejecting, error: rejectError } = useApiMutation()
-  const { execute: sendToEdit, loading: sendingToEdit, error: sendToEditError } = useApiMutation()
+  const { execute: approveClaim, loading: approving, error: approveError, reset: resetApproveError } = useApiMutation()
+  const { execute: rejectClaim, loading: _rejecting, error: rejectError, reset: resetRejectError } = useApiMutation()
+  const { execute: sendToEdit, loading: sendingToEdit, error: sendToEditError, reset: resetSendToEditError } = useApiMutation()
   const { execute: resubmitClaim, loading: resubmitting, error: resubmitError } = useApiMutation()
 
   const [proofPreview, setState] = useState<{
@@ -316,6 +316,13 @@ export const ExpenseClaimDetailPage = () => {
     !claim.auto_created_from_payment &&
     (claim.status === 'pending_approval' || claim.status === 'needs_edit' || claim.status === 'draft')
   const canResubmit = user?.id === claim.employee_id && claim.status === 'needs_edit'
+  const pageActionError =
+    error ||
+    resubmitError ||
+    (!approveDialogOpen ? approveError : null) ||
+    (!rejectDialogOpen ? rejectError : null) ||
+    (!sendToEditDialogOpen ? sendToEditError : null) ||
+    (!rejectDialogOpen && !sendToEditDialogOpen ? validationError : null)
 
   return (
     <div>
@@ -347,26 +354,50 @@ export const ExpenseClaimDetailPage = () => {
             </Button>
           )}
           {canSendToEdit && (
-            <Button variant="outlined" color="warning" onClick={() => setSendToEditDialogOpen(true)}>
+            <Button
+              variant="outlined"
+              color="warning"
+              onClick={() => {
+                setValidationError(null)
+                resetSendToEditError()
+                setSendToEditDialogOpen(true)
+              }}
+            >
               Send to edit
             </Button>
           )}
           {canApprove && (
-            <Button variant="contained" color="success" onClick={() => setApproveDialogOpen(true)}>
+            <Button
+              variant="contained"
+              color="success"
+              onClick={() => {
+                setValidationError(null)
+                resetApproveError()
+                setApproveDialogOpen(true)
+              }}
+            >
               Approve
             </Button>
           )}
           {canReject && (
-            <Button variant="outlined" color="error" onClick={() => setRejectDialogOpen(true)}>
+            <Button
+              variant="outlined"
+              color="error"
+              onClick={() => {
+                setValidationError(null)
+                resetRejectError()
+                setRejectDialogOpen(true)
+              }}
+            >
               Reject
             </Button>
           )}
         </div>
       </div>
 
-      {(error || approveError || rejectError || sendToEditError || resubmitError || validationError) && (
+      {pageActionError && (
         <Alert severity="error" className="mb-4">
-          {error || approveError || rejectError || sendToEditError || resubmitError || validationError}
+          {pageActionError}
         </Alert>
       )}
 
@@ -615,13 +646,16 @@ export const ExpenseClaimDetailPage = () => {
         <DialogCloseButton onClose={() => setApproveDialogOpen(false)} />
         <DialogTitle>Approve expense claim</DialogTitle>
         <DialogContent>
-          <Textarea
-            label="Reason (optional)"
-            value={approveReason}
-            onChange={(e) => setApproveReason(e.target.value)}
-            rows={3}
-            placeholder="Optional approval reason"
-          />
+          <div className="grid gap-4">
+            {approveError ? <Alert severity="error">{approveError}</Alert> : null}
+            <Textarea
+              label="Reason (optional)"
+              value={approveReason}
+              onChange={(e) => setApproveReason(e.target.value)}
+              rows={3}
+              placeholder="Optional approval reason"
+            />
+          </div>
         </DialogContent>
         <DialogActions>
           <Button variant="outlined" onClick={() => setApproveDialogOpen(false)}>
@@ -637,15 +671,18 @@ export const ExpenseClaimDetailPage = () => {
         <DialogCloseButton onClose={() => setRejectDialogOpen(false)} />
         <DialogTitle>Reject expense claim</DialogTitle>
         <DialogContent>
-          <Textarea
-            label="Rejection reason"
-            value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
-            rows={3}
-            required
-            error={validationError || undefined}
-            placeholder="Enter rejection reason"
-          />
+          <div className="grid gap-4">
+            {rejectError ? <Alert severity="error">{rejectError}</Alert> : null}
+            <Textarea
+              label="Rejection reason"
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              rows={3}
+              required
+              error={validationError || undefined}
+              placeholder="Enter rejection reason"
+            />
+          </div>
         </DialogContent>
         <DialogActions>
           <Button variant="outlined" onClick={() => setRejectDialogOpen(false)}>
@@ -661,15 +698,18 @@ export const ExpenseClaimDetailPage = () => {
         <DialogCloseButton onClose={() => setSendToEditDialogOpen(false)} />
         <DialogTitle>Send claim to edit</DialogTitle>
         <DialogContent>
-          <Textarea
-            label="Comment"
-            value={editComment}
-            onChange={(e) => setEditComment(e.target.value)}
-            rows={3}
-            required
-            error={validationError || undefined}
-            placeholder="What should be corrected"
-          />
+          <div className="grid gap-4">
+            {sendToEditError ? <Alert severity="error">{sendToEditError}</Alert> : null}
+            <Textarea
+              label="Comment"
+              value={editComment}
+              onChange={(e) => setEditComment(e.target.value)}
+              rows={3}
+              required
+              error={validationError || undefined}
+              placeholder="What should be corrected"
+            />
+          </div>
         </DialogContent>
         <DialogActions>
           <Button variant="outlined" onClick={() => setSendToEditDialogOpen(false)}>

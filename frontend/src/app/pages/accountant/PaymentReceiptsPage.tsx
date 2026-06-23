@@ -100,6 +100,7 @@ export const PaymentReceiptsPage = () => {
   const { data, loading, error, refetch } = useApi<PaginatedResponse<PaymentRow>>(url)
   const payments = data?.items ?? []
   const total = data?.total ?? 0
+  const pageError = error || (!refundDialogPayment ? refundPaymentMutation.error : null)
 
   const getRefundableAmount = (payment: PaymentRow | null | undefined) =>
     Number(payment?.refundable_amount ?? payment?.amount ?? 0)
@@ -111,6 +112,7 @@ export const PaymentReceiptsPage = () => {
   }
 
   const openRefundDialog = (payment: PaymentRow) => {
+    refundPaymentMutation.reset()
     setRefundDialogPayment(payment)
     setRefundForm({
       amount: String(getRefundableAmount(payment)),
@@ -281,9 +283,9 @@ export const PaymentReceiptsPage = () => {
         </div>
       </div>
 
-      {(error || refundPaymentMutation.error) && (
+      {pageError && (
         <Alert severity="error" className="mb-4">
-          {error || refundPaymentMutation.error}
+          {pageError}
         </Alert>
       )}
 

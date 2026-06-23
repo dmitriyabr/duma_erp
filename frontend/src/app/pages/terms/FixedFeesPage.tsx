@@ -33,7 +33,7 @@ export const FixedFeesPage = () => {
   const { user } = useAuth()
   const readOnly = isAccountant(user)
   const { data: rows, loading, error, refetch } = useApi<FixedFeeRow[]>('/terms/fixed-fees')
-  const { execute: saveFee, loading: saving, error: saveError } = useApiMutation<FixedFeeRow>()
+  const { execute: saveFee, loading: saving, error: saveError, reset: resetSaveError } = useApiMutation<FixedFeeRow>()
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -48,12 +48,14 @@ export const FixedFeesPage = () => {
   })
 
   const openCreate = () => {
+    resetSaveError()
     setEditingFee(null)
     setForm({ ...emptyForm })
     setDialogOpen(true)
   }
 
   const openEdit = (fee: FixedFeeRow) => {
+    resetSaveError()
     setEditingFee(fee)
     setForm({
       fee_type: fee.fee_type,
@@ -114,9 +116,9 @@ export const FixedFeesPage = () => {
         </div>
       </div>
 
-      {(error || saveError) && (
+      {(error || (!dialogOpen ? saveError : null)) && (
         <Alert severity="error" className="mb-4">
-          {error || saveError}
+          {error || (!dialogOpen ? saveError : null)}
         </Alert>
       )}
 
@@ -175,6 +177,7 @@ export const FixedFeesPage = () => {
         <DialogTitle>{editingFee ? 'Edit fixed fee' : 'Create fixed fee'}</DialogTitle>
         <DialogContent>
           <div className="grid gap-4 mt-2">
+            {saveError ? <Alert severity="error">{saveError}</Alert> : null}
             <Input
               label="Fee type"
               value={form.fee_type}

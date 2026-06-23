@@ -58,7 +58,7 @@ export const PayoutsPage = () => {
   const { data: employeesData } = useApi<{ items: UserRow[] }>('/users', {
     params: { limit: USERS_LIST_LIMIT },
   }, [])
-  const { execute: createPayout, loading: creating, error: createError } = useApiMutation()
+  const { execute: createPayout, loading: creating, error: createError, reset: resetCreatePayout } = useApiMutation()
 
   const payouts = payoutsData?.items || []
   const total = payoutsData?.total || 0
@@ -122,6 +122,8 @@ export const PayoutsPage = () => {
 
   const openPayoutDialog = (employeeId: number) => {
     if (readOnly) return
+    setValidationError(null)
+    resetCreatePayout()
     setSelectedEmployeeId(employeeId)
     const balance = employeeBalances.find((b) => b.employee_id === employeeId)
     if (balance) {
@@ -239,9 +241,9 @@ export const PayoutsPage = () => {
         </Typography>
       </div>
 
-      {(error || createError || validationError) && (
+      {error && (
         <Alert severity="error" className="mb-4">
-          {error || createError || validationError}
+          {error}
         </Alert>
       )}
 
@@ -307,6 +309,11 @@ export const PayoutsPage = () => {
         <DialogTitle>Create payout</DialogTitle>
         <DialogContent>
           <div className="grid gap-4">
+            {(createError || validationError) && (
+              <Alert severity="error">
+                {createError || validationError}
+              </Alert>
+            )}
             <Select
               label="Employee"
               value={selectedEmployeeId ? String(selectedEmployeeId) : ''}

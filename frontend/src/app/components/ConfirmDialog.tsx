@@ -6,6 +6,7 @@ import {
 } from './ui/Dialog'
 import { Button } from './ui/Button'
 import { Typography } from './ui/Typography'
+import { Alert } from './ui/Alert'
 
 interface ConfirmDialogProps {
   open: boolean
@@ -13,6 +14,7 @@ interface ConfirmDialogProps {
   description: string
   confirmLabel?: string
   cancelLabel?: string
+  error?: string | null
   onCancel: () => void
   onConfirm: () => void
 }
@@ -23,6 +25,7 @@ export const ConfirmDialog = ({
   description,
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
+  error = null,
   onCancel,
   onConfirm,
 }: ConfirmDialogProps) => {
@@ -33,6 +36,11 @@ export const ConfirmDialog = ({
         <Typography variant="body1" color="secondary">
           {description}
         </Typography>
+        {error ? (
+          <Alert severity="error" className="mt-4">
+            {error}
+          </Alert>
+        ) : null}
       </DialogContent>
       <DialogActions>
         <Button variant="outlined" onClick={onCancel}>

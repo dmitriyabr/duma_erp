@@ -79,9 +79,11 @@ export const InvoicesTab = ({
     discount_amount: '',
   })
   const [lineDialogOpen, setLineDialogOpen] = useState(false)
+  const [lineDialogError, setLineDialogError] = useState<string | null>(null)
   const [issueDialogOpen, setIssueDialogOpen] = useState(false)
   const [issueDueDate, setIssueDueDate] = useState('')
   const [discountDialogOpen, setDiscountDialogOpen] = useState(false)
+  const [discountDialogError, setDiscountDialogError] = useState<string | null>(null)
   const [discountForm, setDiscountForm] = useState({
     value_type: 'percentage' as DiscountValueType,
     value: '',
@@ -171,6 +173,7 @@ export const InvoicesTab = ({
     () => selectedInvoice?.lines.find((line) => line.id === discountLineId) ?? null,
     [discountLineId, selectedInvoice]
   )
+  const invoiceDialogError = selectedInvoiceId ? removeLineMutation.error || cancelMutation.error : null
   const recordedDiscountTotal = useMemo(
     () =>
       roundCurrency(
@@ -231,6 +234,7 @@ export const InvoicesTab = ({
 
     const loadLineDiscounts = async () => {
       setLineDiscountsLoading(true)
+      setDiscountDialogError(null)
       try {
         const response = await api.get(`/discounts/line/${discountLineId}`)
         if (!cancelled) {
@@ -239,7 +243,7 @@ export const InvoicesTab = ({
       } catch (err) {
         if (!cancelled) {
           setLineDiscounts([])
-          onError(parseApiError(err).message || 'Failed to load discounts.')
+          setDiscountDialogError(parseApiError(err).message || 'Failed to load discounts.')
         }
       } finally {
         if (!cancelled) {
@@ -253,7 +257,7 @@ export const InvoicesTab = ({
     return () => {
       cancelled = true
     }
-  }, [discountDialogOpen, discountLineId, onError])
+  }, [discountDialogOpen, discountLineId])
 
   const byStatus = showCancelledInvoices
     ? invoices
@@ -308,11 +312,14 @@ export const InvoicesTab = ({
   }
 
   const openInvoiceDetail = (invoice: InvoiceSummary) => {
+    removeLineMutation.reset()
+    cancelMutation.reset()
     setSelectedInvoiceId(invoice.id)
   }
 
   const closeDiscountDialog = () => {
     setDiscountDialogOpen(false)
+    setDiscountDialogError(null)
     setDiscountLineId(null)
     setLineDiscounts([])
     setLineDiscountsLoading(false)
@@ -338,7 +345,7 @@ export const InvoicesTab = ({
       setLineDiscounts(unwrapResponse<AppliedDiscount[]>(response))
     } catch (err) {
       setLineDiscounts([])
-      onError(parseApiError(err).message || 'Failed to load discounts.')
+      setDiscountDialogError(parseApiError(err).message || 'Failed to load discounts.')
     } finally {
       setLineDiscountsLoading(false)
     }
@@ -346,6 +353,8 @@ export const InvoicesTab = ({
 
   const openAddLine = () => {
     if (!selectedInvoice) return
+    setLineDialogError(null)
+    addLineMutation.reset()
     setLineForm({ kit_id: '', quantity: 1, discount_amount: '' })
     setLineDialogOpen(true)
   }
@@ -353,9 +362,10 @@ export const InvoicesTab = ({
   const submitLine = async () => {
     if (!selectedInvoice) return
     if (!lineForm.kit_id) {
-      onError('Select a kit to add to the invoice.')
+      setLineDialogError('Select a kit to add to the invoice.')
       return
     }
+    setLineDialogError(null)
     const payload = {
       item_id: null as number | null,
       kit_id: Number(lineForm.kit_id),
@@ -372,7 +382,7 @@ export const InvoicesTab = ({
     if (refreshed != null) {
       setLineDialogOpen(false)
       await refreshInvoicesData()
-    } else if (addLineMutation.error) onError(addLineMutation.error)
+    }
   }
 
   const removeLine = async (lineId: number) => {
@@ -385,10 +395,11 @@ export const InvoicesTab = ({
     )
     if (ok != null) {
       await refreshInvoicesData()
-    } else if (removeLineMutation.error) onError(removeLineMutation.error)
+    }
   }
 
   const openIssueInvoice = () => {
+    issueMutation.reset()
     setIssueDueDate(selectedInvoice?.due_date ?? getDefaultDueDate())
     setIssueDialogOpen(true)
   }
@@ -404,7 +415,7 @@ export const InvoicesTab = ({
     if (ok != null) {
       setIssueDialogOpen(false)
       await refreshInvoicesData()
-    } else if (issueMutation.error) onError(issueMutation.error)
+    }
   }
 
   const cancelInvoice = async () => {
@@ -417,10 +428,13 @@ export const InvoicesTab = ({
     )
     if (ok != null) {
       await refreshInvoicesData()
-    } else if (cancelMutation.error) onError(cancelMutation.error)
+    }
   }
 
   const openDiscountDialog = (lineId: number) => {
+    setDiscountDialogError(null)
+    discountMutation.reset()
+    removeDiscountMutation.reset()
     setDiscountLineId(lineId)
     setDiscountForm({ value_type: 'percentage', value: '', reason_text: '' })
     setDiscountDialogOpen(true)
@@ -443,7 +457,7 @@ export const InvoicesTab = ({
       setDiscountForm({ value_type: 'percentage', value: '', reason_text: '' })
       await refreshInvoicesData()
       await refreshDiscountsForLine(discountLineId)
-    } else if (discountMutation.error) onError(discountMutation.error)
+    }
   }
 
   const removeAppliedDiscount = async (discountId: number) => {
@@ -457,8 +471,6 @@ export const InvoicesTab = ({
     if (ok != null) {
       await refreshInvoicesData()
       await refreshDiscountsForLine(discountLineId)
-    } else if (removeDiscountMutation.error) {
-      onError(removeDiscountMutation.error)
     }
   }
 
@@ -477,8 +489,6 @@ export const InvoicesTab = ({
     if (ok != null) {
       await refreshInvoicesData()
       await refreshDiscountsForLine(selectedDiscountLine.id)
-    } else if (removeDiscountMutation.error) {
-      onError(removeDiscountMutation.error)
     }
   }
 
@@ -609,6 +619,11 @@ export const InvoicesTab = ({
         </DialogTitle>
         <DialogContent>
           <div className="space-y-4 mt-4">
+            {invoiceDialogError ? (
+              <Alert severity="error">
+                {invoiceDialogError}
+              </Alert>
+            ) : null}
             {selectedInvoice && (
               <div className="flex gap-2 flex-wrap">
                 <Chip label={`Total ${formatMoney(parseNumber(selectedInvoice.total))}`} />
@@ -712,6 +727,11 @@ export const InvoicesTab = ({
         <DialogTitle>Add invoice line</DialogTitle>
         <DialogContent>
           <div className="space-y-4 mt-4">
+            {(lineDialogError || addLineMutation.error) ? (
+              <Alert severity="error">
+                {lineDialogError || addLineMutation.error}
+              </Alert>
+            ) : null}
             <Select
               value={lineForm.kit_id}
               onChange={(e) => setLineForm({ ...lineForm, kit_id: e.target.value })}
@@ -753,7 +773,12 @@ export const InvoicesTab = ({
         <DialogCloseButton onClose={() => setIssueDialogOpen(false)} />
         <DialogTitle>Issue invoice</DialogTitle>
         <DialogContent>
-          <div className="mt-4">
+          <div className="space-y-4 mt-4">
+            {issueMutation.error ? (
+              <Alert severity="error">
+                {issueMutation.error}
+              </Alert>
+            ) : null}
             <Input
               label="Due date"
               type="date"
@@ -782,6 +807,11 @@ export const InvoicesTab = ({
         <DialogTitle>Manage discounts</DialogTitle>
         <DialogContent>
           <div className="space-y-4 mt-4">
+            {(discountDialogError || discountMutation.error || removeDiscountMutation.error) ? (
+              <Alert severity="error">
+                {discountDialogError || discountMutation.error || removeDiscountMutation.error}
+              </Alert>
+            ) : null}
             {selectedDiscountLine && (
               <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
                 <div>

@@ -102,6 +102,17 @@ const formatAdvanceSourceLabel = (value: string) => {
 
 const today = () => new Date().toISOString().slice(0, 10)
 
+const parseMoneyInput = (value: string) => {
+  const normalized = value.trim().replace(/\s/g, '').replace(',', '.')
+  return Number(normalized)
+}
+
+const clampDateToBudgetPeriod = (value: string, budget: BudgetSummary) => {
+  if (!value || value < budget.period_from) return budget.period_from
+  if (value > budget.period_to) return budget.period_to
+  return value
+}
+
 export const BudgetDetailPage = () => {
   const navigate = useNavigate()
   const { budgetId } = useParams()
@@ -241,6 +252,7 @@ export const BudgetDetailPage = () => {
   const updateAdvanceMutation = useApiMutation<BudgetAdvanceSummary>()
   const returnMutation = useApiMutation<BudgetAdvanceReturn>()
   const transferMutation = useApiMutation<BudgetAdvanceTransfer>()
+  const selectedTransferBudget = transferBudgetOptions.find((row) => row.id === Number(transferBudgetId)) || null
 
   const effectiveError =
     localError ||
@@ -252,6 +264,12 @@ export const BudgetDetailPage = () => {
     updateAdvanceMutation.error ||
     returnMutation.error ||
     transferMutation.error
+  const editBudgetDialogError = editBudgetOpen ? localError || updateBudgetMutation.error : null
+  const createAdvanceDialogError = createAdvanceOpen ? localError || createAdvanceMutation.error : null
+  const issueAdvanceDialogError = issueAdvanceTarget ? localError || advanceActionMutation.error : null
+  const advanceEditDialogError = advanceDetailsTarget && advanceEditMode ? localError || updateAdvanceMutation.error : null
+  const returnDialogError = returnAdvanceTarget ? localError || returnMutation.error : null
+  const transferDialogError = transferAdvanceTarget ? localError || transferMutation.error : null
 
   const reloadAll = async () => {
     await Promise.all([
@@ -305,6 +323,7 @@ export const BudgetDetailPage = () => {
   const openEditBudgetDialog = () => {
     if (!budget) return
     setLocalError(null)
+    updateBudgetMutation.reset()
     setEditName(budget.name)
     setEditPurposeId(budget.purpose_id)
     setEditPeriodFrom(budget.period_from)
@@ -361,6 +380,7 @@ export const BudgetDetailPage = () => {
 
   const openCreateAdvanceDialog = () => {
     setLocalError(null)
+    createAdvanceMutation.reset()
     setCreateEmployeeId('')
     setCreateIssueDate(today())
     setCreateAmount('')
@@ -421,6 +441,7 @@ export const BudgetDetailPage = () => {
 
   const openIssueDialog = (advance: BudgetAdvanceSummary) => {
     setLocalError(null)
+    advanceActionMutation.reset()
     setIssueAdvanceTarget(advance)
     setIssueReferenceNumber(advance.reference_number ?? '')
     setIssueProofText(advance.proof_text ?? '')
@@ -459,12 +480,14 @@ export const BudgetDetailPage = () => {
 
   const openAdvanceDetails = (advance: BudgetAdvanceSummary) => {
     setLocalError(null)
+    updateAdvanceMutation.reset()
     setAdvanceDetailsTarget(advance)
     setAdvanceEditMode(false)
   }
 
   const startEditAdvance = (advance: BudgetAdvanceSummary) => {
     setLocalError(null)
+    updateAdvanceMutation.reset()
     setEditAdvanceEmployeeId(advance.employee_id)
     setEditAdvanceIssueDate(advance.issue_date)
     setEditAdvanceSettlementDueDate(advance.settlement_due_date)
@@ -545,6 +568,7 @@ export const BudgetDetailPage = () => {
 
   const openReturnDialog = (advance: BudgetAdvanceSummary) => {
     setLocalError(null)
+    returnMutation.reset()
     setReturnAdvanceTarget(advance)
     setReturnDate(today())
     setReturnAmount(String(advance.available_unreserved_amount))
@@ -589,6 +613,7 @@ export const BudgetDetailPage = () => {
 
   const openTransferDialog = (advance: BudgetAdvanceSummary) => {
     setLocalError(null)
+    transferMutation.reset()
     setTransferAdvanceTarget(advance)
     setTransferBudgetId('')
     setTransferEmployeeId('')
@@ -599,16 +624,41 @@ export const BudgetDetailPage = () => {
     setTransferSettlementDueDate('')
   }
 
-  const handleTransfer = async () => {
-    if (!transferAdvanceTarget || !transferBudgetId || !transferDate || !transferAmount || !transferReason.trim()) {
-      setLocalError('Fill target budget, transfer date, amount, and reason.')
+  const handleTransferBudgetChange = (value: string) => {
+    const nextBudgetId = value ? Number(value) : ''
+    setTransferBudgetId(nextBudgetId)
+    setLocalError(null)
+
+    const target = transferBudgetOptions.find((row) => row.id === nextBudgetId)
+    if (!target) {
+      setTransferSettlementDueDate('')
       return
     }
-    const amountValue = Number(transferAmount)
-    if (!amountValue || amountValue <= 0) {
+
+    setTransferDate((current) => clampDateToBudgetPeriod(current || today(), target))
+    setTransferSettlementDueDate((current) => current || target.period_to)
+  }
+
+  const handleTransfer = async () => {
+    if (!transferAdvanceTarget || !transferBudgetId || !transferDate || !transferAmount) {
+      setLocalError('Fill target budget, transfer date, and amount.')
+      return
+    }
+    const amountValue = parseMoneyInput(transferAmount)
+    if (!Number.isFinite(amountValue) || amountValue <= 0) {
       setLocalError('Transfer amount must be greater than 0.')
       return
     }
+    if (selectedTransferBudget && (transferDate < selectedTransferBudget.period_from || transferDate > selectedTransferBudget.period_to)) {
+      setLocalError(`Transfer date must be between ${selectedTransferBudget.period_from} and ${selectedTransferBudget.period_to}.`)
+      return
+    }
+
+    const reason =
+      transferReason.trim() ||
+      (selectedTransferBudget
+        ? `Rollover to ${selectedTransferBudget.budget_number}`
+        : 'Balance transfer')
 
     setLocalError(null)
     const result = await transferMutation.execute(() =>
@@ -618,7 +668,7 @@ export const BudgetDetailPage = () => {
         transfer_date: transferDate,
         amount: amountValue,
         transfer_type: transferType,
-        reason: transferReason.trim(),
+        reason,
         settlement_due_date: transferSettlementDueDate || null,
       })
     )
@@ -762,6 +812,7 @@ export const BudgetDetailPage = () => {
         <DialogTitle>Edit budget</DialogTitle>
         <DialogContent>
           <div className="grid gap-4 mt-2">
+            {editBudgetDialogError ? <Alert severity="error">{editBudgetDialogError}</Alert> : null}
             <Input label="Name" value={editName} onChange={(e) => setEditName(e.target.value)} />
             {budget.status === 'draft' ? (
               <>
@@ -1111,6 +1162,7 @@ export const BudgetDetailPage = () => {
         <DialogTitle>New advance</DialogTitle>
         <DialogContent>
           <div className="grid gap-4 mt-2">
+            {createAdvanceDialogError ? <Alert severity="error">{createAdvanceDialogError}</Alert> : null}
             <Select
               label="Employee"
               value={createEmployeeId}
@@ -1163,6 +1215,7 @@ export const BudgetDetailPage = () => {
         <DialogTitle>Issue advance</DialogTitle>
         <DialogContent>
           <div className="grid gap-4 mt-2">
+            {issueAdvanceDialogError ? <Alert severity="error">{issueAdvanceDialogError}</Alert> : null}
             <Input label="Payment method" value={issuePaymentMethod} onChange={(e) => setIssuePaymentMethod(e.target.value)} />
             <Input label="Reference number" value={issueReferenceNumber} onChange={(e) => setIssueReferenceNumber(e.target.value)} />
             <Input label="Settlement due date" type="date" value={issueSettlementDueDate} onChange={(e) => setIssueSettlementDueDate(e.target.value)} />
@@ -1204,6 +1257,7 @@ export const BudgetDetailPage = () => {
           {advanceDetailsTarget ? (
             advanceEditMode ? (
               <div className="grid gap-4 mt-2">
+                {advanceEditDialogError ? <Alert severity="error">{advanceEditDialogError}</Alert> : null}
                 {selectedAdvanceHasLockedFinancialActivity ? (
                   <Alert severity="warning">
                     Employee and amount are locked because this advance already has allocations, returns, transfers, or was created by transfer.
@@ -1436,6 +1490,7 @@ export const BudgetDetailPage = () => {
         <DialogTitle>Record return</DialogTitle>
         <DialogContent>
           <div className="grid gap-4 mt-2">
+            {returnDialogError ? <Alert severity="error">{returnDialogError}</Alert> : null}
             <Input label="Return date" type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} />
             <Input label="Amount" type="number" min={0} step={0.01} value={returnAmount} onChange={(e) => setReturnAmount(e.target.value)} />
             <Select label="Return method" value={returnMethod} onChange={(e) => setReturnMethod(e.target.value)}>
@@ -1474,7 +1529,8 @@ export const BudgetDetailPage = () => {
         <DialogTitle>Transfer balance</DialogTitle>
         <DialogContent>
           <div className="grid gap-4 mt-2">
-            <Select label="Target budget" value={transferBudgetId} onChange={(e) => setTransferBudgetId(e.target.value ? Number(e.target.value) : '')}>
+            {transferDialogError ? <Alert severity="error">{transferDialogError}</Alert> : null}
+            <Select label="Target budget" value={transferBudgetId} onChange={(e) => handleTransferBudgetChange(e.target.value)}>
               <option value="">Select target budget</option>
               {transferBudgetOptions.map((row) => (
                 <option key={row.id} value={row.id}>
@@ -1492,13 +1548,18 @@ export const BudgetDetailPage = () => {
             </Select>
             <Input label="Transfer date" type="date" value={transferDate} onChange={(e) => setTransferDate(e.target.value)} />
             <Input label="Settlement due date" type="date" value={transferSettlementDueDate} onChange={(e) => setTransferSettlementDueDate(e.target.value)} />
-            <Input label="Amount" type="number" min={0} step={0.01} value={transferAmount} onChange={(e) => setTransferAmount(e.target.value)} />
+            <Input label="Amount" type="text" inputMode="decimal" value={transferAmount} onChange={(e) => setTransferAmount(e.target.value)} />
             <Select label="Transfer type" value={transferType} onChange={(e) => setTransferType(e.target.value as typeof transferType)}>
               <option value="rollover">Rollover</option>
               <option value="reassignment">Reassignment</option>
               <option value="reallocation">Reallocation</option>
             </Select>
-            <Textarea label="Reason" value={transferReason} onChange={(e) => setTransferReason(e.target.value)} rows={3} />
+            <Textarea
+              label="Reason (optional)"
+              value={transferReason}
+              onChange={(e) => setTransferReason(e.target.value)}
+              rows={3}
+            />
           </div>
         </DialogContent>
         <DialogActions>

@@ -151,6 +151,7 @@ export const PurchaseOrderDetailPage = () => {
 
   const openReceive = () => {
     if (!po) return
+    setError(null)
     setGrnLines(
       po.lines
         .filter((line) => {
@@ -218,6 +219,7 @@ export const PurchaseOrderDetailPage = () => {
       )
     )
   const canReceive = !readOnly && (po.status === 'ordered' || po.status === 'partially_received')
+  const pageError = !receiveDialogOpen && !confirmState.open ? error : null
 
   return (
     <div>
@@ -238,7 +240,13 @@ export const PurchaseOrderDetailPage = () => {
             </Button>
           )}
           {!readOnly && po.status === 'draft' && (
-            <Button variant="contained" onClick={() => setConfirmState({ open: true, action: 'submit' })}>
+            <Button
+              variant="contained"
+              onClick={() => {
+                setError(null)
+                setConfirmState({ open: true, action: 'submit' })
+              }}
+            >
               Submit
             </Button>
           )}
@@ -257,7 +265,14 @@ export const PurchaseOrderDetailPage = () => {
             </Button>
           )}
           {!readOnly && (po.status === 'ordered' || po.status === 'partially_received') && (
-            <Button variant="contained" color="warning" onClick={() => setConfirmState({ open: true, action: 'close' })}>
+            <Button
+              variant="contained"
+              color="warning"
+              onClick={() => {
+                setError(null)
+                setConfirmState({ open: true, action: 'close' })
+              }}
+            >
               Close
             </Button>
           )}
@@ -265,7 +280,10 @@ export const PurchaseOrderDetailPage = () => {
             <Button
               variant="outlined"
               color="error"
-              onClick={() => setConfirmState({ open: true, action: 'cancel', reason: '' })}
+              onClick={() => {
+                setError(null)
+                setConfirmState({ open: true, action: 'cancel', reason: '' })
+              }}
             >
               Cancel
             </Button>
@@ -273,9 +291,9 @@ export const PurchaseOrderDetailPage = () => {
         </div>
       </div>
 
-      {error && (
+      {pageError && (
         <Alert severity="error" className="mb-4">
-          {error}
+          {pageError}
         </Alert>
       )}
 
@@ -441,6 +459,7 @@ export const PurchaseOrderDetailPage = () => {
         <DialogTitle>Receive goods</DialogTitle>
         <DialogContent>
           <div className="space-y-4 mt-4">
+            {receiveDialogOpen && error ? <Alert severity="error">{error}</Alert> : null}
             <Input
               label="Received date"
               type="date"
@@ -517,6 +536,7 @@ export const PurchaseOrderDetailPage = () => {
         title="Submit purchase order"
         description="Are you sure you want to submit this order to the supplier?"
         confirmLabel="Submit"
+        error={confirmState.action === 'submit' ? error : null}
         onCancel={() => setConfirmState({ open: false })}
         onConfirm={handleSubmit}
       />
@@ -526,6 +546,7 @@ export const PurchaseOrderDetailPage = () => {
         title="Close purchase order"
         description="Are you sure you want to close this order? Remaining quantities will be cancelled."
         confirmLabel="Close"
+        error={confirmState.action === 'close' ? error : null}
         onCancel={() => setConfirmState({ open: false })}
         onConfirm={handleClose}
       />
@@ -535,7 +556,8 @@ export const PurchaseOrderDetailPage = () => {
           <DialogCloseButton onClose={() => setConfirmState({ open: false })} />
           <DialogTitle>Cancel purchase order</DialogTitle>
           <DialogContent>
-            <div className="mt-4">
+            <div className="grid gap-4 mt-4">
+              {error ? <Alert severity="error">{error}</Alert> : null}
               <Textarea
                 label="Reason"
                 value={confirmState.reason ?? ''}

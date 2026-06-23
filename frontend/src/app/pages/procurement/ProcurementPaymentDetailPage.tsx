@@ -50,7 +50,7 @@ export const ProcurementPaymentDetailPage = () => {
   const { data: payment, loading, error, refetch } = useApi<PaymentResponse>(
     resolvedId ? `/procurement/payments/${resolvedId}` : null
   )
-  const { execute: cancelPayment, loading: cancelling, error: cancelError } = useApiMutation()
+  const { execute: cancelPayment, loading: cancelling, error: cancelError, reset: resetCancelError } = useApiMutation()
   const cancelBusy = cancelling
 
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false)
@@ -161,6 +161,10 @@ export const ProcurementPaymentDetailPage = () => {
   }
 
   const canCancel = payment.status === 'posted'
+  const pageActionError =
+    error ||
+    (!cancelDialogOpen ? cancelError : null) ||
+    (!cancelDialogOpen ? validationError : null)
 
   return (
     <div>
@@ -179,7 +183,16 @@ export const ProcurementPaymentDetailPage = () => {
             color={payment.status === 'posted' ? 'success' : 'default'}
           />
           {canCancel && (
-            <Button variant="outlined" color="error" disabled={cancelBusy} onClick={() => setCancelDialogOpen(true)}>
+            <Button
+              variant="outlined"
+              color="error"
+              disabled={cancelBusy}
+              onClick={() => {
+                setValidationError(null)
+                resetCancelError()
+                setCancelDialogOpen(true)
+              }}
+            >
               Cancel
             </Button>
           )}
@@ -196,9 +209,9 @@ export const ProcurementPaymentDetailPage = () => {
         </div>
       </div>
 
-      {(error || cancelError || validationError) && (
+      {pageActionError && (
         <Alert severity="error" className="mb-4">
-          {error || cancelError || validationError}
+          {pageActionError}
         </Alert>
       )}
 
@@ -341,15 +354,18 @@ export const ProcurementPaymentDetailPage = () => {
         <DialogCloseButton onClose={() => setCancelDialogOpen(false)} />
         <DialogTitle>Cancel payment</DialogTitle>
         <DialogContent>
-          <Textarea
-            label="Cancellation reason"
-            value={cancelReason}
-            onChange={(e) => setCancelReason(e.target.value)}
-            rows={3}
-            required
-            error={validationError || undefined}
-            placeholder="Enter cancellation reason"
-          />
+          <div className="grid gap-4">
+            {cancelError ? <Alert severity="error">{cancelError}</Alert> : null}
+            <Textarea
+              label="Cancellation reason"
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              rows={3}
+              required
+              error={validationError || undefined}
+              placeholder="Enter cancellation reason"
+            />
+          </div>
         </DialogContent>
         <DialogActions>
           <Button variant="outlined" onClick={() => setCancelDialogOpen(false)}>
