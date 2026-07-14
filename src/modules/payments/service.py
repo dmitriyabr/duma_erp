@@ -12,9 +12,9 @@ from sqlalchemy.orm import selectinload
 from src.core.audit.service import AuditService
 from src.core.documents.number_generator import DocumentNumberGenerator
 from src.core.exceptions import NotFoundError, ValidationError
-from src.shared.utils.money import round_money
 from src.modules.billing_accounts.models import BillingAccount
 from src.modules.billing_accounts.service import BillingAccountService
+from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
 from src.modules.payments.models import (
     CreditAllocation,
     CreditAllocationReversal,
@@ -38,20 +38,20 @@ from src.modules.payments.schemas import (
     PaymentCreate,
     PaymentFilters,
     PaymentRefundCreate,
-    RefundAllocationOption,
+    PaymentUpdate,
     RefundAllocationImpact,
+    RefundAllocationOption,
     RefundAllocationReversalRequest,
     RefundInvoiceReversalRequest,
     RefundPaymentSourceImpact,
-    PaymentUpdate,
     StatementEntry,
     StatementResponse,
     StudentBalance,
 )
-from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus
+from src.modules.reservations.service import ReservationService
 from src.modules.students.models import Student
 from src.modules.terms.models import Term, TermStatus
-from src.modules.reservations.service import ReservationService
+from src.shared.utils.money import round_money
 
 
 class PaymentService:
@@ -979,9 +979,11 @@ class PaymentService:
         Auto-allocate credit to invoices.
 
         Algorithm:
-        1. Older term debt first, then active/current term, then future/no-term invoices.
-        2. Within each term bucket, requires_full invoices are paid first.
-        3. Other invoices in the same bucket share remaining balance proportionally by amount_due.
+        1. Activity invoices first, regardless of term.
+        2. Within activity and non-activity invoices, older term debt first, then
+           active/current term, then future/no-term invoices.
+        3. Within each bucket, requires_full invoices are paid first.
+        4. Other invoices in the same bucket share remaining balance proportionally by amount_due.
         """
         account, reference_student = await self._resolve_billing_context(
             student_id=data.student_id,
@@ -1066,19 +1068,22 @@ class PaymentService:
             key=lambda invoice: self._allocation_priority_key(invoice, active_term),
         )
 
-        for _, term_invoices_iter in groupby(
+        for _, bucket_invoices_iter in groupby(
             sorted_invoices,
-            key=lambda invoice: self._allocation_term_bucket(invoice, active_term),
+            key=lambda invoice: (
+                self._allocation_type_bucket(invoice),
+                *self._allocation_term_bucket(invoice, active_term),
+            ),
         ):
             if remaining <= 0:
                 break
 
-            term_invoices = list(term_invoices_iter)
+            bucket_invoices = list(bucket_invoices_iter)
             requires_full_invoices = [
-                invoice for invoice in term_invoices if invoice.requires_full_payment
+                invoice for invoice in bucket_invoices if invoice.requires_full_payment
             ]
             partial_ok_invoices = [
-                invoice for invoice in term_invoices if not invoice.requires_full_payment
+                invoice for invoice in bucket_invoices if not invoice.requires_full_payment
             ]
 
             # Step 1: requires_full invoices first inside the term bucket.
@@ -1155,6 +1160,11 @@ class PaymentService:
         )
         return result.scalar_one_or_none()
 
+    @staticmethod
+    def _allocation_type_bucket(invoice: Invoice) -> int:
+        """Put paid activities ahead of every other invoice type."""
+        return 0 if invoice.invoice_type == InvoiceType.ACTIVITY.value else 1
+
     def _allocation_term_bucket(
         self,
         invoice: Invoice,
@@ -1190,9 +1200,14 @@ class PaymentService:
         self,
         invoice: Invoice,
         active_term: Term | None,
-    ) -> tuple[int, int, int, date, int]:
+    ) -> tuple[int, int, int, int, date, int]:
         fallback_date = invoice.due_date or invoice.issue_date or date.max
-        return (*self._allocation_term_bucket(invoice, active_term), fallback_date, invoice.id)
+        return (
+            self._allocation_type_bucket(invoice),
+            *self._allocation_term_bucket(invoice, active_term),
+            fallback_date,
+            invoice.id,
+        )
 
     async def delete_allocation(
         self,

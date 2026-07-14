@@ -234,7 +234,8 @@ Audience нужно не вычислять “на лету” каждый р�
 
 ### 7.5. Оплата
 
-Отдельной логики оплаты для activity не нужно.
+Activity invoices имеют приоритет при auto-allocation, чтобы оплата участия закрывала
+activity invoice даже при наличии незакрытых school fee или transport invoices.
 
 После выставления activity invoice:
 - он участвует в общей задолженности ученика;

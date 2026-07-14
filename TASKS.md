@@ -285,13 +285,13 @@
 - [x] Документация и тесты
 
 ### 3.2 Аллокация средств
-> Решения: сначала закрываем долги прошлых terms, затем active/current term; внутри term — requires_full_payment перед proportional partial allocation
+> Решения: явно выбранный invoice имеет абсолютный приоритет; при auto-allocation сначала закрываем activity invoices, затем долги прошлых terms и active/current term; внутри bucket — requires_full_payment перед proportional partial allocation
 
 - [x] Поле `requires_full_payment` в Item (default: True для product, False для service)
 - [x] Поле `requires_full_payment` в Kit (default: True)
 - [x] Property `Invoice.requires_full_payment`
 - [x] Миграция 009_requires_full_payment.py
-- [x] Сервис allocate_auto (приоритет: previous-term debt → active/current term → future/no-term; внутри bucket: requires_full — можно частично, partial_ok — пропорционально по amount_due; триггеры: payment complete, любой Issued)
+- [x] Сервис allocate_auto (приоритет: activity → previous-term debt → active/current term → future/no-term; внутри bucket: requires_full — можно частично, partial_ok — пропорционально по amount_due; триггеры: payment complete, любой Issued)
 - [x] Сервис allocate_manual (ручная аллокация на конкретный invoice)
 - [x] Сервис delete_allocation (удаление аллокации с возвратом в баланс)
 - [x] Сервис undo_and_reallocate_allocation: атомарный undo + auto-allocation с сохранением исходной даты allocation для reports/exports

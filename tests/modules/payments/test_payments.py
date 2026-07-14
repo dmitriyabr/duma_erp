@@ -2,6 +2,7 @@
 
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +10,8 @@ from sqlalchemy.orm import selectinload
 
 from src.core.auth.models import UserRole
 from src.core.auth.service import AuthService
+from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
+from src.modules.items.models import Category, Item, ItemType, Kit, KitItem, PriceType
 from src.modules.payments.models import (
     CreditAllocation,
     CreditAllocationReversal,
@@ -26,9 +29,7 @@ from src.modules.payments.schemas import (
     PaymentRefundCreate,
 )
 from src.modules.payments.service import PaymentService
-from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
-from src.modules.students.models import Grade, Student, StudentStatus, Gender
-from src.modules.items.models import Category, Item, ItemType, Kit, KitItem, PriceType
+from src.modules.students.models import Gender, Grade, Student, StudentStatus
 from src.modules.terms.models import Term, TermStatus
 
 
@@ -244,9 +245,12 @@ class TestPaymentService:
     async def test_complete_payment_prefers_selected_invoice_before_auto_allocate(
         self, db_session: AsyncSession
     ):
-        """Preferred invoice should receive this payment before older/smaller debts."""
+        """Preferred invoice should receive this payment even before an activity."""
         data = await self._setup_test_data(db_session)
         service = PaymentService(db_session)
+
+        data["invoice3"].invoice_type = InvoiceType.ACTIVITY.value
+        await db_session.commit()
 
         payment = await service.create_payment(
             PaymentCreate(
@@ -278,6 +282,59 @@ class TestPaymentService:
         assert invoice3 is not None
         assert invoice1.amount_due == Decimal("3000.00")
         assert invoice3.amount_due == Decimal("2000.00")
+
+    async def test_auto_allocation_pays_activity_before_school_fee_and_transport(
+        self, db_session: AsyncSession
+    ):
+        """Activity should close before older school-fee and transport debt."""
+        data = await self._setup_test_data(db_session)
+        user = data["user"]
+
+        previous_term = Term(
+            year=2097,
+            term_number=1,
+            display_name="2097-T1",
+            status=TermStatus.CLOSED.value,
+            start_date=date(2097, 1, 1),
+            end_date=date(2097, 3, 31),
+            created_by_id=user.id,
+        )
+        db_session.add(previous_term)
+        await db_session.flush()
+
+        school_fee_invoice = data["invoice1"]
+        transport_invoice = data["invoice2"]
+        activity_invoice = data["invoice3"]
+        school_fee_invoice.invoice_type = InvoiceType.SCHOOL_FEE.value
+        school_fee_invoice.term_id = previous_term.id
+        transport_invoice.invoice_type = InvoiceType.TRANSPORT.value
+        transport_invoice.term_id = previous_term.id
+        activity_invoice.invoice_type = InvoiceType.ACTIVITY.value
+        activity_invoice.term_id = None
+        await db_session.commit()
+
+        service = PaymentService(db_session)
+        payment = await service.create_payment(
+            PaymentCreate(
+                student_id=data["student"].id,
+                amount=Decimal("2000.00"),
+                payment_method=PaymentMethod.MPESA,
+                payment_date=date.today(),
+                reference="ACTIVITY-FIRST-2000",
+            ),
+            received_by_id=user.id,
+        )
+        await service.complete_payment(payment.id, user.id)
+
+        await db_session.refresh(school_fee_invoice)
+        await db_session.refresh(transport_invoice)
+        await db_session.refresh(activity_invoice)
+
+        assert activity_invoice.status == InvoiceStatus.PAID.value
+        assert activity_invoice.paid_total == Decimal("2000.00")
+        assert activity_invoice.amount_due == Decimal("0.00")
+        assert school_fee_invoice.paid_total == Decimal("0.00")
+        assert transport_invoice.paid_total == Decimal("0.00")
 
     async def test_cancel_payment(self, db_session: AsyncSession):
         """Test cancelling a pending payment."""
