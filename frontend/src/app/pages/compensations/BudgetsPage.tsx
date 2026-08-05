@@ -229,7 +229,14 @@ export const BudgetsPage = () => {
                     {budget.name}
                   </Typography>
                 </div>
-                <Chip size="small" label={budget.status} color={statusColor(budget.status)} />
+                <div className="flex flex-col items-end gap-1">
+                  <Chip size="small" label={budget.status} color={statusColor(budget.status)} />
+                  {budget.overdue_advances_count > 0 ? (
+                    <Typography variant="caption" color="secondary">
+                      overdue: {budget.overdue_advances_count}
+                    </Typography>
+                  ) : null}
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3 mt-4">
                 <div>
@@ -237,16 +244,16 @@ export const BudgetsPage = () => {
                   <Typography>{formatMoney(budget.limit_amount)}</Typography>
                 </div>
                 <div>
-                  <Typography variant="caption" color="secondary">Available</Typography>
-                  <Typography>{formatMoney(budget.available_unreserved_total)}</Typography>
+                  <Typography variant="caption" color="secondary">Spent</Typography>
+                  <Typography>{formatMoney(budget.spent_total)}</Typography>
                 </div>
                 <div>
                   <Typography variant="caption" color="secondary">On hands</Typography>
                   <Typography>{formatMoney(budget.open_on_hands_total)}</Typography>
                 </div>
                 <div>
-                  <Typography variant="caption" color="secondary">Overdue</Typography>
-                  <Typography>{budget.overdue_advances_count}</Typography>
+                  <Typography variant="caption" color="secondary">Available</Typography>
+                  <Typography>{formatMoney(budget.available_to_issue)}</Typography>
                 </div>
               </div>
             </CardContent>
@@ -276,9 +283,9 @@ export const BudgetsPage = () => {
               <TableHeaderCell>Purpose</TableHeaderCell>
               <TableHeaderCell>Period</TableHeaderCell>
               <TableHeaderCell align="right">Limit</TableHeaderCell>
-              <TableHeaderCell align="right">Available to Issue</TableHeaderCell>
+              <TableHeaderCell align="right">Spent</TableHeaderCell>
               <TableHeaderCell align="right">On Hands</TableHeaderCell>
-              <TableHeaderCell align="right">Available for Claims</TableHeaderCell>
+              <TableHeaderCell align="right">Available</TableHeaderCell>
               <TableHeaderCell>Status</TableHeaderCell>
             </TableRow>
           </TableHead>
@@ -304,9 +311,9 @@ export const BudgetsPage = () => {
                   {budget.period_from} - {budget.period_to}
                 </TableCell>
                 <TableCell align="right">{formatMoney(budget.limit_amount)}</TableCell>
-                <TableCell align="right">{formatMoney(budget.available_to_issue)}</TableCell>
+                <TableCell align="right">{formatMoney(budget.spent_total)}</TableCell>
                 <TableCell align="right">{formatMoney(budget.open_on_hands_total)}</TableCell>
-                <TableCell align="right">{formatMoney(budget.available_unreserved_total)}</TableCell>
+                <TableCell align="right">{formatMoney(budget.available_to_issue)}</TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <Chip size="small" label={budget.status} color={statusColor(budget.status)} />
