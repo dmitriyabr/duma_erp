@@ -194,6 +194,15 @@ class TestBudgets:
         assert Decimal(advance_data["open_balance"]) == Decimal("3800.00")
         assert Decimal(advance_data["available_unreserved_amount"]) == Decimal("3800.00")
 
+        budget_after_approve = await client.get(
+            f"/api/v1/budgets/{budget_id}",
+            headers={"Authorization": f"Bearer {super_token}"},
+        )
+        budget_data = budget_after_approve.json()["data"]
+        assert Decimal(budget_data["spent_total"]) == Decimal("1200.00")
+        assert Decimal(budget_data["open_on_hands_total"]) == Decimal("3800.00")
+        assert Decimal(budget_data["available_to_issue"]) == Decimal("0.00")
+
         totals = await client.get(
             f"/api/v1/compensations/claims/employees/{employee_id}/totals",
             headers={"Authorization": f"Bearer {employee_token}"},
@@ -712,6 +721,7 @@ class TestBudgets:
         )
         budget_body = budget_after_claim.json()["data"]
         assert Decimal(budget_body["personal_reimbursement_total"]) == Decimal("1000.00")
+        assert Decimal(budget_body["spent_total"]) == Decimal("1000.00")
         assert Decimal(budget_body["committed_total"]) == Decimal("1000.00")
         assert Decimal(budget_body["available_to_issue"]) == Decimal("0.00")
 

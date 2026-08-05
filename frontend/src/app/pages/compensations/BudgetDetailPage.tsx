@@ -684,13 +684,9 @@ export const BudgetDetailPage = () => {
       budget
         ? [
             { label: 'Limit', value: formatMoney(budget.limit_amount) },
-            { label: 'Available to issue', value: formatMoney(budget.available_to_issue) },
-            { label: 'Direct company paid', value: formatMoney(budget.direct_company_paid_total) },
-            { label: 'Personal reimbursements', value: formatMoney(budget.personal_reimbursement_total) },
+            { label: 'Spent', value: formatMoney(budget.spent_total) },
             { label: 'On hands', value: formatMoney(budget.open_on_hands_total) },
-            { label: 'Available for claims', value: formatMoney(budget.available_unreserved_total) },
-            { label: 'Settled', value: formatMoney(budget.settled_total) },
-            { label: 'Overdue advances', value: String(budget.overdue_advances_count) },
+            { label: 'Available', value: formatMoney(budget.available_to_issue) },
           ]
         : [],
     [budget]

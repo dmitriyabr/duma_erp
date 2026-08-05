@@ -585,6 +585,7 @@ Rollover является штатной частью фичи.
 - `reserved_total = sum(BudgetClaimAllocation.allocated_amount where allocation_status = reserved and claim.budget_id = budget.id)`
 - `settled_from_advances_total = sum(BudgetClaimAllocation.allocated_amount where allocation_status = settled and claim.budget_id = budget.id)`
 - `settled_total = settled_from_advances_total + direct_company_paid_total`
+- `spent_total = settled_total + personal_reimbursement_total`
 - `employee_funding_committed_total = direct_issue_total + transfer_in_total - returned_total - transfer_out_total`
 - `committed_total = employee_funding_committed_total + direct_company_paid_total`
 - `open_on_hands_total = employee_funding_committed_total - settled_from_advances_total`

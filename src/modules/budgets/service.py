@@ -56,6 +56,7 @@ class BudgetTotals:
     transfer_out_total: Decimal
     reserved_total: Decimal
     settled_total: Decimal
+    spent_total: Decimal
     committed_total: Decimal
     personal_reimbursement_total: Decimal
     open_on_hands_total: Decimal
@@ -266,6 +267,7 @@ class BudgetService:
             direct_issue_total + transfer_in_total - returned_total - transfer_out_total
         )
         settled_total = round_money(settled_from_advances_total + direct_company_paid_total)
+        spent_total = round_money(settled_total + personal_reimbursement_total)
         committed_total = round_money(
             employee_funding_committed_total + direct_company_paid_total + personal_reimbursement_total
         )
@@ -280,6 +282,7 @@ class BudgetService:
             transfer_out_total=transfer_out_total,
             reserved_total=reserved_total,
             settled_total=settled_total,
+            spent_total=spent_total,
             committed_total=max(Decimal("0.00"), committed_total),
             personal_reimbursement_total=personal_reimbursement_total,
             open_on_hands_total=max(Decimal("0.00"), open_on_hands_total),
@@ -1179,6 +1182,7 @@ class BudgetService:
             "transfer_out_total": totals.transfer_out_total,
             "reserved_total": totals.reserved_total,
             "settled_total": totals.settled_total,
+            "spent_total": totals.spent_total,
             "committed_total": totals.committed_total,
             "personal_reimbursement_total": totals.personal_reimbursement_total,
             "open_on_hands_total": totals.open_on_hands_total,

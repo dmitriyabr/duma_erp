@@ -293,6 +293,7 @@ class TestProcurementPayments:
         assert Decimal(budget_data["direct_company_paid_total"]) == Decimal("1200.00")
         assert Decimal(budget_data["committed_total"]) == Decimal("1200.00")
         assert Decimal(budget_data["settled_total"]) == Decimal("1200.00")
+        assert Decimal(budget_data["spent_total"]) == Decimal("1200.00")
         assert Decimal(budget_data["available_to_issue"]) == Decimal("3800.00")
 
         payments_response = await client.get(
