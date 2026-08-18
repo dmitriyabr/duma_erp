@@ -9,6 +9,7 @@ from src.core.documents.number_generator import DocumentNumberGenerator
 from src.core.exceptions import DuplicateError, NotFoundError, ValidationError
 from src.modules.billing_accounts.models import BillingAccount
 from src.modules.billing_accounts.service import BillingAccountService
+from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus
 from src.modules.students.models import Grade, Student, StudentStatus
 from src.modules.students.schemas import (
     GradeCreate,
@@ -69,7 +70,7 @@ class StudentService:
         """List all grades ordered by display_order."""
         query = select(Grade).order_by(Grade.display_order, Grade.code)
         if not include_inactive:
-            query = query.where(Grade.is_active == True)
+            query = query.where(Grade.is_active)
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
@@ -269,16 +270,38 @@ class StudentService:
         search: str | None = None,
         page: int = 1,
         limit: int = 100,
+        sort_by: str = "full_name",
+        sort_direction: str = "asc",
     ) -> tuple[list[Student], int]:
         """List students with optional filters."""
+        outstanding_debt = (
+            select(
+                Invoice.student_id.label("student_id"),
+                func.coalesce(func.sum(InvoiceLine.remaining_amount), 0).label("debt"),
+            )
+            .join(InvoiceLine, InvoiceLine.invoice_id == Invoice.id)
+            .where(
+                Invoice.status.in_(
+                    [
+                        InvoiceStatus.ISSUED.value,
+                        InvoiceStatus.PARTIALLY_PAID.value,
+                    ]
+                )
+            )
+            .group_by(Invoice.student_id)
+            .subquery()
+        )
+        balance_expr = 0 - func.coalesce(outstanding_debt.c.debt, 0)
         query = (
             select(Student)
+            .outerjoin(Grade, Grade.id == Student.grade_id)
+            .outerjoin(TransportZone, TransportZone.id == Student.transport_zone_id)
+            .outerjoin(outstanding_debt, outstanding_debt.c.student_id == Student.id)
             .options(
                 selectinload(Student.grade),
                 selectinload(Student.transport_zone),
                 selectinload(Student.billing_account).selectinload(BillingAccount.students),
             )
-            .order_by(Student.last_name, Student.first_name)
         )
 
         if status is not None:
@@ -299,8 +322,43 @@ class StudentService:
                 )
             )
 
-        # Count total
-        count_query = select(func.count()).select_from(query.subquery())
+        order_columns = {
+            "student_number": [Student.student_number, Student.id],
+            "full_name": [Student.first_name, Student.last_name, Student.id],
+            "grade_name": [
+                Grade.display_order,
+                Grade.name,
+                Student.first_name,
+                Student.last_name,
+                Student.id,
+            ],
+            "transport_zone_name": [
+                func.coalesce(TransportZone.zone_name, ""),
+                Student.first_name,
+                Student.last_name,
+                Student.id,
+            ],
+            "guardian_name": [
+                Student.guardian_name,
+                Student.first_name,
+                Student.last_name,
+                Student.id,
+            ],
+            "status": [Student.status, Student.first_name, Student.last_name, Student.id],
+            "balance": [balance_expr, Student.first_name, Student.last_name, Student.id],
+        }
+        columns = order_columns.get(sort_by, order_columns["full_name"])
+        direction = sort_direction.lower()
+        if direction not in {"asc", "desc"}:
+            direction = "asc"
+        order_by = [
+            column.desc() if direction == "desc" else column.asc()
+            for column in columns
+        ]
+        query = query.order_by(*order_by)
+
+        # Count total before pagination.
+        count_query = select(func.count()).select_from(query.order_by(None).subquery())
         total_result = await self.db.execute(count_query)
         total = total_result.scalar() or 0
 

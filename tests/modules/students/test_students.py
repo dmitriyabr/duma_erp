@@ -5,11 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth.models import UserRole
 from src.core.auth.service import AuthService
-from src.core.exceptions import DuplicateError, NotFoundError, ValidationError
+from src.core.exceptions import DuplicateError, ValidationError
 from src.modules.billing_accounts.models import BillingAccount
 from src.modules.billing_accounts.schemas import BillingAccountCreate
 from src.modules.billing_accounts.service import BillingAccountService
-from src.modules.students.models import Gender, Grade, Student, StudentStatus
+from src.modules.students.models import Gender, Grade, StudentStatus
 from src.modules.students.schemas import GradeCreate, GradeUpdate, StudentCreate, StudentUpdate
 from src.modules.students.service import StudentService
 
@@ -52,11 +52,11 @@ class TestGradeService:
         service = StudentService(db_session)
 
         # Create test grades
-        g1 = await service.create_grade(
+        await service.create_grade(
             GradeCreate(code="A1", name="Grade A1", display_order=1),
             created_by_id=1,
         )
-        g2 = await service.create_grade(
+        await service.create_grade(
             GradeCreate(code="A2", name="Grade A2", display_order=2),
             created_by_id=1,
         )
@@ -439,6 +439,38 @@ class TestStudentEndpoints:
         assert data["success"] is True
         assert "items" in data["data"]
         assert "total" in data["data"]
+
+    async def test_list_students_sorts_before_pagination(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Sorting must happen before LIMIT/OFFSET, not inside one loaded page."""
+        token, _, grade = await self._create_auth_and_grade(db_session)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        for first_name in ["Alpha", "Middle", "Zulu"]:
+            response = await client.post(
+                "/api/v1/students",
+                headers=headers,
+                json={
+                    "first_name": first_name,
+                    "last_name": "Sort",
+                    "gender": "female",
+                    "grade_id": grade.id,
+                    "guardian_name": "Guardian",
+                    "guardian_phone": "+254712345678",
+                },
+            )
+            assert response.status_code == 201
+
+        response = await client.get(
+            "/api/v1/students?sort_by=full_name&sort_direction=desc&page=1&limit=1",
+            headers=headers,
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["data"]["total"] == 3
+        assert data["data"]["items"][0]["first_name"] == "Zulu"
 
     async def test_list_students_with_balance(self, client: AsyncClient, db_session: AsyncSession):
         """Test listing students with balance payload via API."""

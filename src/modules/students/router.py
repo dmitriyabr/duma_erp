@@ -1,6 +1,7 @@
 """API endpoints for Students module."""
 
 from decimal import Decimal
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import select
@@ -10,6 +11,7 @@ from src.core.auth.dependencies import require_roles
 from src.core.auth.models import User, UserRole
 from src.core.database.session import get_db
 from src.modules.billing_accounts.models import BillingAccount
+from src.modules.invoices.service import InvoiceService
 from src.modules.students.models import Student, StudentStatus
 from src.modules.students.schemas import (
     GradeCreate,
@@ -20,7 +22,6 @@ from src.modules.students.schemas import (
     StudentUpdate,
 )
 from src.modules.students.service import StudentService
-from src.modules.invoices.service import InvoiceService
 from src.shared.schemas.base import ApiResponse, PaginatedResponse
 from src.shared.utils.money import round_money
 
@@ -185,6 +186,16 @@ async def list_students(
     transport_zone_id: int | None = Query(None, description="Filter by transport zone"),
     search: str | None = Query(None, description="Search by name, number, guardian"),
     include_balance: bool = Query(False, description="Include credit balance and outstanding debt"),
+    sort_by: Literal[
+        "student_number",
+        "full_name",
+        "grade_name",
+        "transport_zone_name",
+        "guardian_name",
+        "status",
+        "balance",
+    ] = Query("full_name", description="Sort field"),
+    sort_direction: Literal["asc", "desc"] = Query("asc", description="Sort direction"),
     page: int = Query(1, ge=1),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
@@ -204,6 +215,8 @@ async def list_students(
         search=search,
         page=page,
         limit=limit,
+        sort_by=sort_by,
+        sort_direction=sort_direction,
     )
 
     # Load balances if requested
