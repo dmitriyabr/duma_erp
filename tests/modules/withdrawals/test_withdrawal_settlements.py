@@ -12,7 +12,13 @@ from src.core.auth.service import AuthService
 from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.inventory.schemas import ReceiveStockRequest
 from src.modules.inventory.service import InventoryService
-from src.modules.invoices.models import Invoice, InvoiceAdjustment, InvoiceLine, InvoiceStatus, InvoiceType
+from src.modules.invoices.models import (
+    Invoice,
+    InvoiceAdjustment,
+    InvoiceLine,
+    InvoiceStatus,
+    InvoiceType,
+)
 from src.modules.items.models import Category, Item, ItemType, Kit, KitItem, PriceType
 from src.modules.payments.models import CreditAllocation, PaymentMethod
 from src.modules.payments.schemas import PaymentCreate
@@ -420,6 +426,111 @@ async def test_withdrawal_closes_partially_issued_reservation_without_returning_
     reservation = await reservation_service.get_by_id(reservation.id)
     assert reservation.status == ReservationStatus.CLOSED.value
     assert reservation.items[0].quantity_issued == 1
+
+
+async def test_withdrawal_preserves_fully_issued_items_when_invoice_is_cancelled(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    token, user_id, data = await _setup_student_with_invoices(db_session)
+    item = Item(
+        category_id=data["kit"].category_id,
+        sku_code="WDR-FULLY-ISSUED-ITEM",
+        name="Withdrawal Fully Issued Item",
+        item_type=ItemType.PRODUCT.value,
+        price_type=PriceType.STANDARD.value,
+        price=Decimal("3000.00"),
+        is_active=True,
+    )
+    db_session.add(item)
+    await db_session.flush()
+    product_kit = Kit(
+        category_id=data["kit"].category_id,
+        sku_code="WDR-FULLY-ISSUED-KIT",
+        name="Withdrawal Fully Issued Kit",
+        item_type=ItemType.PRODUCT.value,
+        price_type=PriceType.STANDARD.value,
+        price=Decimal("3000.00"),
+        requires_full_payment=False,
+        is_active=True,
+    )
+    db_session.add(product_kit)
+    await db_session.flush()
+    db_session.add(
+        KitItem(
+            kit_id=product_kit.id,
+            item_id=item.id,
+            quantity=1,
+            source_type="item",
+        )
+    )
+    invoice_line = (
+        await db_session.execute(
+            select(InvoiceLine).where(InvoiceLine.invoice_id == data["invoice_one"].id)
+        )
+    ).scalar_one()
+    invoice_line.kit_id = product_kit.id
+    await db_session.flush()
+
+    inventory = InventoryService(db_session)
+    await inventory.receive_stock(
+        ReceiveStockRequest(
+            item_id=item.id,
+            quantity=5,
+            unit_cost=Decimal("200.00"),
+            reference_type="test",
+            reference_id=1,
+            notes="Withdrawal fully issued stock",
+        ),
+        received_by_id=user_id,
+    )
+    reservation_service = ReservationService(db_session)
+    reservation = await reservation_service.create_from_line(
+        invoice_line.id,
+        created_by_id=user_id,
+    )
+    assert reservation is not None
+    issuance = await reservation_service.issue_items(
+        reservation.id,
+        [(reservation.items[0].id, 1)],
+        issued_by_id=user_id,
+        notes="Physically delivered before withdrawal",
+    )
+    await db_session.commit()
+
+    response = await client.post(
+        f"/api/v1/students/{data['student'].id}/withdrawal-settlements",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "settlement_date": str(date.today()),
+            "reason": "Parent withdrew after full delivery",
+            "retained_amount": "0.00",
+            "deduction_amount": "0.00",
+            "invoice_actions": [
+                {
+                    "invoice_id": data["invoice_one"].id,
+                    "action": "cancel_unpaid",
+                    "amount": "3000.00",
+                    "notes": "Cancel receivable, keep delivered stock issued",
+                },
+                {
+                    "invoice_id": data["invoice_two"].id,
+                    "action": "cancel_unpaid",
+                    "amount": "5000.00",
+                    "notes": "No service delivered",
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    reservation = await reservation_service.get_by_id(reservation.id)
+    issuance = await inventory.get_issuance_by_id(issuance.id)
+    stock = await inventory.get_stock_by_item_id(item.id)
+    assert reservation.status == ReservationStatus.FULFILLED.value
+    assert reservation.items[0].quantity_issued == 1
+    assert issuance.status == "completed"
+    assert stock.quantity_on_hand == 4
 
 
 async def test_withdrawal_settlement_can_refund_and_write_off_reopened_invoice(

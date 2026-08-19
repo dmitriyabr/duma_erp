@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.core.audit.service import AuditService
-from src.core.exceptions import NotFoundError, ValidationError
 from src.core.documents.number_generator import DocumentNumberGenerator
+from src.core.exceptions import NotFoundError, ValidationError
 from src.modules.inventory.models import (
     Issuance,
     IssuanceItem,
@@ -19,8 +19,7 @@ from src.modules.inventory.models import (
 )
 from src.modules.inventory.service import InventoryService
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceLineComponent, InvoiceStatus
-from src.modules.items.models import Item, ItemType, Kit, KitItem
-from src.modules.items.models import ItemVariantMembership
+from src.modules.items.models import Item, ItemType, ItemVariantMembership, Kit, KitItem
 from src.modules.reservations.models import Reservation, ReservationItem, ReservationStatus
 from src.modules.reservations.schemas import ReservationConfigureComponentsComponent
 from src.modules.students.models import Student
@@ -98,10 +97,12 @@ class ReservationService:
 
     async def sync_for_invoice(self, invoice_id: int, user_id: int) -> None:
         """Sync reservations for all lines in an invoice.
-        
+
         Логика:
         - При issue инвойса: создаются резервации для всех product‑китов (до оплаты).
-        - При отмене инвойса (cancelled/void): резервации автоматически отменяются.
+        - При отмене инвойса (cancelled/void): невыданный резерв
+          отменяется, частично выданный закрывается, а полностью выданный
+          остаётся fulfilled. Отмена счёта не означает физический возврат.
         - При неполной оплате: резервации остаются (можно выдавать до оплаты).
         """
         result = await self.db.execute(
@@ -116,19 +117,16 @@ class ReservationService:
         if not invoice:
             raise NotFoundError(f"Invoice with id {invoice_id} not found")
 
-        # Если инвойс отменён или аннулирован — отменяем все резервации
+        # Invoice cancellation stops outstanding demand. Already issued stock is
+        # preserved unless a user explicitly cancels the issuance/return itself.
         if invoice.status in (InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value):
             for line in invoice.lines:
                 existing = await self.get_by_invoice_line_id(line.id)
-                if existing and existing.status not in (
-                    ReservationStatus.CANCELLED.value,
-                    ReservationStatus.CLOSED.value,
-                ):
-                    await self.cancel_reservation(
+                if existing:
+                    await self._sync_cancelled_invoice_reservation(
                         existing.id,
-                        cancelled_by_id=user_id,
+                        user_id=user_id,
                         reason=f"Invoice {invoice_id} was {invoice.status}",
-                        commit=False,
                     )
             return
 
@@ -140,6 +138,40 @@ class ReservationService:
             existing = await self.get_by_invoice_line_id(line.id)
             if not existing:
                 await self.create_from_line(line.id, created_by_id=user_id, commit=False)
+
+    async def _sync_cancelled_invoice_reservation(
+        self,
+        reservation_id: int,
+        user_id: int,
+        reason: str,
+    ) -> None:
+        """Stop invoice demand without inventing a physical stock return."""
+        reservation = await self.get_by_id(reservation_id)
+        if reservation.status in (
+            ReservationStatus.CANCELLED.value,
+            ReservationStatus.CLOSED.value,
+        ):
+            return
+
+        quantity_issued = sum(int(item.quantity_issued) for item in reservation.items)
+        if quantity_issued <= 0:
+            await self.cancel_reservation(
+                reservation.id,
+                cancelled_by_id=user_id,
+                reason=reason,
+                commit=False,
+            )
+            return
+
+        if reservation.status == ReservationStatus.FULFILLED.value:
+            return
+
+        await self.close_reservation(
+            reservation.id,
+            closed_by_id=user_id,
+            reason=reason,
+            commit=False,
+        )
 
     async def create_from_line(
         self, invoice_line_id: int, created_by_id: int, commit: bool = True

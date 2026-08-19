@@ -284,7 +284,7 @@ class TestReservationService:
     ):
         """Test that reservations are automatically cancelled when invoice is cancelled."""
         data = await self._setup_test_data(db_session)
-        
+
         # Create a new invoice without payment (can be cancelled)
         invoice = Invoice(
             invoice_number="INV-RES-000003",
@@ -334,7 +334,7 @@ class TestReservationService:
         from src.modules.invoices.service import InvoiceService
         invoice_service = InvoiceService(db_session)
         await invoice_service.cancel_invoice(invoice.id, cancelled_by_id=data["user"].id)
-        
+
         # Sync reservations (should cancel reservation)
         await service.sync_for_invoice(invoice.id, user_id=data["user"].id)
         await db_session.commit()
@@ -342,6 +342,68 @@ class TestReservationService:
         # Check that reservation was cancelled
         reservation = await service.get_by_id(reservation.id)
         assert reservation.status == ReservationStatus.CANCELLED.value
+
+    async def test_invoice_cancellation_preserves_fully_issued_reservation_and_stock(
+        self, db_session: AsyncSession
+    ):
+        data = await self._setup_test_data(db_session)
+        service = ReservationService(db_session)
+        inventory = InventoryService(db_session)
+
+        reservation = await service.create_from_line(
+            invoice_line_id=data["line"].id,
+            created_by_id=data["user"].id,
+        )
+        issuance = await service.issue_items(
+            reservation_id=reservation.id,
+            items=[(reservation.items[0].id, 2)],
+            issued_by_id=data["user"].id,
+        )
+        stock_after_issue = await inventory.get_stock_by_item_id(data["item"].id)
+        assert stock_after_issue.quantity_on_hand == 8
+
+        data["invoice"].status = InvoiceStatus.CANCELLED.value
+        await db_session.flush()
+        await service.sync_for_invoice(data["invoice"].id, user_id=data["user"].id)
+        await db_session.commit()
+
+        reservation = await service.get_by_id(reservation.id)
+        issuance = await inventory.get_issuance_by_id(issuance.id)
+        stock_after_sync = await inventory.get_stock_by_item_id(data["item"].id)
+        assert reservation.status == ReservationStatus.FULFILLED.value
+        assert reservation.items[0].quantity_issued == 2
+        assert issuance.status == "completed"
+        assert stock_after_sync.quantity_on_hand == 8
+
+    async def test_invoice_cancellation_closes_partially_issued_reservation_without_return(
+        self, db_session: AsyncSession
+    ):
+        data = await self._setup_test_data(db_session)
+        service = ReservationService(db_session)
+        inventory = InventoryService(db_session)
+
+        reservation = await service.create_from_line(
+            invoice_line_id=data["line"].id,
+            created_by_id=data["user"].id,
+        )
+        issuance = await service.issue_items(
+            reservation_id=reservation.id,
+            items=[(reservation.items[0].id, 1)],
+            issued_by_id=data["user"].id,
+        )
+
+        data["invoice"].status = InvoiceStatus.CANCELLED.value
+        await db_session.flush()
+        await service.sync_for_invoice(data["invoice"].id, user_id=data["user"].id)
+        await db_session.commit()
+
+        reservation = await service.get_by_id(reservation.id)
+        issuance = await inventory.get_issuance_by_id(issuance.id)
+        stock = await inventory.get_stock_by_item_id(data["item"].id)
+        assert reservation.status == ReservationStatus.CLOSED.value
+        assert reservation.items[0].quantity_issued == 1
+        assert issuance.status == "completed"
+        assert stock.quantity_on_hand == 9
 
     async def test_issue_reservation_with_zero_quantity_items(
         self, db_session: AsyncSession
