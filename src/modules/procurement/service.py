@@ -1417,8 +1417,9 @@ class ProcurementPaymentService:
         return await self.get_payment_by_id(payment.id)
 
     async def cancel_payment(
-        self, payment_id: int, reason: str, cancelled_by_id: int
+        self, payment_id: int, reason: str, cancelled_by_id: int, *, commit: bool = True
     ) -> ProcurementPayment:
+        """Cancel a payment; pass commit=False to join the caller's transaction."""
         payment = await self.get_payment_by_id(payment_id)
         if payment.status == ProcurementPaymentStatus.CANCELLED.value:
             raise ValidationError("Payment already cancelled")
@@ -1433,7 +1434,10 @@ class ProcurementPaymentService:
             po.paid_total -= payment.amount
             await self.po_service._recalculate_totals(po.id)
 
-        await self.db.commit()
+        if commit:
+            await self.db.commit()
+        else:
+            await self.db.flush()
         return await self.get_payment_by_id(payment.id)
 
     async def get_payment_by_id(self, payment_id: int) -> ProcurementPayment:

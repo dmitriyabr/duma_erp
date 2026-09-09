@@ -13,6 +13,7 @@ import { Chip } from '../../components/ui/Chip'
 import { Textarea } from '../../components/ui/Textarea'
 import { Dialog, DialogTitle, DialogContent, DialogActions, DialogCloseButton } from '../../components/ui/Dialog'
 import { Spinner } from '../../components/ui/Spinner'
+import { ClaimBudgetAllocations, type ClaimBudgetAllocation } from './components/ClaimBudgetAllocations'
 
 interface ClaimResponse {
   id: number
@@ -44,14 +45,7 @@ interface ClaimResponse {
   funding_source: 'personal_funds' | 'budget'
   budget_funding_status: string
   related_procurement_payment_id: number | null
-  budget_allocations: Array<{
-    id: number
-    advance_id: number
-    advance_number: string
-    allocated_amount: number
-    allocation_status: string
-    released_reason: string | null
-  }>
+  budget_allocations: ClaimBudgetAllocation[]
 }
 
 const statusColor = (status: string) => {
@@ -501,26 +495,7 @@ export const ExpenseClaimDetailPage = () => {
         </div>
       )}
 
-      {claim.budget_allocations?.length ? (
-        <div className="mb-6">
-          <Typography variant="subtitle2" color="secondary" className="mb-2">
-            Budget allocations
-          </Typography>
-          <div className="space-y-2">
-            {claim.budget_allocations.map((allocation) => (
-              <div key={allocation.id} className="rounded-lg border border-slate-200 p-3">
-                <Typography variant="body2" className="font-medium">
-                  {allocation.advance_number} · {formatMoney(allocation.allocated_amount)}
-                </Typography>
-                <Typography variant="caption" color="secondary">
-                  {allocation.allocation_status}
-                  {allocation.released_reason ? ` · ${allocation.released_reason}` : ''}
-                </Typography>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
+      <ClaimBudgetAllocations allocations={claim.budget_allocations ?? []} />
 
       {(claim.payee_name || claim.proof_text || claim.proof_attachment_id != null) && (
         <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -44,8 +44,15 @@ class TestBudgets:
         assert response.status_code in (200, 201)
         return response.json()["data"]["id"]
 
+    @pytest.mark.parametrize("edit", [
+        {"description": "Updated groceries", "proof_text": "Updated receipt"},
+        {"amount": "1200.00", "funding_source": "budget", "submit": True, "proof_text": "Receipt #APR-1"},
+        {"amount": "1300.00"},
+        {"fee_amount": "25.00", "fee_proof_text": "Fee receipt"},
+        {"funding_source": "personal_funds"},
+    ])
     async def test_budget_funded_claim_reserves_and_settles_against_advance(
-        self, client: AsyncClient, db_session: AsyncSession
+        self, client: AsyncClient, db_session: AsyncSession, edit: dict
     ):
         _, super_token = await _create_user_and_token(
             client,
@@ -161,6 +168,34 @@ class TestBudgets:
         assert claim["status"] == "pending_approval"
         assert len(claim["budget_allocations"]) == 1
         assert Decimal(claim["budget_allocations"][0]["allocated_amount"]) == Decimal("1200.00")
+
+        original_allocation = claim["budget_allocations"][0]
+        edited = await client.patch(
+            f"/api/v1/compensations/claims/{claim['id']}",
+            headers={"Authorization": f"Bearer {employee_token}"},
+            json=edit,
+        )
+        assert edited.status_code == 200, edited.text
+        edited_claim = edited.json()["data"]
+        changed = edit.get("amount") == "1300.00" or "fee_amount" in edit or edit.get("funding_source") == "personal_funds"
+        if changed:
+            released = [a for a in edited_claim["budget_allocations"] if a["allocation_status"] == "released"]
+            assert len(released) == 1
+            assert released[0]["id"] == original_allocation["id"]
+            reserved = [a for a in edited_claim["budget_allocations"] if a["allocation_status"] == "reserved"]
+            if edit.get("funding_source") == "personal_funds":
+                assert reserved == []
+                assert edited_claim["budget_funding_status"] == "none"
+            else:
+                assert sum(Decimal(a["allocated_amount"]) for a in reserved) == Decimal(edited_claim["amount"])
+            restored = await client.patch(
+                f"/api/v1/compensations/claims/{claim['id']}",
+                headers={"Authorization": f"Bearer {employee_token}"},
+                json={"amount": "1200.00", "fee_amount": "0.00", "funding_source": "budget"},
+            )
+            assert restored.status_code == 200, restored.text
+        else:
+            assert edited_claim["budget_allocations"] == [original_allocation]
 
         advance_after_reserve = await client.get(
             f"/api/v1/budgets/advances/{advance_id}",

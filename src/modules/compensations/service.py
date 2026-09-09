@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 from src.core.auth.models import UserRole
 from src.core.documents.number_generator import get_document_number
 from src.core.exceptions import NotFoundError, ValidationError
-from src.modules.budgets.models import BudgetClaimAllocation
+from src.modules.budgets.models import BudgetClaimAllocation, BudgetClaimAllocationStatus
 from src.modules.compensations.models import (
     BudgetFundingStatus,
     CompensationPayout,
@@ -235,10 +235,7 @@ class ExpenseClaimService:
         if payment is None:
             raise ValidationError("Linked payment not found")
 
-        if claim.funding_source == FundingSource.BUDGET.value:
-            from src.modules.budgets.service import BudgetService
-
-            await BudgetService(self.db).release_claim_allocations(claim.id, "Claim updated")
+        previous_funding = (claim.funding_source, claim.budget_id, round_money(claim.amount))
 
         # Validate purpose exists (shared catalog for procurement + claims).
         if "purpose_id" in update and update["purpose_id"] is not None:
@@ -298,6 +295,7 @@ class ExpenseClaimService:
                         claim.fee_payment_id,
                         reason="Fee removed",
                         cancelled_by_id=employee_id,
+                        commit=False,
                     )
                 claim.fee_payment_id = None
                 claim.fee_amount = Decimal("0.00")
@@ -355,7 +353,7 @@ class ExpenseClaimService:
 
                 claim.fee_amount = fee_amount
 
-        # Recalculate claim total (draft only; nothing allocated yet).
+        # Recalculate the total before deciding whether reservations need replacing.
         claim_total = Decimal(str(payment.amount)) + Decimal(str(claim.fee_amount or 0))
         claim.amount = claim_total
         claim.paid_amount = Decimal("0.00")
@@ -376,11 +374,32 @@ class ExpenseClaimService:
             claim.status = ExpenseClaimStatus.PENDING_APPROVAL.value
             claim.edit_comment = None
 
+        funding_changed = previous_funding != (
+            claim.funding_source, claim.budget_id, round_money(claim.amount)
+        )
+        if funding_changed and previous_funding[0] == FundingSource.BUDGET.value:
+            from src.modules.budgets.service import BudgetService
+
+            await BudgetService(self.db).release_claim_allocations(claim.id, "Claim updated")
+            if claim.funding_source == FundingSource.PERSONAL_FUNDS.value:
+                claim.budget_funding_status = BudgetFundingStatus.NONE.value
+
         if claim.funding_source == FundingSource.BUDGET.value and claim.status == ExpenseClaimStatus.PENDING_APPROVAL.value:
             from src.modules.budgets.service import BudgetService
 
             await self.db.flush()
-            await BudgetService(self.db).reserve_claim_allocations(claim.id)
+            budget_service = BudgetService(self.db)
+            await budget_service.validate_claim_budget_attribution(claim)
+            reserved_total = sum(
+                (
+                    a.allocated_amount
+                    for a in claim.budget_allocations
+                    if a.allocation_status == BudgetClaimAllocationStatus.RESERVED.value
+                ),
+                Decimal("0.00"),
+            )
+            if funding_changed or round_money(reserved_total) != round_money(claim.amount):
+                await budget_service.reserve_claim_allocations(claim.id)
         elif claim.budget_id:
             from src.modules.budgets.service import BudgetService
 
