@@ -79,9 +79,7 @@ class InvoiceService:
             if term_id is None or grade_id is None:
                 if allow_missing:
                     return None
-                raise ValidationError(
-                    f"Kit '{kit.name}' requires term and grade for pricing"
-                )
+                raise ValidationError(f"Kit '{kit.name}' requires term and grade for pricing")
             # Get the grade code and name first
             grade_result = await self.db.execute(
                 select(Grade.code, Grade.name).where(Grade.id == grade_id)
@@ -136,17 +134,13 @@ class InvoiceService:
         """Recalculate line totals."""
         line.line_total = round_money(line.unit_price * line.quantity)
         line.net_amount = round_money(line.line_total - line.discount_amount)
-        adjustment_amount = round_money(
-            getattr(line, "adjustment_amount", None) or Decimal("0.00")
-        )
+        adjustment_amount = round_money(getattr(line, "adjustment_amount", None) or Decimal("0.00"))
         line.remaining_amount = round_money(line.net_amount - line.paid_amount - adjustment_amount)
 
     def _recalculate_invoice(self, invoice: Invoice) -> None:
         """Recalculate invoice totals from lines."""
         invoice.subtotal = round_money(sum(line.line_total for line in invoice.lines))
-        invoice.discount_total = round_money(
-            sum(line.discount_amount for line in invoice.lines)
-        )
+        invoice.discount_total = round_money(sum(line.discount_amount for line in invoice.lines))
         invoice.total = round_money(invoice.subtotal - invoice.discount_total)
         invoice.paid_total = round_money(sum(line.paid_amount for line in invoice.lines))
         invoice.adjustment_total = round_money(
@@ -158,10 +152,16 @@ class InvoiceService:
                 Decimal("0.00"),
             )
         )
-        invoice.amount_due = round_money(invoice.total - invoice.paid_total - invoice.adjustment_total)
+        invoice.amount_due = round_money(
+            invoice.total - invoice.paid_total - invoice.adjustment_total
+        )
 
         # Update status based on payment
-        if invoice.status not in (InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value, InvoiceStatus.DRAFT.value):
+        if invoice.status not in (
+            InvoiceStatus.CANCELLED.value,
+            InvoiceStatus.VOID.value,
+            InvoiceStatus.DRAFT.value,
+        ):
             if invoice.amount_due == Decimal("0.00"):
                 invoice.status = InvoiceStatus.PAID.value
             elif invoice.paid_total > Decimal("0.00"):
@@ -177,10 +177,10 @@ class InvoiceService:
     ) -> None:
         """Set concrete inventory components for an invoice line (for configurable kits)."""
         # Get kit_id safely to avoid lazy loading issues
-        kit_id = getattr(kit, 'id', None)
+        kit_id = getattr(kit, "id", None)
         if not kit_id:
             raise ValidationError("Kit must have an id")
-        
+
         # Load kit with all relationships to avoid lazy loading
         kit_result = await self.db.execute(
             select(Kit)
@@ -194,7 +194,7 @@ class InvoiceService:
         kit_with_items = kit_result.scalar_one_or_none()
         if not kit_with_items:
             raise NotFoundError(f"Kit with id {kit_id} not found")
-        
+
         if not kit_with_items.is_editable_components:
             raise ValidationError(
                 f"Kit '{kit_with_items.name}' does not support editable components"
@@ -205,18 +205,14 @@ class InvoiceService:
             raise ValidationError("Kit has no components configured")
 
         if len(components) != len(kit_items):
-            raise ValidationError(
-                f"Expected {len(kit_items)} components, got {len(components)}"
-            )
+            raise ValidationError(f"Expected {len(kit_items)} components, got {len(components)}")
 
         line_id = getattr(line, "id", None)
         if not line_id:
             raise ValidationError("Invoice line must be flushed before setting components")
 
         await self.db.execute(
-            delete(InvoiceLineComponent).where(
-                InvoiceLineComponent.invoice_line_id == line_id
-            )
+            delete(InvoiceLineComponent).where(InvoiceLineComponent.invoice_line_id == line_id)
         )
 
         components_by_item: dict[int, int] = {}
@@ -271,9 +267,7 @@ class InvoiceService:
                             f"Replacement items must be from the variant '{variant_name}'"
                         )
 
-                item_result = await self.db.execute(
-                    select(Item).where(Item.id == chosen_item_id)
-                )
+                item_result = await self.db.execute(select(Item).where(Item.id == chosen_item_id))
                 item = item_result.scalar_one_or_none()
                 if not item:
                     raise NotFoundError(f"Item with id {chosen_item_id} not found")
@@ -321,16 +315,16 @@ class InvoiceService:
             return
 
         # Get the invoice line
-        line_result = await self.db.execute(
-            select(InvoiceLine).where(InvoiceLine.id == line_id)
-        )
+        line_result = await self.db.execute(select(InvoiceLine).where(InvoiceLine.id == line_id))
         line = line_result.scalar_one()
 
         # Apply each discount
         for sd in student_discounts:
             # Calculate discount amount
             if sd.value_type == DiscountValueType.FIXED.value:
-                calculated_amount = min(round_money(sd.value), line.line_total - line.discount_amount)
+                calculated_amount = min(
+                    round_money(sd.value), line.line_total - line.discount_amount
+                )
             else:  # percentage
                 calculated_amount = round_money(line.line_total * sd.value / Decimal("100"))
                 # Ensure doesn't exceed remaining line amount
@@ -359,9 +353,7 @@ class InvoiceService:
 
     # --- Invoice CRUD ---
 
-    async def create_adhoc_invoice(
-        self, data: InvoiceCreate, created_by_id: int
-    ) -> Invoice:
+    async def create_adhoc_invoice(self, data: InvoiceCreate, created_by_id: int) -> Invoice:
         """Create an ad-hoc invoice (draft)."""
         # Validate student
         result = await self.db.execute(
@@ -428,25 +420,42 @@ class InvoiceService:
         zone_id: int | None,
     ) -> InvoiceLine:
         """Add a line to an invoice."""
-        result = await self.db.execute(select(Kit).where(Kit.id == line_data.kit_id))
-        kit = result.scalar_one_or_none()
-        if not kit:
-            raise NotFoundError(f"Kit with id {line_data.kit_id} not found")
-        if not kit.is_active:
-            raise ValidationError(f"Kit '{kit.name}' is not active")
-        await self._ensure_single_fee_allowed(invoice, kit, line_data.quantity)
-
-        if line_data.unit_price_override is not None:
-            unit_price = line_data.unit_price_override
-        else:
-            unit_price = await self._get_kit_price(
-                kit, invoice.term_id, grade_id, zone_id
+        kit: Kit | None = None
+        item: Item | None = None
+        if line_data.kit_id is not None:
+            result = await self.db.execute(select(Kit).where(Kit.id == line_data.kit_id))
+            kit = result.scalar_one_or_none()
+            if not kit:
+                raise NotFoundError(f"Kit with id {line_data.kit_id} not found")
+            if not kit.is_active:
+                raise ValidationError(f"Kit '{kit.name}' is not active")
+            await self._ensure_single_fee_allowed(invoice, kit, line_data.quantity)
+            unit_price = (
+                line_data.unit_price_override
+                if line_data.unit_price_override is not None
+                else await self._get_kit_price(kit, invoice.term_id, grade_id, zone_id)
             )
-        description = kit.name
+            description = kit.name
+        else:
+            result = await self.db.execute(select(Item).where(Item.id == line_data.item_id))
+            item = result.scalar_one_or_none()
+            if not item:
+                raise NotFoundError(f"Item with id {line_data.item_id} not found")
+            if not item.is_active:
+                raise ValidationError(f"Item '{item.name}' is not active")
+            if item.item_type != ItemType.PRODUCT.value:
+                raise ValidationError("Only product items can be sold individually")
+            if not item.is_sellable:
+                raise ValidationError(f"Item '{item.name}' is not available for individual sale")
+            if item.price_type != PriceType.STANDARD.value or item.price is None:
+                raise ValidationError(f"Item '{item.name}' has no standard selling price")
+            unit_price = item.price
+            description = item.name
 
         line = InvoiceLine(
             invoice_id=invoice.id,
-            kit_id=kit.id,
+            kit_id=kit.id if kit else None,
+            item_id=item.id if item else None,
             description=description,
             quantity=line_data.quantity,
             unit_price=unit_price,
@@ -463,7 +472,7 @@ class InvoiceService:
         await self.db.flush()  # Flush to get line.id before setting components
 
         # Optional: configure concrete inventory components for configurable kits
-        if line_data.components:
+        if line_data.components and kit:
             await self._set_line_components(line, kit, line_data.components)
 
         return line
@@ -478,9 +487,7 @@ class InvoiceService:
             raise ValidationError("Cannot add lines to a non-draft invoice")
 
         # Get student for grade/zone info
-        result = await self.db.execute(
-            select(Student).where(Student.id == invoice.student_id)
-        )
+        result = await self.db.execute(select(Student).where(Student.id == invoice.student_id))
         student = result.scalar_one_or_none()
 
         await self._add_line_to_invoice(
@@ -495,6 +502,7 @@ class InvoiceService:
             user_id=added_by_id,
             new_values={
                 "kit_id": line_data.kit_id,
+                "item_id": line_data.item_id,
                 "quantity": line_data.quantity,
             },
         )
@@ -503,9 +511,7 @@ class InvoiceService:
         # Re-fetch with relationships loaded
         return await self.get_invoice_by_id(invoice_id)
 
-    async def remove_line(
-        self, invoice_id: int, line_id: int, removed_by_id: int
-    ) -> Invoice:
+    async def remove_line(self, invoice_id: int, line_id: int, removed_by_id: int) -> Invoice:
         """Remove a line from a draft invoice."""
         invoice = await self.get_invoice_by_id(invoice_id)
 
@@ -635,12 +641,8 @@ class InvoiceService:
 
         if not invoice.can_be_cancelled:
             if invoice.paid_total > Decimal("0.00"):
-                raise ValidationError(
-                    "Cannot cancel invoice with payments. Use void instead."
-                )
-            raise ValidationError(
-                f"Cannot cancel invoice with status '{invoice.status}'"
-            )
+                raise ValidationError("Cannot cancel invoice with payments. Use void instead.")
+            raise ValidationError(f"Cannot cancel invoice with status '{invoice.status}'")
 
         invoice.status = InvoiceStatus.CANCELLED.value
 
@@ -663,6 +665,8 @@ class InvoiceService:
             .where(Invoice.id == invoice_id)
             .options(
                 selectinload(Invoice.lines),
+                selectinload(Invoice.lines).selectinload(InvoiceLine.kit),
+                selectinload(Invoice.lines).selectinload(InvoiceLine.item),
                 selectinload(Invoice.student).selectinload(Student.grade),
                 selectinload(Invoice.billing_account),
                 selectinload(Invoice.term),
@@ -680,6 +684,8 @@ class InvoiceService:
             .where(Invoice.invoice_number == invoice_number)
             .options(
                 selectinload(Invoice.lines),
+                selectinload(Invoice.lines).selectinload(InvoiceLine.kit),
+                selectinload(Invoice.lines).selectinload(InvoiceLine.item),
                 selectinload(Invoice.student),
                 selectinload(Invoice.billing_account),
                 selectinload(Invoice.term),
@@ -690,9 +696,7 @@ class InvoiceService:
             raise NotFoundError(f"Invoice '{invoice_number}' not found")
         return invoice
 
-    async def list_invoices(
-        self, filters: InvoiceFilters
-    ) -> tuple[list[Invoice], int]:
+    async def list_invoices(self, filters: InvoiceFilters) -> tuple[list[Invoice], int]:
         """List invoices with filters."""
         query = (
             select(Invoice)
@@ -718,9 +722,7 @@ class InvoiceService:
         else:
             # Default: exclude cancelled/void so "all" means "all active"
             query = query.where(
-                Invoice.status.notin_(
-                    [InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value]
-                )
+                Invoice.status.notin_([InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value])
             )
         if filters.search:
             search_term = f"%{filters.search}%"
@@ -747,9 +749,7 @@ class InvoiceService:
 
         return invoices, total
 
-    async def get_outstanding_totals(
-        self, student_ids: list[int]
-    ) -> list[OutstandingTotalItem]:
+    async def get_outstanding_totals(self, student_ids: list[int]) -> list[OutstandingTotalItem]:
         """Get outstanding debt per student from line remaining amounts.
 
         We intentionally sum `InvoiceLine.remaining_amount` (net - paid) instead of
@@ -802,10 +802,7 @@ class InvoiceService:
             )
             .group_by(Invoice.billing_account_id)
         )
-        return {
-            row[0]: round_money(Decimal(str(row[1])))
-            for row in result.all()
-        }
+        return {row[0]: round_money(Decimal(str(row[1]))) for row in result.all()}
 
     # --- Term Invoice Generation ---
 
@@ -874,15 +871,10 @@ class InvoiceService:
             select(Invoice.student_id, Invoice.invoice_type).where(
                 Invoice.term_id == term_id,
                 Invoice.student_id.in_(student_ids),
-                Invoice.status.notin_(
-                    [InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value]
-                ),
+                Invoice.status.notin_([InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value]),
             )
         )
-        existing_invoices = {
-            (row[0], row[1]): True
-            for row in existing_invoices_result.all()
-        }
+        existing_invoices = {(row[0], row[1]): True for row in existing_invoices_result.all()}
 
         # 2. Get all students who already have initial fees (batch)
         initial_fees_result = await self.db.execute(
@@ -895,9 +887,7 @@ class InvoiceService:
             )
             .distinct()
         )
-        students_with_initial_fees = {
-            row[0] for row in initial_fees_result.all()
-        }
+        students_with_initial_fees = {row[0] for row in initial_fees_result.all()}
 
         # 3. Get all price settings for grades (batch)
         grade_ids = {s.grade_id for s in students if s.grade_id}
@@ -912,34 +902,23 @@ class InvoiceService:
                 PriceSetting.grade.in_([code for code, _ in grade_map.values()]),
             )
         )
-        price_by_grade_code = {
-            row[0]: row[1] for row in price_settings_result.all()
-        }
+        price_by_grade_code = {row[0]: row[1] for row in price_settings_result.all()}
 
         # 4. Get all transport pricing for zones (batch)
-        zone_ids = {
-            s.transport_zone_id
-            for s in students
-            if s.transport_zone_id
-        }
+        zone_ids = {s.transport_zone_id for s in students if s.transport_zone_id}
         transport_pricing_result = await self.db.execute(
-            select(
-                TransportPricing.zone_id, TransportPricing.transport_fee_amount
-            ).where(
+            select(TransportPricing.zone_id, TransportPricing.transport_fee_amount).where(
                 TransportPricing.term_id == term_id,
                 TransportPricing.zone_id.in_(zone_ids),
             )
         )
-        price_by_zone_id = {
-            row[0]: row[1] for row in transport_pricing_result.all()
-        }
+        price_by_zone_id = {row[0]: row[1] for row in transport_pricing_result.all()}
 
         # 5. Get all student discounts (batch)
         discounts_result = await self.db.execute(
             select(StudentDiscount).where(
                 StudentDiscount.student_id.in_(student_ids),
-                StudentDiscount.applies_to
-                == StudentDiscountAppliesTo.SCHOOL_FEE.value,
+                StudentDiscount.applies_to == StudentDiscountAppliesTo.SCHOOL_FEE.value,
                 StudentDiscount.is_active == True,
             )
         )
@@ -1079,9 +1058,7 @@ class InvoiceService:
                         line.line_total - line.discount_amount,
                     )
                 else:  # percentage
-                    calculated_amount = round_money(
-                        line.line_total * sd.value / Decimal("100")
-                    )
+                    calculated_amount = round_money(line.line_total * sd.value / Decimal("100"))
                     calculated_amount = min(
                         calculated_amount, line.line_total - line.discount_amount
                     )
@@ -1101,15 +1078,9 @@ class InvoiceService:
                 )
                 self.db.add(discount)
 
-                line.discount_amount = round_money(
-                    line.discount_amount + calculated_amount
-                )
-                line.net_amount = round_money(
-                    line.line_total - line.discount_amount
-                )
-                line.remaining_amount = round_money(
-                    line.net_amount - line.paid_amount
-                )
+                line.discount_amount = round_money(line.discount_amount + calculated_amount)
+                line.net_amount = round_money(line.line_total - line.discount_amount)
+                line.remaining_amount = round_money(line.net_amount - line.paid_amount)
 
             # Keep invoice aggregates consistent with applied line discounts.
             # Without this, Invoice.discount_total may remain 0 even when discounts exist.
@@ -1155,9 +1126,7 @@ class InvoiceService:
 
         # Validate student
         result = await self.db.execute(
-            select(Student)
-            .where(Student.id == student_id)
-            .options(selectinload(Student.grade))
+            select(Student).where(Student.id == student_id).options(selectinload(Student.grade))
         )
         student = result.scalar_one_or_none()
         if not student:
@@ -1192,9 +1161,7 @@ class InvoiceService:
         skipped = 0
         created_any_invoice = False
 
-        has_initial_fees = await self._student_has_fee_lines(
-            student.id, self.INITIAL_FEE_SKUS
-        )
+        has_initial_fees = await self._student_has_fee_lines(student.id, self.INITIAL_FEE_SKUS)
         if not has_initial_fees:
             await self._create_initial_fees_invoice(
                 student,
@@ -1318,9 +1285,7 @@ class InvoiceService:
         self, term_id: int, billing_account_id: int, generated_by_id: int
     ) -> TermInvoiceGenerationResult:
         """Generate missing term invoices for all active students in one billing account."""
-        account = await BillingAccountService(self.db).get_billing_account_by_id(
-            billing_account_id
-        )
+        account = await BillingAccountService(self.db).get_billing_account_by_id(billing_account_id)
         student_ids = [
             student.id
             for student in account.students
@@ -1392,9 +1357,7 @@ class InvoiceService:
         )
         return result.scalar_one_or_none() is not None
 
-    async def _student_has_fee_lines(
-        self, student_id: int, sku_codes: set[str]
-    ) -> bool:
+    async def _student_has_fee_lines(self, student_id: int, sku_codes: set[str]) -> bool:
         """Check if a student already has invoice lines for given SKU codes."""
         result = await self.db.execute(
             select(InvoiceLine.id)
@@ -1408,9 +1371,7 @@ class InvoiceService:
         )
         return result.scalar_one_or_none() is not None
 
-    async def _ensure_single_fee_allowed(
-        self, invoice: Invoice, kit: Kit, quantity: int
-    ) -> None:
+    async def _ensure_single_fee_allowed(self, invoice: Invoice, kit: Kit, quantity: int) -> None:
         """Ensure admission/interview fees are billed only once per student."""
         if kit.sku_code not in self.INITIAL_FEE_SKUS:
             return
@@ -1486,9 +1447,7 @@ class InvoiceService:
 
     # --- Payment Recording (called by Payment service) ---
 
-    async def record_line_payment(
-        self, line_id: int, amount: Decimal
-    ) -> InvoiceLine:
+    async def record_line_payment(self, line_id: int, amount: Decimal) -> InvoiceLine:
         """Record a payment against a specific invoice line.
 
         This method is called by the Payment service during allocation.
@@ -1516,9 +1475,7 @@ class InvoiceService:
 
         return line
 
-    async def reverse_line_payment(
-        self, line_id: int, amount: Decimal
-    ) -> InvoiceLine:
+    async def reverse_line_payment(self, line_id: int, amount: Decimal) -> InvoiceLine:
         """Reverse a payment against a specific invoice line.
 
         This method is called by the Payment service during payment reversal.

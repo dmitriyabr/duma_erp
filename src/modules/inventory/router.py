@@ -129,7 +129,7 @@ async def list_restock_rows(
         )
     ),
 ):
-    """Restock planning table for sellable items (active product kit components)."""
+    """Restock planning for kit components and individually sellable products."""
     service = InventoryService(db)
     rows = await service.list_restock_rows(
         search=search, category_id=category_id, only_demand=only_demand

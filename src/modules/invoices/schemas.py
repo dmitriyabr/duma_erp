@@ -3,7 +3,7 @@
 from datetime import date
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from src.modules.invoices.models import InvoiceStatus, InvoiceType
 
@@ -36,7 +36,8 @@ class InvoiceLineComponentConfig(BaseModel):
 class InvoiceLineCreate(BaseModel):
     """Schema for creating an invoice line."""
 
-    kit_id: int
+    kit_id: int | None = None
+    item_id: int | None = None
     quantity: int = Field(1, ge=1)
     # unit_price is auto-determined from kit, but can be overridden
     unit_price_override: Decimal | None = None
@@ -44,13 +45,25 @@ class InvoiceLineCreate(BaseModel):
     # Optional per-line components for configurable kits (uniform etc.)
     components: list[InvoiceLineComponentConfig] | None = None
 
+    @model_validator(mode="after")
+    def validate_source(self):
+        if (self.kit_id is None) == (self.item_id is None):
+            raise ValueError("Exactly one of kit_id or item_id is required")
+        if self.item_id is not None and self.components:
+            raise ValueError("Direct item lines cannot define components")
+        if self.item_id is not None and self.unit_price_override is not None:
+            raise ValueError("Direct item lines must use the item's current price")
+        return self
+
 
 class InvoiceLineResponse(BaseModel):
     """Schema for invoice line response."""
 
     id: int
     invoice_id: int
-    kit_id: int
+    kit_id: int | None
+    item_id: int | None
+    source_type: str
     description: str
     quantity: int
     unit_price: float
@@ -165,7 +178,9 @@ class TermInvoiceGenerationResult(BaseModel):
     transport_invoices_created: int
     students_skipped: int  # Already had invoice for this term
     total_students_processed: int
-    affected_student_ids: list[int] = []  # Students who got new Issued invoices (for auto-allocation)
+    affected_student_ids: list[
+        int
+    ] = []  # Students who got new Issued invoices (for auto-allocation)
 
 
 # --- Issue Invoice ---

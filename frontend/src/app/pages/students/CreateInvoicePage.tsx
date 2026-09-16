@@ -56,6 +56,7 @@ interface LineComponentDraft {
 interface DraftLine {
   id: string
   kit_id: number | null
+  item_id: number | null
   quantity: number
   discount_type: DiscountType
   discount_value: number | ''
@@ -65,6 +66,7 @@ interface DraftLine {
 const emptyLine = (): DraftLine => ({
   id: `${Date.now()}-${Math.random()}`,
   kit_id: null,
+  item_id: null,
   quantity: 1,
   discount_type: 'percentage',
   discount_value: '',
@@ -96,7 +98,11 @@ export const CreateInvoicePage = () => {
 
   const kitsApi = useApi<KitOption[]>('/items/kits', { params: { include_inactive: false } })
   const inventoryApi = useApi<ItemOption[]>('/items', {
-    params: { item_type: 'product', include_inactive: false },
+    params: {
+      item_type: 'product',
+      include_inactive: false,
+      include_stock: true,
+    },
   })
   const variantsApi = useApi<VariantRow[]>('/items/variants', { params: { include_inactive: false } })
   const studentsListApi = useApi<{ items: StudentOption[]; total: number }>(
@@ -113,6 +119,30 @@ export const CreateInvoicePage = () => {
   const kits = useMemo(
     () => (kitsApi.data ?? []).filter((kit) => kit.price_type === 'standard'),
     [kitsApi.data]
+  )
+  const sellableItems = useMemo(
+    () => (inventoryApi.data ?? []).filter((item) => item.is_sellable),
+    [inventoryApi.data]
+  )
+  const catalogOptions = useMemo(
+    () => [
+      ...kits.map((kit) => ({
+        key: `kit-${kit.id}`,
+        source_type: 'kit' as const,
+        id: kit.id,
+        name: kit.name,
+        price: kit.price,
+      })),
+      ...sellableItems.map((item) => ({
+        key: `item-${item.id}`,
+        source_type: 'item' as const,
+        id: item.id,
+        name: item.name,
+        price: item.price,
+        quantity_on_hand: item.quantity_on_hand ?? 0,
+      })),
+    ],
+    [kits, sellableItems]
   )
   const student = studentApi.data ?? null
   const error =
@@ -171,7 +201,7 @@ export const CreateInvoicePage = () => {
         const selectedKit = kitId ? kits.find((k) => k.id === kitId) : null
 
         // If kit changed, (re)initialize components for editable kits.
-        if (updates.kit_id !== undefined) {
+        if (updates.kit_id !== undefined || updates.item_id !== undefined) {
           if (selectedKit?.is_editable_components) {
             updated.components = buildDefaultComponents(selectedKit, updated.quantity)
           } else {
@@ -218,7 +248,8 @@ export const CreateInvoicePage = () => {
 
   const unitPriceForLine = (line: DraftLine) => {
     const kit = line.kit_id ? kits.find((k) => k.id === line.kit_id) : null
-    return kit?.price ?? 0
+    const item = line.item_id ? sellableItems.find((entry) => entry.id === line.item_id) : null
+    return kit?.price ?? item?.price ?? 0
   }
 
   const discountAmountForLine = (line: DraftLine) => {
@@ -254,25 +285,7 @@ export const CreateInvoicePage = () => {
     return Math.max(0, lineTotal - discountAmountForLine(line))
   }
 
-  const invoiceTotal = useMemo(() => {
-    return lines.reduce((sum, line) => {
-      const kit = line.kit_id ? kits.find((k) => k.id === line.kit_id) : null
-      const unitPrice = kit?.price ?? 0
-      const lineTotal = unitPrice * line.quantity
-      const rawValue = line.discount_value === '' ? 0 : line.discount_value
-      let discount = 0
-      if (rawValue) {
-        if (line.discount_type === 'percentage') {
-          const percent = Math.max(0, Math.min(100, rawValue))
-          discount = Number(((lineTotal * percent) / 100).toFixed(2))
-        } else {
-          const fixed = Math.max(0, Math.min(lineTotal, rawValue))
-          discount = Number(fixed.toFixed(2))
-        }
-      }
-      return sum + Math.max(0, lineTotal - discount)
-    }, 0)
-  }, [kits, lines])
+  const invoiceTotal = lines.reduce((sum, line) => sum + lineTotalForLine(line), 0)
 
   const submitInvoice = async () => {
     if (!resolvedId) return
@@ -282,7 +295,7 @@ export const CreateInvoicePage = () => {
       setValidationError('Add at least one line.')
       return
     }
-    if (lines.some((line) => !line.kit_id)) {
+    if (lines.some((line) => !line.kit_id && !line.item_id)) {
       setValidationError('Each line must have a catalog item selected.')
       return
     }
@@ -318,6 +331,7 @@ export const CreateInvoicePage = () => {
             const kit = line.kit_id ? kitsById.get(line.kit_id) : null
             const base = {
               kit_id: line.kit_id,
+              item_id: line.item_id,
               quantity: line.quantity,
               discount_amount: discountAmountForLine(line),
             }
@@ -406,7 +420,7 @@ export const CreateInvoicePage = () => {
           Add line
         </Button>
       </div>
-      {!kits.length && (
+      {!catalogOptions.length && (
         <Alert severity="warning" className="mb-4" onClose={() => {}}>
           No sellable items available. Term invoices should be issued via the "Invoice term" button.
         </Alert>
@@ -427,23 +441,50 @@ export const CreateInvoicePage = () => {
           {lines.map((line) => {
             const unitPrice = unitPriceForLine(line)
             const kit = line.kit_id ? kits.find((k) => k.id === line.kit_id) : null
+            const item = line.item_id
+              ? sellableItems.find((entry) => entry.id === line.item_id)
+              : null
+            const selectedOption = catalogOptions.find(
+              (option) =>
+                (option.source_type === 'kit' && option.id === line.kit_id) ||
+                (option.source_type === 'item' && option.id === line.item_id)
+            ) ?? null
             const canConfigure = Boolean(kit?.is_editable_components)
             return (
               <TableRow key={line.id}>
                 <TableCell>
                   <Autocomplete
-                    options={kits}
-                    getOptionLabel={(kit) => kit.name}
-                    getOptionValue={(kit) => kit.id}
-                    value={kits.find((kit) => kit.id === line.kit_id) || null}
-                    onChange={(kit) =>
+                    options={catalogOptions}
+                    getOptionLabel={(option) => option.name}
+                    getOptionValue={(option) => option.key}
+                    groupBy={(option) =>
+                      option.source_type === 'kit' ? 'Uniform sets' : 'Individual items'
+                    }
+                    renderOption={(option) => (
+                      <div className="flex items-center justify-between gap-3">
+                        <span>{option.name}</span>
+                        <span className="text-xs text-slate-500 whitespace-nowrap">
+                          {option.source_type === 'item'
+                            ? `${option.quantity_on_hand} in stock · ${formatMoney(option.price)}`
+                            : formatMoney(option.price)}
+                        </span>
+                      </div>
+                    )}
+                    value={selectedOption}
+                    onChange={(option) =>
                       updateLine(line.id, {
-                        kit_id: kit ? kit.id : null,
+                        kit_id: option?.source_type === 'kit' ? option.id : null,
+                        item_id: option?.source_type === 'item' ? option.id : null,
                       })
                     }
                     placeholder="Type to search items..."
                     className="min-w-[240px]"
                   />
+                  {item && (item.quantity_on_hand ?? 0) < line.quantity && (
+                    <Typography variant="caption" className="text-amber-700 mt-1 block">
+                      Only {item.quantity_on_hand} in stock. The remainder will stay pending.
+                    </Typography>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Input

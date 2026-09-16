@@ -99,7 +99,9 @@ class WithdrawalSettlementService:
             )
             for impact in refund_preview.allocation_reversals:
                 if impact.student_id not in student_ids:
-                    raise ValidationError("Refund allocation reversals must belong to selected students")
+                    raise ValidationError(
+                        "Refund allocation reversals must belong to selected students"
+                    )
                 refund_reopened_by_invoice[impact.invoice_id] = round_money(
                     refund_reopened_by_invoice[impact.invoice_id] + impact.reversal_amount
                 )
@@ -129,7 +131,11 @@ class WithdrawalSettlementService:
         warnings: list[str] = []
         if remaining_debt > 0:
             warnings.append("Settlement leaves remaining collectible debt.")
-        if refund_amount > 0 and data.refund is not None and not self._has_refund_proof(data.refund):
+        if (
+            refund_amount > 0
+            and data.refund is not None
+            and not self._has_refund_proof(data.refund)
+        ):
             warnings.append("Refund proof/reference is required before posting.")
 
         return WithdrawalSettlementPreview(
@@ -178,20 +184,30 @@ class WithdrawalSettlementService:
         data: WithdrawalSettlementCreate | BillingAccountWithdrawalSettlementCreate,
         created_by_id: int,
     ) -> WithdrawalSettlement:
-        inactive = [student.full_name for student in students if student.status == StudentStatus.INACTIVE.value]
+        inactive = [
+            student.full_name
+            for student in students
+            if student.status == StudentStatus.INACTIVE.value
+        ]
         if inactive:
             raise ValidationError(f"Student is already inactive: {', '.join(inactive)}")
 
-        preview = await self.preview_settlement(
-            students[0].id,
-            WithdrawalSettlementPreviewRequest(**data.model_dump(exclude={"student_ids"})),
-        ) if len(students) == 1 else await self.preview_billing_account_settlement(
-            billing_account_id,
-            BillingAccountWithdrawalSettlementPreviewRequest(**data.model_dump()),
+        preview = (
+            await self.preview_settlement(
+                students[0].id,
+                WithdrawalSettlementPreviewRequest(**data.model_dump(exclude={"student_ids"})),
+            )
+            if len(students) == 1
+            else await self.preview_billing_account_settlement(
+                billing_account_id,
+                BillingAccountWithdrawalSettlementPreviewRequest(**data.model_dump()),
+            )
         )
         if data.refund is not None and round_money(data.refund.amount) > 0:
             if not self._has_refund_proof(data.refund):
-                raise ValidationError("Reference, proof text or confirmation file is required for refund")
+                raise ValidationError(
+                    "Reference, proof text or confirmation file is required for refund"
+                )
 
         number_gen = DocumentNumberGenerator(self.db)
         settlement = WithdrawalSettlement(
@@ -266,7 +282,9 @@ class WithdrawalSettlementService:
                         created_by_id,
                     )
             elif action.action == WithdrawalSettlementLineAction.WRITE_OFF:
-                await self._apply_write_off(action, invoice_by_id, settlement.id, created_by_id, data.reason)
+                await self._apply_write_off(
+                    action, invoice_by_id, settlement.id, created_by_id, data.reason
+                )
 
         for student in students:
             student.status = StudentStatus.INACTIVE.value
@@ -307,7 +325,9 @@ class WithdrawalSettlementService:
                     ),
                 )
             )
-            .order_by(WithdrawalSettlement.settlement_date.desc(), WithdrawalSettlement.created_at.desc())
+            .order_by(
+                WithdrawalSettlement.settlement_date.desc(), WithdrawalSettlement.created_at.desc()
+            )
         )
         return list(result.scalars().unique().all())
 
@@ -317,7 +337,9 @@ class WithdrawalSettlementService:
         result = await self.db.execute(
             self._settlement_query()
             .where(WithdrawalSettlement.billing_account_id == billing_account_id)
-            .order_by(WithdrawalSettlement.settlement_date.desc(), WithdrawalSettlement.created_at.desc())
+            .order_by(
+                WithdrawalSettlement.settlement_date.desc(), WithdrawalSettlement.created_at.desc()
+            )
         )
         return list(result.scalars().unique().all())
 
@@ -348,7 +370,9 @@ class WithdrawalSettlementService:
 
     async def _get_student(self, student_id: int) -> Student:
         result = await self.db.execute(
-            select(Student).where(Student.id == student_id).options(selectinload(Student.billing_account))
+            select(Student)
+            .where(Student.id == student_id)
+            .options(selectinload(Student.billing_account))
         )
         student = result.scalar_one_or_none()
         if student is None:
@@ -416,6 +440,7 @@ class WithdrawalSettlementService:
                 selectinload(Reservation.student),
                 selectinload(Reservation.invoice),
                 selectinload(Reservation.invoice_line).selectinload(InvoiceLine.kit),
+                selectinload(Reservation.invoice_line).selectinload(InvoiceLine.item),
                 selectinload(Reservation.items).selectinload(ReservationItem.item),
             )
             .order_by(Reservation.created_at.desc(), Reservation.id.desc())
@@ -436,7 +461,9 @@ class WithdrawalSettlementService:
         return round_money(
             sum(
                 (
-                    round_money(sum((line.remaining_amount for line in invoice.lines), Decimal("0.00")))
+                    round_money(
+                        sum((line.remaining_amount for line in invoice.lines), Decimal("0.00"))
+                    )
                     for invoice in invoices
                     if invoice.status in included
                 ),
@@ -548,7 +575,9 @@ class WithdrawalSettlementService:
                 WithdrawalReservationImpact(
                     reservation_id=reservation.id,
                     invoice_id=reservation.invoice_id,
-                    invoice_number=reservation.invoice.invoice_number if reservation.invoice else None,
+                    invoice_number=reservation.invoice.invoice_number
+                    if reservation.invoice
+                    else None,
                     invoice_line_id=reservation.invoice_line_id,
                     student_id=reservation.student_id,
                     student_name=reservation.student.full_name if reservation.student else None,
@@ -595,7 +624,11 @@ class WithdrawalSettlementService:
             if issued <= 0:
                 continue
             if reservation_actions_by_id.get(reservation.id) != WithdrawalReservationAction.CLOSE:
-                invoice_number = reservation.invoice.invoice_number if reservation.invoice else reservation.invoice_id
+                invoice_number = (
+                    reservation.invoice.invoice_number
+                    if reservation.invoice
+                    else reservation.invoice_id
+                )
                 raise ValidationError(
                     "Partially issued reservations must be closed before cancelling invoice "
                     f"{invoice_number}"
@@ -664,7 +697,9 @@ class WithdrawalSettlementService:
             )
             self.db.add(adjustment)
             line.adjustment_amount = round_money(line.adjustment_amount + line_amount)
-            line.remaining_amount = round_money(line.net_amount - line.paid_amount - line.adjustment_amount)
+            line.remaining_amount = round_money(
+                line.net_amount - line.paid_amount - line.adjustment_amount
+            )
             remaining = round_money(remaining - line_amount)
 
         self._recalculate_invoice_after_adjustment(invoice)
@@ -720,9 +755,17 @@ class WithdrawalSettlementService:
         invoice.adjustment_total = round_money(
             sum((line.adjustment_amount for line in invoice.lines), Decimal("0.00"))
         )
-        invoice.paid_total = round_money(sum((line.paid_amount for line in invoice.lines), Decimal("0.00")))
-        invoice.amount_due = round_money(invoice.total - invoice.paid_total - invoice.adjustment_total)
-        if invoice.status not in (InvoiceStatus.CANCELLED.value, InvoiceStatus.VOID.value, InvoiceStatus.DRAFT.value):
+        invoice.paid_total = round_money(
+            sum((line.paid_amount for line in invoice.lines), Decimal("0.00"))
+        )
+        invoice.amount_due = round_money(
+            invoice.total - invoice.paid_total - invoice.adjustment_total
+        )
+        if invoice.status not in (
+            InvoiceStatus.CANCELLED.value,
+            InvoiceStatus.VOID.value,
+            InvoiceStatus.DRAFT.value,
+        ):
             if invoice.amount_due <= 0:
                 invoice.status = InvoiceStatus.PAID.value
             elif invoice.paid_total > 0:

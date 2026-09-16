@@ -64,6 +64,9 @@ export interface InvoiceSummary {
 
 export interface InvoiceLine {
   id: number
+  kit_id?: number | null
+  item_id?: number | null
+  source_type?: 'kit' | 'item'
   description: string
   quantity: number
   unit_price: number
@@ -169,6 +172,8 @@ export interface ItemOption {
   name: string
   sku_code: string
   price: number
+  is_sellable?: boolean
+  quantity_on_hand?: number | null
 }
 
 export interface KitItemOption {

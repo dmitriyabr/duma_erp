@@ -7,7 +7,7 @@ from decimal import Decimal
 
 from sqlalchemy import and_, case, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 from sqlalchemy.types import Date as SqlDate
 
 from src.core.exceptions import NotFoundError
@@ -164,8 +164,7 @@ class ReportsService:
             return allocations, Decimal("0.00")
 
         capacity_cents = {
-            key: max(0, self._money_to_cents(value))
-            for key, value in capacities.items()
+            key: max(0, self._money_to_cents(value)) for key, value in capacities.items()
         }
         total_capacity_cents = sum(capacity_cents.values())
         if total_capacity_cents <= 0:
@@ -373,10 +372,14 @@ class ReportsService:
                 BudgetAdvanceReturn.return_date <= date_to,
             )
         )
-        advances_net = round_money(Decimal(str(advance_issues or 0)) - Decimal(str(advance_returns or 0)))
+        advances_net = round_money(
+            Decimal(str(advance_issues or 0)) - Decimal(str(advance_returns or 0))
+        )
         if advances_net != 0:
             total_expenses += advances_net
-            expense_lines.append({"label": "Employee Budget Advances (net)", "amount": advances_net})
+            expense_lines.append(
+                {"label": "Employee Budget Advances (net)", "amount": advances_net}
+            )
 
         return expense_lines, round_money(total_expenses)
 
@@ -392,24 +395,30 @@ class ReportsService:
             InvoiceStatus.PARTIALLY_PAID.value,
             InvoiceStatus.PAID.value,
         )
+        kit_category = aliased(Category)
+        item_category = aliased(Category)
+        source_sku = func.coalesce(Kit.sku_code, Item.sku_code)
+        source_category = func.coalesce(kit_category.name, item_category.name)
         revenue_q = (
             select(
                 Invoice.invoice_type,
-                Kit.sku_code,
-                Category.name,
+                source_sku,
+                source_category,
                 func.coalesce(func.sum(InvoiceLine.line_total), 0).label("gross_total"),
                 func.coalesce(func.sum(InvoiceLine.discount_amount), 0).label("discount_total"),
             )
             .select_from(InvoiceLine)
             .join(Invoice, InvoiceLine.invoice_id == Invoice.id)
-            .join(Kit, InvoiceLine.kit_id == Kit.id)
-            .join(Category, Kit.category_id == Category.id)
+            .outerjoin(Kit, InvoiceLine.kit_id == Kit.id)
+            .outerjoin(Item, InvoiceLine.item_id == Item.id)
+            .outerjoin(kit_category, Kit.category_id == kit_category.id)
+            .outerjoin(item_category, Item.category_id == item_category.id)
             .where(
                 Invoice.issue_date >= date_from,
                 Invoice.issue_date <= date_to,
                 Invoice.status.in_(statuses),
             )
-            .group_by(Invoice.invoice_type, Kit.sku_code, Category.name)
+            .group_by(Invoice.invoice_type, source_sku, source_category)
         )
         if term_id is not None:
             revenue_q = revenue_q.where(Invoice.term_id == term_id)
@@ -467,9 +476,7 @@ class ReportsService:
             .distinct()
         )
         if term_id is not None:
-            allocation_invoice_ids_q = allocation_invoice_ids_q.where(
-                Invoice.term_id == term_id
-            )
+            allocation_invoice_ids_q = allocation_invoice_ids_q.where(Invoice.term_id == term_id)
 
         reversal_date_expr = func.date(CreditAllocationReversal.reversed_at)
         reversal_invoice_ids_q = (
@@ -487,9 +494,7 @@ class ReportsService:
             .distinct()
         )
         if term_id is not None:
-            reversal_invoice_ids_q = reversal_invoice_ids_q.where(
-                Invoice.term_id == term_id
-            )
+            reversal_invoice_ids_q = reversal_invoice_ids_q.where(Invoice.term_id == term_id)
 
         invoice_ids = sorted(
             {
@@ -504,7 +509,9 @@ class ReportsService:
             }
         )
         if not invoice_ids:
-            expense_lines, total_expenses = await self._profit_loss_expenses_cash(date_from, date_to)
+            expense_lines, total_expenses = await self._profit_loss_expenses_cash(
+                date_from, date_to
+            )
             net_profit = round_money(Decimal("0.00") - total_expenses)
             return {
                 "revenue_lines": [],
@@ -522,7 +529,10 @@ class ReportsService:
             .options(
                 selectinload(Invoice.lines)
                 .selectinload(InvoiceLine.kit)
-                .selectinload(Kit.category)
+                .selectinload(Kit.category),
+                selectinload(Invoice.lines)
+                .selectinload(InvoiceLine.item)
+                .selectinload(Item.category),
             )
         )
         invoices = {invoice.id: invoice for invoice in invoices_result.scalars().unique().all()}
@@ -551,7 +561,9 @@ class ReportsService:
                 CreditAllocation.id.asc(),
             )
         )
-        allocations_by_invoice: dict[int, list[tuple[CreditAllocation, Decimal]]] = defaultdict(list)
+        allocations_by_invoice: dict[int, list[tuple[CreditAllocation, Decimal]]] = defaultdict(
+            list
+        )
         for allocation, original_amount in allocations_result.all():
             allocations_by_invoice[allocation.invoice_id].append(
                 (allocation, round_money(Decimal(str(original_amount or 0))))
@@ -600,7 +612,10 @@ class ReportsService:
                 allocation_date = allocation.created_at.date()
                 in_period = date_from <= allocation_date <= date_to
 
-                if allocation.invoice_line_id is not None and allocation.invoice_line_id in remaining_capacity:
+                if (
+                    allocation.invoice_line_id is not None
+                    and allocation.invoice_line_id in remaining_capacity
+                ):
                     line_id = allocation.invoice_line_id
                     applied = round_money(min(remaining_capacity[line_id], allocation_amount))
                     if applied <= 0:
@@ -611,11 +626,11 @@ class ReportsService:
                         line_period_net[line_id] += applied
                     continue
 
-                distributed, _ = self._allocate_proportionally(allocation_amount, remaining_capacity)
+                distributed, _ = self._allocate_proportionally(
+                    allocation_amount, remaining_capacity
+                )
                 allocation_distribution_by_id[allocation.id] = {
-                    line_id: applied
-                    for line_id, applied in distributed.items()
-                    if applied > 0
+                    line_id: applied for line_id, applied in distributed.items() if applied > 0
                 }
                 for line_id, applied in distributed.items():
                     if applied <= 0:
@@ -625,9 +640,7 @@ class ReportsService:
                         line_period_net[line_id] += applied
 
             for reversal in reversals_by_invoice.get(invoice_id, []):
-                distribution = allocation_distribution_by_id.get(
-                    reversal.allocation.id, {}
-                )
+                distribution = allocation_distribution_by_id.get(reversal.allocation.id, {})
                 if not distribution:
                     continue
                 reversed_distribution, _ = self._allocate_proportionally(
@@ -647,8 +660,12 @@ class ReportsService:
                     continue
                 bucket = self._profit_loss_revenue_bucket(
                     invoice.invoice_type,
-                    line.kit.sku_code if line.kit else None,
-                    line.kit.category.name if line.kit and line.kit.category else None,
+                    line.kit.sku_code if line.kit else line.item.sku_code if line.item else None,
+                    line.kit.category.name
+                    if line.kit and line.kit.category
+                    else line.item.category.name
+                    if line.item and line.item.category
+                    else None,
                 )
                 cash_gross = round_money(
                     Decimal(str(line.line_total)) * allocated_net / Decimal(str(line.net_amount))
@@ -1171,9 +1188,7 @@ class ReportsService:
         totals_by_type: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
         unallocated_total = Decimal("0")
         payments_total = Decimal("0")
-        refunds_total = round_money(
-            sum(refunds_by_key.values(), start=Decimal("0"))
-        )
+        refunds_total = round_money(sum(refunds_by_key.values(), start=Decimal("0")))
 
         # Cap allocations to cash received per billing account/day; remainder goes to credit.
         for key, paid_total in payments_by_key.items():
@@ -1256,9 +1271,7 @@ class ReportsService:
         if advance_return_amt > 0:
             inflow_rows.append(("Budget Advance Returns", advance_return_amt))
         total_inflows = round_money(total_inflows + advance_return_amt)
-        total_outflows = round_money(
-            proc_amt + comp_amt + advance_issue_amt + refunds_total
-        )
+        total_outflows = round_money(proc_amt + comp_amt + advance_issue_amt + refunds_total)
         return {
             "inflow_rows": inflow_rows,
             "total_inflows": total_inflows,
@@ -1494,9 +1507,7 @@ class ReportsService:
         inv_q = (
             select(
                 func.coalesce(
-                    func.sum(
-                        StockMovement.quantity_after * StockMovement.average_cost_after
-                    ),
+                    func.sum(StockMovement.quantity_after * StockMovement.average_cost_after),
                     0,
                 )
             )
@@ -1515,7 +1526,8 @@ class ReportsService:
                 func.coalesce(func.sum(BudgetClaimAllocation.allocated_amount), 0).label("settled"),
             )
             .where(
-                BudgetClaimAllocation.allocation_status == BudgetClaimAllocationStatus.SETTLED.value,
+                BudgetClaimAllocation.allocation_status
+                == BudgetClaimAllocationStatus.SETTLED.value,
                 cast(BudgetClaimAllocation.updated_at, SqlDate) <= as_at_date,
             )
             .group_by(BudgetClaimAllocation.advance_id)
@@ -1545,18 +1557,30 @@ class ReportsService:
         employee_advances_q = (
             select(
                 func.coalesce(
-                    func.sum(case((advance_balance_expr < 0, Decimal("0.00")), else_=advance_balance_expr)),
+                    func.sum(
+                        case(
+                            (advance_balance_expr < 0, Decimal("0.00")), else_=advance_balance_expr
+                        )
+                    ),
                     0,
                 )
             )
             .select_from(BudgetAdvance)
             .outerjoin(settled_adv_alloc, BudgetAdvance.id == settled_adv_alloc.c.advance_id)
             .outerjoin(advance_returns_subq, BudgetAdvance.id == advance_returns_subq.c.advance_id)
-            .outerjoin(advance_transfers_subq, BudgetAdvance.id == advance_transfers_subq.c.from_advance_id)
+            .outerjoin(
+                advance_transfers_subq, BudgetAdvance.id == advance_transfers_subq.c.from_advance_id
+            )
             .where(BudgetAdvance.issue_date <= as_at_date)
-            .where(BudgetAdvance.status.notin_([BudgetAdvanceStatus.DRAFT.value, BudgetAdvanceStatus.CANCELLED.value]))
+            .where(
+                BudgetAdvance.status.notin_(
+                    [BudgetAdvanceStatus.DRAFT.value, BudgetAdvanceStatus.CANCELLED.value]
+                )
+            )
         )
-        employee_advances = round_money(Decimal(str((await self.db.execute(employee_advances_q)).scalar() or 0)))
+        employee_advances = round_money(
+            Decimal(str((await self.db.execute(employee_advances_q)).scalar() or 0))
+        )
         total_assets = round_money(cash + receivables + inventory + employee_advances)
         # Accounts Payable (Supplier Debts) as at date.
         #
@@ -1585,9 +1609,7 @@ class ReportsService:
                 or_(
                     and_(
                         StockMovement.movement_type == MovementType.RECEIPT.value,
-                        StockMovement.reference_type.in_(
-                            ["grn", "grn_edit", "grn_rollback"]
-                        ),
+                        StockMovement.reference_type.in_(["grn", "grn_edit", "grn_rollback"]),
                     ),
                     and_(
                         StockMovement.movement_type == MovementType.ADJUSTMENT.value,
@@ -1622,8 +1644,7 @@ class ReportsService:
         untracked_rows = (await self.db.execute(untracked_grn_value_q)).all()
         for po_id, received in untracked_rows:
             received_by_po[po_id] = round_money(
-                received_by_po.get(po_id, Decimal("0"))
-                + Decimal(str(received or 0))
+                received_by_po.get(po_id, Decimal("0")) + Decimal(str(received or 0))
             )
         pay_supp_q = (
             select(
@@ -1636,7 +1657,9 @@ class ReportsService:
             .group_by(ProcurementPayment.po_id)
         )
         pay_supp_rows = (await self.db.execute(pay_supp_q)).all()
-        paid_by_po: dict[int, Decimal] = {r[0]: round_money(Decimal(str(r[1] or 0))) for r in pay_supp_rows}
+        paid_by_po: dict[int, Decimal] = {
+            r[0]: round_money(Decimal(str(r[1] or 0))) for r in pay_supp_rows
+        }
         all_po_ids = set(received_by_po) | set(paid_by_po)
         # Sum (received - paid) per PO: can be negative (overpayment = prepayment/advance to supplier).
         supplier_debt = round_money(
@@ -1682,9 +1705,7 @@ class ReportsService:
         allocated_by_account = {r[0]: Decimal(str(r[1])) for r in alloc_tot.all()}
         credit_total = Decimal("0")
         for account_id in (
-            set(payments_by_account)
-            | set(refunds_by_account)
-            | set(allocated_by_account)
+            set(payments_by_account) | set(refunds_by_account) | set(allocated_by_account)
         ):
             account_credit = round_money(
                 payments_by_account.get(account_id, Decimal("0"))
@@ -1839,7 +1860,20 @@ class ReportsService:
         Collection rate % over last N months. For each month: invoiced (issued), paid (payments in month), rate.
         """
         today = date.today()
-        month_labels = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+        month_labels = (
+            "Jan",
+            "Feb",
+            "Mar",
+            "Apr",
+            "May",
+            "Jun",
+            "Jul",
+            "Aug",
+            "Sep",
+            "Oct",
+            "Nov",
+            "Dec",
+        )
         rows = []
         total_inv = Decimal("0")
         total_paid = Decimal("0")
@@ -1861,12 +1895,10 @@ class ReportsService:
             year_month = f"{y}-{m:02d}"
             label = f"{month_labels[m - 1]} {y}"
 
-            inv_q = (
-                select(func.coalesce(func.sum(Invoice.total), 0)).where(
-                    Invoice.issue_date >= start,
-                    Invoice.issue_date <= end,
-                    Invoice.status.in_(statuses),
-                )
+            inv_q = select(func.coalesce(func.sum(Invoice.total), 0)).where(
+                Invoice.issue_date >= start,
+                Invoice.issue_date <= end,
+                Invoice.status.in_(statuses),
             )
             inv_res = await self.db.execute(inv_q)
             invoiced = round_money(Decimal(str(inv_res.scalar() or 0)))
@@ -1878,9 +1910,7 @@ class ReportsService:
             )
             paid = round_money(paid)
 
-            rate = (
-                round(float(paid / invoiced * 100), 2) if invoiced and invoiced > 0 else None
-            )
+            rate = round(float(paid / invoiced * 100), 2) if invoiced and invoiced > 0 else None
             total_inv += invoiced
             total_paid += paid
             rows.append(
@@ -1937,12 +1967,10 @@ class ReportsService:
         res = await self.db.execute(q)
         raw_rows = res.all()
 
-        revenue_q = (
-            select(func.coalesce(func.sum(Invoice.total), 0)).where(
-                Invoice.issue_date >= date_from,
-                Invoice.issue_date <= date_to,
-                Invoice.status.in_(statuses),
-            )
+        revenue_q = select(func.coalesce(func.sum(Invoice.total), 0)).where(
+            Invoice.issue_date >= date_from,
+            Invoice.issue_date <= date_to,
+            Invoice.status.in_(statuses),
         )
         rev_res = await self.db.execute(revenue_q)
         total_revenue = round_money(Decimal(str(rev_res.scalar() or 0)))
@@ -1957,7 +1985,8 @@ class ReportsService:
             avg_per = round_money(amt / cnt) if cnt else None
             pct = (
                 round(float(amt / total_revenue * 100), 2)
-                if total_revenue and total_revenue > 0 else None
+                if total_revenue and total_revenue > 0
+                else None
             )
             summary_students += cnt
             summary_amount += amt
@@ -1974,7 +2003,8 @@ class ReportsService:
             )
         pct_rev = (
             round(float(summary_amount / total_revenue * 100), 2)
-            if total_revenue and total_revenue > 0 else None
+            if total_revenue and total_revenue > 0
+            else None
         )
         return {
             "date_from": date_from,
@@ -2179,19 +2209,16 @@ class ReportsService:
 
         # Outstanding breakdown by age (days since order_date) for POs with debt
         as_at = date_to
-        age_q = (
-            select(
-                PurchaseOrder.order_date,
-                PurchaseOrder.debt_amount,
-            )
-            .where(
-                PurchaseOrder.order_date >= date_from,
-                PurchaseOrder.order_date <= date_to,
-                PurchaseOrder.debt_amount > 0,
-                PurchaseOrder.status.notin_(
-                    [PurchaseOrderStatus.CANCELLED.value, PurchaseOrderStatus.CLOSED.value]
-                ),
-            )
+        age_q = select(
+            PurchaseOrder.order_date,
+            PurchaseOrder.debt_amount,
+        ).where(
+            PurchaseOrder.order_date >= date_from,
+            PurchaseOrder.order_date <= date_to,
+            PurchaseOrder.debt_amount > 0,
+            PurchaseOrder.status.notin_(
+                [PurchaseOrderStatus.CANCELLED.value, PurchaseOrderStatus.CLOSED.value]
+            ),
         )
         if supplier_name:
             age_q = age_q.where(PurchaseOrder.supplier_name.ilike(f"%{supplier_name}%"))
@@ -2239,9 +2266,9 @@ class ReportsService:
                 func.count(Stock.id).label("items_count"),
                 func.coalesce(func.sum(Stock.quantity_on_hand), 0).label("quantity"),
                 func.coalesce(func.avg(Stock.average_cost), 0).label("unit_cost_avg"),
-                func.coalesce(
-                    func.sum(Stock.quantity_on_hand * Stock.average_cost), 0
-                ).label("total_value"),
+                func.coalesce(func.sum(Stock.quantity_on_hand * Stock.average_cost), 0).label(
+                    "total_value"
+                ),
             )
             .select_from(Stock)
             .join(Item, Stock.item_id == Item.id)
@@ -2332,7 +2359,9 @@ class ReportsService:
                 )
             )
         # Sort: out first, then low, then ok; within same status by current ascending
-        rows.sort(key=lambda x: (0 if x.status == "out" else 1 if x.status == "low" else 2, x.current))
+        rows.sort(
+            key=lambda x: (0 if x.status == "out" else 1 if x.status == "low" else 2, x.current)
+        )
         return {
             "rows": rows,
             "total_low_count": low_count,
@@ -2397,6 +2426,7 @@ class ReportsService:
             iss_map = {r[0]: r[1] for r in iss_res.all()}
 
         from src.core.auth.models import User as AuthUser
+
         user_ids = {r[9] for r in raw if r[9]}
         user_names = {}
         if user_ids:
@@ -2410,7 +2440,18 @@ class ReportsService:
 
         rows = []
         for r in raw:
-            mov_id, created_at, mtype, item_id, item_name, qty, qty_after, ref_type, ref_id, created_by_id = r
+            (
+                mov_id,
+                created_at,
+                mtype,
+                item_id,
+                item_name,
+                qty,
+                qty_after,
+                ref_type,
+                ref_id,
+                created_by_id,
+            ) = r
             ref_display = None
             if ref_type and ref_id:
                 if ref_type in grn_ref_types:
@@ -2527,16 +2568,13 @@ class ReportsService:
             )
 
         # Pending approval: count and sum where status = pending_approval
-        pending_app_q = (
-            select(
-                func.count(ExpenseClaim.id).label("cnt"),
-                func.coalesce(func.sum(ExpenseClaim.amount), 0).label("amt"),
-            )
-            .where(
-                ExpenseClaim.expense_date >= date_from,
-                ExpenseClaim.expense_date <= date_to,
-                ExpenseClaim.status == ExpenseClaimStatus.PENDING_APPROVAL.value,
-            )
+        pending_app_q = select(
+            func.count(ExpenseClaim.id).label("cnt"),
+            func.coalesce(func.sum(ExpenseClaim.amount), 0).label("amt"),
+        ).where(
+            ExpenseClaim.expense_date >= date_from,
+            ExpenseClaim.expense_date <= date_to,
+            ExpenseClaim.status == ExpenseClaimStatus.PENDING_APPROVAL.value,
         )
         pending_app_res = await self.db.execute(pending_app_q)
         pa_row = pending_app_res.one()
@@ -2544,19 +2582,16 @@ class ReportsService:
         pending_approval_amount = round_money(Decimal(str(pa_row[1])))
 
         # Approved but unpaid: approved or partially_paid with remaining_amount > 0
-        approved_unpaid_q = (
-            select(
-                func.count(ExpenseClaim.id).label("cnt"),
-                func.coalesce(func.sum(ExpenseClaim.remaining_amount), 0).label("amt"),
-            )
-            .where(
-                ExpenseClaim.expense_date >= date_from,
-                ExpenseClaim.expense_date <= date_to,
-                ExpenseClaim.status.in_(
-                    [ExpenseClaimStatus.APPROVED.value, ExpenseClaimStatus.PARTIALLY_PAID.value]
-                ),
-                ExpenseClaim.remaining_amount > 0,
-            )
+        approved_unpaid_q = select(
+            func.count(ExpenseClaim.id).label("cnt"),
+            func.coalesce(func.sum(ExpenseClaim.remaining_amount), 0).label("amt"),
+        ).where(
+            ExpenseClaim.expense_date >= date_from,
+            ExpenseClaim.expense_date <= date_to,
+            ExpenseClaim.status.in_(
+                [ExpenseClaimStatus.APPROVED.value, ExpenseClaimStatus.PARTIALLY_PAID.value]
+            ),
+            ExpenseClaim.remaining_amount > 0,
         )
         approved_unpaid_res = await self.db.execute(approved_unpaid_q)
         au_row = approved_unpaid_res.one()
@@ -2621,7 +2656,8 @@ class ReportsService:
             amt = round_money(Decimal(str(amt)))
             pct = (
                 round(float(amt / total_amount * 100), 2)
-                if total_amount and total_amount > 0 else None
+                if total_amount and total_amount > 0
+                else None
             )
             rows.append(
                 ExpenseClaimsByCategoryRow(
@@ -2702,7 +2738,8 @@ class ReportsService:
             )
         growth_percent = (
             round((last_avg - first_avg) / first_avg * 100, 2)
-            if first_avg and first_avg > 0 and last_avg is not None else None
+            if first_avg and first_avg > 0 and last_avg is not None
+            else None
         )
         return {
             "rows": rows,
@@ -2739,7 +2776,12 @@ class ReportsService:
             if net_amount != 0:
                 method_totals[method] = net_amount
         total = round_money(sum(method_totals.values(), start=Decimal("0.00")))
-        method_labels = {"mpesa": "M-Pesa", "bank_transfer": "Bank Transfer", "cash": "Cash", "cheque": "Cheque"}
+        method_labels = {
+            "mpesa": "M-Pesa",
+            "bank_transfer": "Bank Transfer",
+            "cash": "Cash",
+            "cheque": "Cheque",
+        }
         rows = []
         for method, amt in method_totals.items():
             pct = round(float(amt / total * 100), 2) if total and total > 0 else None
@@ -2767,9 +2809,7 @@ class ReportsService:
             InvoiceStatus.PARTIALLY_PAID.value,
             InvoiceStatus.PAID.value,
         )
-        terms_res = await self.db.execute(
-            select(Term).where(Term.id.in_([term1_id, term2_id]))
-        )
+        terms_res = await self.db.execute(select(Term).where(Term.id.in_([term1_id, term2_id])))
         terms = {t.id: t for t in terms_res.scalars().unique().all()}
         if term1_id not in terms or term2_id not in terms:
             raise NotFoundError("Term", f"{term1_id},{term2_id}")
@@ -2777,17 +2817,14 @@ class ReportsService:
         metrics = []
 
         async def get_term_metrics(term: Term) -> tuple:
-            inv_q = (
-                select(
-                    func.count(func.distinct(Invoice.student_id)).label("students"),
-                    func.coalesce(func.sum(Invoice.total), 0).label("invoiced"),
-                    func.coalesce(func.sum(Invoice.paid_total), 0).label("paid"),
-                    func.coalesce(func.sum(Invoice.discount_total), 0).label("discounts"),
-                )
-                .where(
-                    Invoice.term_id == term.id,
-                    Invoice.status.in_(statuses),
-                )
+            inv_q = select(
+                func.count(func.distinct(Invoice.student_id)).label("students"),
+                func.coalesce(func.sum(Invoice.total), 0).label("invoiced"),
+                func.coalesce(func.sum(Invoice.paid_total), 0).label("paid"),
+                func.coalesce(func.sum(Invoice.discount_total), 0).label("discounts"),
+            ).where(
+                Invoice.term_id == term.id,
+                Invoice.status.in_(statuses),
             )
             r = (await self.db.execute(inv_q)).one()
             students = int(r[0])
@@ -2852,7 +2889,9 @@ class ReportsService:
                 term1_value=float(avg1) if avg1 is not None else "—",
                 term2_value=float(avg2) if avg2 is not None else "—",
                 change_abs=float(avg2 - avg1) if avg1 and avg2 else None,
-                change_percent=round(float((avg2 - avg1) / avg1 * 100), 2) if avg1 and avg1 > 0 and avg2 else None,
+                change_percent=round(float((avg2 - avg1) / avg1 * 100), 2)
+                if avg1 and avg1 > 0 and avg2
+                else None,
             )
         )
         metrics.append(
@@ -2911,72 +2950,70 @@ class ReportsService:
         )
         total_revenue = round_money(total_revenue)
 
-        inv_q = (
-            select(func.coalesce(func.sum(Invoice.total), 0)).where(
-                Invoice.issue_date >= date_from,
-                Invoice.issue_date <= date_to,
-                Invoice.status.in_(
-                    [InvoiceStatus.ISSUED.value, InvoiceStatus.PARTIALLY_PAID.value, InvoiceStatus.PAID.value]
-                ),
-            )
+        inv_q = select(func.coalesce(func.sum(Invoice.total), 0)).where(
+            Invoice.issue_date >= date_from,
+            Invoice.issue_date <= date_to,
+            Invoice.status.in_(
+                [
+                    InvoiceStatus.ISSUED.value,
+                    InvoiceStatus.PARTIALLY_PAID.value,
+                    InvoiceStatus.PAID.value,
+                ]
+            ),
         )
         total_invoiced = round_money(Decimal(str((await self.db.execute(inv_q)).scalar() or 0)))
-        paid_q = (
-            select(func.coalesce(func.sum(Invoice.paid_total), 0)).where(
-                Invoice.issue_date >= date_from,
-                Invoice.issue_date <= date_to,
-                Invoice.status.in_(
-                    [InvoiceStatus.ISSUED.value, InvoiceStatus.PARTIALLY_PAID.value, InvoiceStatus.PAID.value]
-                ),
-            )
+        paid_q = select(func.coalesce(func.sum(Invoice.paid_total), 0)).where(
+            Invoice.issue_date >= date_from,
+            Invoice.issue_date <= date_to,
+            Invoice.status.in_(
+                [
+                    InvoiceStatus.ISSUED.value,
+                    InvoiceStatus.PARTIALLY_PAID.value,
+                    InvoiceStatus.PAID.value,
+                ]
+            ),
         )
         total_paid = round_money(Decimal(str((await self.db.execute(paid_q)).scalar() or 0)))
         collection_rate_percent = (
-            round(float(total_paid / total_invoiced * 100), 2) if total_invoiced and total_invoiced > 0 else None
+            round(float(total_paid / total_invoiced * 100), 2)
+            if total_invoiced and total_invoiced > 0
+            else None
         )
 
-        proc_q = (
-            select(func.coalesce(func.sum(ProcurementPayment.amount), 0)).where(
-                ProcurementPayment.status == ProcurementPaymentStatus.POSTED.value,
-                ProcurementPayment.payment_date >= date_from,
-                ProcurementPayment.payment_date <= date_to,
-            )
+        proc_q = select(func.coalesce(func.sum(ProcurementPayment.amount), 0)).where(
+            ProcurementPayment.status == ProcurementPaymentStatus.POSTED.value,
+            ProcurementPayment.payment_date >= date_from,
+            ProcurementPayment.payment_date <= date_to,
         )
-        comp_q = (
-            select(func.coalesce(func.sum(CompensationPayout.amount), 0)).where(
-                CompensationPayout.payout_date >= date_from,
-                CompensationPayout.payout_date <= date_to,
-            )
+        comp_q = select(func.coalesce(func.sum(CompensationPayout.amount), 0)).where(
+            CompensationPayout.payout_date >= date_from,
+            CompensationPayout.payout_date <= date_to,
         )
         proc_amt = round_money(Decimal(str((await self.db.execute(proc_q)).scalar() or 0)))
         comp_amt = round_money(Decimal(str((await self.db.execute(comp_q)).scalar() or 0)))
         total_expenses = round_money(proc_amt + comp_amt)
 
-        debt_q = (
-            select(func.coalesce(func.sum(Invoice.amount_due), 0)).where(
-                Invoice.status.in_([InvoiceStatus.ISSUED.value, InvoiceStatus.PARTIALLY_PAID.value]),
-                Invoice.amount_due > 0,
-            )
+        debt_q = select(func.coalesce(func.sum(Invoice.amount_due), 0)).where(
+            Invoice.status.in_([InvoiceStatus.ISSUED.value, InvoiceStatus.PARTIALLY_PAID.value]),
+            Invoice.amount_due > 0,
         )
         student_debt = round_money(Decimal(str((await self.db.execute(debt_q)).scalar() or 0)))
-        supp_q = (
-            select(func.coalesce(func.sum(PurchaseOrder.debt_amount), 0)).where(
-                PurchaseOrder.status.notin_(
-                    [PurchaseOrderStatus.CANCELLED.value, PurchaseOrderStatus.CLOSED.value]
-                )
+        supp_q = select(func.coalesce(func.sum(PurchaseOrder.debt_amount), 0)).where(
+            PurchaseOrder.status.notin_(
+                [PurchaseOrderStatus.CANCELLED.value, PurchaseOrderStatus.CLOSED.value]
             )
         )
         supplier_debt = round_money(Decimal(str((await self.db.execute(supp_q)).scalar() or 0)))
-        claims_q = (
-            select(func.coalesce(func.sum(ExpenseClaim.remaining_amount), 0)).where(
-                ExpenseClaim.status.in_(
-                    [ExpenseClaimStatus.PENDING_APPROVAL.value, ExpenseClaimStatus.APPROVED.value]
-                ),
-                ExpenseClaim.funding_source == FundingSource.PERSONAL_FUNDS.value,
-                ExpenseClaim.remaining_amount > 0,
-            )
+        claims_q = select(func.coalesce(func.sum(ExpenseClaim.remaining_amount), 0)).where(
+            ExpenseClaim.status.in_(
+                [ExpenseClaimStatus.PENDING_APPROVAL.value, ExpenseClaimStatus.APPROVED.value]
+            ),
+            ExpenseClaim.funding_source == FundingSource.PERSONAL_FUNDS.value,
+            ExpenseClaim.remaining_amount > 0,
         )
-        pending_claims_amount = round_money(Decimal(str((await self.db.execute(claims_q)).scalar() or 0)))
+        pending_claims_amount = round_money(
+            Decimal(str((await self.db.execute(claims_q)).scalar() or 0))
+        )
 
         return {
             "period_type": period_type,

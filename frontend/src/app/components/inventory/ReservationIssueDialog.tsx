@@ -35,7 +35,8 @@ interface IssueLine {
 
 interface InvoiceLineRow {
   id: number
-  kit_id: number
+  kit_id: number | null
+  item_id: number | null
   quantity: number
 }
 

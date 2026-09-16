@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useId } from 'react'
+import { Fragment, useState, useRef, useEffect, useCallback, useId } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '../../utils/cn'
@@ -20,6 +20,7 @@ export interface AutocompleteProps<T> {
   disabled?: boolean
   renderOption?: (option: T) => ReactNode
   filterOptions?: (options: T[], inputValue: string) => T[]
+  groupBy?: (option: T) => string
 }
 
 export function Autocomplete<T>({
@@ -37,6 +38,7 @@ export function Autocomplete<T>({
   disabled = false,
   renderOption,
   filterOptions,
+  groupBy,
 }: AutocompleteProps<T>) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -221,9 +223,16 @@ export function Autocomplete<T>({
             ) : (
               filteredOptions.map((option, index) => {
                 const isSelected = value && isEqual(option, value)
+                const group = groupBy?.(option)
+                const previousGroup = index > 0 ? groupBy?.(filteredOptions[index - 1]) : undefined
                 return (
+                  <Fragment key={getOptionValue ? getOptionValue(option) : index}>
+                  {group && group !== previousGroup && (
+                    <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 bg-slate-50 border-b border-slate-100">
+                      {group}
+                    </div>
+                  )}
                   <button
-                    key={getOptionValue ? getOptionValue(option) : index}
                     type="button"
                     role="option"
                     aria-selected={isSelected || undefined}
@@ -235,12 +244,16 @@ export function Autocomplete<T>({
                         handleSelect(option)
                       } else if (e.key === 'ArrowDown') {
                         e.preventDefault()
-                        const next = e.currentTarget.nextElementSibling as HTMLElement
-                        next?.focus()
+                        const options = Array.from(
+                          listRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? []
+                        )
+                        options[options.indexOf(e.currentTarget) + 1]?.focus()
                       } else if (e.key === 'ArrowUp') {
                         e.preventDefault()
-                        const prev = e.currentTarget.previousElementSibling as HTMLElement
-                        prev?.focus()
+                        const options = Array.from(
+                          listRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? []
+                        )
+                        options[options.indexOf(e.currentTarget) - 1]?.focus()
                       }
                     }}
                     className={cn(
@@ -252,6 +265,7 @@ export function Autocomplete<T>({
                   >
                     {renderOption ? renderOption(option) : getOptionLabel(option)}
                   </button>
+                  </Fragment>
                 )
               })
             )}

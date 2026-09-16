@@ -45,8 +45,12 @@ def _invoice_to_response(invoice) -> InvoiceResponse:
         student_name=invoice.student.full_name if invoice.student else None,
         student_number=invoice.student.student_number if invoice.student else None,
         billing_account_id=invoice.billing_account_id,
-        billing_account_number=invoice.billing_account.account_number if invoice.billing_account else None,
-        billing_account_name=invoice.billing_account.display_name if invoice.billing_account else None,
+        billing_account_number=invoice.billing_account.account_number
+        if invoice.billing_account
+        else None,
+        billing_account_name=invoice.billing_account.display_name
+        if invoice.billing_account
+        else None,
         term_id=invoice.term_id,
         term_name=invoice.term.display_name if invoice.term else None,
         invoice_type=invoice.invoice_type,
@@ -66,6 +70,8 @@ def _invoice_to_response(invoice) -> InvoiceResponse:
                 "id": line.id,
                 "invoice_id": line.invoice_id,
                 "kit_id": line.kit_id,
+                "item_id": line.item_id,
+                "source_type": line.source_type,
                 "description": line.description,
                 "quantity": line.quantity,
                 "unit_price": float(line.unit_price),
@@ -108,10 +114,7 @@ def _invoice_to_summary(invoice) -> InvoiceSummary:
     paid_total = round_money(sum((line.paid_amount for line in invoice.lines), Decimal("0.00")))
     adjustment_total = round_money(
         sum(
-            (
-                getattr(line, "adjustment_amount", None) or Decimal("0.00")
-                for line in invoice.lines
-            ),
+            (getattr(line, "adjustment_amount", None) or Decimal("0.00") for line in invoice.lines),
             Decimal("0.00"),
         )
     )
@@ -124,8 +127,12 @@ def _invoice_to_summary(invoice) -> InvoiceSummary:
         student_id=invoice.student_id,
         student_name=invoice.student.full_name if invoice.student else None,
         billing_account_id=invoice.billing_account_id,
-        billing_account_number=invoice.billing_account.account_number if invoice.billing_account else None,
-        billing_account_name=invoice.billing_account.display_name if invoice.billing_account else None,
+        billing_account_number=invoice.billing_account.account_number
+        if invoice.billing_account
+        else None,
+        billing_account_name=invoice.billing_account.display_name
+        if invoice.billing_account
+        else None,
         invoice_type=invoice.invoice_type,
         description=_invoice_summary_description(invoice),
         status=invoice.status,
@@ -149,9 +156,7 @@ def _invoice_to_summary(invoice) -> InvoiceSummary:
 async def create_adhoc_invoice(
     data: InvoiceCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-    ),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
 ):
     """Create an ad-hoc invoice (draft). Requires ADMIN role."""
     service = InvoiceService(db)
@@ -293,9 +298,7 @@ async def add_invoice_line(
     invoice_id: int,
     data: InvoiceLineCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-    ),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
 ):
     """Add a line to a draft invoice."""
     service = InvoiceService(db)
@@ -315,9 +318,7 @@ async def remove_invoice_line(
     invoice_id: int,
     line_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-    ),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
 ):
     """Remove a line from a draft invoice."""
     service = InvoiceService(db)
@@ -338,9 +339,7 @@ async def update_line_discount(
     line_id: int,
     data: InvoiceLineDiscountUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-    ),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
 ):
     """Update discount on a specific line."""
     service = InvoiceService(db)
@@ -370,9 +369,7 @@ async def issue_invoice(
     invoice_id: int,
     data: IssueInvoiceRequest | None = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-    ),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
 ):
     """Issue a draft invoice. If student has positive balance, auto-allocates it to this and other unpaid invoices."""
     service = InvoiceService(db)
@@ -404,15 +401,14 @@ async def issue_invoice(
 async def cancel_invoice(
     invoice_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-    ),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
 ):
     """Cancel an invoice (only if no payments received)."""
     service = InvoiceService(db)
     invoice = await service.cancel_invoice(invoice_id, current_user.id)
 
     from src.modules.reservations.service import ReservationService
+
     reservation_service = ReservationService(db)
     await reservation_service.sync_for_invoice(invoice.id, current_user.id)
 
@@ -433,9 +429,7 @@ async def cancel_invoice(
 async def generate_term_invoices(
     data: TermInvoiceGenerationRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-    ),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
 ):
     """Generate invoices for all active students for a term.
 
@@ -466,9 +460,7 @@ async def generate_term_invoices(
 async def generate_term_invoices_for_student(
     data: TermInvoiceGenerationForStudentRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-    ),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
 ):
     """Generate term invoices for a single student."""
     service = InvoiceService(db)

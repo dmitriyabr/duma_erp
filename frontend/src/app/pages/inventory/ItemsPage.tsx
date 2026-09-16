@@ -12,6 +12,9 @@ import { Chip } from '../../components/ui/Chip'
 import { Alert } from '../../components/ui/Alert'
 import { Dialog, DialogTitle, DialogContent, DialogActions, DialogCloseButton } from '../../components/ui/Dialog'
 import { Spinner } from '../../components/ui/Spinner'
+import { Checkbox } from '../../components/ui/Checkbox'
+import { Switch } from '../../components/ui/Switch'
+import { formatMoney } from '../../utils/format'
 
 interface CategoryRow {
   id: number
@@ -25,6 +28,8 @@ interface ItemRow {
   category_name?: string | null
   sku_code: string
   name: string
+  price: number | null
+  is_sellable: boolean
   is_active: boolean
 }
 
@@ -34,6 +39,8 @@ const emptyForm = {
   name: '',
   opening_quantity: '',
   unit_cost: '',
+  price: '',
+  is_sellable: false,
 }
 
 const buildSkuPrefix = (categoryName: string) => {
@@ -61,9 +68,14 @@ export const ItemsPage = () => {
   const { execute: saveItem, loading: saving, error: saveError, reset: resetSaveError } = useApiMutation<{ id: number }>()
   const {
     execute: toggleActive,
-    loading: _toggling,
     error: toggleError,
     reset: resetToggleError,
+  } = useApiMutation()
+  const {
+    execute: bulkUpdate,
+    loading: bulkSaving,
+    error: bulkError,
+    reset: resetBulkError,
   } = useApiMutation()
 
   const [search, setSearch] = useState('')
@@ -74,6 +86,10 @@ export const ItemsPage = () => {
   const [editingItem, setEditingItem] = useState<ItemRow | null>(null)
   const [form, setForm] = useState({ ...emptyForm })
   const [validationError, setValidationError] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false)
+  const [bulkPrice, setBulkPrice] = useState('')
+  const [bulkSellable, setBulkSellable] = useState(true)
 
   const [confirmState, setConfirmState] = useState<{
     open: boolean
@@ -139,6 +155,8 @@ export const ItemsPage = () => {
       name: item.name,
       opening_quantity: '',
       unit_cost: '',
+      price: item.price == null ? '' : String(item.price),
+      is_sellable: item.is_sellable,
     })
     setDialogOpen(true)
   }
@@ -168,6 +186,19 @@ export const ItemsPage = () => {
 
     const openingQuantity = form.opening_quantity ? Number(form.opening_quantity) : 0
     const unitCost = form.unit_cost ? Number(form.unit_cost) : 0
+    const price = form.price === '' ? null : Number(form.price)
+    if (price !== null && (Number.isNaN(price) || price < 0)) {
+      setValidationError('Enter a valid selling price.')
+      return
+    }
+    if (form.is_sellable && (price === null || price <= 0)) {
+      setValidationError('Enter a positive selling price before enabling individual sale.')
+      return
+    }
+    if (!editingItem && price === null) {
+      setValidationError('Enter a selling price.')
+      return
+    }
     if (!editingItem && openingQuantity && !unitCost) {
       setValidationError('Provide unit cost for opening quantity.')
       return
@@ -180,6 +211,8 @@ export const ItemsPage = () => {
         return api.patch(`/items/${editingItem.id}`, {
           category_id: categoryId,
           name: form.name.trim(),
+          ...(price !== null && { price }),
+          is_sellable: form.is_sellable,
         })
       } else {
         const response = await api.post<ApiResponse<{ id: number }>>('/items', {
@@ -188,7 +221,8 @@ export const ItemsPage = () => {
           name: form.name.trim(),
           item_type: 'product',
           price_type: 'standard',
-          price: 0,
+          price,
+          is_sellable: form.is_sellable,
         })
         if (openingQuantity) {
           await api.post('/inventory/receive', {
@@ -204,6 +238,34 @@ export const ItemsPage = () => {
 
     if (result) {
       resetDialog()
+      refetch()
+    }
+  }
+
+  const openBulkDialog = () => {
+    setValidationError(null)
+    resetBulkError()
+    setBulkPrice('')
+    setBulkSellable(true)
+    setBulkDialogOpen(true)
+  }
+
+  const submitBulkUpdate = async () => {
+    const price = bulkPrice === '' ? null : Number(bulkPrice)
+    if (price !== null && (Number.isNaN(price) || price < 0)) {
+      setValidationError('Enter a valid selling price.')
+      return
+    }
+    const result = await bulkUpdate(() =>
+      api.patch('/items/bulk-sale-settings', {
+        item_ids: selectedIds,
+        price,
+        is_sellable: bulkSellable,
+      })
+    )
+    if (result != null) {
+      setBulkDialogOpen(false)
+      setSelectedIds([])
       refetch()
     }
   }
@@ -238,9 +300,16 @@ export const ItemsPage = () => {
         <Typography variant="h4">
           Inventory items
         </Typography>
-        <Button variant="contained" onClick={openCreate}>
-          New item
-        </Button>
+        <div className="flex gap-2">
+          {selectedIds.length > 0 && (
+            <Button variant="outlined" onClick={openBulkDialog}>
+              Sale settings ({selectedIds.length})
+            </Button>
+          )}
+          <Button variant="contained" onClick={openCreate}>
+            New item
+          </Button>
+        </div>
       </div>
 
       <div className="flex gap-4 mb-4 flex-wrap">
@@ -288,9 +357,25 @@ export const ItemsPage = () => {
         <Table>
           <TableHead>
             <TableRow>
+              <TableHeaderCell>
+                <Checkbox
+                  checked={
+                    filteredItems.length > 0 &&
+                    filteredItems.every((item) => selectedIds.includes(item.id))
+                  }
+                  onChange={(event) =>
+                    setSelectedIds(
+                      event.target.checked ? filteredItems.map((item) => item.id) : []
+                    )
+                  }
+                  aria-label="Select all visible items"
+                />
+              </TableHeaderCell>
               <TableHeaderCell>Name</TableHeaderCell>
               <TableHeaderCell>Category</TableHeaderCell>
               <TableHeaderCell>SKU</TableHeaderCell>
+              <TableHeaderCell>Sale price</TableHeaderCell>
+              <TableHeaderCell>Individual sale</TableHeaderCell>
               <TableHeaderCell>Status</TableHeaderCell>
               <TableHeaderCell align="right">Actions</TableHeaderCell>
             </TableRow>
@@ -298,9 +383,30 @@ export const ItemsPage = () => {
           <TableBody>
             {filteredItems.map((item) => (
               <TableRow key={item.id}>
+                <TableCell>
+                  <Checkbox
+                    checked={selectedIds.includes(item.id)}
+                    onChange={(event) =>
+                      setSelectedIds((current) =>
+                        event.target.checked
+                          ? [...current, item.id]
+                          : current.filter((id) => id !== item.id)
+                      )
+                    }
+                    aria-label={`Select ${item.name}`}
+                  />
+                </TableCell>
                 <TableCell>{item.name}</TableCell>
                 <TableCell>{item.category_name ?? '—'}</TableCell>
                 <TableCell>{item.sku_code}</TableCell>
+                <TableCell>{formatMoney(item.price)}</TableCell>
+                <TableCell>
+                  <Chip
+                    size="small"
+                    label={item.is_sellable ? 'Enabled' : 'Disabled'}
+                    color={item.is_sellable ? 'success' : 'default'}
+                  />
+                </TableCell>
                 <TableCell>
                   <Chip
                     size="small"
@@ -327,14 +433,14 @@ export const ItemsPage = () => {
             ))}
             {loading && (
               <TableRow>
-                <td colSpan={5} className="px-4 py-8 text-center">
+                <td colSpan={8} className="px-4 py-8 text-center">
                   <Spinner size="medium" />
                 </td>
               </TableRow>
             )}
             {!filteredItems.length && !loading && (
               <TableRow>
-                <td colSpan={5} className="px-4 py-8 text-center">
+                <td colSpan={8} className="px-4 py-8 text-center">
                   <Typography color="secondary">No items found</Typography>
                 </td>
               </TableRow>
@@ -369,6 +475,21 @@ export const ItemsPage = () => {
               onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
               required
             />
+            <Input
+              label="Selling price"
+              type="number"
+              min={0}
+              step={0.01}
+              value={form.price}
+              onChange={(e) => setForm((prev) => ({ ...prev, price: e.target.value }))}
+            />
+            <Switch
+              label="Available for individual sale"
+              checked={form.is_sellable}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, is_sellable: e.target.checked }))
+              }
+            />
             {!editingItem && (
               <>
                 <Input
@@ -395,6 +516,43 @@ export const ItemsPage = () => {
           </Button>
           <Button variant="contained" onClick={handleSubmit} disabled={saving}>
             {saving ? <Spinner size="small" /> : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={bulkDialogOpen} onClose={() => setBulkDialogOpen(false)} maxWidth="sm">
+        <DialogCloseButton onClose={() => setBulkDialogOpen(false)} />
+        <DialogTitle>Update sale settings</DialogTitle>
+        <DialogContent>
+          <div className="grid gap-4">
+            {(bulkError || validationError) && (
+              <Alert severity="error">{bulkError || validationError}</Alert>
+            )}
+            <Typography variant="body2" color="secondary">
+              Updating {selectedIds.length} selected items.
+            </Typography>
+            <Input
+              label="Selling price"
+              type="number"
+              min={0}
+              step={0.01}
+              value={bulkPrice}
+              onChange={(event) => setBulkPrice(event.target.value)}
+              placeholder="Keep current prices"
+            />
+            <Switch
+              label="Available for individual sale"
+              checked={bulkSellable}
+              onChange={(event) => setBulkSellable(event.target.checked)}
+            />
+          </div>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="outlined" onClick={() => setBulkDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={submitBulkUpdate} disabled={bulkSaving}>
+            {bulkSaving ? <Spinner size="small" /> : 'Apply'}
           </Button>
         </DialogActions>
       </Dialog>

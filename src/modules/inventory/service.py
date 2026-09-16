@@ -146,14 +146,17 @@ class InventoryService:
         )
         return {int(row[0]): int(row[1] or 0) for row in result.all()}
 
-    async def _get_sellable_item_ids_from_active_product_kits(self) -> set[int]:
-        """Return item IDs that are sellable/issuable based on active product kits.
+    async def _get_restock_eligible_item_ids(self) -> set[int]:
+        """Return active products that can generate restock demand.
 
         Definition:
         - Includes KitItem.source_type == 'item' → KitItem.item_id
         - Includes KitItem.source_type == 'variant' → ALL items from the variant group
           (ItemVariantMembership.variant_id == KitItem.variant_id)
         - Only kits with Kit.is_active == True and Kit.item_type == product are considered.
+        - Includes products enabled for individual sale, even when they are not in a kit.
+        - Includes products with outstanding pending/partial reservation demand regardless
+          of whether new individual sales are enabled.
         """
         fixed_ids_result = await self.db.execute(
             select(func.distinct(KitItem.item_id))
@@ -182,7 +185,27 @@ class InventoryService:
             int(r[0]) for r in variant_ids_result.all() if r[0] is not None
         }
 
-        return fixed_ids | variant_item_ids
+        direct_ids_result = await self.db.execute(
+            select(Item.id)
+            .where(Item.is_sellable.is_(True))
+            .where(Item.is_active.is_(True))
+            .where(Item.item_type == ItemType.PRODUCT.value)
+        )
+        direct_ids = {int(r[0]) for r in direct_ids_result.all()}
+
+        demand_ids_result = await self.db.execute(
+            select(func.distinct(ReservationItem.item_id))
+            .join(Reservation, Reservation.id == ReservationItem.reservation_id)
+            .where(
+                Reservation.status.in_(
+                    [ReservationStatus.PENDING.value, ReservationStatus.PARTIAL.value]
+                )
+            )
+            .where(ReservationItem.quantity_required > ReservationItem.quantity_issued)
+        )
+        demand_ids = {int(r[0]) for r in demand_ids_result.all() if r[0] is not None}
+
+        return fixed_ids | variant_item_ids | direct_ids | demand_ids
 
     async def get_inbound_quantities_by_item_id(self, item_ids: list[int]) -> dict[int, int]:
         """Return inbound quantities (ordered but not yet received) per item_id.
@@ -232,7 +255,7 @@ class InventoryService:
         only_demand: bool = True,
     ) -> list[dict]:
         """Return restock-planning rows for sellable items only."""
-        sellable_ids = await self._get_sellable_item_ids_from_active_product_kits()
+        sellable_ids = await self._get_restock_eligible_item_ids()
         if not sellable_ids:
             return []
 

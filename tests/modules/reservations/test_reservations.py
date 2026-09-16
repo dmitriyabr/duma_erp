@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth.models import UserRole
 from src.core.auth.service import AuthService
+from src.core.exceptions import ValidationError
 from src.modules.inventory.schemas import ReceiveStockRequest
 from src.modules.inventory.service import InventoryService
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
@@ -171,6 +172,53 @@ class TestReservationService:
         # Demand-based reservation: no physical allocation at reservation creation time.
         assert not hasattr(reservation.items[0], "quantity_reserved")
 
+    async def test_direct_item_creates_reservation_before_payment(self, db_session: AsyncSession):
+        data = await self._setup_test_data(db_session)
+        invoice = Invoice(
+            invoice_number="INV-RES-DIRECT",
+            student_id=data["student"].id,
+            invoice_type=InvoiceType.ADHOC.value,
+            status=InvoiceStatus.ISSUED.value,
+            issue_date=date.today(),
+            subtotal=Decimal("5500.00"),
+            discount_total=Decimal("0.00"),
+            total=Decimal("5500.00"),
+            paid_total=Decimal("0.00"),
+            amount_due=Decimal("5500.00"),
+            created_by_id=data["user"].id,
+        )
+        db_session.add(invoice)
+        await db_session.flush()
+        line = InvoiceLine(
+            invoice_id=invoice.id,
+            item_id=data["item"].id,
+            description=data["item"].name,
+            quantity=11,
+            unit_price=Decimal("500.00"),
+            line_total=Decimal("5500.00"),
+            discount_amount=Decimal("0.00"),
+            net_amount=Decimal("5500.00"),
+            paid_amount=Decimal("0.00"),
+            remaining_amount=Decimal("5500.00"),
+        )
+        db_session.add(line)
+        await db_session.flush()
+
+        service = ReservationService(db_session)
+        await service.sync_for_invoice(invoice.id, data["user"].id)
+        reservation = await service.get_by_invoice_line_id(line.id)
+
+        assert reservation is not None
+        assert reservation.items[0].item_id == data["item"].id
+        assert reservation.items[0].quantity_required == 11
+
+        with pytest.raises(ValidationError, match="Insufficient stock"):
+            await service.issue_items(
+                reservation_id=reservation.id,
+                items=[(reservation.items[0].id, 11)],
+                issued_by_id=data["user"].id,
+            )
+
     async def test_issue_and_cancel_reservation(self, db_session: AsyncSession):
         data = await self._setup_test_data(db_session)
         service = ReservationService(db_session)
@@ -197,16 +245,12 @@ class TestReservationService:
 
         # Cancelling the issuance should roll back reservation quantities
         # and return stock.
-        await inventory.cancel_issuance(
-            issuance.id, cancelled_by_id=data["user"].id
-        )
+        await inventory.cancel_issuance(issuance.id, cancelled_by_id=data["user"].id)
         reservation = await service.get_by_id(reservation.id)
         assert reservation.status == ReservationStatus.PENDING.value
         assert reservation.items[0].quantity_issued == 0
 
-        stock_after_issuance_cancel = await inventory.get_stock_by_item_id(
-            data["item"].id
-        )
+        stock_after_issuance_cancel = await inventory.get_stock_by_item_id(data["item"].id)
         assert stock_after_issuance_cancel.quantity_on_hand == on_hand_before + 1
 
         await service.cancel_reservation(
@@ -263,6 +307,7 @@ class TestReservationService:
 
         # Issue invoice (should create reservation even though unpaid)
         from src.modules.invoices.service import InvoiceService
+
         invoice_service = InvoiceService(db_session)
         await invoice_service.issue_invoice(invoice.id, issued_by_id=data["user"].id)
 
@@ -279,9 +324,7 @@ class TestReservationService:
         assert len(reservation.items) == 1
         assert reservation.items[0].quantity_required == 2
 
-    async def test_reservation_cancelled_when_invoice_cancelled(
-        self, db_session: AsyncSession
-    ):
+    async def test_reservation_cancelled_when_invoice_cancelled(self, db_session: AsyncSession):
         """Test that reservations are automatically cancelled when invoice is cancelled."""
         data = await self._setup_test_data(db_session)
 
@@ -332,6 +375,7 @@ class TestReservationService:
 
         # Cancel invoice
         from src.modules.invoices.service import InvoiceService
+
         invoice_service = InvoiceService(db_session)
         await invoice_service.cancel_invoice(invoice.id, cancelled_by_id=data["user"].id)
 
@@ -405,9 +449,7 @@ class TestReservationService:
         assert issuance.status == "completed"
         assert stock.quantity_on_hand == 9
 
-    async def test_issue_reservation_with_zero_quantity_items(
-        self, db_session: AsyncSession
-    ):
+    async def test_issue_reservation_with_zero_quantity_items(self, db_session: AsyncSession):
         """Test that items with quantity 0 are skipped when issuing reservation."""
         data = await self._setup_test_data(db_session)
         service = ReservationService(db_session)
@@ -504,7 +546,9 @@ class TestReservationService:
             )
         )
 
-        grade = Grade(code="RESC1", name="Reservation Components Grade", display_order=1, is_active=True)
+        grade = Grade(
+            code="RESC1", name="Reservation Components Grade", display_order=1, is_active=True
+        )
         db_session.add(grade)
         await db_session.flush()
 
@@ -669,7 +713,9 @@ class TestReservationService:
             )
         )
 
-        grade = Grade(code="RESP1", name="Reservation Partial Grade", display_order=1, is_active=True)
+        grade = Grade(
+            code="RESP1", name="Reservation Partial Grade", display_order=1, is_active=True
+        )
         db_session.add(grade)
         await db_session.flush()
 
@@ -766,15 +812,11 @@ class TestReservationService:
         assert reservation.status == ReservationStatus.PARTIAL.value
         assert sorted(
             [(ri.item_id, ri.quantity_required, ri.quantity_issued) for ri in reservation.items]
-        ) == sorted(
-            [(item_a.id, 1, 1), (item_b.id, 1, 0)]
-        )
+        ) == sorted([(item_a.id, 1, 1), (item_b.id, 1, 0)])
         item_a_row = next(ri for ri in reservation.items if ri.item_id == item_a.id)
         assert item_a_row.id == original_item_id
 
-    async def test_issue_reservation_rejects_all_zero_quantities(
-        self, db_session: AsyncSession
-    ):
+    async def test_issue_reservation_rejects_all_zero_quantities(self, db_session: AsyncSession):
         """Test that issuing with all items having quantity 0 raises error."""
         data = await self._setup_test_data(db_session)
         service = ReservationService(db_session)
@@ -789,6 +831,7 @@ class TestReservationService:
 
         # Try to issue with quantity 0 (should raise error)
         from src.core.exceptions import ValidationError
+
         with pytest.raises(ValidationError, match="At least one item"):
             await service.issue_items(
                 reservation_id=reservation.id,

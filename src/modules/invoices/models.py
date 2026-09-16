@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -61,9 +62,7 @@ class Invoice(Base):
     __tablename__ = "invoices"
 
     id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
-    invoice_number: Mapped[str] = mapped_column(
-        String(50), nullable=False, unique=True, index=True
-    )
+    invoice_number: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
 
     # Relations
     student_id: Mapped[int] = mapped_column(
@@ -95,9 +94,7 @@ class Invoice(Base):
     discount_total: Mapped[Decimal] = mapped_column(
         Numeric(15, 2), nullable=False, default=Decimal("0.00")
     )
-    total: Mapped[Decimal] = mapped_column(
-        Numeric(15, 2), nullable=False, default=Decimal("0.00")
-    )
+    total: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False, default=Decimal("0.00"))
     paid_total: Mapped[Decimal] = mapped_column(
         Numeric(15, 2), nullable=False, default=Decimal("0.00")
     )
@@ -110,9 +107,7 @@ class Invoice(Base):
 
     # Metadata
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_by_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=False
-    )
+    created_by_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -180,11 +175,12 @@ class Invoice(Base):
         Note: lines must be loaded for this to work correctly.
         """
         for line in self.lines:
-            if not line.kit:
-                continue
-            if line.kit.sku_code in self._REQUIRES_FULL_SKUS:
-                return True
-            if line.kit.requires_full_payment:
+            if line.kit:
+                if line.kit.sku_code in self._REQUIRES_FULL_SKUS:
+                    return True
+                if line.kit.requires_full_payment:
+                    return True
+            if line.item and line.item.requires_full_payment:
                 return True
         return False
 
@@ -199,9 +195,10 @@ class InvoiceLine(Base):
         BigInteger, ForeignKey("invoices.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
-    # Kit reference
-    kit_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("kits.id"), nullable=False
+    # A line sells exactly one source: a kit or a direct inventory item.
+    kit_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("kits.id"), nullable=True)
+    item_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("items.id"), nullable=True, index=True
     )
 
     # Line details
@@ -237,7 +234,8 @@ class InvoiceLine(Base):
 
     # Relationships
     invoice: Mapped["Invoice"] = relationship("Invoice", back_populates="lines")
-    kit: Mapped["Kit"] = relationship("Kit")
+    kit: Mapped["Kit | None"] = relationship("Kit")
+    item: Mapped["Item | None"] = relationship("Item")
     reservation: Mapped["Reservation | None"] = relationship(
         "Reservation", uselist=False, back_populates="invoice_line"
     )
@@ -249,6 +247,17 @@ class InvoiceLine(Base):
     def is_fully_paid(self) -> bool:
         """Check if line is fully paid."""
         return self.remaining_amount == Decimal("0.00")
+
+    @property
+    def source_type(self) -> str:
+        return "item" if self.item_id is not None else "kit"
+
+    __table_args__ = (
+        CheckConstraint(
+            "(kit_id IS NOT NULL AND item_id IS NULL) OR (kit_id IS NULL AND item_id IS NOT NULL)",
+            name="ck_invoice_line_exactly_one_source",
+        ),
+    )
 
 
 class InvoiceLineComponent(Base):
@@ -300,9 +309,7 @@ class InvoiceAdjustment(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_by_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=False
-    )
+    created_by_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -13,6 +13,7 @@ import type {
   InvoiceDetail,
   InvoiceLine,
   InvoiceSummary,
+  ItemOption,
   KitOption,
   PaginatedResponse,
 } from '../types'
@@ -74,7 +75,7 @@ export const InvoicesTab = ({
   const [termInvoiceMessage, setTermInvoiceMessage] = useState<string | null>(null)
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null)
   const [lineForm, setLineForm] = useState({
-    kit_id: '',
+    source: '',
     quantity: 1,
     discount_amount: '',
   })
@@ -125,6 +126,14 @@ export const InvoicesTab = ({
     [studentId, activeTermIdForApi]
   )
   const kitsApi = useApi<KitOption[]>('/items/kits', { params: { include_inactive: true } })
+  const sellableItemsApi = useApi<ItemOption[]>('/items', {
+    params: {
+      item_type: 'product',
+      include_inactive: false,
+      is_sellable: true,
+      include_stock: true,
+    },
+  })
   const invoiceDetailApi = useApi<InvoiceDetail>(
     selectedInvoiceId ? `/invoices/${selectedInvoiceId}` : null,
     {},
@@ -168,6 +177,7 @@ export const InvoicesTab = ({
   ])
   const termInvoiceLoading = generateTermMutation.loading
   const kits = kitsApi.data ?? []
+  const sellableItems = sellableItemsApi.data ?? []
   const selectedInvoice = invoiceDetailApi.data ?? null
   const selectedDiscountLine = useMemo(
     () => selectedInvoice?.lines.find((line) => line.id === discountLineId) ?? null,
@@ -355,20 +365,21 @@ export const InvoicesTab = ({
     if (!selectedInvoice) return
     setLineDialogError(null)
     addLineMutation.reset()
-    setLineForm({ kit_id: '', quantity: 1, discount_amount: '' })
+    setLineForm({ source: '', quantity: 1, discount_amount: '' })
     setLineDialogOpen(true)
   }
 
   const submitLine = async () => {
     if (!selectedInvoice) return
-    if (!lineForm.kit_id) {
-      setLineDialogError('Select a kit to add to the invoice.')
+    if (!lineForm.source) {
+      setLineDialogError('Select an item to add to the invoice.')
       return
     }
+    const [sourceType, sourceId] = lineForm.source.split(':')
     setLineDialogError(null)
     const payload = {
-      item_id: null as number | null,
-      kit_id: Number(lineForm.kit_id),
+      item_id: sourceType === 'item' ? Number(sourceId) : null,
+      kit_id: sourceType === 'kit' ? Number(sourceId) : null,
       quantity: Number(lineForm.quantity),
       discount_amount: lineForm.discount_amount ? Number(lineForm.discount_amount) : 0,
     }
@@ -727,22 +738,31 @@ export const InvoicesTab = ({
         <DialogTitle>Add invoice line</DialogTitle>
         <DialogContent>
           <div className="space-y-4 mt-4">
-            {(lineDialogError || addLineMutation.error) ? (
+            {(lineDialogError || addLineMutation.error || sellableItemsApi.error || kitsApi.error) ? (
               <Alert severity="error">
-                {lineDialogError || addLineMutation.error}
+                {lineDialogError || addLineMutation.error || sellableItemsApi.error || kitsApi.error}
               </Alert>
             ) : null}
             <Select
-              value={lineForm.kit_id}
-              onChange={(e) => setLineForm({ ...lineForm, kit_id: e.target.value })}
-              label="Kit"
+              value={lineForm.source}
+              onChange={(e) => setLineForm({ ...lineForm, source: e.target.value })}
+              label="Catalog item"
             >
-              <option value="">Select kit</option>
-              {kits.map((kit) => (
-                <option key={kit.id} value={String(kit.id)}>
-                  {kit.name}
-                </option>
-              ))}
+              <option value="">Select item</option>
+              <optgroup label="Uniform sets">
+                {kits.map((kit) => (
+                  <option key={kit.id} value={`kit:${kit.id}`}>
+                    {kit.name} · {formatMoney(kit.price)}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Individual items">
+                {sellableItems.map((item) => (
+                  <option key={item.id} value={`item:${item.id}`}>
+                    {item.name} · {item.quantity_on_hand ?? 0} in stock · {formatMoney(item.price)}
+                  </option>
+                ))}
+              </optgroup>
             </Select>
             <Input
               label="Quantity"

@@ -110,7 +110,10 @@ class ReservationService:
             .where(Invoice.id == invoice_id)
             .options(
                 selectinload(Invoice.lines).selectinload(InvoiceLine.kit),
-                selectinload(Invoice.lines).selectinload(InvoiceLine.components).selectinload(InvoiceLineComponent.item),
+                selectinload(Invoice.lines).selectinload(InvoiceLine.item),
+                selectinload(Invoice.lines)
+                .selectinload(InvoiceLine.components)
+                .selectinload(InvoiceLineComponent.item),
             )
         )
         invoice = result.scalar_one_or_none()
@@ -132,7 +135,9 @@ class ReservationService:
 
         # Для issued/partially_paid/paid инвойсов — создаём резервации для product‑китов
         for line in invoice.lines:
-            if not line.kit or line.kit.item_type != ItemType.PRODUCT.value:
+            is_product_kit = bool(line.kit and line.kit.item_type == ItemType.PRODUCT.value)
+            is_direct_product = bool(line.item and line.item.item_type == ItemType.PRODUCT.value)
+            if not (is_product_kit or is_direct_product):
                 continue
 
             existing = await self.get_by_invoice_line_id(line.id)
@@ -228,7 +233,11 @@ class ReservationService:
         return reservation
 
     async def issue_items(
-        self, reservation_id: int, items: list[tuple[int, int]], issued_by_id: int, notes: str | None = None
+        self,
+        reservation_id: int,
+        items: list[tuple[int, int]],
+        issued_by_id: int,
+        notes: str | None = None,
     ) -> Issuance:
         """Issue reserved items for a reservation."""
         reservation = await self.get_by_id(reservation_id)
@@ -269,9 +278,7 @@ class ReservationService:
             # Demand-based reservation: do not physically allocate stock to a specific reservation.
             # Issuance is allowed as long as there is stock on hand.
             stock_result = await self.db.execute(
-                select(Stock)
-                .where(Stock.item_id == reservation_item.item_id)
-                .with_for_update()
+                select(Stock).where(Stock.item_id == reservation_item.item_id).with_for_update()
             )
             stock = stock_result.scalar_one_or_none()
             if not stock:
@@ -432,15 +439,11 @@ class ReservationService:
             raise ValidationError("Kit has no components configured")
 
         if len(components) != len(kit_items):
-            raise ValidationError(
-                f"Expected {len(kit_items)} components, got {len(components)}"
-            )
+            raise ValidationError(f"Expected {len(kit_items)} components, got {len(components)}")
 
         # Replace invoice line components
         await self.db.execute(
-            delete(InvoiceLineComponent).where(
-                InvoiceLineComponent.invoice_line_id == line.id
-            )
+            delete(InvoiceLineComponent).where(InvoiceLineComponent.invoice_line_id == line.id)
         )
 
         new_components_by_item: dict[int, int] = {}
@@ -492,9 +495,7 @@ class ReservationService:
                         )
 
                 # Validate item exists and is product
-                item_result = await self.db.execute(
-                    select(Item).where(Item.id == chosen_item_id)
-                )
+                item_result = await self.db.execute(select(Item).where(Item.id == chosen_item_id))
                 item = item_result.scalar_one_or_none()
                 if not item:
                     raise NotFoundError(f"Item with id {chosen_item_id} not found")
@@ -526,7 +527,9 @@ class ReservationService:
             issued_qty = int(reservation_item.quantity_issued or 0)
             target_qty = int(new_reservation_items_by_item.get(item_id, 0))
             if target_qty < issued_qty:
-                item_name = reservation_item.item.name if reservation_item.item else f"Item {item_id}"
+                item_name = (
+                    reservation_item.item.name if reservation_item.item else f"Item {item_id}"
+                )
                 raise ValidationError(
                     f"Cannot reduce '{item_name}' below already issued quantity ({issued_qty})"
                 )
@@ -550,7 +553,9 @@ class ReservationService:
             if item_id in new_reservation_items_by_item:
                 continue
             if int(reservation_item.quantity_issued or 0) > 0:
-                item_name = reservation_item.item.name if reservation_item.item else f"Item {item_id}"
+                item_name = (
+                    reservation_item.item.name if reservation_item.item else f"Item {item_id}"
+                )
                 raise ValidationError(
                     f"Cannot remove already issued item '{item_name}' from the reservation"
                 )
@@ -582,8 +587,13 @@ class ReservationService:
             .options(
                 selectinload(InvoiceLine.invoice),
                 selectinload(InvoiceLine.components).selectinload(InvoiceLineComponent.item),
-                selectinload(InvoiceLine.kit).selectinload(Kit.kit_items).selectinload(KitItem.item),
-                selectinload(InvoiceLine.kit).selectinload(Kit.kit_items).selectinload(KitItem.default_item),
+                selectinload(InvoiceLine.kit)
+                .selectinload(Kit.kit_items)
+                .selectinload(KitItem.item),
+                selectinload(InvoiceLine.kit)
+                .selectinload(Kit.kit_items)
+                .selectinload(KitItem.default_item),
+                selectinload(InvoiceLine.item),
             )
         )
         line = result.scalar_one_or_none()
@@ -605,6 +615,11 @@ class ReservationService:
         they take precedence over the static Kit.kit_items definition.
         """
         items: list[tuple[int, int]] = []
+
+        if line.item_id is not None:
+            if not line.item or line.item.item_type != ItemType.PRODUCT.value:
+                return items
+            return [(line.item_id, line.quantity)]
 
         # Prefer explicit components if present
         if hasattr(line, "components") and line.components:
@@ -633,9 +648,7 @@ class ReservationService:
                     continue
 
                 # Verify item exists and is a product
-                item_result = await self.db.execute(
-                    select(Item).where(Item.id == item_id_to_use)
-                )
+                item_result = await self.db.execute(select(Item).where(Item.id == item_id_to_use))
                 item = item_result.scalar_one_or_none()
                 if not item or item.item_type != ItemType.PRODUCT.value:
                     continue

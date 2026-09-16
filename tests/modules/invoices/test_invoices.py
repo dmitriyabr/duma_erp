@@ -19,7 +19,7 @@ from src.modules.invoices.schemas import (
     InvoiceLineCreate,
 )
 from src.modules.invoices.service import InvoiceService
-from src.modules.items.models import Category, ItemType, Kit, PriceType
+from src.modules.items.models import Category, Item, ItemType, Kit, PriceType
 from src.modules.payments.models import CreditAllocation, PaymentMethod
 from src.modules.payments.schemas import PaymentCreate
 from src.modules.payments.service import PaymentService
@@ -34,6 +34,7 @@ class TestInvoiceService:
         """Create test data for invoice tests."""
         # Create user first
         from src.core.auth.service import AuthService
+
         auth_service = AuthService(db_session)
         user = await auth_service.create_user(
             email="test@school.com",
@@ -225,6 +226,116 @@ class TestInvoiceService:
         assert invoice.total == Decimal("1000.00")
         assert invoice.amount_due == Decimal("1000.00")
 
+    async def test_kit_price_override_skips_contextual_price_lookup(
+        self, db_session: AsyncSession
+    ):
+        data = await self._setup_test_data(db_session)
+
+        invoice = await InvoiceService(db_session).create_adhoc_invoice(
+            InvoiceCreate(
+                student_id=data["student"].id,
+                lines=[
+                    InvoiceLineCreate(
+                        kit_id=data["school_fee_kit"].id,
+                        unit_price_override=Decimal("1234.00"),
+                    )
+                ],
+            ),
+            created_by_id=data["user"].id,
+        )
+
+        assert invoice.lines[0].unit_price == Decimal("1234.00")
+        assert invoice.total == Decimal("1234.00")
+
+    async def test_create_mixed_invoice_with_direct_item(self, db_session: AsyncSession):
+        data = await self._setup_test_data(db_session)
+        item = Item(
+            category_id=data["category"].id,
+            sku_code="UNIFORM-SHIRT-24",
+            name="Shirt 24",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("850.00"),
+            requires_full_payment=True,
+            is_sellable=True,
+            is_active=True,
+        )
+        db_session.add(item)
+        await db_session.flush()
+
+        service = InvoiceService(db_session)
+        invoice = await service.create_adhoc_invoice(
+            InvoiceCreate(
+                student_id=data["student"].id,
+                lines=[
+                    InvoiceLineCreate(
+                        kit_id=data["standard_kit"].id,
+                        quantity=1,
+                    ),
+                    InvoiceLineCreate(item_id=item.id, quantity=2),
+                ],
+            ),
+            created_by_id=data["user"].id,
+        )
+
+        assert invoice.total == Decimal("2200.00")
+        direct_line = next(line for line in invoice.lines if line.item_id == item.id)
+        assert direct_line.kit_id is None
+        assert direct_line.description == "Shirt 24"
+        assert direct_line.unit_price == Decimal("850.00")
+        assert direct_line.source_type == "item"
+        assert invoice.requires_full_payment is True
+
+    def test_direct_item_rejects_price_override_and_components(self):
+        with pytest.raises(ValueError, match="current price"):
+            InvoiceLineCreate(
+                item_id=1,
+                unit_price_override=Decimal("1.00"),
+            )
+
+        with pytest.raises(ValueError, match="cannot define components"):
+            InvoiceLineCreate(
+                item_id=1,
+                components=[{"allocations": [{"item_id": 2, "quantity": 1}]}],
+            )
+
+    @pytest.mark.parametrize(
+        ("is_active", "is_sellable", "expected_message"),
+        [
+            (False, True, "is not active"),
+            (True, False, "not available for individual sale"),
+        ],
+    )
+    async def test_direct_item_must_be_active_and_sellable(
+        self,
+        db_session: AsyncSession,
+        is_active: bool,
+        is_sellable: bool,
+        expected_message: str,
+    ):
+        data = await self._setup_test_data(db_session)
+        item = Item(
+            category_id=data["category"].id,
+            sku_code="DIRECT-NOT-SELLABLE",
+            name="Direct item",
+            item_type=ItemType.PRODUCT.value,
+            price_type=PriceType.STANDARD.value,
+            price=Decimal("100.00"),
+            is_sellable=is_sellable,
+            is_active=is_active,
+        )
+        db_session.add(item)
+        await db_session.flush()
+
+        with pytest.raises(ValidationError, match=expected_message):
+            await InvoiceService(db_session).create_adhoc_invoice(
+                InvoiceCreate(
+                    student_id=data["student"].id,
+                    lines=[InvoiceLineCreate(item_id=item.id)],
+                ),
+                created_by_id=data["user"].id,
+            )
+
     async def test_add_line_to_invoice(self, db_session: AsyncSession):
         """Test adding a line to a draft invoice."""
         data = await self._setup_test_data(db_session)
@@ -252,9 +363,7 @@ class TestInvoiceService:
         invoice = await service.create_adhoc_invoice(
             InvoiceCreate(
                 student_id=data["student"].id,
-                lines=[
-                    InvoiceLineCreate(kit_id=data["standard_kit"].id, quantity=1)
-                ],
+                lines=[InvoiceLineCreate(kit_id=data["standard_kit"].id, quantity=1)],
             ),
             created_by_id=data["user"].id,
         )
@@ -273,9 +382,7 @@ class TestInvoiceService:
         invoice = await service.create_adhoc_invoice(
             InvoiceCreate(
                 student_id=data["student"].id,
-                lines=[
-                    InvoiceLineCreate(kit_id=data["standard_kit"].id, quantity=1)
-                ],
+                lines=[InvoiceLineCreate(kit_id=data["standard_kit"].id, quantity=1)],
             ),
             created_by_id=data["user"].id,
         )
@@ -297,9 +404,7 @@ class TestInvoiceService:
         invoice = await service.create_adhoc_invoice(
             InvoiceCreate(
                 student_id=data["student"].id,
-                lines=[
-                    InvoiceLineCreate(kit_id=data["standard_kit"].id, quantity=1)
-                ],
+                lines=[InvoiceLineCreate(kit_id=data["standard_kit"].id, quantity=1)],
             ),
             created_by_id=data["user"].id,
         )
@@ -315,12 +420,12 @@ class TestInvoiceService:
     ):
         """Test that issuing an invoice with product kit creates reservation immediately."""
         data = await self._setup_test_data(db_session)
-        
+
         # Create a product kit (not service)
         from src.modules.items.models import Item, KitItem
         from src.modules.inventory.service import InventoryService
         from src.modules.inventory.schemas import ReceiveStockRequest
-        
+
         product_item = Item(
             category_id=data["category"].id,
             sku_code="PROD-ITEM-001",
@@ -374,18 +479,17 @@ class TestInvoiceService:
         invoice = await service.create_adhoc_invoice(
             InvoiceCreate(
                 student_id=data["student"].id,
-                lines=[
-                    InvoiceLineCreate(kit_id=product_kit.id, quantity=1)
-                ],
+                lines=[InvoiceLineCreate(kit_id=product_kit.id, quantity=1)],
             ),
             created_by_id=data["user"].id,
         )
 
         # Issue invoice (should create reservation via router, but we test service directly)
         invoice = await service.issue_invoice(invoice.id, issued_by_id=data["user"].id)
-        
+
         # Sync reservations (this is called in router after issue)
         from src.modules.reservations.service import ReservationService
+
         reservation_service = ReservationService(db_session)
         await reservation_service.sync_for_invoice(invoice.id, user_id=data["user"].id)
         await db_session.commit()
@@ -397,17 +501,15 @@ class TestInvoiceService:
         assert reservation.invoice_line_id == line.id
         assert reservation.status == "pending"
 
-    async def test_create_invoice_with_editable_kit_and_components(
-        self, db_session: AsyncSession
-    ):
+    async def test_create_invoice_with_editable_kit_and_components(self, db_session: AsyncSession):
         """Test creating an invoice with editable kit and custom components."""
         data = await self._setup_test_data(db_session)
-        
+
         # Create product items
         from src.modules.items.models import Item, KitItem
         from src.modules.inventory.service import InventoryService
         from src.modules.inventory.schemas import ReceiveStockRequest
-        
+
         item_s = Item(
             category_id=data["category"].id,
             sku_code="SHIRT-S",
@@ -523,10 +625,11 @@ class TestInvoiceService:
         assert len(invoice.lines) == 1
         line = invoice.lines[0]
         assert line.kit_id == editable_kit.id
-        
+
         # Check that components were saved (load explicitly to avoid lazy loading)
         from sqlalchemy import select
         from src.modules.invoices.models import InvoiceLineComponent
+
         components_result = await db_session.execute(
             select(InvoiceLineComponent).where(InvoiceLineComponent.invoice_line_id == line.id)
         )
@@ -535,17 +638,15 @@ class TestInvoiceService:
         assert components[0].item_id == item_m.id  # Changed to M
         assert components[0].quantity == 1
 
-    async def test_reservation_uses_components_for_editable_kit(
-        self, db_session: AsyncSession
-    ):
+    async def test_reservation_uses_components_for_editable_kit(self, db_session: AsyncSession):
         """Test that reservation uses InvoiceLineComponent items for editable kits."""
         data = await self._setup_test_data(db_session)
-        
+
         # Create product items
         from src.modules.items.models import Item, KitItem
         from src.modules.inventory.service import InventoryService
         from src.modules.inventory.schemas import ReceiveStockRequest
-        
+
         item_s = Item(
             category_id=data["category"].id,
             sku_code="SHIRT-S",
@@ -659,9 +760,10 @@ class TestInvoiceService:
 
         # Issue invoice
         invoice = await service.issue_invoice(invoice.id, issued_by_id=data["user"].id)
-        
+
         # Sync reservations
         from src.modules.reservations.service import ReservationService
+
         reservation_service = ReservationService(db_session)
         await reservation_service.sync_for_invoice(invoice.id, user_id=data["user"].id)
         await db_session.commit()
@@ -674,18 +776,16 @@ class TestInvoiceService:
         assert reservation.items[0].item_id == item_m.id  # Should be M, not S
         assert reservation.items[0].quantity_required == 1
 
-    async def test_validate_component_item_belongs_to_variant(
-        self, db_session: AsyncSession
-    ):
+    async def test_validate_component_item_belongs_to_variant(self, db_session: AsyncSession):
         """Test that component item must belong to the same variant as kit's default item."""
         data = await self._setup_test_data(db_session)
-        
+
         # Create product items
         from src.modules.items.models import Item, KitItem
         from src.modules.items.service import ItemService
         from src.modules.inventory.service import InventoryService
         from src.modules.inventory.schemas import ReceiveStockRequest
-        
+
         item_s = Item(
             category_id=data["category"].id,
             sku_code="SHIRT-S",
@@ -724,6 +824,7 @@ class TestInvoiceService:
 
         # Create variant with S and M only
         from src.modules.items.schemas import ItemVariantCreate
+
         item_service = ItemService(db_session)
         variant = await item_service.create_variant(
             ItemVariantCreate(name="Shirt Sizes S-M", item_ids=[item_s.id, item_m.id]),
@@ -774,7 +875,9 @@ class TestInvoiceService:
                             components=[
                                 InvoiceLineComponentConfig(
                                     allocations=[
-                                        InvoiceLineComponentAllocation(item_id=item_xl.id, quantity=1)
+                                        InvoiceLineComponentAllocation(
+                                            item_id=item_xl.id, quantity=1
+                                        )
                                     ]
                                 )
                             ],
@@ -809,6 +912,7 @@ class TestInvoiceService:
         # Check components (load explicitly to avoid lazy loading)
         from sqlalchemy import select
         from src.modules.invoices.models import InvoiceLineComponent
+
         # Get line_id safely
         line_id = invoice.lines[0].id if invoice.lines else None
         assert line_id is not None, "Invoice line should have an id"
@@ -827,9 +931,7 @@ class TestInvoiceService:
         invoice = await service.create_adhoc_invoice(
             InvoiceCreate(
                 student_id=data["student"].id,
-                lines=[
-                    InvoiceLineCreate(kit_id=data["standard_kit"].id, quantity=1)
-                ],
+                lines=[InvoiceLineCreate(kit_id=data["standard_kit"].id, quantity=1)],
             ),
             created_by_id=data["user"].id,
         )
@@ -847,9 +949,7 @@ class TestInvoiceService:
         invoice = await service.create_adhoc_invoice(
             InvoiceCreate(
                 student_id=data["student"].id,
-                lines=[
-                    InvoiceLineCreate(kit_id=data["admission_fee_kit"].id, quantity=1)
-                ],
+                lines=[InvoiceLineCreate(kit_id=data["admission_fee_kit"].id, quantity=1)],
             ),
             created_by_id=data["user"].id,
         )
@@ -869,9 +969,7 @@ class TestInvoiceService:
         invoice = await service.create_adhoc_invoice(
             InvoiceCreate(
                 student_id=data["student"].id,
-                lines=[
-                    InvoiceLineCreate(kit_id=data["standard_kit"].id, quantity=1)
-                ],
+                lines=[InvoiceLineCreate(kit_id=data["standard_kit"].id, quantity=1)],
             ),
             created_by_id=data["user"].id,
         )
@@ -888,9 +986,7 @@ class TestInvoiceService:
         invoice = await service.create_adhoc_invoice(
             InvoiceCreate(
                 student_id=data["student"].id,
-                lines=[
-                    InvoiceLineCreate(kit_id=data["standard_kit"].id, quantity=1)
-                ],
+                lines=[InvoiceLineCreate(kit_id=data["standard_kit"].id, quantity=1)],
             ),
             created_by_id=data["user"].id,
         )
@@ -916,9 +1012,7 @@ class TestInvoiceService:
         invoice = await invoice_service.create_adhoc_invoice(
             InvoiceCreate(
                 student_id=data["student"].id,
-                lines=[
-                    InvoiceLineCreate(kit_id=data["standard_kit"].id, quantity=1)
-                ],
+                lines=[InvoiceLineCreate(kit_id=data["standard_kit"].id, quantity=1)],
             ),
             created_by_id=data["user"].id,
         )
@@ -942,9 +1036,7 @@ class TestInvoiceService:
         second_invoice = await invoice_service.create_adhoc_invoice(
             InvoiceCreate(
                 student_id=data["student"].id,
-                lines=[
-                    InvoiceLineCreate(kit_id=data["standard_kit"].id, quantity=1)
-                ],
+                lines=[InvoiceLineCreate(kit_id=data["standard_kit"].id, quantity=1)],
             ),
             created_by_id=data["user"].id,
         )
@@ -998,9 +1090,7 @@ class TestInvoiceService:
         invoice = await invoice_service.create_adhoc_invoice(
             InvoiceCreate(
                 student_id=data["student"].id,
-                lines=[
-                    InvoiceLineCreate(kit_id=data["standard_kit"].id, quantity=1)
-                ],
+                lines=[InvoiceLineCreate(kit_id=data["standard_kit"].id, quantity=1)],
             ),
             created_by_id=data["user"].id,
         )
@@ -1061,7 +1151,9 @@ class TestInvoiceService:
         data = await self._setup_test_data(db_session)
         service = InvoiceService(db_session)
 
-        result = await service.generate_term_invoices(data["term"].id, generated_by_id=data["user"].id)
+        result = await service.generate_term_invoices(
+            data["term"].id, generated_by_id=data["user"].id
+        )
 
         assert result.school_fee_invoices_created == 2  # Both students
         assert result.transport_invoices_created == 1  # Only student with transport
@@ -1132,7 +1224,9 @@ class TestInvoiceService:
         await service.generate_term_invoices(data["term"].id, generated_by_id=data["user"].id)
 
         # Second generation should skip
-        result = await service.generate_term_invoices(data["term"].id, generated_by_id=data["user"].id)
+        result = await service.generate_term_invoices(
+            data["term"].id, generated_by_id=data["user"].id
+        )
 
         assert result.school_fee_invoices_created == 0
         assert result.transport_invoices_created == 0
@@ -1168,8 +1262,7 @@ class TestInvoiceService:
         assert second_result.transport_invoices_created == 1
 
         invoices_result = await db_session.execute(
-            select(Invoice.invoice_type)
-            .where(
+            select(Invoice.invoice_type).where(
                 Invoice.term_id == data["term"].id,
                 Invoice.student_id == student.id,
                 Invoice.status != InvoiceStatus.CANCELLED.value,
@@ -1311,9 +1404,7 @@ class TestInvoiceService:
 class TestInvoiceEndpoints:
     """Tests for invoice API endpoints."""
 
-    async def _setup_auth_and_data(
-        self, db_session: AsyncSession
-    ) -> tuple[str, int, dict]:
+    async def _setup_auth_and_data(self, db_session: AsyncSession) -> tuple[str, int, dict]:
         """Create super admin and test data."""
         auth_service = AuthService(db_session)
         user = await auth_service.create_user(
@@ -1375,9 +1466,7 @@ class TestInvoiceEndpoints:
             headers={"Authorization": f"Bearer {token}"},
             json={
                 "student_id": data["student"].id,
-                "lines": [
-                    {"kit_id": data["kit"].id, "quantity": 1}
-                ],
+                "lines": [{"kit_id": data["kit"].id, "quantity": 1}],
             },
         )
 
@@ -1554,9 +1643,7 @@ class TestInvoiceEndpoints:
         result = response.json()
         assert result["data"]["status"] == "issued"
 
-    async def test_update_line_discount_api(
-        self, client: AsyncClient, db_session: AsyncSession
-    ):
+    async def test_update_line_discount_api(self, client: AsyncClient, db_session: AsyncSession):
         """Test updating line discount via API."""
         token, _, data = await self._setup_auth_and_data(db_session)
 

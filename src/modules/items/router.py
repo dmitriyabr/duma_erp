@@ -12,6 +12,7 @@ from src.modules.items.schemas import (
     CategoryResponse,
     CategoryUpdate,
     ItemCreate,
+    ItemBulkSaleSettingsUpdate,
     ItemPriceHistoryResponse,
     ItemResponse,
     ItemUpdate,
@@ -29,6 +30,24 @@ from src.modules.items.service import ItemService
 from src.shared.schemas.base import ApiResponse
 
 router = APIRouter(prefix="/items", tags=["Items"])
+
+
+def _item_to_response(item) -> ItemResponse:
+    stock = item.__dict__.get("stock")
+    return ItemResponse(
+        id=item.id,
+        category_id=item.category_id,
+        category_name=item.category.name if item.category else None,
+        sku_code=item.sku_code,
+        name=item.name,
+        item_type=item.item_type,
+        price_type=item.price_type,
+        price=item.price,
+        requires_full_payment=item.requires_full_payment,
+        is_sellable=item.is_sellable,
+        is_active=item.is_active,
+        quantity_on_hand=stock.quantity_on_hand if stock is not None else None,
+    )
 
 
 # --- Category Endpoints ---
@@ -61,7 +80,9 @@ async def create_category(
 async def list_categories(
     include_inactive: bool = False,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
 ):
     """List all categories."""
     service = ItemService(db)
@@ -79,7 +100,9 @@ async def list_categories(
 async def get_category(
     category_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
 ):
     """Get category by ID."""
     service = ItemService(db)
@@ -130,18 +153,7 @@ async def create_item(
     return ApiResponse(
         success=True,
         message="Item created successfully",
-        data=ItemResponse(
-            id=item.id,
-            category_id=item.category_id,
-            category_name=item.category.name if item.category else None,
-            sku_code=item.sku_code,
-            name=item.name,
-            item_type=item.item_type,
-            price_type=item.price_type,
-            price=item.price,
-            requires_full_payment=item.requires_full_payment,
-            is_active=item.is_active,
-        ),
+        data=_item_to_response(item),
     )
 
 
@@ -153,8 +165,12 @@ async def list_items(
     category_id: int | None = None,
     item_type: str | None = None,
     include_inactive: bool = False,
+    is_sellable: bool | None = None,
+    include_stock: bool = False,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)
+    ),
 ):
     """List all items with optional filters."""
     service = ItemService(db)
@@ -163,24 +179,33 @@ async def list_items(
         category_id=category_id,
         item_type=type_filter,
         include_inactive=include_inactive,
+        is_sellable=is_sellable,
+        include_stock=include_stock,
     )
     return ApiResponse(
         success=True,
-        data=[
-            ItemResponse(
-                id=item.id,
-                category_id=item.category_id,
-                category_name=item.category.name if item.category else None,
-                sku_code=item.sku_code,
-                name=item.name,
-                item_type=item.item_type,
-                price_type=item.price_type,
-                price=item.price,
-                requires_full_payment=item.requires_full_payment,
-                is_active=item.is_active,
-            )
-            for item in items
-        ],
+        data=[_item_to_response(item) for item in items],
+    )
+
+
+@router.patch(
+    "/bulk-sale-settings",
+    response_model=ApiResponse[list[ItemResponse]],
+)
+async def bulk_update_sale_settings(
+    data: ItemBulkSaleSettingsUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+):
+    """Update individual-sale availability and price for multiple items."""
+    service = ItemService(db)
+    await service.bulk_update_sale_settings(data, current_user.id)
+    items = await service.list_items(include_inactive=True, include_stock=True)
+    requested_ids = set(data.item_ids)
+    return ApiResponse(
+        success=True,
+        message="Sale settings updated successfully",
+        data=[_item_to_response(item) for item in items if item.id in requested_ids],
     )
 
 
@@ -241,7 +266,9 @@ async def create_kit(
 async def list_kits(
     include_inactive: bool = False,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)
+    ),
 ):
     """List all kits."""
     service = ItemService(db)
@@ -288,7 +315,9 @@ async def list_kits(
 async def get_kit(
     kit_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)
+    ),
 ):
     """Get kit by ID."""
     service = ItemService(db)
@@ -379,7 +408,9 @@ async def update_kit(
 async def get_kit_price_history(
     kit_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
 ):
     """Get price history for a kit."""
     service = ItemService(db)
@@ -543,25 +574,16 @@ async def update_variant(
 async def get_item(
     item_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.USER, UserRole.ACCOUNTANT)
+    ),
 ):
     """Get item by ID."""
     service = ItemService(db)
     item = await service.get_item_by_id(item_id, with_category=True)
     return ApiResponse(
         success=True,
-        data=ItemResponse(
-            id=item.id,
-            category_id=item.category_id,
-            category_name=item.category.name if item.category else None,
-            sku_code=item.sku_code,
-            name=item.name,
-            item_type=item.item_type,
-            price_type=item.price_type,
-            price=item.price,
-            requires_full_payment=item.requires_full_payment,
-            is_active=item.is_active,
-        ),
+        data=_item_to_response(item),
     )
 
 
@@ -582,18 +604,7 @@ async def update_item(
     return ApiResponse(
         success=True,
         message="Item updated successfully",
-        data=ItemResponse(
-            id=item.id,
-            category_id=item.category_id,
-            category_name=item.category.name if item.category else None,
-            sku_code=item.sku_code,
-            name=item.name,
-            item_type=item.item_type,
-            price_type=item.price_type,
-            price=item.price,
-            requires_full_payment=item.requires_full_payment,
-            is_active=item.is_active,
-        ),
+        data=_item_to_response(item),
     )
 
 
@@ -604,7 +615,9 @@ async def update_item(
 async def get_item_price_history(
     item_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ACCOUNTANT)
+    ),
 ):
     """Get price history for an item."""
     service = ItemService(db)

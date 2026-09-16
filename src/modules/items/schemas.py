@@ -48,6 +48,7 @@ class ItemCreate(BaseModel):
     price_type: PriceType
     price: Decimal | None = Field(None, ge=0, decimal_places=2)
     requires_full_payment: bool | None = None  # If None, defaults based on item_type
+    is_sellable: bool = False
 
     @field_validator("price")
     @classmethod
@@ -68,6 +69,7 @@ class ItemUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=200)
     price: Decimal | None = Field(None, ge=0, decimal_places=2)
     requires_full_payment: bool | None = None
+    is_sellable: bool | None = None
     is_active: bool | None = None
 
 
@@ -83,8 +85,18 @@ class ItemResponse(BaseModel):
     price_type: str
     price: Decimal | None
     requires_full_payment: bool
+    is_sellable: bool
     is_active: bool
+    quantity_on_hand: int | None = None
     model_config = {"from_attributes": True}
+
+
+class ItemBulkSaleSettingsUpdate(BaseModel):
+    """Apply individual-sale settings to several inventory items."""
+
+    item_ids: list[int] = Field(..., min_length=1)
+    price: Decimal | None = Field(None, ge=0, decimal_places=2)
+    is_sellable: bool
 
 
 class ItemPriceHistoryResponse(BaseModel):
@@ -118,10 +130,14 @@ class KitItemCreate(BaseModel):
             if not self.item_id:
                 raise ValueError("item_id required when source_type='item'")
             if self.variant_id or self.default_item_id:
-                raise ValueError("variant_id and default_item_id must be null when source_type='item'")
+                raise ValueError(
+                    "variant_id and default_item_id must be null when source_type='item'"
+                )
         elif self.source_type == "variant":
             if not self.variant_id or not self.default_item_id:
-                raise ValueError("variant_id and default_item_id required when source_type='variant'")
+                raise ValueError(
+                    "variant_id and default_item_id required when source_type='variant'"
+                )
             if self.item_id:
                 raise ValueError("item_id must be null when source_type='variant'")
         return self
@@ -177,10 +193,14 @@ class KitItemUpdate(BaseModel):
             if not self.item_id:
                 raise ValueError("item_id required when source_type='item'")
             if self.variant_id or self.default_item_id:
-                raise ValueError("variant_id and default_item_id must be null when source_type='item'")
+                raise ValueError(
+                    "variant_id and default_item_id must be null when source_type='item'"
+                )
         elif self.source_type == "variant":
             if not self.variant_id or not self.default_item_id:
-                raise ValueError("variant_id and default_item_id required when source_type='variant'")
+                raise ValueError(
+                    "variant_id and default_item_id required when source_type='variant'"
+                )
             if self.item_id:
                 raise ValueError("item_id must be null when source_type='variant'")
         return self

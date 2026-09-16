@@ -14,6 +14,7 @@ from src.modules.items.schemas import (
     CategoryCreate,
     CategoryUpdate,
     ItemCreate,
+    ItemBulkSaleSettingsUpdate,
     ItemUpdate,
     KitCreate,
     KitItemCreate,
@@ -173,6 +174,84 @@ class TestItemService:
         assert item.price == Decimal("100.00")
         assert item.is_active is True
 
+    async def test_bulk_update_sale_settings(self, db_session: AsyncSession):
+        admin_id = await self._create_super_admin(db_session)
+        category_id = await self._create_category(db_session, admin_id)
+        service = ItemService(db_session)
+        first = await service.create_item(
+            ItemCreate(
+                category_id=category_id,
+                sku_code="SALE-001",
+                name="Sale item 1",
+                item_type=ItemType.PRODUCT,
+                price_type=PriceType.STANDARD,
+                price=Decimal("0.00"),
+            ),
+            created_by_id=admin_id,
+        )
+        second = await service.create_item(
+            ItemCreate(
+                category_id=category_id,
+                sku_code="SALE-002",
+                name="Sale item 2",
+                item_type=ItemType.PRODUCT,
+                price_type=PriceType.STANDARD,
+                price=Decimal("0.00"),
+            ),
+            created_by_id=admin_id,
+        )
+
+        updated = await service.bulk_update_sale_settings(
+            ItemBulkSaleSettingsUpdate(
+                item_ids=[first.id, second.id],
+                price=Decimal("850.00"),
+                is_sellable=True,
+            ),
+            updated_by_id=admin_id,
+        )
+
+        assert {item.price for item in updated} == {Decimal("850.00")}
+        assert all(item.is_sellable for item in updated)
+        sellable = await service.list_items(is_sellable=True)
+        assert {item.id for item in sellable} == {first.id, second.id}
+
+    async def test_sellable_item_requires_positive_price(self, db_session: AsyncSession):
+        admin_id = await self._create_super_admin(db_session)
+        category_id = await self._create_category(db_session, admin_id)
+        service = ItemService(db_session)
+
+        with pytest.raises(ValidationError, match="positive selling price"):
+            await service.create_item(
+                ItemCreate(
+                    category_id=category_id,
+                    sku_code="SALE-ZERO",
+                    name="Free by accident",
+                    item_type=ItemType.PRODUCT,
+                    price_type=PriceType.STANDARD,
+                    price=Decimal("0.00"),
+                    is_sellable=True,
+                ),
+                created_by_id=admin_id,
+            )
+
+        item = await service.create_item(
+            ItemCreate(
+                category_id=category_id,
+                sku_code="SALE-ZERO-EXISTING",
+                name="Existing zero-price item",
+                item_type=ItemType.PRODUCT,
+                price_type=PriceType.STANDARD,
+                price=Decimal("0.00"),
+            ),
+            created_by_id=admin_id,
+        )
+        with pytest.raises(ValidationError, match="positive selling price"):
+            await service.update_item(
+                item.id,
+                ItemUpdate(is_sellable=True),
+                updated_by_id=admin_id,
+            )
+
     async def test_create_item_by_grade(self, db_session: AsyncSession):
         """Test creating an item with by_grade price type."""
         admin_id = await self._create_super_admin(db_session)
@@ -242,7 +321,9 @@ class TestItemService:
         assert item.item_type == ItemType.PRODUCT.value
         assert item.sku_code  # auto-generated
 
-    async def test_get_or_create_product_item_returns_existing_by_name(self, db_session: AsyncSession):
+    async def test_get_or_create_product_item_returns_existing_by_name(
+        self, db_session: AsyncSession
+    ):
         """Test get_or_create_product_item returns same item on second call (by category+name)."""
         admin_id = await self._create_super_admin(db_session)
         service = ItemService(db_session)
@@ -263,7 +344,9 @@ class TestItemService:
         assert created2 is False
         assert item1.id == item2.id
 
-    async def test_get_or_create_product_item_returns_existing_by_sku(self, db_session: AsyncSession):
+    async def test_get_or_create_product_item_returns_existing_by_sku(
+        self, db_session: AsyncSession
+    ):
         """Test get_or_create_product_item finds existing item by SKU."""
         admin_id = await self._create_super_admin(db_session)
         category_id = await self._create_category(db_session, admin_id)
@@ -318,9 +401,9 @@ class TestItemService:
 
         # Check price history
         history = await service.get_item_price_history(item.id)
-        # Since no transactions, latest entry is updated (not new entry created)
-        assert len(history) == 1
+        assert len(history) == 2
         assert history[0].price == Decimal("150.00")
+        assert history[1].price == Decimal("100.00")
 
     async def test_list_items_by_category(self, db_session: AsyncSession):
         """Test listing items filtered by category."""
@@ -416,7 +499,9 @@ class TestKitService:
     async def test_create_kit(self, db_session: AsyncSession):
         """Test creating a kit."""
         admin_id = await self._create_super_admin(db_session)
-        category_id, item1_id, item2_id = await self._create_category_and_items(db_session, admin_id)
+        category_id, item1_id, item2_id = await self._create_category_and_items(
+            db_session, admin_id
+        )
         service = ItemService(db_session)
 
         kit = await service.create_kit(
@@ -477,7 +562,9 @@ class TestKitService:
     async def test_get_kit_with_items(self, db_session: AsyncSession):
         """Test getting kit with items loaded."""
         admin_id = await self._create_super_admin(db_session)
-        category_id, item1_id, item2_id = await self._create_category_and_items(db_session, admin_id)
+        category_id, item1_id, item2_id = await self._create_category_and_items(
+            db_session, admin_id
+        )
         service = ItemService(db_session)
 
         kit = await service.create_kit(
@@ -506,7 +593,9 @@ class TestKitService:
     async def test_update_kit_items(self, db_session: AsyncSession):
         """Test updating kit items."""
         admin_id = await self._create_super_admin(db_session)
-        category_id, item1_id, item2_id = await self._create_category_and_items(db_session, admin_id)
+        category_id, item1_id, item2_id = await self._create_category_and_items(
+            db_session, admin_id
+        )
         service = ItemService(db_session)
 
         kit = await service.create_kit(
@@ -539,11 +628,14 @@ class TestKitService:
     async def test_create_kit_with_variant_component(self, db_session: AsyncSession):
         """Test creating a kit with a variant component (source_type='variant')."""
         admin_id = await self._create_super_admin(db_session)
-        category_id, item1_id, item2_id = await self._create_category_and_items(db_session, admin_id)
+        category_id, item1_id, item2_id = await self._create_category_and_items(
+            db_session, admin_id
+        )
         service = ItemService(db_session)
 
         # Create variant
         from src.modules.items.schemas import ItemVariantCreate
+
         variant = await service.create_variant(
             ItemVariantCreate(name="Shirt Sizes", item_ids=[item1_id, item2_id]),
             created_by_id=admin_id,

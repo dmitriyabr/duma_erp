@@ -83,9 +83,7 @@ class ItemVariantMembership(Base):
     """Association between Item and ItemVariant (many-to-many)."""
 
     __tablename__ = "item_variant_memberships"
-    __table_args__ = (
-        UniqueConstraint("variant_id", "item_id", name="uq_variant_item"),
-    )
+    __table_args__ = (UniqueConstraint("variant_id", "item_id", name="uq_variant_item"),)
 
     id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
     variant_id: Mapped[int] = mapped_column(
@@ -122,13 +120,16 @@ class Item(Base):
     sku_code: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     item_type: Mapped[str] = mapped_column(String(20), nullable=False)  # service | product
-    price_type: Mapped[str] = mapped_column(String(20), nullable=False)  # standard | by_grade | by_zone
+    price_type: Mapped[str] = mapped_column(
+        String(20), nullable=False
+    )  # standard | by_grade | by_zone
     price: Mapped[Decimal | None] = mapped_column(
         Numeric(15, 2), nullable=True
     )  # Null for by_grade/by_zone or kit-only items
     requires_full_payment: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
     )  # True for products and special fees (admission), False for regular services
+    is_sellable: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -148,10 +149,10 @@ class Item(Base):
     price_history: Mapped[list["ItemPriceHistory"]] = relationship(
         "ItemPriceHistory", back_populates="item", order_by="desc(ItemPriceHistory.effective_from)"
     )
-    kit_items: Mapped[list["KitItem"]] = relationship("KitItem", back_populates="item", foreign_keys="[KitItem.item_id]")
-    stock: Mapped["Stock | None"] = relationship(
-        "Stock", back_populates="item", uselist=False
+    kit_items: Mapped[list["KitItem"]] = relationship(
+        "KitItem", back_populates="item", foreign_keys="[KitItem.item_id]"
     )
+    stock: Mapped["Stock | None"] = relationship("Stock", back_populates="item", uselist=False)
 
 
 # Forward reference for Stock (imported at module load time)
@@ -174,9 +175,7 @@ class ItemPriceHistory(Base):
     effective_from: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    changed_by_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=False
-    )
+    changed_by_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False)
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -197,7 +196,9 @@ class Kit(Base):
     sku_code: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     item_type: Mapped[str] = mapped_column(String(20), nullable=False)  # service | product
-    price_type: Mapped[str] = mapped_column(String(20), nullable=False)  # standard | by_grade | by_zone
+    price_type: Mapped[str] = mapped_column(
+        String(20), nullable=False
+    )  # standard | by_grade | by_zone
     price: Mapped[Decimal | None] = mapped_column(Numeric(15, 2), nullable=True)
     requires_full_payment: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False
@@ -235,15 +236,15 @@ class KitItem(Base):
     kit_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("kits.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    
+
     # Source type: 'item' or 'variant'
     source_type: Mapped[str] = mapped_column(String(20), nullable=False)  # 'item' | 'variant'
-    
+
     # If source_type = 'item'
     item_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("items.id"), nullable=True, index=True
     )
-    
+
     # If source_type = 'variant'
     variant_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("item_variants.id"), nullable=True, index=True
@@ -251,15 +252,17 @@ class KitItem(Base):
     default_item_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("items.id"), nullable=True, index=True
     )
-    
+
     quantity: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
     # Relationships
     kit: Mapped["Kit"] = relationship("Kit", back_populates="kit_items")
-    item: Mapped["Item | None"] = relationship("Item", foreign_keys=[item_id], back_populates="kit_items")
+    item: Mapped["Item | None"] = relationship(
+        "Item", foreign_keys=[item_id], back_populates="kit_items"
+    )
     variant: Mapped["ItemVariant | None"] = relationship("ItemVariant", foreign_keys=[variant_id])
     default_item: Mapped["Item | None"] = relationship("Item", foreign_keys=[default_item_id])
-    
+
     __table_args__ = (
         CheckConstraint(
             "(source_type = 'item' AND item_id IS NOT NULL AND variant_id IS NULL AND default_item_id IS NULL) OR "
@@ -282,9 +285,7 @@ class KitPriceHistory(Base):
     effective_from: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    changed_by_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=False
-    )
+    changed_by_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False)
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

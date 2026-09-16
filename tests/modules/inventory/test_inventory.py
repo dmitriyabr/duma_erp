@@ -812,6 +812,52 @@ class TestInventoryEndpoints:
             )
         )
 
+        # Existing direct-sale demand must survive disabling new individual sales.
+        direct_item = Item(
+            category_id=item.category_id,
+            sku_code="DIRECT-RESTOCK-000001",
+            name="Direct restock item",
+            item_type=ItemType.PRODUCT.value,
+            price_type="standard",
+            price=Decimal("850.00"),
+            requires_full_payment=True,
+            is_sellable=False,
+            is_active=True,
+        )
+        db_session.add(direct_item)
+        await db_session.flush()
+        direct_line = InvoiceLine(
+            invoice_id=inv.id,
+            item_id=direct_item.id,
+            description=direct_item.name,
+            quantity=3,
+            unit_price=Decimal("850.00"),
+            line_total=Decimal("2550.00"),
+            discount_amount=Decimal("0.00"),
+            net_amount=Decimal("2550.00"),
+            paid_amount=Decimal("0.00"),
+            remaining_amount=Decimal("2550.00"),
+        )
+        db_session.add(direct_line)
+        await db_session.flush()
+        direct_reservation = Reservation(
+            student_id=student.id,
+            invoice_id=inv.id,
+            invoice_line_id=direct_line.id,
+            status=ReservationStatus.PENDING.value,
+            created_by_id=admin_user.id,
+        )
+        db_session.add(direct_reservation)
+        await db_session.flush()
+        db_session.add(
+            ReservationItem(
+                reservation_id=direct_reservation.id,
+                item_id=direct_item.id,
+                quantity_required=3,
+                quantity_issued=0,
+            )
+        )
+
         # Create inbound via PO: 20 expected, 0 received.
         purpose = PaymentPurpose(name="Restock purpose", purpose_type="expense", is_active=True)
         db_session.add(purpose)
@@ -857,14 +903,23 @@ class TestInventoryEndpoints:
         )
         assert resp.status_code == 200
         payload = resp.json()["data"]
-        assert payload["total"] == 1
-        row = payload["items"][0]
+        assert payload["total"] == 2
+        row = next(entry for entry in payload["items"] if entry["item_id"] == item_id)
         assert row["item_id"] == item_id
         assert row["quantity_on_hand"] == 5
         assert row["quantity_owed"] == 10
         assert row["quantity_inbound"] == 20
         assert row["quantity_net"] == 15  # 5 + 20 - 10
         assert row["quantity_to_order"] == 0  # owed covered by on_hand+inbound
+
+        direct_row = next(
+            entry for entry in payload["items"] if entry["item_id"] == direct_item.id
+        )
+        assert direct_row["quantity_on_hand"] == 0
+        assert direct_row["quantity_owed"] == 3
+        assert direct_row["quantity_inbound"] == 0
+        assert direct_row["quantity_net"] == -3
+        assert direct_row["quantity_to_order"] == 3
 
     async def test_export_stock_csv_endpoint(self, client: AsyncClient, db_session: AsyncSession):
         """Test GET /inventory/bulk-upload/export returns CSV."""

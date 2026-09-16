@@ -25,6 +25,7 @@ from src.modules.items.schemas import (
     CategoryCreate,
     CategoryUpdate,
     ItemCreate,
+    ItemBulkSaleSettingsUpdate,
     ItemUpdate,
     ItemVariantCreate,
     ItemVariantUpdate,
@@ -46,9 +47,7 @@ class ItemService:
     async def create_category(self, data: CategoryCreate, created_by_id: int) -> Category:
         """Create a new category."""
         # Check for duplicate name
-        existing = await self.db.execute(
-            select(Category).where(Category.name == data.name)
-        )
+        existing = await self.db.execute(select(Category).where(Category.name == data.name))
         if existing.scalar_one_or_none():
             raise DuplicateError("Category", "name", data.name)
 
@@ -70,9 +69,7 @@ class ItemService:
 
     async def get_category_by_id(self, category_id: int) -> Category:
         """Get category by ID."""
-        result = await self.db.execute(
-            select(Category).where(Category.id == category_id)
-        )
+        result = await self.db.execute(select(Category).where(Category.id == category_id))
         category = result.scalar_one_or_none()
         if not category:
             raise NotFoundError(f"Category with id {category_id} not found")
@@ -91,9 +88,7 @@ class ItemService:
         name_clean = name.strip()
         if not name_clean:
             name_clean = "Uncategorized"
-        result = await self.db.execute(
-            select(Category).where(Category.name == name_clean)
-        )
+        result = await self.db.execute(select(Category).where(Category.name == name_clean))
         category = result.scalar_one_or_none()
         if category:
             return category
@@ -108,9 +103,7 @@ class ItemService:
         while True:
             sequence = await self._next_sku_sequence(prefix)
             sku_code = f"{prefix}-{sequence:06d}"
-            existing = await self.db.execute(
-                select(Item.id).where(Item.sku_code == sku_code)
-            )
+            existing = await self.db.execute(select(Item.id).where(Item.sku_code == sku_code))
             if not existing.scalar_one_or_none():
                 return sku_code
 
@@ -191,9 +184,7 @@ class ItemService:
         if data.name is not None and data.name != category.name:
             # Check for duplicate name
             existing = await self.db.execute(
-                select(Category).where(
-                    Category.name == data.name, Category.id != category_id
-                )
+                select(Category).where(Category.name == data.name, Category.id != category_id)
             )
             if existing.scalar_one_or_none():
                 raise DuplicateError("Category", "name", data.name)
@@ -226,9 +217,7 @@ class ItemService:
         await self.get_category_by_id(data.category_id)
 
         # Check for duplicate SKU
-        existing = await self.db.execute(
-            select(Item).where(Item.sku_code == data.sku_code)
-        )
+        existing = await self.db.execute(select(Item).where(Item.sku_code == data.sku_code))
         if existing.scalar_one_or_none():
             raise DuplicateError("Item", "sku_code", data.sku_code)
 
@@ -245,7 +234,10 @@ class ItemService:
             price_type=data.price_type.value,
             price=data.price,
             requires_full_payment=requires_full_payment,
+            is_sellable=data.is_sellable,
         )
+        if item.is_sellable:
+            self._validate_sellable_item(item)
         self.db.add(item)
         await self.db.flush()
 
@@ -269,6 +261,7 @@ class ItemService:
                 "item_type": data.item_type.value,
                 "price_type": data.price_type.value,
                 "price": str(data.price) if data.price else None,
+                "is_sellable": data.is_sellable,
             },
         )
 
@@ -307,15 +300,11 @@ class ItemService:
             sequence = await self._next_sku_sequence(prefix)
             sku_code = f"{prefix}-{sequence:06d}"
 
-            existing_kit = await self.db.execute(
-                select(Kit.id).where(Kit.sku_code == sku_code)
-            )
+            existing_kit = await self.db.execute(select(Kit.id).where(Kit.sku_code == sku_code))
             if existing_kit.scalar_one_or_none():
                 continue
 
-            existing_item = await self.db.execute(
-                select(Item.id).where(Item.sku_code == sku_code)
-            )
+            existing_item = await self.db.execute(select(Item.id).where(Item.sku_code == sku_code))
             if existing_item.scalar_one_or_none():
                 continue
 
@@ -334,9 +323,7 @@ class ItemService:
 
     async def get_item_by_sku(self, sku_code: str) -> Item:
         """Get item by SKU code."""
-        result = await self.db.execute(
-            select(Item).where(Item.sku_code == sku_code)
-        )
+        result = await self.db.execute(select(Item).where(Item.sku_code == sku_code))
         item = result.scalar_one_or_none()
         if not item:
             raise NotFoundError(f"Item with SKU '{sku_code}' not found")
@@ -347,9 +334,13 @@ class ItemService:
         category_id: int | None = None,
         item_type: ItemType | None = None,
         include_inactive: bool = False,
+        is_sellable: bool | None = None,
+        include_stock: bool = False,
     ) -> list[Item]:
         """List items with optional filters."""
         query = select(Item).options(selectinload(Item.category)).order_by(Item.name)
+        if include_stock:
+            query = query.options(selectinload(Item.stock))
 
         if not include_inactive:
             query = query.where(Item.is_active == True)
@@ -357,23 +348,13 @@ class ItemService:
             query = query.where(Item.category_id == category_id)
         if item_type is not None:
             query = query.where(Item.item_type == item_type.value)
+        if is_sellable is not None:
+            query = query.where(Item.is_sellable == is_sellable)
 
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def _has_transactions_for_price(self, item_id: int, price_history_id: int) -> bool:
-        """Check if there are any transactions using this price history entry.
-
-        This will be implemented when Invoice module is added.
-        For now, returns False (no transactions).
-        """
-        # TODO: Implement when Invoice module is added
-        # Check if any InvoiceItem references this price_history_id
-        return False
-
-    async def update_item(
-        self, item_id: int, data: ItemUpdate, updated_by_id: int
-    ) -> Item:
+    async def update_item(self, item_id: int, data: ItemUpdate, updated_by_id: int) -> Item:
         """Update an item."""
         item = await self.get_item_by_id(item_id)
         old_values = {
@@ -381,9 +362,14 @@ class ItemService:
             "name": item.name,
             "price": str(item.price) if item.price else None,
             "requires_full_payment": item.requires_full_payment,
+            "is_sellable": item.is_sellable,
             "is_active": item.is_active,
         }
         new_values = {}
+
+        future_sellable = data.is_sellable if data.is_sellable is not None else item.is_sellable
+        if future_sellable:
+            self._validate_sellable_item(item, data.price)
 
         if data.category_id is not None and data.category_id != item.category_id:
             await self.get_category_by_id(data.category_id)
@@ -398,9 +384,16 @@ class ItemService:
             item.is_active = data.is_active
             new_values["is_active"] = data.is_active
 
-        if data.requires_full_payment is not None and data.requires_full_payment != item.requires_full_payment:
+        if (
+            data.requires_full_payment is not None
+            and data.requires_full_payment != item.requires_full_payment
+        ):
             item.requires_full_payment = data.requires_full_payment
             new_values["requires_full_payment"] = data.requires_full_payment
+
+        if data.is_sellable is not None and data.is_sellable != item.is_sellable:
+            item.is_sellable = data.is_sellable
+            new_values["is_sellable"] = data.is_sellable
 
         if data.price is not None and data.price != item.price:
             if item.price_type != PriceType.STANDARD.value:
@@ -424,35 +417,73 @@ class ItemService:
         await self.db.refresh(item)
         return item
 
+    @staticmethod
+    def _validate_sellable_item(item: Item, pending_price: Decimal | None = None) -> None:
+        if item.item_type != ItemType.PRODUCT.value:
+            raise ValidationError("Only product items can be sold individually")
+        if item.price_type != PriceType.STANDARD.value:
+            raise ValidationError("Individually sold items require standard pricing")
+        price = pending_price if pending_price is not None else item.price
+        if price is None or price <= 0:
+            raise ValidationError("A positive selling price is required")
+
+    async def bulk_update_sale_settings(
+        self,
+        data: ItemBulkSaleSettingsUpdate,
+        updated_by_id: int,
+    ) -> list[Item]:
+        """Update sale price and availability for a set of inventory items."""
+        unique_ids = list(dict.fromkeys(data.item_ids))
+        result = await self.db.execute(
+            select(Item).where(Item.id.in_(unique_ids)).order_by(Item.name)
+        )
+        items = list(result.scalars().all())
+        found_ids = {item.id for item in items}
+        missing_ids = [item_id for item_id in unique_ids if item_id not in found_ids]
+        if missing_ids:
+            raise NotFoundError(f"Items not found: {missing_ids}")
+
+        if data.is_sellable:
+            for item in items:
+                self._validate_sellable_item(item, data.price)
+
+        for item in items:
+            old_values = {
+                "price": str(item.price) if item.price is not None else None,
+                "is_sellable": item.is_sellable,
+            }
+            if data.price is not None and data.price != item.price:
+                if item.price_type != PriceType.STANDARD.value:
+                    raise ValidationError(f"Cannot set standard price for item '{item.name}'")
+                await self._update_price_history(item, data.price, updated_by_id)
+                item.price = data.price
+            item.is_sellable = data.is_sellable
+            await self.audit.log(
+                action="item.bulk_sale_settings_update",
+                entity_type="Item",
+                entity_id=item.id,
+                user_id=updated_by_id,
+                old_values=old_values,
+                new_values={
+                    "price": str(item.price) if item.price is not None else None,
+                    "is_sellable": item.is_sellable,
+                },
+            )
+
+        await self.db.commit()
+        return items
+
     async def _update_price_history(
         self, item: Item, new_price: Decimal, changed_by_id: int
     ) -> None:
-        """Update price history for an item.
-
-        If the latest price has no transactions, update it.
-        Otherwise, create a new history entry.
-        """
-        # Get latest price history
-        result = await self.db.execute(
-            select(ItemPriceHistory)
-            .where(ItemPriceHistory.item_id == item.id)
-            .order_by(ItemPriceHistory.effective_from.desc())
-            .limit(1)
-        )
-        latest = result.scalar_one_or_none()
-
-        if latest and not await self._has_transactions_for_price(item.id, latest.id):
-            # No transactions - update existing entry
-            latest.price = new_price
-            latest.changed_by_id = changed_by_id
-        else:
-            # Has transactions or no history - create new entry
-            price_history = ItemPriceHistory(
+        """Append an immutable item price-history entry."""
+        self.db.add(
+            ItemPriceHistory(
                 item_id=item.id,
                 price=new_price,
                 changed_by_id=changed_by_id,
             )
-            self.db.add(price_history)
+        )
 
     async def get_item_price_history(self, item_id: int) -> list[ItemPriceHistory]:
         """Get price history for an item."""
@@ -460,19 +491,18 @@ class ItemService:
         result = await self.db.execute(
             select(ItemPriceHistory)
             .where(ItemPriceHistory.item_id == item_id)
-            .order_by(ItemPriceHistory.effective_from.desc())
+            .order_by(
+                ItemPriceHistory.effective_from.desc(),
+                ItemPriceHistory.id.desc(),
+            )
         )
         return list(result.scalars().all())
 
     # --- Item Variant Methods ---
 
-    async def create_variant(
-        self, data: ItemVariantCreate, created_by_id: int
-    ) -> ItemVariant:
+    async def create_variant(self, data: ItemVariantCreate, created_by_id: int) -> ItemVariant:
         """Create a new variant and optionally add items."""
-        existing = await self.db.execute(
-            select(ItemVariant).where(ItemVariant.name == data.name)
-        )
+        existing = await self.db.execute(select(ItemVariant).where(ItemVariant.name == data.name))
         if existing.scalar_one_or_none():
             raise DuplicateError("ItemVariant", "name", data.name)
 
@@ -483,9 +513,7 @@ class ItemService:
         # Add items to variant if provided
         if data.item_ids:
             # Validate all items exist and are products
-            result = await self.db.execute(
-                select(Item).where(Item.id.in_(data.item_ids))
-            )
+            result = await self.db.execute(select(Item).where(Item.id.in_(data.item_ids)))
             items = list(result.scalars().all())
             if len(items) != len(data.item_ids):
                 raise NotFoundError("One or more items not found")
@@ -518,17 +546,13 @@ class ItemService:
 
     async def get_variant_by_id(self, variant_id: int) -> ItemVariant:
         """Get variant by ID."""
-        result = await self.db.execute(
-            select(ItemVariant).where(ItemVariant.id == variant_id)
-        )
+        result = await self.db.execute(select(ItemVariant).where(ItemVariant.id == variant_id))
         variant = result.scalar_one_or_none()
         if not variant:
             raise NotFoundError(f"ItemVariant with id {variant_id} not found")
         return variant
 
-    async def list_variants(
-        self, include_inactive: bool = False
-    ) -> list[ItemVariant]:
+    async def list_variants(self, include_inactive: bool = False) -> list[ItemVariant]:
         """List all variants."""
         query = select(ItemVariant).order_by(ItemVariant.name)
         if not include_inactive:
@@ -603,9 +627,7 @@ class ItemService:
             # Add new memberships
             if to_add:
                 # Validate all items exist and are products
-                result = await self.db.execute(
-                    select(Item).where(Item.id.in_(list(to_add)))
-                )
+                result = await self.db.execute(select(Item).where(Item.id.in_(list(to_add))))
                 items = list(result.scalars().all())
                 if len(items) != len(to_add):
                     raise NotFoundError("One or more items not found")
@@ -656,9 +678,7 @@ class ItemService:
             raise DuplicateError("Kit", "sku_code", sku_code)
 
         # Also check Item SKUs
-        existing_item = await self.db.execute(
-            select(Item).where(Item.sku_code == sku_code)
-        )
+        existing_item = await self.db.execute(select(Item).where(Item.sku_code == sku_code))
         if existing_item.scalar_one_or_none():
             raise DuplicateError("Item", "sku_code", sku_code)
 
@@ -673,7 +693,9 @@ class ItemService:
                     await self.get_item_by_id(kit_item.item_id)
                 elif kit_item.source_type == "variant":
                     if not kit_item.variant_id or not kit_item.default_item_id:
-                        raise ValidationError("variant_id and default_item_id required when source_type='variant'")
+                        raise ValidationError(
+                            "variant_id and default_item_id required when source_type='variant'"
+                        )
                     variant = await self.get_variant_by_id(kit_item.variant_id)
                     # Verify default_item_id is in the variant
                     variant_items = await self.get_items_for_variant(kit_item.variant_id)
@@ -689,7 +711,9 @@ class ItemService:
         if requires_full_payment is None:
             requires_full_payment = data.item_type == ItemType.PRODUCT
 
-        is_editable_components = bool(data.is_editable_components) if data.is_editable_components is not None else False
+        is_editable_components = (
+            bool(data.is_editable_components) if data.is_editable_components is not None else False
+        )
 
         kit = Kit(
             category_id=data.category_id,
@@ -772,7 +796,9 @@ class ItemService:
             raise NotFoundError(f"Kit with id {kit_id} not found")
         return kit
 
-    async def list_kits(self, include_inactive: bool = False, exclude_fixed_fees: bool = True) -> list[Kit]:
+    async def list_kits(
+        self, include_inactive: bool = False, exclude_fixed_fees: bool = True
+    ) -> list[Kit]:
         """
         List all kits.
 
@@ -814,9 +840,7 @@ class ItemService:
         # TODO: Implement when Invoice module is added
         return False
 
-    async def update_kit(
-        self, kit_id: int, data: KitUpdate, updated_by_id: int
-    ) -> Kit:
+    async def update_kit(self, kit_id: int, data: KitUpdate, updated_by_id: int) -> Kit:
         """Update a kit."""
         kit = await self.get_kit_by_id(kit_id, with_items=True)
         old_values = {
@@ -848,7 +872,10 @@ class ItemService:
             kit.is_editable_components = data.is_editable_components
             new_values["is_editable_components"] = data.is_editable_components
 
-        if data.requires_full_payment is not None and data.requires_full_payment != kit.requires_full_payment:
+        if (
+            data.requires_full_payment is not None
+            and data.requires_full_payment != kit.requires_full_payment
+        ):
             kit.requires_full_payment = data.requires_full_payment
             new_values["requires_full_payment"] = data.requires_full_payment
 
@@ -870,7 +897,9 @@ class ItemService:
                     await self.get_item_by_id(kit_item_data.item_id)
                 elif kit_item_data.source_type == "variant":
                     if not kit_item_data.variant_id or not kit_item_data.default_item_id:
-                        raise ValidationError("variant_id and default_item_id required when source_type='variant'")
+                        raise ValidationError(
+                            "variant_id and default_item_id required when source_type='variant'"
+                        )
                     variant = await self.get_variant_by_id(kit_item_data.variant_id)
                     # Verify default_item_id is in the variant
                     variant_items = await self.get_items_for_variant(kit_item_data.variant_id)

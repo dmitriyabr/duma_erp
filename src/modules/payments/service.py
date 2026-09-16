@@ -86,8 +86,7 @@ class PaymentService:
             return allocations, Decimal("0.00")
 
         capacity_cents = {
-            key: max(0, self._money_to_cents(value))
-            for key, value in capacities.items()
+            key: max(0, self._money_to_cents(value)) for key, value in capacities.items()
         }
         total_capacity_cents = sum(capacity_cents.values())
         if total_capacity_cents <= 0:
@@ -162,9 +161,7 @@ class PaymentService:
 
     # --- Payment Methods ---
 
-    async def create_payment(
-        self, data: PaymentCreate, received_by_id: int
-    ) -> Payment:
+    async def create_payment(self, data: PaymentCreate, received_by_id: int) -> Payment:
         """Create a new payment (credit top-up)."""
         account, reference_student = await self._resolve_billing_context(
             student_id=data.student_id,
@@ -231,9 +228,7 @@ class PaymentService:
             raise NotFoundError(f"Payment with id {payment_id} not found")
         return payment
 
-    async def list_payments(
-        self, filters: PaymentFilters
-    ) -> tuple[list[Payment], int]:
+    async def list_payments(self, filters: PaymentFilters) -> tuple[list[Payment], int]:
         """List payments with filters."""
         query = (
             select(Payment)
@@ -377,9 +372,7 @@ class PaymentService:
         await self.db.commit()
         return await self.get_payment_by_id(payment_id)
 
-    async def complete_payment(
-        self, payment_id: int, completed_by_id: int
-    ) -> Payment:
+    async def complete_payment(self, payment_id: int, completed_by_id: int) -> Payment:
         """Complete a pending payment - generates receipt number."""
         payment = await self.get_payment_by_id(payment_id)
 
@@ -431,14 +424,14 @@ class PaymentService:
 
         remaining_to_auto_allocate = round_money(payment.amount - targeted_amount)
         if remaining_to_auto_allocate > 0:
-                await self.allocate_auto(
-                    AutoAllocateRequest(
-                        billing_account_id=payment.billing_account_id,
-                        max_amount=remaining_to_auto_allocate,
-                    ),
-                    completed_by_id,
-                    source_payment_id=payment.id,
-                )
+            await self.allocate_auto(
+                AutoAllocateRequest(
+                    billing_account_id=payment.billing_account_id,
+                    max_amount=remaining_to_auto_allocate,
+                ),
+                completed_by_id,
+                source_payment_id=payment.id,
+            )
         return await self.get_payment_by_id(payment_id)
 
     async def cancel_payment(
@@ -524,7 +517,9 @@ class PaymentService:
             )
         amount_to_reopen = round_money(max(Decimal("0.00"), requested_amount - available_credit))
         if amount_to_reopen > current_allocated_total:
-            raise ValidationError("Refund exceeds current recoverable credit on the billing account")
+            raise ValidationError(
+                "Refund exceeds current recoverable credit on the billing account"
+            )
 
         allocation_reversals = data.allocation_reversals
         if data.invoice_reversals is not None:
@@ -610,7 +605,9 @@ class PaymentService:
         commit: bool = True,
     ) -> PaymentRefund:
         """Create one outgoing refund document for a billing account."""
-        reason, refund_method, reference_number, proof_text, notes = self._sanitize_refund_data(data)
+        reason, refund_method, reference_number, proof_text, notes = self._sanitize_refund_data(
+            data
+        )
         requested_amount = round_money(data.amount)
 
         preview = await self.preview_billing_account_refund(
@@ -623,12 +620,10 @@ class PaymentService:
             ),
         )
 
-        payment_sources = (
-            await self._build_refund_payment_sources(
-                billing_account_id=billing_account_id,
-                amount=requested_amount,
-                forced_payment_id=forced_source_payment_id,
-            )
+        payment_sources = await self._build_refund_payment_sources(
+            billing_account_id=billing_account_id,
+            amount=requested_amount,
+            forced_payment_id=forced_source_payment_id,
         )
         source_total = round_money(
             sum((source.source_amount for source in payment_sources), Decimal("0.00"))
@@ -681,10 +676,7 @@ class PaymentService:
                 billing_account_id=billing_account_id,
                 amount_to_release=preview.amount_to_reopen,
                 user_id=refunded_by_id,
-                reason=(
-                    f"Refund {refund.refund_number or refund.id}"
-                    f" ({requested_amount})"
-                ),
+                reason=(f"Refund {refund.refund_number or refund.id} ({requested_amount})"),
                 manual_reversals=resolved_manual_reversals,
                 refund_id=refund.id,
                 effective_at=self._dated_event_datetime(data.refund_date),
@@ -791,9 +783,7 @@ class PaymentService:
             available_balance=available_balance,
         )
 
-    async def get_student_balances_batch(
-        self, student_ids: list[int]
-    ) -> list[StudentBalance]:
+    async def get_student_balances_batch(self, student_ids: list[int]) -> list[StudentBalance]:
         """Get credit balances for multiple students in one go (uses cache)."""
         if not student_ids:
             return []
@@ -1004,9 +994,7 @@ class PaymentService:
             )
 
         # Limit to max_amount if specified
-        max_to_allocate = (
-            min(available, data.max_amount) if data.max_amount else available
-        )
+        max_to_allocate = min(available, data.max_amount) if data.max_amount else available
         remaining = max_to_allocate
 
         # Get unpaid invoices with lines loaded (needed for requires_full_payment check)
@@ -1015,14 +1003,17 @@ class PaymentService:
             select(Invoice)
             .where(
                 Invoice.billing_account_id == account.id,
-                Invoice.status.in_([
-                    InvoiceStatus.ISSUED.value,
-                    InvoiceStatus.PARTIALLY_PAID.value,
-                ]),
+                Invoice.status.in_(
+                    [
+                        InvoiceStatus.ISSUED.value,
+                        InvoiceStatus.PARTIALLY_PAID.value,
+                    ]
+                ),
                 Invoice.amount_due > 0,
             )
             .options(
                 selectinload(Invoice.lines).selectinload(InvoiceLine.kit),
+                selectinload(Invoice.lines).selectinload(InvoiceLine.item),
                 selectinload(Invoice.term),
             )
         )
@@ -1155,9 +1146,7 @@ class PaymentService:
         )
 
     async def _get_active_term(self) -> Term | None:
-        result = await self.db.execute(
-            select(Term).where(Term.status == TermStatus.ACTIVE.value)
-        )
+        result = await self.db.execute(select(Term).where(Term.status == TermStatus.ACTIVE.value))
         return result.scalar_one_or_none()
 
     @staticmethod
@@ -1340,12 +1329,10 @@ class PaymentService:
         )
         opening_refund_debits = Decimal(str(opening_refunds.scalar() or 0))
 
-        opening_future_reversals = (
-            build_future_allocation_reversal_totals_subquery(
-                date_from,
-                inclusive=True,
-                alias_name="statement_opening_future_reversals",
-            )
+        opening_future_reversals = build_future_allocation_reversal_totals_subquery(
+            date_from,
+            inclusive=True,
+            alias_name="statement_opening_future_reversals",
         )
         opening_allocations = await self.db.execute(
             select(
@@ -1439,9 +1426,7 @@ class PaymentService:
                 func.date(CreditAllocation.created_at) >= date_from,
                 func.date(CreditAllocation.created_at) <= date_to,
             )
-            .options(
-                selectinload(CreditAllocation.invoice).selectinload(Invoice.student)
-            )
+            .options(selectinload(CreditAllocation.invoice).selectinload(Invoice.student))
             .order_by(CreditAllocation.created_at)
         )
         allocations = [
@@ -1467,9 +1452,7 @@ class PaymentService:
         all_items: list[tuple[datetime, str, object]] = []
 
         for payment in payments:
-            dt = datetime.combine(
-                payment.payment_date, datetime.min.time(), tzinfo=timezone.utc
-            )
+            dt = datetime.combine(payment.payment_date, datetime.min.time(), tzinfo=timezone.utc)
             all_items.append((dt, "payment", payment))
 
         for refund in refunds:
@@ -1484,9 +1467,7 @@ class PaymentService:
             all_items.append((dt, "refund", refund))
 
         for reversal in reversals:
-            all_items.append(
-                (_to_utc(reversal.reversed_at), "allocation_reversal", reversal)
-            )
+            all_items.append((_to_utc(reversal.reversed_at), "allocation_reversal", reversal))
 
         for allocation, original_amount in allocations:
             all_items.append(
@@ -1656,9 +1637,7 @@ class PaymentService:
 
     async def _get_invoice_line(self, line_id: int) -> InvoiceLine:
         """Get invoice line by ID."""
-        result = await self.db.execute(
-            select(InvoiceLine).where(InvoiceLine.id == line_id)
-        )
+        result = await self.db.execute(select(InvoiceLine).where(InvoiceLine.id == line_id))
         line = result.scalar_one_or_none()
         if not line:
             raise NotFoundError(f"Invoice line with id {line_id} not found")
@@ -1684,11 +1663,7 @@ class PaymentService:
             if isinstance(data.proof_text, str) and data.proof_text.strip()
             else None
         )
-        notes = (
-            data.notes.strip()
-            if isinstance(data.notes, str) and data.notes.strip()
-            else None
-        )
+        notes = data.notes.strip() if isinstance(data.notes, str) and data.notes.strip() else None
         if len(reason) < 3:
             raise ValidationError("Refund reason must be at least 3 characters")
         if not reference_number and not proof_text and data.proof_attachment_id is None:
@@ -1755,8 +1730,7 @@ class PaymentService:
             .group_by(PaymentRefundSource.payment_id)
         )
         amounts = {
-            int(payment_id): Decimal(str(amount or 0))
-            for payment_id, amount in source_result.all()
+            int(payment_id): Decimal(str(amount or 0)) for payment_id, amount in source_result.all()
         }
 
         legacy_result = await self.db.execute(
@@ -1786,16 +1760,16 @@ class PaymentService:
         amount: Decimal,
         forced_payment_id: int | None = None,
     ) -> list[RefundPaymentSourceImpact]:
-        refunded_by_payment = await self._payment_refunded_amounts_by_account(
-            billing_account_id
-        )
+        refunded_by_payment = await self._payment_refunded_amounts_by_account(billing_account_id)
         query = select(Payment).where(
             Payment.billing_account_id == billing_account_id,
             Payment.status == PaymentStatus.COMPLETED.value,
         )
         if forced_payment_id is not None:
             query = query.where(Payment.id == forced_payment_id)
-        query = query.order_by(Payment.payment_date.desc(), Payment.created_at.desc(), Payment.id.desc())
+        query = query.order_by(
+            Payment.payment_date.desc(), Payment.created_at.desc(), Payment.id.desc()
+        )
         result = await self.db.execute(query)
         payments = list(result.scalars().all())
 
@@ -1804,9 +1778,7 @@ class PaymentService:
         for payment in payments:
             if remaining <= 0:
                 break
-            already_refunded = round_money(
-                refunded_by_payment.get(payment.id, Decimal("0.00"))
-            )
+            already_refunded = round_money(refunded_by_payment.get(payment.id, Decimal("0.00")))
             capacity = round_money(payment.amount - already_refunded)
             if capacity <= 0:
                 continue
@@ -1879,13 +1851,9 @@ class PaymentService:
             reversal_by_allocation[item.allocation_id] = round_money(
                 reversal_by_allocation.get(item.allocation_id, Decimal("0.00")) + item.amount
             )
-        requested_total = round_money(
-            sum(reversal_by_allocation.values(), Decimal("0.00"))
-        )
+        requested_total = round_money(sum(reversal_by_allocation.values(), Decimal("0.00")))
         if requested_total != amount_to_reopen:
-            raise ValidationError(
-                f"Allocation reversal total must equal {amount_to_reopen}"
-            )
+            raise ValidationError(f"Allocation reversal total must equal {amount_to_reopen}")
 
         result = await self.db.execute(
             select(CreditAllocation)
@@ -1932,7 +1900,11 @@ class PaymentService:
                 CreditAllocation.amount > 0,
             )
             .options(selectinload(CreditAllocation.invoice).selectinload(Invoice.student))
-            .order_by(CreditAllocation.invoice_id, CreditAllocation.created_at.desc(), CreditAllocation.id.desc())
+            .order_by(
+                CreditAllocation.invoice_id,
+                CreditAllocation.created_at.desc(),
+                CreditAllocation.id.desc(),
+            )
         )
         allocations_by_invoice: dict[int, list[CreditAllocation]] = defaultdict(list)
         for allocation in result.scalars().unique().all():
@@ -2143,9 +2115,7 @@ class PaymentService:
             return Decimal("0.00")
 
         invoice.subtotal = round_money(sum(line.line_total for line in invoice.lines))
-        invoice.discount_total = round_money(
-            sum(line.discount_amount for line in invoice.lines)
-        )
+        invoice.discount_total = round_money(sum(line.discount_amount for line in invoice.lines))
         invoice.total = round_money(invoice.subtotal - invoice.discount_total)
 
         allocations_result = await self.db.execute(
@@ -2286,16 +2256,11 @@ class PaymentService:
                 .where(CreditAllocation.invoice_line_id.in_(line_ids))
                 .group_by(CreditAllocation.invoice_line_id)
             )
-            line_paid_map = {
-                row[0]: Decimal(str(row[1])) for row in line_allocations_result.all()
-            }
+            line_paid_map = {row[0]: Decimal(str(row[1])) for row in line_allocations_result.all()}
 
             explicit_line_total = round_money(
                 sum(
-                    (
-                        line_paid_map.get(line.id, Decimal("0.00"))
-                        for line in invoice.lines
-                    ),
+                    (line_paid_map.get(line.id, Decimal("0.00")) for line in invoice.lines),
                     Decimal("0.00"),
                 )
             )
