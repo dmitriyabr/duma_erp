@@ -450,6 +450,7 @@ export const CreateInvoicePage = () => {
                 (option.source_type === 'item' && option.id === line.item_id)
             ) ?? null
             const canConfigure = Boolean(kit?.is_editable_components)
+            const stockOnHand = item?.quantity_on_hand ?? 0
             return (
               <TableRow key={line.id}>
                 <TableCell>
@@ -480,9 +481,11 @@ export const CreateInvoicePage = () => {
                     placeholder="Type to search items..."
                     className="min-w-[240px]"
                   />
-                  {item && (item.quantity_on_hand ?? 0) < line.quantity && (
+                  {item && stockOnHand < line.quantity && (
                     <Typography variant="caption" className="text-amber-700 mt-1 block">
-                      Only {item.quantity_on_hand} in stock. The remainder will stay pending.
+                      {stockOnHand === 0
+                        ? 'Out of stock. Issuance will remain pending until stock is received.'
+                        : `Only ${stockOnHand} in stock. ${line.quantity - stockOnHand} will remain pending until stock is received.`}
                     </Typography>
                   )}
                 </TableCell>
