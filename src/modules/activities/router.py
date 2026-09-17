@@ -226,6 +226,21 @@ async def update_activity(
     )
 
 
+@router.post("/{activity_id}/close", response_model=ApiResponse[ActivityResponse])
+async def close_activity(
+    activity_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(*ManageRoles)),
+):
+    """Close an activity and stop offering it for new sales."""
+    activity = await ActivityService(db).close_activity(activity_id, current_user.id)
+    return ApiResponse(
+        success=True,
+        message="Activity closed successfully",
+        data=_activity_to_response(activity),
+    )
+
+
 @router.post(
     "/{activity_id}/participants",
     response_model=ApiResponse[ActivityResponse],

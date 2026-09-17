@@ -12,6 +12,7 @@ import { Typography } from '../../components/ui/Typography'
 import { Alert } from '../../components/ui/Alert'
 import { Spinner } from '../../components/ui/Spinner'
 import { canManageActivities } from '../../utils/permissions'
+import { CloseActivityButton } from './components/CloseActivityButton'
 
 interface ActivitySummaryRow {
   id: number
@@ -62,7 +63,7 @@ export const ActivitiesListPage = () => {
     return `/activities?${sp.toString()}`
   }, [page, limit, search, statusFilter])
 
-  const { data, loading, error } = useApi<PaginatedResponse<ActivitySummaryRow>>(url)
+  const { data, loading, error, refetch } = useApi<PaginatedResponse<ActivitySummaryRow>>(url)
   const rows = data?.items ?? []
   const total = data?.total ?? 0
 
@@ -166,13 +167,22 @@ export const ActivitiesListPage = () => {
                       View
                     </Button>
                     {canManage && (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={() => navigate(`/billing/activities/${row.id}/edit`)}
-                      >
-                        Edit
-                      </Button>
+                      <>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => navigate(`/billing/activities/${row.id}/edit`)}
+                        >
+                          Edit
+                        </Button>
+                        <CloseActivityButton
+                          activityId={row.id}
+                          activityName={row.name}
+                          status={row.status}
+                          size="small"
+                          onClosed={refetch}
+                        />
+                      </>
                     )}
                   </div>
                 </TableCell>

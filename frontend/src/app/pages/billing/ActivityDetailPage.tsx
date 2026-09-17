@@ -16,6 +16,7 @@ import { Typography } from '../../components/ui/Typography'
 import { Dialog, DialogActions, DialogCloseButton, DialogContent, DialogTitle } from '../../components/ui/Dialog'
 import { Autocomplete } from '../../components/ui/Autocomplete'
 import { canManageActivities } from '../../utils/permissions'
+import { CloseActivityButton } from './components/CloseActivityButton'
 
 interface StudentOption {
   id: number
@@ -232,6 +233,12 @@ export const ActivityDetailPage = () => {
             <Button variant="outlined" onClick={() => navigate(`/billing/activities/${activity.id}/edit`)}>
               Edit
             </Button>
+            <CloseActivityButton
+              activityId={activity.id}
+              activityName={activity.name}
+              status={activity.status}
+              onClosed={detailApi.refetch}
+            />
             <Button variant="outlined" onClick={openAddDialog} disabled={activity.status === 'closed' || activity.status === 'cancelled'}>
               Add student
             </Button>

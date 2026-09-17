@@ -10,7 +10,6 @@ from sqlalchemy.orm import selectinload
 from src.core.audit.service import AuditService
 from src.core.documents.number_generator import DocumentNumberGenerator
 from src.core.exceptions import NotFoundError, ValidationError
-from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.activities.models import (
     Activity,
     ActivityAudienceType,
@@ -26,6 +25,7 @@ from src.modules.activities.schemas import (
     ActivityParticipantAddRequest,
     ActivityUpdate,
 )
+from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.invoices.models import Invoice, InvoiceStatus, InvoiceType
 from src.modules.invoices.schemas import InvoiceLineCreate
 from src.modules.invoices.service import InvoiceService
@@ -388,7 +388,11 @@ class ActivityService:
         affected_student_ids: set[int] = set()
 
         if activity.status == ActivityStatus.DRAFT.value:
-            activity.status = ActivityStatus.PUBLISHED.value
+            await self._apply_status_update(
+                activity,
+                ActivityStatus.PUBLISHED,
+                generated_by_id,
+            )
 
         for participant in activity.participants:
             if participant.invoice_id is not None:
@@ -500,7 +504,7 @@ class ActivityService:
             price_type=PriceType.STANDARD.value,
             price=round_money(activity.amount),
             requires_full_payment=activity.requires_full_payment,
-            is_active=True,
+            is_active=activity.status == ActivityStatus.PUBLISHED.value,
         )
         self.db.add(kit)
         await self.db.flush()
@@ -609,6 +613,8 @@ class ActivityService:
                 participant.status = ActivityParticipantStatus.CANCELLED.value
                 participant.excluded_reason = "Activity cancelled"
         activity.status = status.value
+        if activity.created_activity_kit:
+            activity.created_activity_kit.is_active = status == ActivityStatus.PUBLISHED
         await self.audit.log(
             action="activity.status_update",
             entity_type="Activity",
@@ -617,6 +623,20 @@ class ActivityService:
             user_id=updated_by_id,
             new_values={"status": activity.status},
         )
+
+    async def close_activity(self, activity_id: int, closed_by_id: int) -> Activity:
+        """Close an activity and remove its generated kit from new sales."""
+        activity = await self.get_activity_by_id(activity_id)
+        if activity.status == ActivityStatus.CANCELLED.value:
+            raise ValidationError("Cannot close a cancelled activity")
+        if activity.status != ActivityStatus.CLOSED.value:
+            await self._apply_status_update(
+                activity,
+                ActivityStatus.CLOSED,
+                closed_by_id,
+            )
+            await self.db.commit()
+        return await self.get_activity_by_id(activity.id)
 
     def _effective_audience_update(
         self,

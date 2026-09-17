@@ -14,7 +14,11 @@ from src.modules.activities.models import (
     ActivityParticipantStatus,
     ActivityStatus,
 )
-from src.modules.activities.schemas import ActivityCreate, ActivityParticipantAddRequest
+from src.modules.activities.schemas import (
+    ActivityCreate,
+    ActivityParticipantAddRequest,
+    ActivityUpdate,
+)
 from src.modules.activities.service import ActivityService
 from src.modules.invoices.models import Invoice, InvoiceStatus, InvoiceType
 from src.modules.items.models import Category, Kit
@@ -129,12 +133,47 @@ class TestActivityService:
         assert kit.name == "Fun Day"
         assert kit.price == Decimal("1500.00")
         assert kit.requires_full_payment is True
+        assert kit.is_active is False
 
         category_result = await db_session.execute(
             select(Category).where(Category.name == "Activities")
         )
         category = category_result.scalar_one()
         assert category.is_active is True
+
+    async def test_activity_status_controls_sell_items_visibility(
+        self, db_session: AsyncSession
+    ) -> None:
+        data = await self._setup_data(db_session)
+        service = ActivityService(db_session)
+        activity = await service.create_activity(
+            ActivityCreate(
+                name="Visible Activity",
+                amount=Decimal("750.00"),
+                status=ActivityStatus.PUBLISHED,
+                audience_type="manual",
+                student_ids=[data["student_one"].id],
+            ),
+            created_by_id=data["admin"].id,
+        )
+
+        kit = await db_session.get(Kit, activity.created_activity_kit_id)
+        assert kit is not None
+        assert kit.is_active is True
+
+        closed = await service.close_activity(activity.id, data["admin"].id)
+        await db_session.refresh(kit)
+        assert closed.status == ActivityStatus.CLOSED.value
+        assert kit.is_active is False
+
+        reopened = await service.update_activity(
+            activity.id,
+            ActivityUpdate(status=ActivityStatus.PUBLISHED),
+            data["admin"].id,
+        )
+        await db_session.refresh(kit)
+        assert reopened.status == ActivityStatus.PUBLISHED.value
+        assert kit.is_active is True
 
     async def test_generate_activity_invoices_auto_allocates_existing_credit(
         self, db_session: AsyncSession
@@ -171,6 +210,10 @@ class TestActivityService:
         result = await activity_service.generate_invoices(activity.id, data["admin"].id)
         assert result.invoices_created == 1
         assert result.affected_student_ids == [data["student_one"].id]
+
+        generated_kit = await db_session.get(Kit, activity.created_activity_kit_id)
+        assert generated_kit is not None
+        assert generated_kit.is_active is True
 
         invoice_result = await db_session.execute(
             select(Invoice).where(
@@ -385,6 +428,24 @@ class TestActivityEndpoints:
         assert detail_response.status_code == 200
         detail = detail_response.json()["data"]
         assert detail["participants"][0]["invoice_number"] is not None
+
+        close_response = await client.post(
+            f"/api/v1/activities/{created['id']}/close",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert close_response.status_code == 200
+        assert close_response.json()["data"]["status"] == ActivityStatus.CLOSED.value
+
+        forbidden_close = await client.post(
+            f"/api/v1/activities/{created['id']}/close",
+            headers={"Authorization": f"Bearer {accountant_token}"},
+        )
+        assert forbidden_close.status_code == 403
+
+        kit = await db_session.get(Kit, created["created_activity_kit_id"])
+        assert kit is not None
+        await db_session.refresh(kit)
+        assert kit.is_active is False
 
     async def test_activity_detail_excludes_cancelled_participants_from_current_audience(
         self, client: AsyncClient, db_session: AsyncSession
