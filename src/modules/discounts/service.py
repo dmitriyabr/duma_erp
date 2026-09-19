@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from src.core.audit.service import AuditService
 from src.core.exceptions import DuplicateError, NotFoundError, ValidationError
-from src.shared.utils.money import round_money
+from src.modules.billing_accounts.locking import lock_record_accounts
 from src.modules.discounts.models import (
     Discount,
     DiscountReason,
@@ -27,6 +27,7 @@ from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, Inv
 from src.modules.payments.schemas import AutoAllocateRequest
 from src.modules.payments.service import PaymentService
 from src.modules.students.models import Student
+from src.shared.utils.money import round_money
 
 
 class DiscountService:
@@ -150,9 +151,13 @@ class DiscountService:
         self, data: DiscountApply, applied_by_id: int, actor_is_super_admin: bool = False
     ) -> Discount:
         """Apply a discount to an invoice line."""
+        invoice_id = await self.db.scalar(select(InvoiceLine.invoice_id).where(InvoiceLine.id == data.invoice_line_id))
+        if invoice_id is None:
+            raise NotFoundError("Invoice line not found")
+        await lock_record_accounts(self.db, [(Invoice, invoice_id)])
         # Get invoice line
         result = await self.db.execute(
-            select(InvoiceLine)
+            select(InvoiceLine).execution_options(populate_existing=True)
             .where(InvoiceLine.id == data.invoice_line_id)
             .options(selectinload(InvoiceLine.invoice))
         )
@@ -246,8 +251,14 @@ class DiscountService:
         self, discount_id: int, removed_by_id: int
     ) -> None:
         """Remove a discount from an invoice line."""
+        invoice_id = await self.db.scalar(select(InvoiceLine.invoice_id).join(
+            Discount, Discount.invoice_line_id == InvoiceLine.id
+        ).where(Discount.id == discount_id))
+        if invoice_id is None:
+            raise NotFoundError("Discount not found")
+        await lock_record_accounts(self.db, [(Invoice, invoice_id)])
         result = await self.db.execute(
-            select(Discount)
+            select(Discount).execution_options(populate_existing=True)
             .where(Discount.id == discount_id)
             .options(
                 selectinload(Discount.invoice_line).selectinload(InvoiceLine.invoice)
@@ -293,7 +304,7 @@ class DiscountService:
     async def get_line_discounts(self, invoice_line_id: int) -> list[Discount]:
         """Get all discounts applied to an invoice line."""
         result = await self.db.execute(
-            select(Discount)
+            select(Discount).execution_options(populate_existing=True)
             .where(Discount.invoice_line_id == invoice_line_id)
             .options(selectinload(Discount.reason))
             .order_by(Discount.created_at)

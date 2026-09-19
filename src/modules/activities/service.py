@@ -25,6 +25,7 @@ from src.modules.activities.schemas import (
     ActivityParticipantAddRequest,
     ActivityUpdate,
 )
+from src.modules.billing_accounts.locking import lock_record_accounts
 from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.invoices.models import Invoice, InvoiceStatus, InvoiceType
 from src.modules.invoices.schemas import InvoiceLineCreate
@@ -201,7 +202,7 @@ class ActivityService:
     ) -> tuple[list[Activity], int]:
         """List activities with summary data loaded."""
         query = (
-            select(Activity)
+            select(Activity).execution_options(populate_existing=True)
             .options(
                 selectinload(Activity.term),
                 selectinload(Activity.grade_scopes),
@@ -234,7 +235,7 @@ class ActivityService:
     async def get_activity_by_id(self, activity_id: int) -> Activity:
         """Load one activity with participants, invoices, grades, and term."""
         result = await self.db.execute(
-            select(Activity)
+            select(Activity).execution_options(populate_existing=True)
             .where(Activity.id == activity_id)
             .options(
                 selectinload(Activity.term),
@@ -320,6 +321,10 @@ class ActivityService:
         reason: str | None = None,
     ) -> Activity:
         """Exclude a student from the activity, cancelling unpaid invoice if needed."""
+        student_id = await self.db.scalar(select(ActivityParticipant.student_id).where(ActivityParticipant.id == participant_id))
+        if student_id is None:
+            raise NotFoundError("Activity participant not found")
+        await lock_record_accounts(self.db, [(Student, student_id)])
         activity = await self.get_activity_by_id(activity_id)
         participant = next((p for p in activity.participants if p.id == participant_id), None)
         if not participant:
@@ -372,6 +377,8 @@ class ActivityService:
         generated_by_id: int,
     ) -> ActivityInvoiceGenerationResult:
         """Create missing activity invoices for planned participants."""
+        participant_student_ids = list((await self.db.scalars(select(ActivityParticipant.student_id).where(ActivityParticipant.activity_id == activity_id))).all())
+        await lock_record_accounts(self.db, [(Student, sid) for sid in participant_student_ids])
         activity = await self.get_activity_by_id(activity_id)
         self._ensure_activity_open_for_billing(activity)
 

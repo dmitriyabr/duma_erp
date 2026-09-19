@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from src.core.audit.service import AuditService
 from src.core.documents.number_generator import DocumentNumberGenerator
 from src.core.exceptions import NotFoundError, ValidationError
+from src.modules.billing_accounts.locking import lock_accounts, lock_record_accounts
 from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.discounts.models import (
     Discount,
@@ -355,9 +356,10 @@ class InvoiceService:
 
     async def create_adhoc_invoice(self, data: InvoiceCreate, created_by_id: int) -> Invoice:
         """Create an ad-hoc invoice (draft)."""
+        await lock_record_accounts(self.db, [(Student, data.student_id)])
         # Validate student
         result = await self.db.execute(
-            select(Student)
+            select(Student).execution_options(populate_existing=True)
             .where(Student.id == data.student_id)
             .options(selectinload(Student.billing_account))
         )
@@ -481,6 +483,7 @@ class InvoiceService:
         self, invoice_id: int, line_data: InvoiceLineCreate, added_by_id: int
     ) -> Invoice:
         """Add a line to a draft invoice."""
+        await lock_record_accounts(self.db, [(Invoice, invoice_id)])
         invoice = await self.get_invoice_by_id(invoice_id)
 
         if not invoice.is_editable:
@@ -513,6 +516,7 @@ class InvoiceService:
 
     async def remove_line(self, invoice_id: int, line_id: int, removed_by_id: int) -> Invoice:
         """Remove a line from a draft invoice."""
+        await lock_record_accounts(self.db, [(Invoice, invoice_id)])
         invoice = await self.get_invoice_by_id(invoice_id)
 
         if not invoice.is_editable:
@@ -552,6 +556,7 @@ class InvoiceService:
         actor_is_super_admin: bool = False,
     ) -> Invoice:
         """Update discount on a specific line."""
+        await lock_record_accounts(self.db, [(Invoice, invoice_id)])
         invoice = await self.get_invoice_by_id(invoice_id)
 
         # Paid invoices require SuperAdmin override.
@@ -611,6 +616,7 @@ class InvoiceService:
         self, invoice_id: int, issued_by_id: int, due_date: date | None = None
     ) -> Invoice:
         """Issue a draft invoice."""
+        await lock_record_accounts(self.db, [(Invoice, invoice_id)])
         invoice = await self.get_invoice_by_id(invoice_id)
 
         if invoice.status != InvoiceStatus.DRAFT.value:
@@ -637,6 +643,7 @@ class InvoiceService:
 
     async def cancel_invoice(self, invoice_id: int, cancelled_by_id: int) -> Invoice:
         """Cancel an invoice (only if no payments received)."""
+        await lock_record_accounts(self.db, [(Invoice, invoice_id)])
         invoice = await self.get_invoice_by_id(invoice_id)
 
         if not invoice.can_be_cancelled:
@@ -661,7 +668,7 @@ class InvoiceService:
     async def get_invoice_by_id(self, invoice_id: int) -> Invoice:
         """Get invoice by ID with lines, student (with grade), term loaded."""
         result = await self.db.execute(
-            select(Invoice)
+            select(Invoice).execution_options(populate_existing=True)
             .where(Invoice.id == invoice_id)
             .options(
                 selectinload(Invoice.lines),
@@ -840,9 +847,13 @@ class InvoiceService:
                 f"Interview fee kit not found (sku_code={self.INTERVIEW_FEE_SKU})"
             )
 
+        student_ids = list((await self.db.scalars(
+            select(Student.id).where(Student.status == StudentStatus.ACTIVE.value)
+        )).all())
+        await lock_record_accounts(self.db, [(Student, sid) for sid in student_ids])
         # Get all active students
         result = await self.db.execute(
-            select(Student)
+            select(Student).execution_options(populate_existing=True)
             .where(Student.status == StudentStatus.ACTIVE.value)
             .options(selectinload(Student.grade))
         )
@@ -1116,6 +1127,7 @@ class InvoiceService:
         commit: bool = True,
     ) -> TermInvoiceGenerationResult:
         """Generate term invoices for a single student."""
+        await lock_record_accounts(self.db, [(Student, student_id)])
         # Validate term
         result = await self.db.execute(select(Term).where(Term.id == term_id))
         term = result.scalar_one_or_none()
@@ -1126,7 +1138,7 @@ class InvoiceService:
 
         # Validate student
         result = await self.db.execute(
-            select(Student).where(Student.id == student_id).options(selectinload(Student.grade))
+            select(Student).execution_options(populate_existing=True).where(Student.id == student_id).options(selectinload(Student.grade))
         )
         student = result.scalar_one_or_none()
         if not student:
@@ -1285,6 +1297,7 @@ class InvoiceService:
         self, term_id: int, billing_account_id: int, generated_by_id: int
     ) -> TermInvoiceGenerationResult:
         """Generate missing term invoices for all active students in one billing account."""
+        await lock_accounts(self.db, [billing_account_id])
         account = await BillingAccountService(self.db).get_billing_account_by_id(billing_account_id)
         student_ids = [
             student.id
@@ -1452,8 +1465,14 @@ class InvoiceService:
 
         This method is called by the Payment service during allocation.
         """
+        invoice_id = await self.db.scalar(
+            select(InvoiceLine.invoice_id).where(InvoiceLine.id == line_id)
+        )
+        if invoice_id is None:
+            raise NotFoundError(f"Invoice line with id {line_id} not found")
+        await lock_record_accounts(self.db, [(Invoice, invoice_id)])
         result = await self.db.execute(
-            select(InvoiceLine)
+            select(InvoiceLine).execution_options(populate_existing=True)
             .where(InvoiceLine.id == line_id)
             .options(selectinload(InvoiceLine.invoice))
         )
@@ -1480,8 +1499,14 @@ class InvoiceService:
 
         This method is called by the Payment service during payment reversal.
         """
+        invoice_id = await self.db.scalar(
+            select(InvoiceLine.invoice_id).where(InvoiceLine.id == line_id)
+        )
+        if invoice_id is None:
+            raise NotFoundError(f"Invoice line with id {line_id} not found")
+        await lock_record_accounts(self.db, [(Invoice, invoice_id)])
         result = await self.db.execute(
-            select(InvoiceLine)
+            select(InvoiceLine).execution_options(populate_existing=True)
             .where(InvoiceLine.id == line_id)
             .options(selectinload(InvoiceLine.invoice))
         )

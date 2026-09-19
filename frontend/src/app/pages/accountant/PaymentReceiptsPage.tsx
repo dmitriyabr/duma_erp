@@ -1,3 +1,4 @@
+import { PaymentTransferDialog } from '../../components/payments/PaymentTransferDialog'
 import { Download, FileText } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -61,6 +62,8 @@ export const PaymentReceiptsPage = () => {
   const { user } = useAuth()
   const canManage = canManageStudents(user)
   const canRefund = canCancelPayment(user)
+  const [transferPayment, setTransferPayment] = useState<PaymentRow | null>(null)
+  const [transferSuccess, setTransferSuccess] = useState<string | null>(null)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -283,6 +286,7 @@ export const PaymentReceiptsPage = () => {
         </div>
       </div>
 
+      {transferSuccess && <Alert severity="success">{transferSuccess}</Alert>}
       {pageError && (
         <Alert severity="error" className="mb-4">
           {pageError}
@@ -358,6 +362,11 @@ export const PaymentReceiptsPage = () => {
                 </TableCell>
                 <TableCell align="right">
                   <div className="flex gap-2 justify-end">
+                    {user?.role === 'SuperAdmin' && row.status === 'completed' && (
+                      <Button size="small" variant="outlined" onClick={() => { setTransferSuccess(null); setTransferPayment(row) }}>
+                        Transfer
+                      </Button>
+                    )}
                     {canRefund && row.status === 'completed' && getRefundableAmount(row) > 0 && (
                       <Button
                         size="small"
@@ -407,6 +416,14 @@ export const PaymentReceiptsPage = () => {
           rowsPerPageOptions={[25, 50, 100]}
         />
       </div>
+
+      {transferPayment && <PaymentTransferDialog key={transferPayment.id} payment={transferPayment}
+        onClose={() => setTransferPayment(null)}
+        onTransferred={() => {
+          setTransferSuccess(`${transferPayment.payment_number} transferred successfully.`)
+          setTransferPayment(null)
+          refetch()
+        }} />}
 
       <Dialog open={Boolean(refundDialogPayment)} onClose={() => setRefundDialogPayment(null)} maxWidth="sm">
         <DialogCloseButton onClose={() => setRefundDialogPayment(null)} />

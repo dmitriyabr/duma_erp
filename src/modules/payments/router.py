@@ -9,10 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.attachments.service import get_attachment, get_attachment_content
 from src.core.auth.dependencies import require_roles
-from src.core.pdf import build_receipt_context, image_to_data_uri, pdf_service
-from src.core.school_settings.service import get_school_settings
 from src.core.auth.models import User, UserRole
 from src.core.database.session import get_db
+from src.core.pdf import build_receipt_context, image_to_data_uri, pdf_service
+from src.core.school_settings.service import get_school_settings
+from src.modules.invoices.service import InvoiceService
 from src.modules.payments.models import PaymentMethod, PaymentStatus
 from src.modules.payments.schemas import (
     AllocationCreate,
@@ -24,17 +25,17 @@ from src.modules.payments.schemas import (
     PaymentFilters,
     PaymentRefundCreate,
     PaymentRefundResponse,
+    PaymentRefundSourceResponse,
     PaymentResponse,
     PaymentUpdate,
+    RefundAllocationImpact,
     StatementResponse,
     StudentBalance,
     StudentBalancesBatchRequest,
     StudentBalancesBatchResponse,
-    PaymentRefundSourceResponse,
-    RefundAllocationImpact,
 )
-from src.modules.invoices.service import InvoiceService
 from src.modules.payments.service import PaymentService
+from src.modules.payments.transfers.router import router as transfers_router
 from src.shared.schemas.base import ApiResponse, PaginatedResponse
 from src.shared.utils.money import round_money
 
@@ -562,3 +563,6 @@ async def delete_allocation(
     service = PaymentService(db)
     await service.delete_allocation(allocation_id, current_user.id, reason)
     return ApiResponse(data=None, message="Allocation deleted, credit returned to balance")
+
+
+router.include_router(transfers_router)

@@ -1,9 +1,8 @@
 """Service for Payments module."""
 
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from itertools import groupby
 
 from sqlalchemy import exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,9 +11,11 @@ from sqlalchemy.orm import selectinload
 from src.core.audit.service import AuditService
 from src.core.documents.number_generator import DocumentNumberGenerator
 from src.core.exceptions import NotFoundError, ValidationError
+from src.modules.billing_accounts.locking import lock_accounts, lock_record_accounts
 from src.modules.billing_accounts.models import BillingAccount
 from src.modules.billing_accounts.service import BillingAccountService
-from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus, InvoiceType
+from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus
+from src.modules.payments.allocation_policy import InvoiceAllocationPolicy
 from src.modules.payments.models import (
     CreditAllocation,
     CreditAllocationReversal,
@@ -54,7 +55,7 @@ from src.modules.terms.models import Term, TermStatus
 from src.shared.utils.money import round_money
 
 
-class PaymentService:
+class PaymentService(InvoiceAllocationPolicy):
     """Service for managing payments and credit allocations."""
 
     def __init__(self, db: AsyncSession):
@@ -62,82 +63,24 @@ class PaymentService:
         self.audit = AuditService(db)
 
     @staticmethod
-    def _money_to_cents(value: Decimal) -> int:
-        return int((round_money(value) * 100).to_integral_value())
-
-    @staticmethod
-    def _cents_to_money(value: int) -> Decimal:
-        return round_money(Decimal(value) / Decimal("100"))
-
-    @staticmethod
     def _dated_event_datetime(event_date: date) -> datetime:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         return datetime.combine(event_date, now.timetz())
 
-    def _allocate_proportionally(
-        self,
-        total: Decimal,
-        capacities: dict[int, Decimal],
-    ) -> tuple[dict[int, Decimal], Decimal]:
-        """Distribute invoice-level paid amount across line capacities by net remaining."""
-        allocations = {key: Decimal("0.00") for key in capacities}
-        total = round_money(total)
-        if total <= 0:
-            return allocations, Decimal("0.00")
-
-        capacity_cents = {
-            key: max(0, self._money_to_cents(value)) for key, value in capacities.items()
-        }
-        total_capacity_cents = sum(capacity_cents.values())
-        if total_capacity_cents <= 0:
-            return allocations, total
-
-        total_cents = max(0, self._money_to_cents(total))
-        if total_cents >= total_capacity_cents:
-            for key, cents in capacity_cents.items():
-                allocations[key] = self._cents_to_money(cents)
-            return allocations, self._cents_to_money(total_cents - total_capacity_cents)
-
-        allocated_cents = {key: 0 for key in capacities}
-        remainders: list[tuple[Decimal, int]] = []
-        used_cents = 0
-
-        for key, cap_cents in capacity_cents.items():
-            if cap_cents <= 0:
-                continue
-            raw_share = Decimal(total_cents) * Decimal(cap_cents) / Decimal(total_capacity_cents)
-            base_cents = min(cap_cents, int(raw_share))
-            allocated_cents[key] = base_cents
-            used_cents += base_cents
-            remainders.append((raw_share - Decimal(base_cents), key))
-
-        leftover_cents = total_cents - used_cents
-        remainders.sort(key=lambda row: (row[0], row[1]), reverse=True)
-        while leftover_cents > 0:
-            updated = False
-            for _, key in remainders:
-                if leftover_cents <= 0:
-                    break
-                if allocated_cents[key] >= capacity_cents[key]:
-                    continue
-                allocated_cents[key] += 1
-                leftover_cents -= 1
-                updated = True
-            if not updated:
-                break
-
-        for key, cents in allocated_cents.items():
-            allocations[key] = self._cents_to_money(cents)
-
-        return allocations, self._cents_to_money(leftover_cents)
 
     async def _resolve_billing_context(
         self,
         *,
         student_id: int | None,
         billing_account_id: int | None,
+        lock: bool = False,
     ) -> tuple[BillingAccount, Student]:
         """Resolve owner account plus a reference student for compatibility."""
+        if lock:
+            await lock_record_accounts(
+                self.db, [(Student, student_id)] if student_id is not None else [],
+                account_ids=[billing_account_id] if billing_account_id is not None else [],
+            )
         billing_account_service = BillingAccountService(self.db)
 
         if student_id is not None:
@@ -166,6 +109,7 @@ class PaymentService:
         account, reference_student = await self._resolve_billing_context(
             student_id=data.student_id,
             billing_account_id=data.billing_account_id,
+            lock=True,
         )
         await self._validate_preferred_invoice(account.id, data.preferred_invoice_id)
 
@@ -319,6 +263,7 @@ class PaymentService:
         self, payment_id: int, data: PaymentUpdate, updated_by_id: int
     ) -> Payment:
         """Update a pending payment."""
+        await lock_record_accounts(self.db, [(Payment, payment_id)])
         payment = await self.get_payment_by_id(payment_id)
 
         if not payment.is_pending:
@@ -374,6 +319,7 @@ class PaymentService:
 
     async def complete_payment(self, payment_id: int, completed_by_id: int) -> Payment:
         """Complete a pending payment - generates receipt number."""
+        await lock_record_accounts(self.db, [(Payment, payment_id)])
         payment = await self.get_payment_by_id(payment_id)
 
         if not payment.is_pending:
@@ -406,7 +352,7 @@ class PaymentService:
         # Update cached credit balance (recalculate)
         await self._update_billing_account_balance_cache(payment.billing_account_id)
 
-        await self.db.commit()
+        await self.db.flush()
         targeted_amount = Decimal("0.00")
         if payment.preferred_invoice_id is not None:
             preferred_invoice = await self._get_invoice(payment.preferred_invoice_id)
@@ -420,6 +366,7 @@ class PaymentService:
                     ),
                     completed_by_id,
                     source_payment_id=payment.id,
+                    commit=False,
                 )
 
         remaining_to_auto_allocate = round_money(payment.amount - targeted_amount)
@@ -431,13 +378,16 @@ class PaymentService:
                 ),
                 completed_by_id,
                 source_payment_id=payment.id,
+                commit=False,
             )
+        await self.db.commit()
         return await self.get_payment_by_id(payment_id)
 
     async def cancel_payment(
         self, payment_id: int, cancelled_by_id: int, reason: str | None = None
     ) -> Payment:
         """Cancel a pending payment."""
+        await lock_record_accounts(self.db, [(Payment, payment_id)])
         payment = await self.get_payment_by_id(payment_id)
 
         if not payment.is_pending:
@@ -465,6 +415,7 @@ class PaymentService:
         refunded_by_id: int,
     ) -> PaymentRefund:
         """Compatibility shortcut: refund a single completed payment."""
+        await lock_record_accounts(self.db, [(Payment, payment_id)])
         payment = await self.get_payment_by_id(payment_id)
         if not payment.is_completed:
             raise ValidationError("Can only refund completed payments")
@@ -605,6 +556,7 @@ class PaymentService:
         commit: bool = True,
     ) -> PaymentRefund:
         """Create one outgoing refund document for a billing account."""
+        await lock_accounts(self.db, [billing_account_id])
         reason, refund_method, reference_number, proof_text, notes = self._sanitize_refund_data(
             data
         )
@@ -877,11 +829,14 @@ class PaymentService:
         allocated_by_id: int,
         *,
         source_payment_id: int | None = None,
+        allocation_created_at: datetime | None = None,
+        commit: bool = True,
     ) -> CreditAllocation:
         """Manually allocate credit to an invoice."""
         account, _ = await self._resolve_billing_context(
             student_id=data.student_id,
             billing_account_id=data.billing_account_id,
+            lock=True,
         )
 
         # Validate invoice
@@ -931,6 +886,8 @@ class PaymentService:
             amount=round_money(data.amount),
             allocated_by_id=allocated_by_id,
         )
+        if allocation_created_at is not None:
+            allocation.created_at = allocation_created_at
         self.db.add(allocation)
         await self.db.flush()
 
@@ -953,7 +910,8 @@ class PaymentService:
             },
         )
 
-        await self.db.commit()
+        if commit:
+            await self.db.commit()
         return allocation
 
     async def allocate_auto(
@@ -978,6 +936,7 @@ class PaymentService:
         account, reference_student = await self._resolve_billing_context(
             student_id=data.student_id,
             billing_account_id=data.billing_account_id,
+            lock=True,
         )
 
         # Get available balance
@@ -1000,7 +959,7 @@ class PaymentService:
         # Get unpaid invoices with lines loaded (needed for requires_full_payment check)
         active_term = await self._get_active_term()
         result = await self.db.execute(
-            select(Invoice)
+            select(Invoice).execution_options(populate_existing=True)
             .where(
                 Invoice.billing_account_id == account.id,
                 Invoice.status.in_(
@@ -1054,65 +1013,14 @@ class PaymentService:
                 created_at=allocation.created_at,
             )
 
-        sorted_invoices = sorted(
-            invoices,
-            key=lambda invoice: self._allocation_priority_key(invoice, active_term),
-        )
-
-        for _, bucket_invoices_iter in groupby(
-            sorted_invoices,
-            key=lambda invoice: (
-                self._allocation_type_bucket(invoice),
-                *self._allocation_term_bucket(invoice, active_term),
-            ),
-        ):
-            if remaining <= 0:
-                break
-
-            bucket_invoices = list(bucket_invoices_iter)
-            requires_full_invoices = [
-                invoice for invoice in bucket_invoices if invoice.requires_full_payment
-            ]
-            partial_ok_invoices = [
-                invoice for invoice in bucket_invoices if not invoice.requires_full_payment
-            ]
-
-            # Step 1: requires_full invoices first inside the term bucket.
-            for invoice in requires_full_invoices:
-                if remaining <= 0:
-                    break
-                due_before = round_money(invoice.amount_due)
-                amount_to_allocate = min(remaining, due_before)
-                alloc_response = await create_allocation(invoice, amount_to_allocate)
-                allocations.append(alloc_response)
-                if amount_to_allocate >= due_before:
-                    fully_paid += 1
-                else:
-                    partially_paid += 1
-                remaining = round_money(remaining - amount_to_allocate)
-
-            # Step 2: partial_ok invoices share remaining balance proportionally in this bucket.
-            if partial_ok_invoices and remaining > 0:
-                invoice_by_id = {invoice.id: invoice for invoice in partial_ok_invoices}
-                capacities = {
-                    invoice.id: round_money(invoice.amount_due)
-                    for invoice in partial_ok_invoices
-                    if invoice.amount_due > 0
-                }
-                amounts_by_invoice_id, _ = self._allocate_proportionally(remaining, capacities)
-                for invoice_id, amount in amounts_by_invoice_id.items():
-                    amount = round_money(amount)
-                    if amount <= 0:
-                        continue
-                    invoice = invoice_by_id[invoice_id]
-                    due_before = round_money(invoice.amount_due)
-                    alloc_response = await create_allocation(invoice, amount)
-                    allocations.append(alloc_response)
-                    if amount >= due_before:
-                        fully_paid += 1
-                    else:
-                        partially_paid += 1
-                    remaining = round_money(remaining - amount)
+        for invoice, amount in self.plan_allocations(invoices, active_term, remaining):
+            due_before = round_money(invoice.amount_due)
+            allocations.append(await create_allocation(invoice, amount))
+            if amount >= due_before:
+                fully_paid += 1
+            else:
+                partially_paid += 1
+            remaining = round_money(remaining - amount)
 
         total_allocated = max_to_allocate - remaining
         await self._update_billing_account_balance_cache(account.id)
@@ -1149,55 +1057,6 @@ class PaymentService:
         result = await self.db.execute(select(Term).where(Term.status == TermStatus.ACTIVE.value))
         return result.scalar_one_or_none()
 
-    @staticmethod
-    def _allocation_type_bucket(invoice: Invoice) -> int:
-        """Put paid activities ahead of every other invoice type."""
-        return 0 if invoice.invoice_type == InvoiceType.ACTIVITY.value else 1
-
-    def _allocation_term_bucket(
-        self,
-        invoice: Invoice,
-        active_term: Term | None,
-    ) -> tuple[int, int, int]:
-        """Return a sortable bucket where older academic debt wins before current debt."""
-        term = invoice.term
-
-        if term is not None:
-            if active_term is not None:
-                invoice_key = (term.year, term.term_number)
-                active_key = (active_term.year, active_term.term_number)
-                if invoice_key < active_key:
-                    bucket = 0
-                elif invoice_key == active_key:
-                    bucket = 1
-                else:
-                    bucket = 2
-            elif term.status == TermStatus.CLOSED.value:
-                bucket = 0
-            else:
-                bucket = 1
-            return (bucket, term.year, term.term_number)
-
-        if active_term is not None and active_term.start_date is not None:
-            invoice_date = invoice.due_date or invoice.issue_date
-            if invoice_date is not None and invoice_date < active_term.start_date:
-                return (0, 9999, 99)
-
-        return (3, 9999, 99)
-
-    def _allocation_priority_key(
-        self,
-        invoice: Invoice,
-        active_term: Term | None,
-    ) -> tuple[int, int, int, int, date, int]:
-        fallback_date = invoice.due_date or invoice.issue_date or date.max
-        return (
-            self._allocation_type_bucket(invoice),
-            *self._allocation_term_bucket(invoice, active_term),
-            fallback_date,
-            invoice.id,
-        )
-
     async def delete_allocation(
         self,
         allocation_id: int,
@@ -1207,8 +1066,10 @@ class PaymentService:
         commit: bool = True,
     ) -> None:
         """Delete an allocation (return credit to balance)."""
+        await lock_record_accounts(self.db, [(CreditAllocation, allocation_id)])
         result = await self.db.execute(
             select(CreditAllocation).where(CreditAllocation.id == allocation_id)
+            .execution_options(populate_existing=True)
         )
         allocation = result.scalar_one_or_none()
         if not allocation:
@@ -1249,8 +1110,10 @@ class PaymentService:
         reason: str | None = None,
     ) -> AutoAllocateResult:
         """Undo one allocation and re-run auto-allocation without moving report period."""
+        await lock_record_accounts(self.db, [(CreditAllocation, allocation_id)])
         result = await self.db.execute(
             select(CreditAllocation).where(CreditAllocation.id == allocation_id)
+            .execution_options(populate_existing=True)
         )
         allocation = result.scalar_one_or_none()
         if not allocation:
@@ -1445,14 +1308,14 @@ class PaymentService:
 
         def _to_utc(dt: datetime) -> datetime:
             if dt.tzinfo is None:
-                return dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(timezone.utc)
+                return dt.replace(tzinfo=UTC)
+            return dt.astimezone(UTC)
 
         # Convert to entries with unified datetime for sorting
         all_items: list[tuple[datetime, str, object]] = []
 
         for payment in payments:
-            dt = datetime.combine(payment.payment_date, datetime.min.time(), tzinfo=timezone.utc)
+            dt = datetime.combine(payment.payment_date, datetime.min.time(), tzinfo=UTC)
             all_items.append((dt, "payment", payment))
 
         for refund in refunds:
@@ -1463,7 +1326,7 @@ class PaymentService:
             )
             dt = datetime.combine(refund.refund_date, refund_time)
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.replace(tzinfo=UTC)
             all_items.append((dt, "refund", refund))
 
         for reversal in reversals:
@@ -1583,7 +1446,7 @@ class PaymentService:
     async def _get_student(self, student_id: int) -> Student:
         """Get student by ID."""
         result = await self.db.execute(
-            select(Student)
+            select(Student).execution_options(populate_existing=True)
             .where(Student.id == student_id)
             .options(selectinload(Student.billing_account))
         )
@@ -1594,7 +1457,7 @@ class PaymentService:
 
     async def _get_billing_account(self, billing_account_id: int) -> BillingAccount:
         result = await self.db.execute(
-            select(BillingAccount)
+            select(BillingAccount).execution_options(populate_existing=True)
             .where(BillingAccount.id == billing_account_id)
             .options(selectinload(BillingAccount.students))
         )
@@ -1606,7 +1469,7 @@ class PaymentService:
     async def _get_invoice(self, invoice_id: int) -> Invoice:
         """Get invoice by ID with lines loaded."""
         result = await self.db.execute(
-            select(Invoice)
+            select(Invoice).execution_options(populate_existing=True)
             .where(Invoice.id == invoice_id)
             .options(
                 selectinload(Invoice.lines),
@@ -1637,7 +1500,7 @@ class PaymentService:
 
     async def _get_invoice_line(self, line_id: int) -> InvoiceLine:
         """Get invoice line by ID."""
-        result = await self.db.execute(select(InvoiceLine).where(InvoiceLine.id == line_id))
+        result = await self.db.execute(select(InvoiceLine).execution_options(populate_existing=True).where(InvoiceLine.id == line_id))
         line = result.scalar_one_or_none()
         if not line:
             raise NotFoundError(f"Invoice line with id {line_id} not found")
@@ -2036,7 +1899,7 @@ class PaymentService:
                     amount=release_amount,
                     reason=reason,
                     reversed_by_id=user_id,
-                    reversed_at=effective_at or datetime.now(timezone.utc),
+                    reversed_at=effective_at or datetime.now(UTC),
                 )
             )
             allocation.amount = new_amount
@@ -2110,6 +1973,7 @@ class PaymentService:
         reason: str,
     ) -> Decimal:
         """Return excess invoice allocations back to student credit after totals shrink."""
+        await lock_record_accounts(self.db, [(Invoice, invoice_id)])
         invoice = await self._get_invoice(invoice_id)
         if not invoice.lines:
             return Decimal("0.00")

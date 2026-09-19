@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 from src.core.audit.service import AuditService
 from src.core.documents.number_generator import DocumentNumberGenerator
 from src.core.exceptions import DuplicateError, NotFoundError, ValidationError
+from src.modules.billing_accounts.locking import lock_accounts, lock_record_accounts
 from src.modules.billing_accounts.models import BillingAccount
 from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.invoices.models import Invoice, InvoiceLine, InvoiceStatus
@@ -177,6 +178,7 @@ class StudentService:
 
         target_billing_account = None
         if data.billing_account_id is not None:
+            await lock_accounts(self.db, [data.billing_account_id])
             target_billing_account = await self._validate_billing_account(data.billing_account_id)
 
         # Generate student number
@@ -397,7 +399,9 @@ class StudentService:
         self, student_id: int, data: StudentUpdate, updated_by_id: int
     ) -> Student:
         """Update a student."""
+        await lock_record_accounts(self.db, [(Student, student_id)])
         student = await self.get_student_by_id(student_id)
+        await self.db.refresh(student)
         old_values = {}
         new_values = {}
 

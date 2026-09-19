@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from src.core.audit.service import AuditService
 from src.core.documents.number_generator import DocumentNumberGenerator
 from src.core.exceptions import NotFoundError, ValidationError
+from src.modules.billing_accounts.locking import lock_accounts, lock_record_accounts
 from src.modules.billing_accounts.models import BillingAccount
 from src.modules.billing_accounts.schemas import (
     BillingAccountAddMembersRequest,
@@ -311,7 +312,7 @@ class BillingAccountService:
     async def get_billing_account_by_id(self, account_id: int) -> BillingAccount:
         """Load account with members."""
         result = await self.db.execute(
-            select(BillingAccount)
+            select(BillingAccount).execution_options(populate_existing=True)
             .where(BillingAccount.id == account_id)
             .options(selectinload(BillingAccount.students).selectinload(Student.grade))
         )
@@ -324,6 +325,7 @@ class BillingAccountService:
         self, data: BillingAccountCreate, created_by_id: int
     ) -> BillingAccount:
         """Create a new billing account and move selected students into it."""
+        await lock_record_accounts(self.db, [(Student, sid) for sid in data.student_ids])
         students = await self._get_students(data.student_ids) if data.student_ids else []
 
         number_gen = DocumentNumberGenerator(self.db)
@@ -413,6 +415,9 @@ class BillingAccountService:
         added_by_id: int,
     ) -> BillingAccount:
         """Attach more students to an existing billing account."""
+        await lock_record_accounts(
+            self.db, [(Student, sid) for sid in data.student_ids], account_ids=[account_id],
+        )
         account = await self.get_billing_account_by_id(account_id)
         students = await self._get_students(data.student_ids)
 
@@ -446,6 +451,7 @@ class BillingAccountService:
         added_by_id: int,
     ) -> BillingAccount:
         """Create a brand-new student directly inside an existing billing account."""
+        await lock_accounts(self.db, [account_id])
         account = await self.get_billing_account_by_id(account_id)
 
         created_children = await self._create_children(account, [data], added_by_id)
@@ -464,6 +470,7 @@ class BillingAccountService:
 
     async def sync_cached_balance(self, account_id: int) -> None:
         """Mirror the account credit balance down to its member students."""
+        await lock_accounts(self.db, [account_id])
         result = await self.db.execute(
             select(BillingAccount.cached_credit_balance).where(BillingAccount.id == account_id)
         )
@@ -726,7 +733,7 @@ class BillingAccountService:
 
     async def _get_student(self, student_id: int) -> Student:
         result = await self.db.execute(
-            select(Student)
+            select(Student).execution_options(populate_existing=True)
             .where(Student.id == student_id)
             .options(
                 selectinload(Student.grade),
@@ -741,7 +748,7 @@ class BillingAccountService:
     async def _get_students(self, student_ids: list[int]) -> list[Student]:
         unique_ids = sorted({int(student_id) for student_id in student_ids})
         result = await self.db.execute(
-            select(Student)
+            select(Student).execution_options(populate_existing=True)
             .where(Student.id.in_(unique_ids))
             .options(
                 selectinload(Student.grade),
@@ -760,7 +767,10 @@ class BillingAccountService:
         student: Student,
         account: BillingAccount,
     ) -> None:
-        source_account = student.billing_account
+        source_account = (
+            await self.get_billing_account_by_id(student.billing_account_id)
+            if student.billing_account_id is not None else None
+        )
         if source_account and source_account.id == account.id:
             return
 

@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from src.core.audit.service import AuditService
 from src.core.documents.number_generator import DocumentNumberGenerator
 from src.core.exceptions import NotFoundError, ValidationError
+from src.modules.billing_accounts.locking import lock_record_accounts
 from src.modules.billing_accounts.service import BillingAccountService
 from src.modules.invoices.models import (
     Invoice,
@@ -29,10 +30,10 @@ from src.modules.withdrawals.models import (
     WithdrawalReservationAction,
     WithdrawalSettlement,
     WithdrawalSettlementLine,
-    WithdrawalSettlementReservationAction,
     WithdrawalSettlementLineAction,
-    WithdrawalSettlementStudent,
+    WithdrawalSettlementReservationAction,
     WithdrawalSettlementStatus,
+    WithdrawalSettlementStudent,
 )
 from src.modules.withdrawals.schemas import (
     BillingAccountWithdrawalSettlementCreate,
@@ -184,6 +185,9 @@ class WithdrawalSettlementService:
         data: WithdrawalSettlementCreate | BillingAccountWithdrawalSettlementCreate,
         created_by_id: int,
     ) -> WithdrawalSettlement:
+        student_ids = [student.id for student in students]
+        await lock_record_accounts(self.db, [(Student, sid) for sid in student_ids], account_ids=[billing_account_id])
+        students = await self._resolve_account_students(billing_account_id, student_ids)
         inactive = [
             student.full_name
             for student in students
@@ -370,7 +374,7 @@ class WithdrawalSettlementService:
 
     async def _get_student(self, student_id: int) -> Student:
         result = await self.db.execute(
-            select(Student)
+            select(Student).execution_options(populate_existing=True)
             .where(Student.id == student_id)
             .options(selectinload(Student.billing_account))
         )
@@ -390,7 +394,7 @@ class WithdrawalSettlementService:
         student_ids: list[int],
     ) -> list[Student]:
         query = (
-            select(Student)
+            select(Student).execution_options(populate_existing=True)
             .where(Student.billing_account_id == billing_account_id)
             .options(selectinload(Student.billing_account))
             .order_by(Student.last_name, Student.first_name, Student.id)
@@ -420,7 +424,7 @@ class WithdrawalSettlementService:
         if not student_ids:
             return []
         result = await self.db.execute(
-            select(Invoice)
+            select(Invoice).execution_options(populate_existing=True)
             .where(Invoice.student_id.in_(student_ids))
             .options(
                 selectinload(Invoice.student),
