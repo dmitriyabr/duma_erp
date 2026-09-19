@@ -255,7 +255,7 @@ async def test_transfer_waits_for_an_earlier_allocation_and_revalidates(
         finally:
             release.set()
         await asyncio.wait_for(winner, 8)
-        with pytest.raises(ValidationError, match="without payment attribution"):
+        with pytest.raises(ValidationError, match="not fully linked"):
             await asyncio.wait_for(loser, 8)
     account = await db_session.get(BillingAccount, account_id, populate_existing=True)
     assert account.cached_credit_balance == 2000

@@ -381,3 +381,71 @@ async def test_payment_completion_keeps_allocation_in_the_same_transaction(
     payment = await db_session.get(Payment, payment_id)
     assert payment.status == "pending"
     assert payment.receipt_number is None
+
+
+@pytest.mark.parametrize("legacy_timing", ["before", "after"])
+async def test_fully_attributed_payment_transfers_without_touching_legacy_allocations(
+    transfer_data,
+    db_session,
+    legacy_timing,
+):
+    from datetime import UTC, datetime, timedelta
+
+    data = transfer_data
+    payments = PaymentService(db_session)
+    # A different receipt has old allocations without source_payment_id. The selected
+    # 6,000 payment is completely traced, so that unrelated history must not block it.
+    other = await payments.create_payment(
+        PaymentCreate(
+            student_id=data["student"].id,
+            amount=Decimal("1000"),
+            payment_method="mpesa",
+            payment_date=date.today(),
+            reference="UNRELATED-LEGACY-RECEIPT",
+        ),
+        data["user"].id,
+    )
+    await payments.complete_payment(other.id, data["user"].id)
+    unrelated = list(
+        (
+            await db_session.scalars(
+                select(CreditAllocation)
+                .where(
+                    CreditAllocation.source_payment_id == other.id,
+                )
+                .order_by(CreditAllocation.id)
+            )
+        ).all()
+    )
+    legacy_date = (
+        datetime(2026, 2, 6, tzinfo=UTC)
+        if legacy_timing == "before"
+        else datetime.now(UTC) + timedelta(days=1)
+    )
+    for row in unrelated:
+        row.source_payment_id = None
+        row.created_at = legacy_date
+    await db_session.commit()
+    snapshot = {row.id: (row.invoice_id, row.amount) for row in unrelated}
+    transfer = PaymentTransferService(db_session)
+    preview = await transfer.preview(data["payment"].id, data["target"].id)
+    assert sum(row.amount for row in preview.removed_allocations) == 6000
+    assert preview.source_credit_after == 0
+    await transfer.transfer(
+        data["payment"].id, request(preview, data["target"].id), data["user"].id
+    )
+    for row in unrelated:
+        await db_session.refresh(row)
+        assert row.source_payment_id is None
+        assert (row.invoice_id, row.amount) == snapshot[row.id]
+        assert row.created_at.replace(tzinfo=UTC) == legacy_date
+    source = await payments.get_student_balance(data["student"].id)
+    assert source.available_balance == 0
+    assert (
+        await db_session.scalar(
+            select(func.sum(CreditAllocation.amount)).where(
+                CreditAllocation.billing_account_id == data["student"].billing_account_id,
+            )
+        )
+        == 1000
+    )

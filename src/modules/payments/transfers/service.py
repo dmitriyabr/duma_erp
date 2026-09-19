@@ -118,20 +118,6 @@ class PaymentTransferService:
         )
         same_account = payment.billing_account_id == target.billing_account_id
         if not same_account:
-            ambiguous = await self.db.scalar(
-                select(CreditAllocation.id)
-                .where(
-                    CreditAllocation.billing_account_id == payment.billing_account_id,
-                    CreditAllocation.source_payment_id.is_(None),
-                    CreditAllocation.amount > 0,
-                )
-                .limit(1)
-            )
-            if ambiguous is not None:
-                raise ValidationError(
-                    "The source account has allocations without payment attribution. "
-                    "Their payment sources must be resolved before transferring."
-                )
             if any(
                 row.billing_account_id != payment.billing_account_id
                 or row.invoice.billing_account_id != payment.billing_account_id
@@ -146,6 +132,25 @@ class PaymentTransferService:
         released = round_money(sum((row.amount for row in allocations), Decimal("0")))
         if released > payment.amount:
             raise ValidationError("Allocations exceed the payment amount; review payment history")
+        # Only the selected payment's unresolved portion needs attribution. Historical
+        # allocations belonging to other receipts do not make a fully traced payment
+        # ambiguous, and must never be rewritten as a prerequisite for its transfer.
+        if not same_account and released < payment.amount:
+            ambiguous = await self.db.scalar(
+                select(CreditAllocation.id)
+                .where(
+                    CreditAllocation.billing_account_id == payment.billing_account_id,
+                    CreditAllocation.source_payment_id.is_(None),
+                    CreditAllocation.amount > 0,
+                )
+                .limit(1)
+            )
+            if ambiguous is not None:
+                raise ValidationError(
+                    "This payment is not fully linked to invoices, and some allocations "
+                    "on the family account have no payment reference. Review this payment's "
+                    "allocation history before transferring."
+                )
         source_after = (
             source_credit
             if same_account

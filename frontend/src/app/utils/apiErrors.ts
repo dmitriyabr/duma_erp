@@ -56,7 +56,9 @@ export function formatApiErrorMessage(error: unknown): string {
       const field = detail.field?.trim()
       return field ? `${field}: ${detail.message}` : detail.message
     })
-    .filter((message, index, all) => message && all.indexOf(message) === index)
+    .filter((message, index, all) =>
+      message && message.trim() !== parsed.message.trim() && all.indexOf(message) === index
+    )
 
   if (!detailMessages.length) return parsed.message
   if (parsed.message === 'Validation error') {
