@@ -5,7 +5,7 @@ import { api } from '../../services/api'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { Dialog, DialogActions, DialogCloseButton, DialogContent, DialogTitle } from '../../components/ui/Dialog'
-import { Input } from '../../components/ui/Input'
+import { StudentNumberLookup, type StudentNumberMatch } from '../../components/students/StudentNumberLookup'
 import { Spinner } from '../../components/ui/Spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TablePagination, TableRow } from '../../components/ui/Table'
 import { Typography } from '../../components/ui/Typography'
@@ -37,14 +37,15 @@ type LinkResponse = {
 }
 
 export const MpesaUnmatchedPage = () => {
+  const [selectedStudent, setSelectedStudent] = useState<StudentNumberMatch | null>(null)
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
 
   const [linkDialog, setLinkDialog] = useState<{
     open: boolean
     event: MpesaEventRow | null
-    studentId: string
-  }>({ open: false, event: null, studentId: '' })
+    studentNumber: string
+  }>({ open: false, event: null, studentNumber: '' })
 
   const url = useMemo(() => {
     const sp = new URLSearchParams()
@@ -66,18 +67,19 @@ export const MpesaUnmatchedPage = () => {
 
   const openLink = (event: MpesaEventRow) => {
     resetLink()
-    setLinkDialog({ open: true, event, studentId: '' })
+    setSelectedStudent(null)
+    setLinkDialog({ open: true, event, studentNumber: '' })
   }
 
   const closeLink = () => {
-    setLinkDialog({ open: false, event: null, studentId: '' })
+    setSelectedStudent(null)
+    setLinkDialog({ open: false, event: null, studentNumber: '' })
     resetLink()
   }
 
   const submitLink = async () => {
-    if (!linkDialog.event) return
-    const sid = Number(linkDialog.studentId)
-    if (!Number.isFinite(sid) || sid <= 0) return
+    if (!linkDialog.event || !selectedStudent) return
+    const sid = selectedStudent.id
 
     const res = await linkEvent(() =>
       api.post(`/mpesa/c2b/events/${linkDialog.event!.id}/link`, { student_id: sid })
@@ -177,8 +179,8 @@ export const MpesaUnmatchedPage = () => {
         />
       </div>
 
-      <Dialog open={linkDialog.open} onClose={closeLink} maxWidth="sm" fullWidth>
-        <DialogCloseButton onClose={closeLink} />
+      <Dialog open={linkDialog.open} onClose={() => { if (!linking) closeLink() }} maxWidth="sm" fullWidth>
+        <DialogCloseButton onClose={() => { if (!linking) closeLink() }} />
         <DialogTitle>Link event to student</DialogTitle>
         <DialogContent>
           <div className="space-y-4">
@@ -192,12 +194,12 @@ export const MpesaUnmatchedPage = () => {
               ) : null}
             </Typography>
 
-            <Input
-              label="Student ID"
-              value={linkDialog.studentId}
-              onChange={(e) => setLinkDialog((s) => ({ ...s, studentId: e.target.value }))}
-              placeholder="123"
-              required
+            <StudentNumberLookup
+              key={linkDialog.event?.id}
+              value={linkDialog.studentNumber}
+              onChange={studentNumber => { setLinkDialog(s => ({ ...s, studentNumber })); resetLink() }}
+              onSelect={setSelectedStudent}
+              disabled={linking}
             />
 
             {linkError && <Alert severity="error">{linkError}</Alert>}
@@ -207,7 +209,7 @@ export const MpesaUnmatchedPage = () => {
           <Button variant="outlined" onClick={closeLink} disabled={linking}>
             Cancel
           </Button>
-          <Button onClick={submitLink} disabled={linking}>
+          <Button onClick={submitLink} disabled={linking || !selectedStudent}>
             {linking ? (
               <span className="flex items-center gap-2">
                 <Spinner size="small" />

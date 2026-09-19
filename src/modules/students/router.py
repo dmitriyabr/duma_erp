@@ -185,6 +185,7 @@ async def list_students(
     grade_id: int | None = Query(None, description="Filter by grade"),
     transport_zone_id: int | None = Query(None, description="Filter by transport zone"),
     search: str | None = Query(None, description="Search by name, number, guardian"),
+    admission_number: str | None = Query(None, description="Exact student number from an invoice, e.g. 2640"),
     include_balance: bool = Query(False, description="Include credit balance and outstanding debt"),
     sort_by: Literal[
         "student_number",
@@ -213,6 +214,7 @@ async def list_students(
         grade_id=grade_id,
         transport_zone_id=transport_zone_id,
         search=search,
+        admission_number=admission_number,
         page=page,
         limit=limit,
         sort_by=sort_by,

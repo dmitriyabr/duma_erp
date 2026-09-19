@@ -19,6 +19,7 @@ from src.modules.students.schemas import (
     StudentUpdate,
 )
 from src.modules.terms.models import TransportZone
+from src.shared.utils.student_numbers import normalize_student_number
 
 
 class StudentService:
@@ -274,6 +275,7 @@ class StudentService:
         limit: int = 100,
         sort_by: str = "full_name",
         sort_direction: str = "asc",
+        admission_number: str | None = None,
     ) -> tuple[list[Student], int]:
         """List students with optional filters."""
         outstanding_debt = (
@@ -312,6 +314,14 @@ class StudentService:
             query = query.where(Student.grade_id == grade_id)
         if transport_zone_id is not None:
             query = query.where(Student.transport_zone_id == transport_zone_id)
+        if admission_number is not None:
+            number = admission_number.strip()
+            if not number.isascii() or not number.isdigit() or not 3 <= len(number) <= 8:
+                raise ValidationError("Enter the student number shown on the invoice, e.g. 2640", field="admission_number")
+            canonical = normalize_student_number(number)
+            if canonical is None:
+                raise ValidationError("Invalid student number", field="admission_number")
+            query = query.where(Student.student_number == canonical)
         if search:
             search_term = f"%{search}%"
             query = query.where(

@@ -1,23 +1,14 @@
 import { useState } from 'react'
-import { useApi, useApiMutation } from '../../hooks/useApi'
-import { useDebouncedValue } from '../../hooks/useDebouncedValue'
+import { useApiMutation } from '../../hooks/useApi'
 import { api } from '../../services/api'
-import type { PaginatedResponse } from '../../types/api'
 import { formatDate, formatMoney } from '../../utils/format'
 import { formatStudentNumberShort } from '../../utils/studentNumber'
 import { Alert } from '../ui/Alert'
 import { Button } from '../ui/Button'
 import { Dialog, DialogActions, DialogContent, DialogTitle } from '../ui/Dialog'
-import { Input } from '../ui/Input'
+import { StudentNumberLookup, type StudentNumberMatch } from '../students/StudentNumberLookup'
 import { Textarea } from '../ui/Textarea'
 
-interface StudentOption {
-  id: number
-  full_name: string
-  student_number: string
-  billing_account_name: string | null
-  billing_account_number: string | null
-}
 interface Party {
   student_name: string
   student_number: string
@@ -70,14 +61,10 @@ function InvoiceImpacts({ title, rows }: { title: string; rows: Impact[] }) {
 }
 
 export function PaymentTransferDialog({ payment, onClose, onTransferred }: Props) {
-  const [search, setSearch] = useState('')
-  const [student, setStudent] = useState<StudentOption | null>(null)
+  const [studentNumber, setStudentNumber] = useState('')
+  const [student, setStudent] = useState<StudentNumberMatch | null>(null)
   const [reason, setReason] = useState('')
   const [preview, setPreview] = useState<Preview | null>(null)
-  const debouncedSearch = useDebouncedValue(search.trim(), 300)
-  const students = useApi<PaginatedResponse<StudentOption>>(
-    debouncedSearch ? `/students?search=${encodeURIComponent(debouncedSearch)}&page=1&limit=25` : null
-  )
   const previewMutation = useApiMutation<Preview>()
   const transferMutation = useApiMutation<Preview>()
   const busy = previewMutation.loading || transferMutation.loading
@@ -107,26 +94,9 @@ export function PaymentTransferDialog({ payment, onClose, onTransferred }: Props
       <div className="space-y-4 mt-3">
         <p>Transfer {formatMoney(payment.amount)} to the correct student and family account.</p>
         {error && <Alert severity="error">{error}</Alert>}
-        {!preview && <>
-          <Input label="Find the correct student" placeholder="Student number or name" value={search}
-            disabled={busy} onChange={event => {
-              setSearch(event.target.value); setStudent(null); previewMutation.reset(); transferMutation.reset()
-            }} />
-          {students.error && <Alert severity="error">{students.error}</Alert>}
-          {(students.loading || search.trim() !== debouncedSearch) && <p>Searching…</p>}
-          {!students.loading && search.trim() === debouncedSearch && debouncedSearch && <div className="max-h-52 overflow-y-auto space-y-1">
-            {students.data?.items.filter(row => row.id !== payment.student_id).map(row => (
-              <button type="button" key={row.id} disabled={busy} aria-pressed={student?.id === row.id}
-                className={`block w-full text-left rounded border p-3 ${student?.id === row.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}
-                onClick={() => { setStudent(row); previewMutation.reset(); transferMutation.reset() }}>
-                <strong>{row.full_name} · {formatStudentNumberShort(row.student_number)}</strong>
-                <div className="text-sm">{row.billing_account_name} · {row.billing_account_number}</div>
-              </button>
-            ))}
-            {students.data?.items.filter(row => row.id !== payment.student_id).length === 0 && <p>No matching students.</p>}
-            {(students.data?.total ?? 0) > 25 && <p className="text-sm">Showing the first 25 matches. Refine the search.</p>}
-          </div>}
-        </>}
+        {!preview && <StudentNumberLookup value={studentNumber} onChange={value => {
+          setStudentNumber(value); previewMutation.reset(); transferMutation.reset()
+        }} onSelect={setStudent} disabled={busy} excludedStudentId={payment.student_id} />}
         {preview && <>
           <div className="grid gap-3 sm:grid-cols-2">
             {(['source', 'target'] as const).map(key => <div key={key} className="rounded border p-3">
