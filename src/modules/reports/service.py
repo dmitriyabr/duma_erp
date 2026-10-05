@@ -30,6 +30,7 @@ from src.modules.compensations.models import (
 from src.modules.discounts.models import Discount, DiscountReason
 from src.modules.inventory.models import Issuance, MovementType, Stock, StockMovement
 from src.modules.invoices.models import Invoice, InvoiceAdjustment, InvoiceLine, InvoiceStatus
+from src.modules.invoices.transport_repricing.models import TransportRepricing
 from src.modules.items.models import Category, Item, Kit
 from src.modules.payments.models import (
     CreditAllocation,
@@ -87,6 +88,7 @@ from src.modules.reports.schemas import (
     TermComparisonMetric,
     TopDebtorRow,
 )
+from src.modules.reports.transport_repricing import transport_cash_totals
 from src.modules.students.models import Grade, Student, StudentStatus
 from src.modules.terms.models import Term
 from src.shared.utils.money import round_money
@@ -590,12 +592,34 @@ class ReportsService:
         for reversal in reversals_result.scalars().all():
             reversals_by_invoice[reversal.allocation.invoice_id].append(reversal)
 
+        repricings_by_invoice: dict[int, list[TransportRepricing]] = defaultdict(list)
+        for revision in (await self.db.scalars(
+            select(TransportRepricing).where(TransportRepricing.invoice_id.in_(invoice_ids))
+            .order_by(TransportRepricing.created_at, TransportRepricing.id)
+        )).all():
+            repricings_by_invoice[revision.invoice_id].append(revision)
+
         bucket_gross: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
         net_revenue_raw = Decimal("0.00")
 
         for invoice_id in invoice_ids:
             invoice = invoices.get(invoice_id)
             if invoice is None or not invoice.lines:
+                continue
+
+            if invoice_id in repricings_by_invoice:
+                line = invoice.lines[0]
+                gross, net = transport_cash_totals(
+                    line, repricings_by_invoice[invoice_id],
+                    allocations_by_invoice.get(invoice_id, []),
+                    reversals_by_invoice.get(invoice_id, []), date_from, date_to,
+                )
+                bucket = self._profit_loss_revenue_bucket(
+                    invoice.invoice_type, line.kit.sku_code if line.kit else None,
+                    line.kit.category.name if line.kit and line.kit.category else None,
+                )
+                bucket_gross[bucket] += gross
+                net_revenue_raw += net
                 continue
 
             remaining_capacity = {

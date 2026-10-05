@@ -2,51 +2,50 @@ import asyncio
 from logging.config import fileConfig
 
 # ruff: noqa: F401
-
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
-
-from src.core.config import settings
-from src.core.database.base import Base
+from src.core.attachments.models import Attachment
+from src.core.audit.models import AuditLog
 
 # Import all models here so they are registered with Base.metadata
 from src.core.auth.models import User
-from src.core.attachments.models import Attachment
-from src.core.school_settings.models import SchoolSettings
-from src.core.audit.models import AuditLog
+from src.core.config import settings
+from src.core.database.base import Base
 from src.core.documents.models import DocumentSequence
-from src.modules.terms.models import Term, PriceSetting, TransportZone, TransportPricing
-from src.modules.items.models import Category, Item, ItemPriceHistory, Kit, KitItem, KitPriceHistory
-from src.modules.inventory.models import Stock, StockMovement, Issuance, IssuanceItem
-from src.modules.students.models import Grade, Student
+from src.core.school_settings.models import SchoolSettings
+from src.integrations.mpesa.models import MpesaC2BEvent
+from src.modules.compensations.models import (
+    CompensationPayout,
+    EmployeeBalance,
+    ExpenseClaim,
+    PayoutAllocation,
+)
+from src.modules.discounts.models import Discount, DiscountReason, StudentDiscount
+from src.modules.employees.models import Employee
+from src.modules.inventory.models import Issuance, IssuanceItem, Stock, StockMovement
 from src.modules.invoices.models import Invoice, InvoiceAdjustment, InvoiceLine
-from src.modules.discounts.models import DiscountReason, Discount, StudentDiscount
-from src.modules.payments.models import Payment, CreditAllocation
+from src.modules.invoices.transport_repricing.models import TransportRepricing
+from src.modules.items.models import Category, Item, ItemPriceHistory, Kit, KitItem, KitPriceHistory
+from src.modules.payments.models import CreditAllocation, Payment
+from src.modules.procurement.models import (
+    GoodsReceivedLine,
+    GoodsReceivedNote,
+    PaymentPurpose,
+    ProcurementPayment,
+    PurchaseOrder,
+    PurchaseOrderLine,
+)
 from src.modules.reservations.models import Reservation, ReservationItem
+from src.modules.students.models import Grade, Student
+from src.modules.terms.models import PriceSetting, Term, TransportPricing, TransportZone
 from src.modules.withdrawals.models import (
     WithdrawalSettlement,
     WithdrawalSettlementLine,
     WithdrawalSettlementStudent,
 )
-from src.modules.procurement.models import (
-    PurchaseOrder,
-    PurchaseOrderLine,
-    GoodsReceivedNote,
-    GoodsReceivedLine,
-    PaymentPurpose,
-    ProcurementPayment,
-)
-from src.modules.compensations.models import (
-    ExpenseClaim,
-    CompensationPayout,
-    PayoutAllocation,
-    EmployeeBalance,
-)
-from src.modules.employees.models import Employee
-from src.integrations.mpesa.models import MpesaC2BEvent
 
 config = context.config
 

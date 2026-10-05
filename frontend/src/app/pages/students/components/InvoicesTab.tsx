@@ -27,6 +27,7 @@ import { Select } from '../../../components/ui/Select'
 import { Switch } from '../../../components/ui/Switch'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../../components/ui/Table'
 import { Dialog, DialogTitle, DialogContent, DialogActions, DialogCloseButton } from '../../../components/ui/Dialog'
+import { TransportRepricingDialog } from '../../../components/invoices/TransportRepricingDialog'
 import { Spinner } from '../../../components/ui/Spinner'
 
 interface InvoicesTabProps {
@@ -96,6 +97,7 @@ export const InvoicesTab = ({
   const [removingDiscountId, setRemovingDiscountId] = useState<number | null>(null)
   const [resettingManualDiscount, setResettingManualDiscount] = useState(false)
   const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const [repricingInvoiceId, setRepricingInvoiceId] = useState<number | null>(null)
 
   const invoicesApi = useApi<PaginatedResponse<InvoiceSummary>>(
     initialInvoices === undefined ? '/invoices' : null,
@@ -721,6 +723,14 @@ export const InvoicesTab = ({
               Issue
             </Button>
           )}
+          {canManage && selectedInvoice?.invoice_type === 'transport' &&
+            selectedInvoice.term_id === activeTermId &&
+            (selectedInvoice.status !== 'paid' || isSuperAdmin(user)) &&
+            ['issued', 'partially_paid', 'paid'].includes(selectedInvoice.status) && (
+            <Button variant="outlined" onClick={() => setRepricingInvoiceId(selectedInvoice.id)}>
+              Recalculate transport
+            </Button>
+          )}
           {canManage && selectedInvoice && selectedInvoice.status !== 'paid' && (
             <Button variant="outlined" color="warning" onClick={cancelInvoice}>
               Cancel invoice
@@ -961,6 +971,17 @@ export const InvoicesTab = ({
           </Button>
         </DialogActions>
       </Dialog>
+      {repricingInvoiceId && <TransportRepricingDialog
+        key={repricingInvoiceId}
+        invoiceId={repricingInvoiceId}
+        onClose={() => setRepricingInvoiceId(null)}
+        onRecalculated={() => {
+          setRepricingInvoiceId(null)
+          setTermInvoiceMessage('Transport recalculated for the whole term.')
+          void refreshInvoicesData()
+        }}
+      />}
+
     </div>
   )
 }

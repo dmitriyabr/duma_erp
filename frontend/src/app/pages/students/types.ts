@@ -79,6 +79,7 @@ export interface InvoiceLine {
 }
 
 export interface InvoiceDetail extends InvoiceSummary {
+  term_id: number | null
   notes?: string | null
   lines: InvoiceLine[]
 }

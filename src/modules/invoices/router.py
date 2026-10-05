@@ -8,10 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.attachments.service import get_attachment, get_attachment_content
 from src.core.auth.dependencies import require_roles
-from src.core.pdf import build_invoice_context, image_to_data_uri, pdf_service
-from src.core.school_settings.service import get_school_settings
 from src.core.auth.models import User, UserRole
 from src.core.database.session import get_db
+from src.core.pdf import build_invoice_context, image_to_data_uri, pdf_service
+from src.core.school_settings.service import get_school_settings
 from src.modules.invoices.models import InvoiceStatus, InvoiceType
 from src.modules.invoices.schemas import (
     InvoiceCreate,
@@ -22,11 +22,12 @@ from src.modules.invoices.schemas import (
     InvoiceSummary,
     IssueInvoiceRequest,
     OutstandingTotalsResponse,
-    TermInvoiceGenerationRequest,
     TermInvoiceGenerationForStudentRequest,
+    TermInvoiceGenerationRequest,
     TermInvoiceGenerationResult,
 )
 from src.modules.invoices.service import InvoiceService
+from src.modules.invoices.transport_repricing.router import router as repricing_router
 from src.modules.payments.schemas import AutoAllocateRequest
 from src.modules.payments.service import PaymentService
 from src.modules.reservations.service import ReservationService
@@ -34,6 +35,7 @@ from src.shared.schemas.base import ApiResponse, PaginatedResponse
 from src.shared.utils.money import round_money
 
 router = APIRouter(prefix="/invoices", tags=["Invoices"])
+router.include_router(repricing_router)
 
 
 def _invoice_to_response(invoice) -> InvoiceResponse:
