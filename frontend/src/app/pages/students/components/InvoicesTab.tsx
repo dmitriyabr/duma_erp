@@ -27,6 +27,7 @@ import { Select } from '../../../components/ui/Select'
 import { Switch } from '../../../components/ui/Switch'
 import { Table, TableHead, TableBody, TableRow, TableCell, TableHeaderCell } from '../../../components/ui/Table'
 import { Dialog, DialogTitle, DialogContent, DialogActions, DialogCloseButton } from '../../../components/ui/Dialog'
+import { TransportInvoiceActions } from '../../../components/invoices/TransportInvoiceActions'
 import { TransportRepricingDialog } from '../../../components/invoices/TransportRepricingDialog'
 import { Spinner } from '../../../components/ui/Spinner'
 
@@ -727,9 +728,11 @@ export const InvoicesTab = ({
             selectedInvoice.term_id === activeTermId &&
             (selectedInvoice.status !== 'paid' || isSuperAdmin(user)) &&
             ['issued', 'partially_paid', 'paid'].includes(selectedInvoice.status) && (
-            <Button variant="outlined" onClick={() => setRepricingInvoiceId(selectedInvoice.id)}>
-              Recalculate transport
-            </Button>
+            <TransportInvoiceActions
+              invoice={selectedInvoice}
+              transportZoneId={transportZoneId}
+              onRecalculate={() => setRepricingInvoiceId(selectedInvoice.id)}
+            />
           )}
           {canManage && selectedInvoice && selectedInvoice.status !== 'paid' && (
             <Button variant="outlined" color="warning" onClick={cancelInvoice}>
